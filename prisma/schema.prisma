@@ -1,0 +1,293 @@
+// ============================================================
+// Prisma Schema - Medical Representative Sales Management
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── User ────────────────────────────────────────────────────
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("user")   // "admin" | "user"
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  areas          Area[]
+  items          Item[]
+  companies      Company[]
+  customers      Customer[]
+  medicalReps    MedicalRepresentative[]
+  scientificReps ScientificRepresentative[]
+  uploadedFiles  UploadedFile[]
+  sales          Sale[]
+
+  @@map("users")
+}
+
+// ─── Medical Representative ──────────────────────────────────
+model MedicalRepresentative {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  // Relations
+  areas         RepresentativeArea[]
+  items         RepresentativeItem[]
+  sales         Sale[]
+  scientificReps ScientificRepCommercial[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("medical_representatives")
+}
+
+// ─── Area ────────────────────────────────────────────────────
+model Area {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  // Relations
+  representatives RepresentativeArea[]
+  scientificReps  ScientificRepArea[]
+  sales           Sale[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("areas")
+}
+
+// ─── Company (Pharmaceutical company) ───────────────────────
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  items          Item[]
+  scientificReps ScientificRepCompany[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("companies")
+}
+
+// ─── Item (Drug / Product) ───────────────────────────────────
+model Item {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  // Relations
+  representatives RepresentativeItem[]
+  scientificReps  ScientificRepItem[]
+  sales           Sale[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@index([companyId])
+  @@map("items")
+}
+
+// ─── Many-to-Many: Representative ↔ Area ─────────────────────
+// Empty = "All Areas" (handled in service layer)
+model RepresentativeArea {
+  representativeId Int
+  areaId           Int
+  assignedAt       DateTime @default(now())
+
+  representative MedicalRepresentative @relation(fields: [representativeId], references: [id], onDelete: Cascade)
+  area           Area                  @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@id([representativeId, areaId])
+  @@map("representative_areas")
+}
+
+// ─── Many-to-Many: Representative ↔ Item ─────────────────────
+// Empty = "All Items" (handled in service layer)
+model RepresentativeItem {
+  representativeId Int
+  itemId           Int
+  assignedAt       DateTime @default(now())
+
+  representative MedicalRepresentative @relation(fields: [representativeId], references: [id], onDelete: Cascade)
+  item           Item                  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([representativeId, itemId])
+  @@map("representative_items")
+}
+
+// ─── Customer (Pharmacy / Clinic / Hospital) ────────────────
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  sales Sale[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("customers")
+}
+
+// ─── Sale ────────────────────────────────────────────────────
+model Sale {
+  id               Int      @id @default(autoincrement())
+  representativeId Int
+  areaId           Int
+  itemId           Int
+  customerId       Int?
+  quantity         Int
+  totalValue       Float
+  saleDate         DateTime @default(now())
+  uploadedFileId   Int?
+  createdAt        DateTime @default(now())
+  rawData          String?  // JSON-encoded original Excel row
+  recordType       String   @default("sale")  // "sale" | "return"
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  // Relations
+  representative MedicalRepresentative @relation(fields: [representativeId], references: [id])
+  area           Area                  @relation(fields: [areaId], references: [id])
+  item           Item                  @relation(fields: [itemId], references: [id])
+  customer       Customer?             @relation(fields: [customerId], references: [id])
+  uploadedFile   UploadedFile?         @relation(fields: [uploadedFileId], references: [id])
+
+  // Indexes for performance
+  @@index([representativeId])
+  @@index([areaId])
+  @@index([itemId])
+  @@index([customerId])
+  @@index([createdAt])
+  @@index([saleDate])
+  @@index([userId])
+  @@map("sales")
+}
+
+// ─── Uploaded File ───────────────────────────────────────────
+model UploadedFile {
+  id           Int      @id @default(autoincrement())
+  filename     String
+  originalName String
+  rowCount     Int
+  uploadedAt   DateTime @default(now())
+  uploadedBy   String?
+  fileType     String   @default("sales")  // "sales" | "returns"
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  sales Sale[]
+
+  @@index([userId])
+  @@map("uploaded_files")
+}
+
+// ─── Scientific Representative (مندوب علمي) ──────────────────
+model ScientificRepresentative {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  company   String?
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  // Assigned areas, items, companies, and commercial reps
+  areas          ScientificRepArea[]
+  items          ScientificRepItem[]
+  companies      ScientificRepCompany[]
+  commercialReps ScientificRepCommercial[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@map("scientific_representatives")
+}
+
+// ─── ScientificRep ↔ Area ────────────────────────────────────
+model ScientificRepArea {
+  scientificRepId Int
+  areaId          Int
+  assignedAt      DateTime @default(now())
+
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+  area          Area                     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@id([scientificRepId, areaId])
+  @@map("scientific_rep_areas")
+}
+
+// ─── ScientificRep ↔ Item ────────────────────────────────────
+model ScientificRepItem {
+  scientificRepId Int
+  itemId          Int
+  assignedAt      DateTime @default(now())
+
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+  item          Item                     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([scientificRepId, itemId])
+  @@map("scientific_rep_items")
+}
+
+// ─── ScientificRep ↔ Company ─────────────────────────────────
+model ScientificRepCompany {
+  scientificRepId Int
+  companyId       Int
+  assignedAt      DateTime @default(now())
+
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+  company       Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([scientificRepId, companyId])
+  @@map("scientific_rep_companies")
+}
+
+// ─── ScientificRep ↔ CommercialRep ───────────────────────────
+model ScientificRepCommercial {
+  scientificRepId Int
+  commercialRepId Int
+  assignedAt      DateTime @default(now())
+
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+  commercialRep MedicalRepresentative    @relation(fields: [commercialRepId], references: [id], onDelete: Cascade)
+
+  @@id([scientificRepId, commercialRepId])
+  @@map("scientific_rep_commercials")
+}

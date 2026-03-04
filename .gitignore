@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+uploads/*
+!uploads/.gitkeep
+prisma/pharma_sales.db
+prisma/pharma_sales.db-journal
+*.db
+*.db-journal
