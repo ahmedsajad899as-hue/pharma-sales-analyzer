@@ -1,5 +1,5 @@
-[providers]
-  nixPkgs = ["nodejs_20"]
+[variables]
+NODE_VERSION = "20"
 
 [phases.install]
 cmds = ["npm install --include=dev"]
