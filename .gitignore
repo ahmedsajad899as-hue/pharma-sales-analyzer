@@ -1,9 +1,31 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Environment variables (never commit real secrets)
 .env
+.env.local
+.env.production
+
+# Uploaded files (keep folder structure only)
 uploads/*
 !uploads/.gitkeep
+
+# Database files
 prisma/pharma_sales.db
 prisma/pharma_sales.db-journal
 *.db
 *.db-journal
+
+# Logs
+*.log
+server_out.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Prisma nested folder (generated)
+prisma/prisma/
