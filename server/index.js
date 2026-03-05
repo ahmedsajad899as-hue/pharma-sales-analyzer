@@ -754,8 +754,15 @@ async function seedAdminIfNeeded() {
   }
 }
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, async () => {
-  console.log(`✓ الخادم يعمل على http://localhost:${PORT}`);
-  await seedAdminIfNeeded();
-});
+// In Vercel serverless, we export the app instead of calling listen
+if (process.env.VERCEL) {
+  seedAdminIfNeeded().catch(console.error);
+} else {
+  const PORT = process.env.PORT || 8080;
+  app.listen(PORT, async () => {
+    console.log(`✓ الخادم يعمل على http://localhost:${PORT}`);
+    await seedAdminIfNeeded();
+  });
+}
+
+export default app;
