@@ -18,7 +18,7 @@ export async function list(req, res, next) {
         scientificRep: { select: { id: true, name: true } },
         entries: {
           include: {
-            doctor: { select: { id: true, name: true, specialty: true, area: { select: { name: true } }, targetItem: { select: { id: true, name: true } } } },
+            doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } }, targetItem: { select: { id: true, name: true } } } },
             visits: { select: { id: true, feedback: true, visitDate: true, notes: true, item: { select: { id: true, name: true } } } },
             targetItems: { include: { item: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } },
           },
