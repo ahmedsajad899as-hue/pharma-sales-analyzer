@@ -36,10 +36,12 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // ── Serve React frontend in production (BEFORE auth) ─────────
+const __serverDir = path.dirname(fileURLToPath(import.meta.url));
+const distPath    = path.join(__serverDir, '..', 'dist');
+
 if (process.env.NODE_ENV === 'production') {
-  const __serverDir = path.dirname(fileURLToPath(import.meta.url));
-  const distPath    = path.join(__serverDir, '..', 'dist');
   app.use(express.static(distPath));
+  console.log('✓ Serving static files from:', distPath);
 }
 
 // ── Health check (PUBLIC — no auth required) ─────────────────
@@ -51,7 +53,11 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // ── All /api routes below require a valid JWT ────────────────
-app.use('/api', requireAuth);
+// Skip auth for health check and auth routes (already handled above)
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health' || req.path.startsWith('/auth')) return next();
+  requireAuth(req, res, next);
+});
 
 // ── Admin: User management ───────────────────────────────────
 app.use('/api/admin/users', usersRoutes);
@@ -727,11 +733,9 @@ ${JSON.stringify(data, null, 2)}
 
 // ── Catch-all: serve index.html for React Router (production) ─
 if (process.env.NODE_ENV === 'production') {
-  const __serverDir2 = path.dirname(fileURLToPath(import.meta.url));
-  const distPath2    = path.join(__serverDir2, '..', 'dist');
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
-    res.sendFile(path.join(distPath2, 'index.html'));
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
