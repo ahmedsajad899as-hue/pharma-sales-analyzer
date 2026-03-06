@@ -1015,6 +1015,7 @@ export default function MonthlyPlansPage() {
                     }}>
                     {/* Compact Header — always visible */}
                     <div
+                      className="mp-entry-header"
                       onClick={() => toggleEntry(entry.id)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 0, padding: '10px 16px',
@@ -1038,7 +1039,7 @@ export default function MonthlyPlansPage() {
                       }}>{idx + 1}</span>
 
                       {/* Doctor name + specialty */}
-                      <div style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
+                      <div className="mp-entry-name" style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {entry.doctor.name}
                         </p>
@@ -1048,7 +1049,7 @@ export default function MonthlyPlansPage() {
                       </div>
 
                       {/* Compact indicators */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 8 }}>
+                      <div className="mp-entry-indicators" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 8 }}>
                         {/* Target items indicator */}
                         {targetItemsList.length > 0 && (
                           <span

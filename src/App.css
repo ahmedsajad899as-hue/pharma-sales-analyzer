@@ -1528,6 +1528,7 @@ tr:hover {
 }
 
 @media (max-width: 767px) {
+  /* Top bar: wrap and stack */
   .mp-shell > div:first-child {
     padding: 10px 12px !important;
     gap: 8px !important;
@@ -1535,6 +1536,31 @@ tr:hover {
   .mp-shell > div:first-child select,
   .mp-shell > div:first-child button {
     font-size: 12px !important;
+  }
+  .mp-shell > div:first-child h2 {
+    font-size: 14px !important;
+  }
+
+  /* Doctor card header: wrap to two rows */
+  .mp-entry-header {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 10px 12px !important;
+  }
+  .mp-entry-header .mp-entry-name {
+    flex: 1 1 60% !important;
+    min-width: 0 !important;
+  }
+  .mp-entry-header .mp-entry-name p:first-child {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    font-size: 13px !important;
+  }
+  .mp-entry-header .mp-entry-indicators {
+    flex-basis: 100% !important;
+    justify-content: flex-start !important;
+    gap: 6px !important;
   }
 
   /* Card body: two-column → single column */
@@ -1551,6 +1577,11 @@ tr:hover {
   /* Suggestion grid: always single column on mobile */
   .mp-suggest-grid {
     grid-template-columns: 1fr !important;
+  }
+
+  /* Main content padding */
+  .mp-shell > div:nth-child(2) {
+    padding: 12px !important;
   }
 }
 
