@@ -35,6 +35,11 @@ const upload = multer({ dest: 'uploads/' });
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// ── Health check (PUBLIC — no auth required) ─────────────────
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
 // ── Auth routes (PUBLIC — no token required) ─────────────────
 app.use('/api/auth', authRoutes);
 
@@ -711,11 +716,6 @@ ${JSON.stringify(data, null, 2)}
     console.error('Analysis error:', error);
     res.status(500).json({ error: error.message });
   }
-});
-
-// health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', modules: ['sales', 'representatives', 'reports', 'auth'] });
 });
 
 // ── Serve React frontend in production ───────────────────────
