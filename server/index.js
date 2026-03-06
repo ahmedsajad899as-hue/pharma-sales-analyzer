@@ -24,6 +24,8 @@ import salesRoutes              from './modules/sales/sales.routes.js';
 import representativesRoutes    from './modules/representatives/representatives.routes.js';
 import reportsRoutes            from './modules/reports/reports.routes.js';
 import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.routes.js';
+import doctorsRoutes            from './modules/doctors/doctors.routes.js';
+import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
 
 dotenv.config();
 
@@ -46,6 +48,8 @@ app.use('/api/admin/users', usersRoutes);
 app.use('/api/representatives',   representativesRoutes);
 app.use('/api/scientific-reps',   scientificRepsRoutes);
 app.use('/api/reports',           reportsRoutes);
+app.use('/api/doctors',           doctorsRoutes);
+app.use('/api/monthly-plans',     monthlyPlansRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── Utility routes ───────────────────────────────────────────

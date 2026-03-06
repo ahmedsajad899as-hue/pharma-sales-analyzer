@@ -29,6 +29,9 @@ model User {
   scientificReps ScientificRepresentative[]
   uploadedFiles  UploadedFile[]
   sales          Sale[]
+  doctors        Doctor[]
+  monthlyPlans   MonthlyPlan[]
+  doctorVisits   DoctorVisit[]
 
   @@map("users")
 }
@@ -70,6 +73,7 @@ model Area {
   representatives RepresentativeArea[]
   scientificReps  ScientificRepArea[]
   sales           Sale[]
+  doctors         Doctor[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -108,6 +112,9 @@ model Item {
   representatives RepresentativeItem[]
   scientificReps  ScientificRepItem[]
   sales           Sale[]
+  doctors         Doctor[]
+  doctorVisits    DoctorVisit[]
+  planEntryItems  PlanEntryItem[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -234,6 +241,8 @@ model ScientificRepresentative {
   items          ScientificRepItem[]
   companies      ScientificRepCompany[]
   commercialReps ScientificRepCommercial[]
+  monthlyPlans   MonthlyPlan[]
+  doctorVisits   DoctorVisit[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -290,4 +299,117 @@ model ScientificRepCommercial {
 
   @@id([scientificRepId, commercialRepId])
   @@map("scientific_rep_commercials")
+}
+
+// ─── Doctor Survey (السيرفي) ──────────────────────────────────
+model Doctor {
+  id             Int      @id @default(autoincrement())
+  name           String
+  specialty      String?  // الاختصاص
+  areaId         Int?
+  pharmacyName   String?  // اسم الصيدلية المرتبطة
+  targetItemId   Int?     // الإيتم المستهدف
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  userId         Int?
+  user           User?    @relation(fields: [userId], references: [id])
+  area           Area?    @relation(fields: [areaId], references: [id])
+  targetItem     Item?    @relation(fields: [targetItemId], references: [id])
+
+  planEntries    PlanEntry[]
+  visits         DoctorVisit[]
+
+  @@index([userId])
+  @@index([areaId])
+  @@map("doctors")
+}
+
+// ─── Monthly Plan (البلان الشهري) ────────────────────────────
+model MonthlyPlan {
+  id               Int      @id @default(autoincrement())
+  scientificRepId  Int
+  month            Int      // 1-12
+  year             Int
+  targetCalls      Int      @default(150)
+  targetDoctors    Int      @default(75)
+  notes            String?
+  status           String   @default("draft") // "draft" | "active" | "completed"
+  allowExtraVisits Boolean  @default(false)   // السماح بكولات أطباء خارج البلان
+  createdAt        DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userId          Int?
+  user            User?                    @relation(fields: [userId], references: [id])
+  scientificRep   ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+
+  entries         PlanEntry[]
+
+  @@unique([scientificRepId, month, year, userId])
+  @@index([userId])
+  @@index([scientificRepId])
+  @@map("monthly_plans")
+}
+
+// ─── Plan Entry: طبيب في البلان ──────────────────────────────
+model PlanEntry {
+  id            Int      @id @default(autoincrement())
+  planId        Int
+  doctorId      Int
+  targetVisits  Int      @default(2)  // عادةً زيارتان
+  createdAt     DateTime @default(now())
+
+  plan          MonthlyPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  doctor        Doctor         @relation(fields: [doctorId], references: [id])
+  visits        DoctorVisit[]
+  targetItems   PlanEntryItem[]
+
+  @@unique([planId, doctorId])
+  @@index([planId])
+  @@index([doctorId])
+  @@map("plan_entries")
+}
+
+// ─── Plan Entry ↔ Item (الايتمات المستهدفة لكل طبيب) ─────────
+model PlanEntryItem {
+  id          Int       @id @default(autoincrement())
+  planEntryId Int
+  itemId      Int
+  createdAt   DateTime  @default(now())
+
+  planEntry   PlanEntry @relation(fields: [planEntryId], references: [id], onDelete: Cascade)
+  item        Item      @relation(fields: [itemId], references: [id])
+
+  @@unique([planEntryId, itemId])
+  @@index([planEntryId])
+  @@map("plan_entry_items")
+}
+
+// ─── Doctor Visit (زيارة فعلية) ──────────────────────────────
+model DoctorVisit {
+  id              Int      @id @default(autoincrement())
+  doctorId        Int
+  scientificRepId Int
+  planEntryId     Int?     // ربط بالبلان (اختياري)
+  visitDate       DateTime
+  itemId          Int?
+  feedback        String   @default("pending")
+  // "pending" | "writing" | "stocked" | "interested" | "not_interested" | "unavailable"
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  userId          Int?
+  user            User?                    @relation(fields: [userId], references: [id])
+  doctor          Doctor                   @relation(fields: [doctorId], references: [id])
+  scientificRep   ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  item            Item?                    @relation(fields: [itemId], references: [id])
+  planEntry       PlanEntry?               @relation(fields: [planEntryId], references: [id])
+
+  @@index([doctorId])
+  @@index([scientificRepId])
+  @@index([visitDate])
+  @@index([userId])
+  @@map("doctor_visits")
 }

@@ -13,6 +13,8 @@ const translations = {
       scientificReps: 'علميون',
       reports: 'التقارير',
       users: 'المستخدمين',
+      doctors: 'السيرفي',
+      monthlyPlans: 'البلان الشهري',
     },
     sidebar: {
       collapse: 'طي القائمة',
@@ -481,6 +483,8 @@ const translations = {
       scientificReps: 'Scientific',
       reports: 'Reports',
       users: 'Users',
+      doctors: 'Survey Doctors',
+      monthlyPlans: 'Monthly Plan',
     },
     sidebar: {
       collapse: 'Collapse menu',

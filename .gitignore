@@ -29,3 +29,14 @@ Thumbs.db
 
 # Prisma nested folder (generated)
 prisma/prisma/
+
+# Local dev / debug scripts (not needed in production)
+check_*.mjs
+check_bad.mjs
+*.sql
+test_sales.xlsx
+start-backend.vbs
+nodemon.json
+
+# Test files
+server_out.txt

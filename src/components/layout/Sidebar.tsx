@@ -21,6 +21,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'upload',           label: t.nav.upload,           icon: '📤' },
     { id: 'representatives',  label: t.nav.representatives,  icon: '💰' },
     { id: 'scientific-reps',  label: t.nav.scientificReps,   icon: '🔬' },
+    { id: 'doctors',          label: t.nav.doctors,          icon: '🏥' },
+    { id: 'monthly-plans',    label: t.nav.monthlyPlans,     icon: '📅' },
     { id: 'reports',          label: t.nav.reports,          icon: '📋' },
     { id: 'users',            label: t.nav.users,            icon: '👥', adminOnly: true },
   ];

@@ -7,11 +7,13 @@ import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
 import RepresentativesPage from './pages/RepresentativesPage';
 import ScientificRepsPage from './pages/ScientificRepsPage';
+import DoctorsPage from './pages/DoctorsPage';
+import MonthlyPlansPage from './pages/MonthlyPlansPage';
 import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
 import './App.css';
 
-export type PageId = 'dashboard' | 'upload' | 'representatives' | 'scientific-reps' | 'reports' | 'users';
+export type PageId = 'dashboard' | 'upload' | 'representatives' | 'scientific-reps' | 'reports' | 'users' | 'doctors' | 'monthly-plans';
 
 function AppInner() {
   const { user } = useAuth();
@@ -40,6 +42,10 @@ function AppInner() {
         return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={setActivePage} />;
       case 'scientific-reps':
         return <ScientificRepsPage />;
+      case 'doctors':
+        return <DoctorsPage />;
+      case 'monthly-plans':
+        return <MonthlyPlansPage />;
       case 'reports':
         return <ReportsPage activeFileIds={activeFileIds} onNavigate={setActivePage} />;
       case 'users':

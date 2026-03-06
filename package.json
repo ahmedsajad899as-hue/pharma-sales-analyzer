@@ -5,7 +5,8 @@
   "description": "A web platform for analyzing pharmaceutical sales data using AI.",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "node server/index.js",
+    "server": "node node_modules/nodemon/bin/nodemon.js",
+    "server:once": "node server/index.js",
     "client": "vite",
     "build": "vite build",
     "start": "node server/index.js",
@@ -50,6 +51,7 @@
     "@vitejs/plugin-react": "^4.2.0",
     "autoprefixer": "^10.4.27",
     "concurrently": "^8.2.2",
+    "nodemon": "^3.1.14",
     "postcss": "^8.5.6",
     "prisma": "^5.22.0",
     "tailwindcss": "^4.2.1",
