@@ -1146,8 +1146,8 @@ export default function MonthlyPlansPage() {
                           </div>
                           <div style={{
                             maxHeight: showEntryItems.has(entry.id) ? '500px' : '0',
-                            overflow: 'hidden',
-                            transition: 'max-height 0.25s ease-in-out',
+                            overflow: showEntryItems.has(entry.id) ? 'visible' : 'hidden',
+                            transition: showEntryItems.has(entry.id) ? 'max-height 0.25s ease-in-out' : 'max-height 0.25s ease-in-out, overflow 0s 0.25s',
                           }}>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
                             {targetItemsList.length === 0 && (
