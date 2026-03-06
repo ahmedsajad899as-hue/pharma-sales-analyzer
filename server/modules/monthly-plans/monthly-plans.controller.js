@@ -893,29 +893,31 @@ export async function parseVoice(req, res, next) {
 
     const prompt = `أنت مساعد ذكي لتحليل كلام مندوب طبي. المندوب يتكلم عن زيارات قام بها لأطباء.
 
-قائمة الأطباء في البلان (اسم الطبيب و entry id):
-${doctorNames}
+  قائمة الأطباء في البلان (اسم الطبيب و entry id):
+  ${doctorNames}
 
-قائمة الأيتمات/الأدوية المتاحة:
-${itemNames}
+  قائمة الأيتمات/الأدوية المتاحة (اكتب اسم الدواء كما هو بالضبط من القائمة فقط، ولا تخترع أسماء جديدة):
+  ${itemNames}
 
-قيم الفيدباك المتاحة: ${feedbackValues.join(', ')}
-المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
+  قيم الفيدباك المتاحة: ${feedbackValues.join(', ')}
+  المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
 
-النص المنطوق:
-"${text}"
+  النص المنطوق:
+  "${text}"
 
-حلل النص واستخرج كل زيارة مذكورة. لكل زيارة أرجع:
-- entryId: رقم الـ entry id للطبيب من القائمة أعلاه (طابق الاسم حتى لو كان منطوق بشكل مختلف قليلاً)
-- doctorName: اسم الطبيب كما ورد
-- itemId: رقم id الايتم (null إذا لم يُذكر)
-- itemName: اسم الايتم كما ورد
-- feedback: قيمة الفيدباك من القائمة أعلاه (pending إذا لم يُذكر)
-- notes: أي ملاحظات إضافية
-- date: التاريخ إذا ذُكر (YYYY-MM-DD) وإلا null
+  حلل النص واستخرج كل زيارة مذكورة. لكل زيارة أرجع:
+  - entryId: رقم الـ entry id للطبيب من القائمة أعلاه (طابق الاسم حتى لو كان منطوق بشكل مختلف قليلاً)
+  - doctorName: اسم الطبيب كما ورد
+  - itemId: رقم id الايتم (null إذا لم يُذكر)
+  - itemName: اسم الايتم كما ورد (اكتبه كما هو من القائمة فقط)
+  - feedback: قيمة الفيدباك من القائمة أعلاه (pending إذا لم يُذكر)
+  - notes: أي ملاحظات إضافية
+  - date: التاريخ إذا ذُكر (YYYY-MM-DD) وإلا null
 
-أرجع JSON فقط بالشكل التالي بدون أي نص إضافي:
-{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}`;
+  مهم جداً: لا تكتب أي اسم دواء غير موجود في القائمة. إذا لم تتعرف على الدواء تجاهله أو اتركه فارغاً.
+
+  أرجع JSON فقط بالشكل التالي بدون أي نص إضافي:
+  {"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
@@ -930,15 +932,93 @@ ${itemNames}
     if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الكلام', raw: responseText });
 
     const parsed = JSON.parse(jsonMatch[0]);
-    const visits = (parsed.visits || []).map(v => ({
-      entryId: v.entryId || null,
-      doctorName: v.doctorName || '',
-      itemId: v.itemId || null,
-      itemName: v.itemName || '',
-      feedback: feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
-      notes: v.notes || '',
-      date: v.date || new Date().toISOString().split('T')[0],
-    }));
+    // --- Fuzzy correction for item names ---
+    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const extractTokens = (s) => {
+      const words = s.split(/\s+/);
+      const text    = words.filter(w => !/\d/.test(w) && w.length >= 2);
+      const rawNums = words.filter(w => /\d/.test(w));
+      const nums = [];
+      for (const t of rawNums) {
+        nums.push(t);
+        for (const part of t.split('/')) {
+          if (part && /\d/.test(part) && !nums.includes(part)) nums.push(part);
+        }
+      }
+      return { text, nums };
+    };
+    const textSim = (srcText, keyText) =>
+      srcText.filter(w => keyText.some(kw => kw.includes(w) || w.includes(kw))).length;
+    const numMatches = (srcNums, keyNums) =>
+      srcNums.some(num =>
+        keyNums.some(kn =>
+          kn === num ||
+          kn.startsWith(num + '/') ||
+          num.startsWith(kn + '/')
+        )
+      );
+    const itemMap = new Map(allItems.map(it => [normalize(it.name), it]));
+    const findItem = (rawName) => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (itemMap.has(n)) return itemMap.get(n);
+      const { text: srcText, nums: srcNums } = extractTokens(n);
+      // Dose + text match
+      if (srcNums.length > 0 && srcText.length > 0) {
+        let bestScore = 0, bestDose = null;
+        for (const [key, item] of itemMap) {
+          const { text: keyText, nums: keyNums } = extractTokens(key);
+          if (keyNums.length === 0) continue;
+          if (!numMatches(srcNums, keyNums)) continue;
+          const tSim = textSim(srcText, keyText);
+          if (tSim === 0) continue;
+          const score = tSim * 2 + srcNums.filter(num =>
+            keyNums.some(kn => kn === num || kn.startsWith(num + '/') || num.startsWith(kn + '/'))
+          ).length;
+          if (score > bestScore) { bestScore = score; bestDose = item; }
+        }
+        if (bestDose) return bestDose;
+        // Prefer same-drug dosed items over doseless
+        let bestTextDosed = null, bestTextDosedScore = 0;
+        for (const [key, item] of itemMap) {
+          const { text: keyText, nums: keyNums } = extractTokens(key);
+          if (keyNums.length === 0) continue;
+          const tSim = textSim(srcText, keyText);
+          if (tSim > bestTextDosedScore) { bestTextDosedScore = tSim; bestTextDosed = item; }
+        }
+        if (bestTextDosed && bestTextDosedScore > 0) return bestTextDosed;
+      }
+      // Contains
+      let bestContains = null, bestLen = 0;
+      for (const [key, item] of itemMap) {
+        if (key.includes(n) || n.includes(key)) {
+          if (key.length > bestLen) { bestLen = key.length; bestContains = item; }
+        }
+      }
+      return bestContains;
+    };
+
+    const visits = (parsed.visits || []).map(v => {
+      let itemId = v.itemId || null;
+      let itemName = v.itemName || '';
+      // إذا اسم الدواء غير مطابق لأي أيتم، صححه تلقائياً
+      if (itemName && (!itemId || !allItems.some(it => it.id === itemId))) {
+        const match = findItem(itemName);
+        if (match) {
+          itemId = match.id;
+          itemName = match.name;
+        }
+      }
+      return {
+        entryId: v.entryId || null,
+        doctorName: v.doctorName || '',
+        itemId,
+        itemName,
+        feedback: feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
+        notes: v.notes || '',
+        date: v.date || new Date().toISOString().split('T')[0],
+      };
+    });
 
     res.json({ visits, raw: text });
   } catch (e) {

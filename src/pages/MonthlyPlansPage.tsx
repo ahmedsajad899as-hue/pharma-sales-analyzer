@@ -1,4 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+
+// --- Voice beep sounds ---
+const voiceStartAudio = typeof window !== 'undefined' ? new Audio(require('../assets/voice-start.mp3')) : null;
+const voiceStopAudio  = typeof window !== 'undefined' ? new Audio(require('../assets/voice-stop.mp3')) : null;
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -106,6 +110,7 @@ export default function MonthlyPlansPage() {
   const recognitionRef = useRef<any>(null);
   const wantListeningRef = useRef(false);
   const finalTextRef = useRef('');
+  const silenceTimerRef = useRef<any>(null);
 
   // Import visits Excel for active plan
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -405,6 +410,7 @@ export default function MonthlyPlansPage() {
   // Toggle allowExtraVisits for the active plan
   // ── Voice input functions ──────────────────────────────────
   const startVoice = () => {
+    if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play(); } catch {} }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
     const recognition = new SpeechRecognition();
@@ -417,6 +423,12 @@ export default function MonthlyPlansPage() {
         if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
       }
       finalTextRef.current = finalText;
+      // Reset silence timer on speech
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        wantListeningRef.current = false;
+        recognition.stop();
+      }, 3000);
     };
     recognition.onerror = (e: any) => {
       if (e.error === 'no-speech' && wantListeningRef.current) {
@@ -428,12 +440,14 @@ export default function MonthlyPlansPage() {
       setVoiceListening(false);
     };
     recognition.onend = () => {
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
       if (wantListeningRef.current) {
         // Restart recognition to keep listening through pauses
         try { recognition.start(); } catch {}
         return;
       }
       setVoiceListening(false);
+      if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play(); } catch {} }
       // Auto-parse immediately after stopping
       const text = finalTextRef.current.trim();
       if (text) parseVoiceText(text);
@@ -448,6 +462,8 @@ export default function MonthlyPlansPage() {
 
   const stopVoice = () => {
     wantListeningRef.current = false;
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play(); } catch {} }
     recognitionRef.current?.stop();
   };
 
