@@ -747,11 +747,10 @@ async function seedAdminIfNeeded() {
   try {
     const count = await prisma.user.count();
     if (count === 0) {
-      const hash = await bcrypt.hash('admin123', 10);
+      const hash = await bcrypt.hash('1231234a', 10);
       const admin = await prisma.user.create({
         data: { username: 'admin', passwordHash: hash, role: 'admin' },
       });
-      // Assign all existing data (null userId) to the admin account
       await Promise.all([
         prisma.area.updateMany({ where: { userId: null }, data: { userId: admin.id } }),
         prisma.item.updateMany({ where: { userId: null }, data: { userId: admin.id } }),
@@ -760,7 +759,15 @@ async function seedAdminIfNeeded() {
         prisma.uploadedFile.updateMany({ where: { userId: null }, data: { userId: admin.id } }),
         prisma.sale.updateMany({ where: { userId: null }, data: { userId: admin.id } }),
       ]);
-      console.log('✓ Admin user created → username: admin  |  password: admin123');
+      console.log('✓ Admin user created → username: admin  |  password: 1231234a');
+    } else {
+      // Update existing admin password if needed
+      const adminUser = await prisma.user.findUnique({ where: { username: 'admin' } });
+      if (adminUser) {
+        const hash = await bcrypt.hash('1231234a', 10);
+        await prisma.user.update({ where: { id: adminUser.id }, data: { passwordHash: hash } });
+        console.log('✓ Admin password updated');
+      }
     }
   } catch (e) {
     console.error('Seed error:', e.message);
