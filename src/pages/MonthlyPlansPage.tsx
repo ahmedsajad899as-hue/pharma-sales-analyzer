@@ -1044,7 +1044,7 @@ export default function MonthlyPlansPage() {
                           {entry.doctor.name}
                         </p>
                         <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
-                          {[entry.doctor.specialty, entry.doctor.area?.name].filter(Boolean).join(' · ') || '—'}
+                          {[entry.doctor.specialty, (entry.doctor as any).pharmacyName, entry.doctor.area?.name].filter(Boolean).join(' · ') || '—'}
                         </p>
                       </div>
 
