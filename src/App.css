@@ -1519,54 +1519,23 @@ tr:hover {
    MONTHLY PLANS PAGE — TWO-PANEL RESPONSIVE LAYOUT
    ===================================================================== */
 
-/* Outer shell: flex row on desktop, single-panel on mobile */
-.mp-shell { display: flex; height: 100%; direction: rtl; font-family: system-ui, sans-serif; }
-.mp-left  { flex-shrink: 0; }
-.mp-right { flex: 1; min-width: 0; overflow-y: auto; }
+/* Outer shell: single column layout */
+.mp-shell { display: flex; flex-direction: column; height: 100%; direction: rtl; font-family: system-ui, sans-serif; }
 
-/* Back button — hidden on desktop, shown on mobile */
+/* Back button — hidden on desktop */
 .mp-back-btn {
   display: none;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  margin-bottom: 14px;
-  background: #f1f5f9;
-  border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #334155;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.2s;
-  width: fit-content;
 }
-.mp-back-btn:hover { background: #e2e8f0; transform: none !important; box-shadow: none !important; }
 
 @media (max-width: 767px) {
-  /* Stack panels vertically */
-  .mp-shell {
-    flex-direction: column;
-    height: auto;
+  .mp-shell > div:first-child {
+    padding: 10px 12px !important;
+    gap: 8px !important;
   }
-
-  /* Left panel: full width */
-  .mp-left {
-    width: 100% !important;
-    border-left: none !important;
-    border-bottom: 1px solid #e2e8f0;
-    max-height: none;
+  .mp-shell > div:first-child select,
+  .mp-shell > div:first-child button {
+    font-size: 12px !important;
   }
-
-  /* When a plan is selected → hide plan list, show detail */
-  .mp-shell.mp-detail-open .mp-left  { display: none !important; }
-
-  /* When no plan selected → hide detail, keep list */
-  .mp-shell:not(.mp-detail-open) .mp-right { display: none !important; }
-
-  /* Right panel: comfortable mobile padding */
-  .mp-right { padding: 16px !important; }
 
   /* Card body: two-column → single column */
   .mp-entry-body {
@@ -1578,9 +1547,6 @@ tr:hover {
     border-left: none !important;
     border-bottom: 1px solid #f1f5f9;
   }
-
-  /* Show back button on mobile */
-  .mp-back-btn { display: flex; }
 
   /* Suggestion grid: always single column on mobile */
   .mp-suggest-grid {

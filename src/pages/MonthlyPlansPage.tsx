@@ -460,94 +460,114 @@ export default function MonthlyPlansPage() {
   })() : [];
 
   return (
-    <div className={`mp-shell${activePlan ? ' mp-detail-open' : ''}`}>
-      {/* ── Left panel: plan list ── */}
-      <div className="mp-left" style={{ width: 320, borderLeft: '1px solid #e2e8f0', padding: 16, overflowY: 'auto', background: '#f8fafc', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>📅 البلانات الشهرية</h2>
-          <button onClick={() => setShowCreate(true)} style={btnStyle('#3b82f6', true)}>+ جديد</button>
-        </div>
+    <div className="mp-shell" style={{ flexDirection: 'column', height: '100%' }}>
+      {/* ── Top bar: plan selector ── */}
+      <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>📅 البلانات الشهرية</h2>
 
-        <select value={filterRep} onChange={e => setFilterRep(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
+        <select value={filterRep} onChange={e => setFilterRep(e.target.value)}
+          style={{ ...inputStyle, width: 'auto', minWidth: 140 }}>
           <option value="all">كل المندوبين</option>
           {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
 
-        {/* Upload visits */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-          <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📤 رفع زيارات (Excel)</p>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
-            onChange={e => e.target.files?.[0] && uploadVisits(e.target.files[0])} />
-          {!uploadedFileName ? (
-            <button onClick={() => fileRef.current?.click()} disabled={uploading} style={btnStyle('#10b981', true)}>
-              {uploading ? 'جاري الرفع...' : 'اختر ملف Excel'}
-            </button>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: '#374151', background: '#f1f5f9', padding: '4px 8px', borderRadius: 6, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={uploadedFileName}>📄 {uploadedFileName}</span>
-              <button onClick={clearUpload} style={btnStyle('#ef4444', true)}>🗑 امسح</button>
-            </div>
-          )}
-          {uploadResult && (
-            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#059669' }}>
-              ✅ تم استيراد {uploadResult.imported} زيارة
-              {uploadResult.errors.length > 0 && ` | ${uploadResult.errors.length} أخطاء`}
-            </p>
-          )}
-        </div>
-
-        {error && <div style={alertStyle}>{error}</div>}
-        {loading ? <p style={{ textAlign: 'center', color: '#94a3b8', padding: 20 }}>تحميل...</p> : (
-          filteredPlans.map(p => {
+        <select
+          value={activePlan?.id ?? ''}
+          onChange={e => {
+            const p = filteredPlans.find(pp => pp.id === Number(e.target.value));
+            setActivePlan(p ?? null);
+            setSearchQuery(''); setVisitFilter('all');
+          }}
+          style={{ ...inputStyle, width: 'auto', minWidth: 200, fontWeight: 600 }}>
+          <option value="">— اختر بلان —</option>
+          {filteredPlans.map(p => {
             const totalV = p.entries.reduce((s, e) => s + e.visits.length, 0);
-            const pct    = Math.min(100, Math.round((totalV / (p.targetCalls || 150)) * 100));
-            const isActive = activePlan?.id === p.id;
             return (
-              <div key={p.id} onClick={() => { setActivePlan(p); setSearchQuery(''); setVisitFilter('all'); }}
-                style={{ background: isActive ? '#eff6ff' : '#fff', border: `2px solid ${isActive ? '#3b82f6' : '#e2e8f0'}`,
-                  borderRadius: 10, padding: 12, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
-                  {p.scientificRep.name}
-                </p>
-                <p style={{ margin: '2px 0', fontSize: 13, color: '#64748b' }}>
-                  {MONTHS_AR[p.month - 1]} {p.year}
-                </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475569', margin: '6px 0 4px' }}>
-                  <span>👨‍⚕️ {p.entries.length}/{p.targetDoctors} طبيب</span>
-                  <span>📞 {totalV}/{p.targetCalls} زيارة</span>
-                </div>
-                <div style={{ background: '#e2e8f0', borderRadius: 4, height: 6 }}>
-                  <div style={{ background: pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#3b82f6',
-                    width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
-                </div>
-                <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>{pct}%</p>
-              </div>
+              <option key={p.id} value={p.id}>
+                {p.scientificRep.name} · {MONTHS_AR[p.month - 1]} {p.year} ({p.entries.length} طبيب | {totalV}/{p.targetCalls} زيارة)
+              </option>
             );
-          })
+          })}
+        </select>
+
+        <button onClick={() => setShowCreate(true)} style={btnStyle('#3b82f6', true)}>+ جديد</button>
+
+        {/* Upload visits */}
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+          onChange={e => e.target.files?.[0] && uploadVisits(e.target.files[0])} />
+        {!uploadedFileName ? (
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={btnStyle('#10b981', true)}>
+            {uploading ? '⏳ جاري الرفع...' : '📤 رفع زيارات Excel'}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#374151', background: '#fff', padding: '4px 8px', borderRadius: 6, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #e2e8f0' }}
+              title={uploadedFileName}>📄 {uploadedFileName}</span>
+            <button onClick={clearUpload} style={{ ...btnStyle('#ef4444', true), padding: '4px 8px', fontSize: 11 }}>🗑</button>
+          </div>
         )}
+        {uploadResult && (
+          <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>
+            ✅ {uploadResult.imported} زيارة
+            {uploadResult.errors.length > 0 && ` | ${uploadResult.errors.length} أخطاء`}
+          </span>
+        )}
+        {error && <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>⚠️ {error}</span>}
       </div>
 
-      {/* ── Right panel: plan details ── */}
-      <div className="mp-right" style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
-        {!activePlan ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
-            <p style={{ fontSize: 48 }}>📅</p>
-            <p style={{ fontSize: 18 }}>اختر بلاناً لعرض التفاصيل</p>
+      {/* ── Main content ── */}
+      <div style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
+        {loading ? <p style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>تحميل...</p> : !activePlan ? (
+          <div>
+            {filteredPlans.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 60, color: '#94a3b8' }}>
+                <p style={{ fontSize: 48 }}>📅</p>
+                <p style={{ fontSize: 18 }}>لا توجد بلانات — أنشئ بلان جديد</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                {filteredPlans.map(p => {
+                  const totalV = p.entries.reduce((s, e) => s + e.visits.length, 0);
+                  const pct    = Math.min(100, Math.round((totalV / (p.targetCalls || 150)) * 100));
+                  return (
+                    <div key={p.id} onClick={() => { setActivePlan(p); setSearchQuery(''); setVisitFilter('all'); }}
+                      style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: 12, padding: 16, cursor: 'pointer', transition: 'all 0.15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.15)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                        {p.scientificRep.name}
+                      </p>
+                      <p style={{ margin: '2px 0 8px', fontSize: 13, color: '#64748b' }}>
+                        {MONTHS_AR[p.month - 1]} {p.year}
+                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475569', marginBottom: 6 }}>
+                        <span>👨‍⚕️ {p.entries.length}/{p.targetDoctors} طبيب</span>
+                        <span>📞 {totalV}/{p.targetCalls} زيارة</span>
+                      </div>
+                      <div style={{ background: '#e2e8f0', borderRadius: 4, height: 6 }}>
+                        <div style={{ background: pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#3b82f6', width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
+                      </div>
+                      <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>{pct}%</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           <>
-            {/* Back button — mobile only */}
-            <button className="mp-back-btn" onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); }}>
-              ← قائمة البلانات
-            </button>
-
             {/* Plan header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
-                <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
-                  {activePlan.scientificRep.name} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
-                </h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                  <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); }}
+                    style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+                    ← الرجوع
+                  </button>
+                  <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
+                    {activePlan.scientificRep.name} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
+                  </h1>
+                </div>
                 <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 14 }}>
                   {activePlan.entries.length} طبيب · الهدف: {activePlan.targetDoctors} طبيب × {activePlan.targetCalls / (activePlan.targetDoctors || 1) | 0} زيارات
                 </p>
