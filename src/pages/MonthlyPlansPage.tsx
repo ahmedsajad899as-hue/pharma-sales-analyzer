@@ -110,10 +110,19 @@ export default function MonthlyPlansPage() {
   const entryRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [highlightEntryId, setHighlightEntryId] = useState<number | null>(null);
 
+  // Collapsible entries
+  const [expandedEntries, setExpandedEntries] = useState<Set<number>>(new Set());
+  const toggleEntry = (entryId: number) => setExpandedEntries(prev => {
+    const s = new Set(prev);
+    s.has(entryId) ? s.delete(entryId) : s.add(entryId);
+    return s;
+  });
+
   const scrollToEntry = (entryId: number) => {
     setFbPopup(null);
     setVisitFilter('all');
     setSearchQuery('');
+    setExpandedEntries(prev => new Set(prev).add(entryId));
     setTimeout(() => {
       const el = entryRefs.current[entryId];
       if (el) {
@@ -970,6 +979,8 @@ export default function MonthlyPlansPage() {
                 const progressColor = pct >= 100 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#6366f1';
                 const lastVisit = entry.visits[entry.visits.length - 1];
                 const lastFb = FEEDBACK_LABELS[lastVisit?.feedback ?? 'pending'];
+                const isExpanded = expandedEntries.has(entry.id);
+                const targetItemsList = entry.targetItems ?? [];
 
                 return (
                   <div
@@ -981,17 +992,32 @@ export default function MonthlyPlansPage() {
                       overflow: 'hidden', boxShadow: highlightEntryId === entry.id ? '0 0 0 4px #e0e7ff' : '0 1px 4px rgba(0,0,0,0.04)',
                       transition: 'box-shadow 0.3s, border-color 0.3s',
                     }}>
-                    {/* Card Header */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '10px 16px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc' }}>
+                    {/* Compact Header — always visible */}
+                    <div
+                      onClick={() => toggleEntry(entry.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 0, padding: '10px 16px',
+                        cursor: 'pointer', userSelect: 'none',
+                        background: isExpanded ? '#fafbfc' : '#fff',
+                        borderBottom: isExpanded ? '1px solid #f1f5f9' : 'none',
+                        transition: 'background 0.15s',
+                      }}>
+                      {/* Expand chevron */}
+                      <span style={{
+                        fontSize: 12, color: '#94a3b8', marginLeft: 8, flexShrink: 0,
+                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s', display: 'inline-block',
+                      }}>▶</span>
+
                       {/* Index badge */}
                       <span style={{
                         minWidth: 26, height: 26, borderRadius: '50%',
                         background: '#e0e7ff', color: '#4338ca', fontSize: 11, fontWeight: 700,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 12, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 10, flexShrink: 0,
                       }}>{idx + 1}</span>
 
-                      {/* Doctor name + meta */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* Doctor name + specialty */}
+                      <div style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {entry.doctor.name}
                         </p>
@@ -1000,189 +1026,218 @@ export default function MonthlyPlansPage() {
                         </p>
                       </div>
 
-                      {/* Visit progress */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: 16, minWidth: 70 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
+                      {/* Compact indicators */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 8 }}>
+                        {/* Target items indicator */}
+                        {targetItemsList.length > 0 && (
+                          <span
+                            title={`الايتمات: ${targetItemsList.map(ti => ti.item.name).join('، ')}`}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 3,
+                              padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                              background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe',
+                              whiteSpace: 'nowrap', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis',
+                            }}>
+                            🎯 {targetItemsList.length === 1 ? targetItemsList[0].item.name : `${targetItemsList.length} ايتمات`}
+                          </span>
+                        )}
+
+                        {/* Visit progress mini */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 56 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
+                            <span style={{ fontWeight: 800, fontSize: 15, color: progressColor }}>{visitCount}</span>
+                            <span style={{ color: '#cbd5e1', fontSize: 12 }}>/{entry.targetVisits}</span>
+                          </div>
+                          <div style={{ width: 56, height: 3, background: '#f1f5f9', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: progressColor, borderRadius: 2, transition: 'width 0.3s' }} />
+                          </div>
+                        </div>
+
+                        {/* Last feedback badge */}
+                        {lastVisit && (
+                          <span style={{
+                            padding: '3px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                            background: lastFb.bg, color: lastFb.color, whiteSpace: 'nowrap', flexShrink: 0,
+                          }}>
+                            {lastFb.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Expandable Body */}
+                    <div style={{
+                      maxHeight: isExpanded ? '2000px' : '0',
+                      overflow: 'hidden',
+                      transition: 'max-height 0.35s ease-in-out',
+                    }}>
+                      {/* Actions bar */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9',
+                      }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {/* Edit target visits */}
                           {editingEntry === entry.id ? (
-                            <>
-                              <span style={{ fontWeight: 800, fontSize: 18, color: progressColor }}>{visitCount}</span>
-                              <span style={{ color: '#cbd5e1', fontSize: 14 }}>/</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontSize: 12, color: '#64748b' }}>هدف الزيارات:</span>
                               <input
                                 type="number" min={1} max={50} value={editVisitsVal} autoFocus
                                 onChange={e => setEditVisitsVal(+e.target.value)}
                                 onKeyDown={e => { if (e.key === 'Enter') saveEntryVisits(entry.id); if (e.key === 'Escape') setEditingEntry(null); }}
-                                style={{ width: 44, padding: '1px 4px', border: `2px solid ${progressColor}`, borderRadius: 6, fontSize: 14, fontWeight: 700, textAlign: 'center', color: '#1e293b' }}
+                                style={{ width: 50, padding: '2px 5px', border: `2px solid ${progressColor}`, borderRadius: 6, fontSize: 13, fontWeight: 700, textAlign: 'center' }}
                               />
-                              <button onClick={() => saveEntryVisits(entry.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer', marginRight: 2 }}>✓</button>
+                              <button onClick={() => saveEntryVisits(entry.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer' }}>✓</button>
                               <button onClick={() => setEditingEntry(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer' }}>✕</button>
-                            </>
+                            </div>
                           ) : (
-                            <span
-                              title="اضغط لتعديل عدد الزيارات المستهدفة"
+                            <button
                               onClick={() => { setEditingEntry(entry.id); setEditVisitsVal(entry.targetVisits); }}
-                              style={{ cursor: 'pointer', display: 'flex', alignItems: 'baseline', gap: 2 }}
-                            >
-                              <span style={{ fontWeight: 800, fontSize: 18, color: progressColor }}>{visitCount}</span>
-                              <span style={{ color: '#cbd5e1', fontSize: 13 }}>/{entry.targetVisits}</span>
-                              <span style={{ fontSize: 10, color: '#c7d2fe', marginRight: 2 }}>✏️</span>
-                            </span>
+                              style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                              ✏️ هدف: {entry.targetVisits} زيارات
+                            </button>
                           )}
-                        </div>
-                        <div style={{ width: 70, height: 4, background: '#f1f5f9', borderRadius: 2, marginTop: 4, overflow: 'hidden' }}>
-                          <div style={{ width: `${pct}%`, height: '100%', background: progressColor, borderRadius: 2, transition: 'width 0.3s' }} />
-                        </div>
-                        <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{pct}%</span>
-                      </div>
-
-                      {/* Last feedback badge */}
-                      {lastVisit && (
-                        <span style={{ marginLeft: 12, padding: '3px 10px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: lastFb.bg, color: lastFb.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          {lastFb.label}
-                        </span>
-                      )}
-
-                      {/* Remove button */}
-                      <button
-                        onClick={() => removeEntry(entry.id)}
-                        title="إزالة من البلان"
-                        style={{ marginRight: 8, background: 'none', border: '1px solid #fecaca', color: '#ef4444', cursor: 'pointer', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600, flexShrink: 0 }}
-                      >إزالة</button>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="mp-entry-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
-
-                      {/* Left col: target items */}
-                      <div style={{ padding: '10px 16px', borderLeft: '1px solid #f1f5f9' }}>
-                        <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          🎯 الايتمات المستهدفة
-                        </p>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-                          {(entry.targetItems ?? []).length === 0 && (
-                            <span style={{ fontSize: 11, color: '#cbd5e1', fontStyle: 'italic' }}>لا يوجد</span>
-                          )}
-                          {(entry.targetItems ?? []).map(ti => (
-                            <span key={ti.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
-                              {ti.item.name}
-                              <button
-                                onClick={() => removeEntryItem(entry.id, ti.item.id)}
-                                style={{ background: 'none', border: 'none', color: '#93c5fd', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0, fontWeight: 700, marginRight: -2 }}>×</button>
-                            </span>
-                          ))}
-                          {/* إضافة ايتم */}
-                          <div style={{ position: 'relative' }}>
-                            {entryItemMenuOpen === entry.id ? (
-                              <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', minWidth: 210, maxHeight: 220, overflowY: 'auto', direction: 'rtl' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                  <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#374151' }}>اختر ايتم</p>
-                                  <button onClick={() => setEntryItemMenuOpen(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
-                                </div>
-                                {items.filter(it => !(entry.targetItems ?? []).some(ti => ti.item.id === it.id)).length === 0 ? (
-                                  <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', padding: '4px 10px', textAlign: 'center' }}>تمت إضافة جميع الايتمات</p>
-                                ) : items.filter(it => !(entry.targetItems ?? []).some(ti => ti.item.id === it.id)).map(it => (
-                                  <div key={it.id}
-                                    onClick={() => !addingEntryItem && addEntryItem(entry.id, it.id)}
-                                    style={{ padding: '7px 10px', borderRadius: 7, cursor: addingEntryItem ? 'wait' : 'pointer', fontSize: 13, color: '#1e293b', transition: 'background 0.1s' }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                                    {it.name}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <button onClick={() => setEntryItemMenuOpen(entry.id)}
-                                style={{ background: 'none', color: '#2563eb', border: '1px dashed #93c5fd', borderRadius: 20, padding: '3px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                                + إضافة
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Right col: actual visits */}
-                      <div style={{ padding: '10px 16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            📋 الزيارات الفعلية
-                          </p>
+                          {/* Add visit button */}
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setVisitFormEntry(entry.id);
                               setVDate(new Date().toISOString().split('T')[0]);
-                              // اختر الايتم المستهدف تلقائياً إذا كان هناك واحد فقط
                               const targets = entry.targetItems ?? [];
                               setVItemId(targets.length === 1 ? String(targets[0].item.id) : '');
                             }}
-                            style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 8, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
+                            style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}>
                             + زيارة
                           </button>
                         </div>
+                        {/* Remove button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeEntry(entry.id); }}
+                          title="إزالة من البلان"
+                          style={{ background: 'none', border: '1px solid #fecaca', color: '#ef4444', cursor: 'pointer', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600, flexShrink: 0 }}
+                        >🗑 إزالة</button>
+                      </div>
 
-                        {entry.visits.length === 0 && (
-                          <p style={{ margin: 0, fontSize: 11, color: '#cbd5e1', fontStyle: 'italic' }}>لا توجد زيارات مسجلة</p>
-                        )}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {entry.visits.map((v, vi) => {
-                            const vfb = FEEDBACK_LABELS[v.feedback ?? 'pending'];
-                            const isEditingThis = editingVisitItem === v.id;
-                            return (
-                              <div key={v.id} style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
-                                <div style={{
-                                  display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto',
-                                  alignItems: 'center', gap: 6,
-                                  padding: '5px 10px',
-                                }}>
-                                {/* # */}
-                                <span style={{ fontSize: 10, fontWeight: 800, color: '#c7d2fe', background: '#eef2ff', borderRadius: 4, padding: '1px 5px' }}>#{vi + 1}</span>
-                                {/* Date */}
-                                <span style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
-                                  {v.visitDate ? new Date(v.visitDate).toLocaleDateString('ar-IQ') : '—'}
-                                </span>
-                                {/* Item */}
-                                {isEditingThis ? (
-                                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                    <select autoFocus value={editVisitItemVal} onChange={e => setEditVisitItemVal(e.target.value)}
-                                      onKeyDown={e => { if (e.key==='Enter') saveVisitItem(v.id); if (e.key==='Escape') setEditingVisitItem(null); }}
-                                      style={{ padding: '2px 6px', border: '2px solid #6366f1', borderRadius: 7, fontSize: 11, direction: 'rtl', flex: 1, minWidth: 0 }}>
-                                      <option value="">— بدون</option>
-                                      {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
-                                    </select>
-                                    <button onClick={() => saveVisitItem(v.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer' }}>✓</button>
-                                    <button onClick={() => setEditingVisitItem(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                      <div className="mp-entry-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                        {/* Left col: target items */}
+                        <div style={{ padding: '10px 16px', borderLeft: '1px solid #f1f5f9' }}>
+                          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            🎯 الايتمات المستهدفة
+                          </p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                            {targetItemsList.length === 0 && (
+                              <span style={{ fontSize: 11, color: '#cbd5e1', fontStyle: 'italic' }}>لا يوجد</span>
+                            )}
+                            {targetItemsList.map(ti => (
+                              <span key={ti.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}>
+                                {ti.item.name}
+                                <button
+                                  onClick={() => removeEntryItem(entry.id, ti.item.id)}
+                                  style={{ background: 'none', border: 'none', color: '#93c5fd', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0, fontWeight: 700, marginRight: -2 }}>×</button>
+                              </span>
+                            ))}
+                            {/* Add item dropdown */}
+                            <div style={{ position: 'relative' }}>
+                              {entryItemMenuOpen === entry.id ? (
+                                <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', minWidth: 210, maxHeight: 220, overflowY: 'auto', direction: 'rtl' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#374151' }}>اختر ايتم</p>
+                                    <button onClick={() => setEntryItemMenuOpen(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
                                   </div>
-                                ) : (
-                                  <span
-                                    onClick={() => { setEditingVisitItem(v.id); setEditVisitItemVal(v.item ? String(v.item.id) : ''); }}
-                                    title="اضغط لتعديل الايتم"
-                                    style={{
-                                      padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                                      background: v.item ? '#eff6ff' : 'transparent',
-                                      color: v.item ? '#2563eb' : '#cbd5e1',
-                                      border: v.item ? '1px solid #bfdbfe' : '1px dashed #e2e8f0',
-                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130,
-                                    }}>
-                                    {v.item ? v.item.name : '+ ايتم'}
-                                  </span>
-                                )}
-                                {/* Feedback */}
-                                <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color, whiteSpace: 'nowrap' }}>
-                                  {vfb.label}
-                                </span>
-                                {/* Delete */}
-                                <button onClick={() => deleteVisit(v.id)} title="حذف"
-                                  style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>🗑</button>
-                              </div>
-                              {/* Notes */}
-                              {v.notes && (
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '3px 10px 6px', borderTop: '1px dashed #f1f5f9' }}>
-                                  <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, flexShrink: 0 }}>💬</span>
-                                  <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', lineHeight: 1.4 }}>{v.notes}</span>
+                                  {items.filter(it => !targetItemsList.some(ti => ti.item.id === it.id)).length === 0 ? (
+                                    <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', padding: '4px 10px', textAlign: 'center' }}>تمت إضافة جميع الايتمات</p>
+                                  ) : items.filter(it => !targetItemsList.some(ti => ti.item.id === it.id)).map(it => (
+                                    <div key={it.id}
+                                      onClick={() => !addingEntryItem && addEntryItem(entry.id, it.id)}
+                                      style={{ padding: '7px 10px', borderRadius: 7, cursor: addingEntryItem ? 'wait' : 'pointer', fontSize: 13, color: '#1e293b', transition: 'background 0.1s' }}
+                                      onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+                                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                                      {it.name}
+                                    </div>
+                                  ))}
                                 </div>
+                              ) : (
+                                <button onClick={() => setEntryItemMenuOpen(entry.id)}
+                                  style={{ background: 'none', color: '#2563eb', border: '1px dashed #93c5fd', borderRadius: 20, padding: '3px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                                  + إضافة
+                                </button>
                               )}
-                              </div>
-                            );
-                          })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right col: actual visits */}
+                        <div style={{ padding: '10px 16px' }}>
+                          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            📋 الزيارات الفعلية
+                          </p>
+
+                          {entry.visits.length === 0 && (
+                            <p style={{ margin: 0, fontSize: 11, color: '#cbd5e1', fontStyle: 'italic' }}>لا توجد زيارات مسجلة</p>
+                          )}
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {entry.visits.map((v, vi) => {
+                              const vfb = FEEDBACK_LABELS[v.feedback ?? 'pending'];
+                              const isEditingThis = editingVisitItem === v.id;
+                              return (
+                                <div key={v.id} style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
+                                  <div style={{
+                                    display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto',
+                                    alignItems: 'center', gap: 6,
+                                    padding: '5px 10px',
+                                  }}>
+                                  {/* # */}
+                                  <span style={{ fontSize: 10, fontWeight: 800, color: '#c7d2fe', background: '#eef2ff', borderRadius: 4, padding: '1px 5px' }}>#{vi + 1}</span>
+                                  {/* Date */}
+                                  <span style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
+                                    {v.visitDate ? new Date(v.visitDate).toLocaleDateString('ar-IQ') : '—'}
+                                  </span>
+                                  {/* Item */}
+                                  {isEditingThis ? (
+                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                      <select autoFocus value={editVisitItemVal} onChange={e => setEditVisitItemVal(e.target.value)}
+                                        onKeyDown={e => { if (e.key==='Enter') saveVisitItem(v.id); if (e.key==='Escape') setEditingVisitItem(null); }}
+                                        style={{ padding: '2px 6px', border: '2px solid #6366f1', borderRadius: 7, fontSize: 11, direction: 'rtl', flex: 1, minWidth: 0 }}>
+                                        <option value="">— بدون</option>
+                                        {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                                      </select>
+                                      <button onClick={() => saveVisitItem(v.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer' }}>✓</button>
+                                      <button onClick={() => setEditingVisitItem(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                                    </div>
+                                  ) : (
+                                    <span
+                                      onClick={() => { setEditingVisitItem(v.id); setEditVisitItemVal(v.item ? String(v.item.id) : ''); }}
+                                      title="اضغط لتعديل الايتم"
+                                      style={{
+                                        padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                        background: v.item ? '#eff6ff' : 'transparent',
+                                        color: v.item ? '#2563eb' : '#cbd5e1',
+                                        border: v.item ? '1px solid #bfdbfe' : '1px dashed #e2e8f0',
+                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130,
+                                      }}>
+                                      {v.item ? v.item.name : '+ ايتم'}
+                                    </span>
+                                  )}
+                                  {/* Feedback */}
+                                  <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color, whiteSpace: 'nowrap' }}>
+                                    {vfb.label}
+                                  </span>
+                                  {/* Delete */}
+                                  <button onClick={() => deleteVisit(v.id)} title="حذف"
+                                    style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>🗑</button>
+                                </div>
+                                {/* Notes */}
+                                {v.notes && (
+                                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '3px 10px 6px', borderTop: '1px dashed #f1f5f9' }}>
+                                    <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, flexShrink: 0 }}>💬</span>
+                                    <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', lineHeight: 1.4 }}>{v.notes}</span>
+                                  </div>
+                                )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
                     </div>
