@@ -1119,9 +1119,9 @@ export default function MonthlyPlansPage() {
                         >🗑 إزالة</button>
                       </div>
 
-                      <div className="mp-entry-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                      <div className="mp-entry-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, overflow: 'visible' }}>
                         {/* Left col: target items */}
-                        <div style={{ padding: '10px 16px', borderLeft: '1px solid #f1f5f9' }}>
+                        <div style={{ padding: '10px 16px', borderLeft: '1px solid #f1f5f9', overflow: 'visible', position: 'relative' }}>
                           <div
                             onClick={() => setShowEntryItems(prev => {
                               const s = new Set(prev);
@@ -1164,7 +1164,7 @@ export default function MonthlyPlansPage() {
                             {/* Add item dropdown */}
                             <div style={{ position: 'relative' }}>
                               {entryItemMenuOpen === entry.id ? (
-                                <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', minWidth: 210, maxHeight: 220, overflowY: 'auto', direction: 'rtl' }}>
+                                <div style={{ position: 'absolute', bottom: '110%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 220, maxHeight: 220, overflowY: 'auto', direction: 'rtl' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                                     <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#374151' }}>اختر ايتم</p>
                                     <button onClick={() => setEntryItemMenuOpen(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
