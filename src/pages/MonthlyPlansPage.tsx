@@ -82,6 +82,7 @@ export default function MonthlyPlansPage() {
 
   // Manage entry target items (ايتمات البلان لكل طبيب)
   const [entryItemMenuOpen, setEntryItemMenuOpen] = useState<number | null>(null); // entryId
+  const [showEntryItems, setShowEntryItems] = useState<Set<number>>(new Set()); // entryIds with items visible
   const [addingEntryItem, setAddingEntryItem]     = useState(false);
 
   // Add visit form
@@ -1121,10 +1122,34 @@ export default function MonthlyPlansPage() {
                       <div className="mp-entry-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
                         {/* Left col: target items */}
                         <div style={{ padding: '10px 16px', borderLeft: '1px solid #f1f5f9' }}>
-                          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            🎯 الايتمات المستهدفة
-                          </p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                          <div
+                            onClick={() => setShowEntryItems(prev => {
+                              const s = new Set(prev);
+                              s.has(entry.id) ? s.delete(entry.id) : s.add(entry.id);
+                              return s;
+                            })}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none',
+                              margin: '0 0 6px',
+                            }}>
+                            <span style={{
+                              fontSize: 10, color: '#94a3b8',
+                              transform: showEntryItems.has(entry.id) ? 'rotate(90deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.2s', display: 'inline-block',
+                            }}>▶</span>
+                            <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              🎯 الايتمات المستهدفة
+                              {targetItemsList.length > 0 && (
+                                <span style={{ marginRight: 6, padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 800, background: '#eff6ff', color: '#2563eb' }}>{targetItemsList.length}</span>
+                              )}
+                            </p>
+                          </div>
+                          <div style={{
+                            maxHeight: showEntryItems.has(entry.id) ? '500px' : '0',
+                            overflow: 'hidden',
+                            transition: 'max-height 0.25s ease-in-out',
+                          }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
                             {targetItemsList.length === 0 && (
                               <span style={{ fontSize: 11, color: '#cbd5e1', fontStyle: 'italic' }}>لا يوجد</span>
                             )}
@@ -1162,6 +1187,7 @@ export default function MonthlyPlansPage() {
                                   + إضافة
                                 </button>
                               )}
+                            </div>
                             </div>
                           </div>
                         </div>
