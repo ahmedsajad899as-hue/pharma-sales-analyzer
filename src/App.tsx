@@ -12,8 +12,34 @@ import MonthlyPlansPage from './pages/MonthlyPlansPage';
 import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
 import './App.css';
+import React, { Component, ReactNode } from 'react';
 
-export type PageId = 'dashboard' | 'upload' | 'representatives' | 'scientific-reps' | 'reports' | 'users' | 'doctors' | 'monthly-plans';
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, info: any) {
+    // يمكن إرسال الخطأ لسيرفر أو تسجيله هنا
+    // eslint-disable-next-line no-console
+    console.error('React ErrorBoundary:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 32, color: '#b91c1c', background: '#fef2f2', fontSize: 18, textAlign: 'center' }}>
+          <h2>حدث خطأ في التطبيق</h2>
+          <pre style={{ color: '#991b1b', background: '#fee2e2', padding: 12, borderRadius: 8, direction: 'ltr', textAlign: 'left', overflowX: 'auto' }}>{String(this.state.error)}</pre>
+          <p>يرجى إعادة تحميل الصفحة أو التواصل مع الدعم.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppInner() {
   const { user } = useAuth();
@@ -73,10 +99,12 @@ function AppInner() {
 
 export default function App() {
   return (
-    <LanguageProvider>
+    <ErrorBoundary>
       <AuthProvider>
-        <AppInner />
+        <LanguageProvider>
+          <AppInner />
+        </LanguageProvider>
       </AuthProvider>
-    </LanguageProvider>
+    </ErrorBoundary>
   );
 }
