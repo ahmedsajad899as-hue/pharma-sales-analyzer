@@ -100,11 +100,12 @@ export default function MonthlyPlansPage() {
 
   // Voice input
   const [voiceListening, setVoiceListening] = useState(false);
-  const [voiceText, setVoiceText] = useState('');
   const [voiceParsing, setVoiceParsing] = useState(false);
   const [voiceResults, setVoiceResults] = useState<{ entryId: number | null; doctorName: string; itemId: number | null; itemName: string; feedback: string; notes: string; date: string }[] | null>(null);
   const [voiceSaving, setVoiceSaving] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const wantListeningRef = useRef(false);
+  const finalTextRef = useRef('');
 
   // Import visits Excel for active plan
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -409,39 +410,55 @@ export default function MonthlyPlansPage() {
     const recognition = new SpeechRecognition();
     recognition.lang = 'ar-IQ';
     recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.interimResults = false;
     let finalText = '';
     recognition.onresult = (event: any) => {
-      let interim = '';
       for (let i = 0; i < event.results.length; i++) {
         if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
-        else interim += event.results[i][0].transcript;
       }
-      setVoiceText(finalText + interim);
+      finalTextRef.current = finalText;
     };
-    recognition.onerror = () => { setVoiceListening(false); };
-    recognition.onend = () => { setVoiceListening(false); };
+    recognition.onerror = (e: any) => {
+      if (e.error === 'no-speech' && wantListeningRef.current) {
+        try { recognition.start(); } catch {}
+        return;
+      }
+      if (e.error === 'aborted' && !wantListeningRef.current) return;
+      wantListeningRef.current = false;
+      setVoiceListening(false);
+    };
+    recognition.onend = () => {
+      if (wantListeningRef.current) {
+        // Restart recognition to keep listening through pauses
+        try { recognition.start(); } catch {}
+        return;
+      }
+      setVoiceListening(false);
+      // Auto-parse immediately after stopping
+      const text = finalTextRef.current.trim();
+      if (text) parseVoiceText(text);
+    };
     recognitionRef.current = recognition;
+    wantListeningRef.current = true;
+    finalTextRef.current = '';
     recognition.start();
     setVoiceListening(true);
-    setVoiceText('');
     setVoiceResults(null);
   };
 
   const stopVoice = () => {
+    wantListeningRef.current = false;
     recognitionRef.current?.stop();
-    setVoiceListening(false);
   };
 
-  const parseVoiceText = async (inputText?: string) => {
+  const parseVoiceText = async (inputText: string) => {
     if (!activePlan) return;
-    const textToParse = inputText ?? voiceText;
-    if (!textToParse.trim()) return;
+    if (!inputText.trim()) return;
     setVoiceParsing(true);
     try {
       const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/voice-parse`, {
         method: 'POST', headers: H(),
-        body: JSON.stringify({ text: textToParse }),
+        body: JSON.stringify({ text: inputText }),
       });
       if (!r.ok) { const j = await r.json(); throw new Error(j.error); }
       const data = await r.json();
@@ -453,14 +470,24 @@ export default function MonthlyPlansPage() {
   const submitVoiceVisits = async () => {
     if (!activePlan || !voiceResults?.length) return;
     setVoiceSaving(true);
-    let success = 0;
+    let success = 0, skipped = 0;
     for (const v of voiceResults) {
       if (!v.entryId) continue;
+      // Duplicate check: skip if entry already has visit on same date with same item
+      const entry = activePlan.entries.find(e => e.id === v.entryId);
+      const visitDate = v.date || new Date().toISOString().split('T')[0];
+      if (entry) {
+        const dup = entry.visits.some((ev: any) =>
+          new Date(ev.visitDate).toISOString().split('T')[0] === visitDate &&
+          (ev.item?.id ?? null) === (v.itemId ?? null)
+        );
+        if (dup) { skipped++; continue; }
+      }
       try {
         const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${v.entryId}/visits`, {
           method: 'POST', headers: H(),
           body: JSON.stringify({
-            visitDate: v.date || new Date().toISOString().split('T')[0],
+            visitDate,
             itemId: v.itemId || null,
             feedback: v.feedback || 'pending',
             notes: v.notes || '',
@@ -471,9 +498,11 @@ export default function MonthlyPlansPage() {
     }
     setVoiceSaving(false);
     setVoiceResults(null);
-    setVoiceText('');
     await reloadPlan(activePlan.id);
-    alert(`✅ تم تسجيل ${success} زيارة بنجاح`);
+    const msg = skipped > 0
+      ? `✅ تم تسجيل ${success} زيارة بنجاح (${skipped} مكررة تم تخطيها)`
+      : `✅ تم تسجيل ${success} زيارة بنجاح`;
+    alert(msg);
   };
 
   const toggleAllowExtraVisits = async () => {
@@ -1005,7 +1034,7 @@ export default function MonthlyPlansPage() {
             </div>
 
             {/* Voice input panel */}
-            {(voiceListening || voiceText || voiceResults) && (
+            {(voiceListening || voiceParsing || voiceResults) && (
               <div style={{
                 background: voiceListening ? 'linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)' : '#fff',
                 border: `2px solid ${voiceListening ? '#f97316' : '#e2e8f0'}`,
@@ -1014,49 +1043,47 @@ export default function MonthlyPlansPage() {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 20 }}>{voiceListening ? '🔴' : '🎤'}</span>
+                    <span style={{ fontSize: 20 }}>{voiceListening ? '🔴' : voiceParsing ? '⏳' : '🎤'}</span>
                     <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
-                      {voiceListening ? 'جاري التسجيل... تحدث الآن' : voiceResults ? 'نتائج التحليل' : 'النص المسجل'}
+                      {voiceListening ? 'جاري التسجيل... تحدث الآن'
+                        : voiceParsing ? '⏳ جاري تحليل الكلام بالذكاء الاصطناعي...'
+                        : 'نتائج التحليل'}
                     </h3>
                     {voiceListening && (
                       <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', animation: 'blink 1s infinite' }} />
                     )}
                   </div>
-                  <button onClick={() => { stopVoice(); setVoiceText(''); setVoiceResults(null); }}
-                    style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+                  {!voiceParsing && (
+                    <button onClick={() => { stopVoice(); setVoiceResults(null); }}
+                      style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+                  )}
                 </div>
 
-                {/* Transcribed text */}
-                {voiceText && !voiceResults && (
-                  <div style={{ marginBottom: 12 }}>
-                    <textarea
-                      value={voiceText}
-                      onChange={e => setVoiceText(e.target.value)}
-                      rows={3}
-                      style={{
-                        width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 10,
-                        fontSize: 14, direction: 'rtl', resize: 'vertical', boxSizing: 'border-box',
-                        background: '#f8fafc', fontFamily: 'inherit',
-                      }}
-                      placeholder="النص المنطوق سيظهر هنا... يمكنك تعديله يدوياً أيضاً"
-                    />
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                      {voiceListening && (
-                        <button onClick={stopVoice} style={btnStyle('#ef4444', true)}>⏹ إيقاف</button>
-                      )}
-                      <button onClick={() => parseVoiceText()} disabled={voiceParsing || !voiceText.trim()}
-                        style={{ ...btnStyle('#f97316', true), opacity: (!voiceText.trim() || voiceParsing) ? 0.5 : 1 }}>
-                        {voiceParsing ? '⏳ جاري التحليل...' : '🤖 تحليل وتفريز'}
-                      </button>
-                    </div>
+                {/* Listening indicator */}
+                {voiceListening && (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <div style={{ fontSize: 48, animation: 'pulse-mic 1.5s infinite' }}>🎙️</div>
+                    <p style={{ margin: '10px 0 0', color: '#92400e', fontSize: 13, fontWeight: 600 }}>
+                      تحدث... الاستماع مستمر حتى تضغط إيقاف
+                    </p>
                   </div>
                 )}
 
-                {/* Parsed results confirmation */}
-                {voiceResults && (
+                {/* Parsing spinner */}
+                {voiceParsing && !voiceListening && (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <div style={{ fontSize: 40, animation: 'pulse-mic 1s infinite' }}>🤖</div>
+                    <p style={{ margin: '10px 0 0', color: '#6366f1', fontSize: 13, fontWeight: 600 }}>
+                      جاري تحليل الكلام...
+                    </p>
+                  </div>
+                )}
+
+                {/* Editable parsed results */}
+                {voiceResults && !voiceParsing && (
                   <div>
                     {voiceResults.length === 0 ? (
-                      <p style={{ textAlign: 'center', color: '#94a3b8', padding: 12 }}>لم يتم التعرف على أي زيارات في النص</p>
+                      <p style={{ textAlign: 'center', color: '#94a3b8', padding: 12 }}>لم يتم التعرف على أي زيارات في الكلام</p>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {voiceResults.map((v, i) => {
@@ -1064,18 +1091,14 @@ export default function MonthlyPlansPage() {
                           const matched = v.entryId !== null;
                           return (
                             <div key={i} style={{
-                              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
                               background: matched ? '#f0fdf4' : '#fef2f2',
                               border: `1px solid ${matched ? '#bbf7d0' : '#fecaca'}`,
                               borderRadius: 10, flexWrap: 'wrap',
                             }}>
-                              <span style={{
-                                minWidth: 26, height: 26, borderRadius: '50%',
-                                background: matched ? '#dcfce7' : '#fee2e2',
-                                color: matched ? '#166534' : '#991b1b',
-                                fontSize: 12, fontWeight: 700,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              }}>{i + 1}</span>
+                              <button onClick={() => setVoiceResults(prev => prev!.filter((_, idx) => idx !== i))}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: 0, marginTop: 2 }}
+                                title="حذف">×</button>
                               <div style={{ flex: 1, minWidth: 120 }}>
                                 <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
                                   {matched ? '✅' : '⚠️'} {v.doctorName}
@@ -1083,17 +1106,31 @@ export default function MonthlyPlansPage() {
                                 {v.itemName && (
                                   <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
                                 )}
+                                {!matched && (
+                                  <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 600 }}>طبيب غير موجود بالبلان</span>
+                                )}
                               </div>
-                              <span style={{
-                                padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700,
-                                background: fbMeta.bg, color: fbMeta.color,
-                              }}>{fbMeta.label}</span>
-                              {v.notes && (
-                                <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>📝 {v.notes}</span>
-                              )}
-                              {!matched && (
-                                <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 600 }}>طبيب غير موجود بالبلان</span>
-                              )}
+                              <select
+                                value={v.feedback}
+                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, feedback: e.target.value } : r))}
+                                style={{
+                                  padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                                  border: '1px solid #e2e8f0', background: fbMeta.bg, color: fbMeta.color,
+                                  cursor: 'pointer',
+                                }}>
+                                {Object.entries(FEEDBACK_LABELS).map(([key, val]) => (
+                                  <option key={key} value={key}>{(val as any).label}</option>
+                                ))}
+                              </select>
+                              <input
+                                value={v.notes}
+                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, notes: e.target.value } : r))}
+                                placeholder="ملاحظات"
+                                style={{
+                                  padding: '4px 8px', borderRadius: 8, fontSize: 11, border: '1px solid #e2e8f0',
+                                  width: 120, direction: 'rtl', background: '#f8fafc',
+                                }}
+                              />
                             </div>
                           );
                         })}
@@ -1101,8 +1138,6 @@ export default function MonthlyPlansPage() {
                     )}
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <button onClick={() => { setVoiceResults(null); }}
-                        style={btnStyle('#6366f1', true)}>✏️ تعديل النص</button>
-                      <button onClick={() => { setVoiceResults(null); setVoiceText(''); }}
                         style={btnStyle('#94a3b8', true)}>إلغاء</button>
                       <button onClick={submitVoiceVisits} disabled={voiceSaving || !voiceResults.some(v => v.entryId)}
                         style={{
