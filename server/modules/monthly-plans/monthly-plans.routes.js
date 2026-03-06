@@ -34,4 +34,7 @@ router.post('/visits/upload', upload.single('file'), ctrl.uploadVisits);
 // Update visit item
 router.patch('/visits/:visitId/item', ctrl.patchVisitItem);
 
+// Voice-to-visits: parse spoken text
+router.post('/:id/voice-parse', ctrl.parseVoice);
+
 export default router;
