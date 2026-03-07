@@ -1521,8 +1521,19 @@ export default function MonthlyPlansPage() {
                     id={`entry-${entry.id}`}
                     ref={el => { entryRefs.current[entry.id] = el; }}
                     style={{
-                      background: '#fff', border: highlightEntryId === entry.id ? '2px solid #6366f1' : '1px solid #e8edf2', borderRadius: 14,
-                      overflow: 'hidden', boxShadow: highlightEntryId === entry.id ? '0 0 0 4px #e0e7ff' : '0 1px 4px rgba(0,0,0,0.04)',
+                      background: voiceNewEntries.has(entry.id) ? '#eff6ff' : '#fff',
+                      border: highlightEntryId === entry.id
+                        ? '2px solid #6366f1'
+                        : voiceNewEntries.has(entry.id)
+                          ? '2px solid #3b82f6'
+                          : '1px solid #e8edf2',
+                      borderRadius: 14,
+                      overflow: 'hidden',
+                      boxShadow: highlightEntryId === entry.id
+                        ? '0 0 0 4px #e0e7ff'
+                        : voiceNewEntries.has(entry.id)
+                          ? '0 0 0 3px #bfdbfe'
+                          : '0 1px 4px rgba(0,0,0,0.04)',
                       transition: 'box-shadow 0.3s, border-color 0.3s',
                     }}>
                     {/* Compact Header — always visible */}
@@ -1532,7 +1543,9 @@ export default function MonthlyPlansPage() {
                       style={{
                         display: 'flex', alignItems: 'center', gap: 0, padding: '10px 16px',
                         cursor: 'pointer', userSelect: 'none',
-                        background: isExpanded ? '#fafbfc' : '#fff',
+                        background: isExpanded
+                          ? (voiceNewEntries.has(entry.id) ? '#dbeafe' : '#fafbfc')
+                          : (voiceNewEntries.has(entry.id) ? '#eff6ff' : '#fff'),
                         borderBottom: isExpanded ? '1px solid #f1f5f9' : 'none',
                         transition: 'background 0.15s',
                       }}>
@@ -1556,11 +1569,12 @@ export default function MonthlyPlansPage() {
                           {entry.doctor.name}
                           {voiceNewEntries.has(entry.id) && (
                             <span style={{
-                              marginRight: 6, fontSize: 10, fontWeight: 700,
-                              background: '#dbeafe', color: '#1d4ed8',
-                              padding: '2px 7px', borderRadius: 20,
+                              marginRight: 6, fontSize: 10, fontWeight: 800,
+                              background: '#2563eb', color: '#fff',
+                              padding: '2px 8px', borderRadius: 20,
                               verticalAlign: 'middle',
-                            }}>✨ مضاف صوتياً</span>
+                              boxShadow: '0 1px 4px rgba(37,99,235,0.4)',
+                            }}>🎤 مضاف صوتياً</span>
                           )}
                         </p>
                         <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
