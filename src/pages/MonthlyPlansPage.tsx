@@ -3,11 +3,38 @@ import { useAuth } from '../context/AuthContext';
 import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
 
-// --- Voice beep sounds (created fresh each time to avoid mobile autoplay issues) ---
+// --- Voice beep: fetch audio buffer once, play via AudioContext (works on iOS/Android) ---
+let _audioCtx: AudioContext | null = null;
+const _buffers: Record<string, AudioBuffer> = {};
+
+const getAudioCtx = () => {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  return _audioCtx;
+};
+
+const preloadAudio = async (src: string) => {
+  if (_buffers[src]) return;
+  try {
+    const ctx = getAudioCtx();
+    const res = await fetch(src);
+    const arr = await res.arrayBuffer();
+    _buffers[src] = await ctx.decodeAudioData(arr);
+  } catch {}
+};
+
 const playAudio = (src: string) => {
   try {
-    const a = new Audio(src);
-    a.play().catch(() => {});
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    if (_buffers[src]) {
+      const source = ctx.createBufferSource();
+      source.buffer = _buffers[src];
+      source.connect(ctx.destination);
+      source.start(0);
+    } else {
+      // fallback: preload then play
+      preloadAudio(src).then(() => playAudio(src));
+    }
   } catch {}
 };
 
@@ -182,6 +209,7 @@ export default function MonthlyPlansPage() {
   }, [H]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { preloadAudio(voiceStartSrc); preloadAudio(voiceStopSrc); }, []);
 
   // Reload a single plan
   const reloadPlan = async (id: number) => {
