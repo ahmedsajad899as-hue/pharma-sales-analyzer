@@ -57,6 +57,52 @@ export async function getOne(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── Normalize Arabic text for note analysis ──────────────────
+function normalizeAr(text) {
+  return (text ?? '')
+    .replace(/\u0640/g, '')           // tatweel
+    .replace(/[\u064B-\u065F]/g, '')  // tashkeel
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .toLowerCase();
+}
+
+// Keywords that indicate a positive/engaged doctor worth keeping in the plan.
+// Applied to NORMALIZED Arabic text of visit notes.
+const POSITIVE_NOTE_RE = new RegExp([
+  // Follow-up / return visit
+  'متابع', 'تابع', 'عوده', 'يعود', 'ارجع', 'رجوع', 'اعاده', 'اعود',
+  'زياره قادمه', 'زياره اخرى', 'زياره تانيه', 'زياره ثانيه',
+  'موعد اخر', 'يوم اخر', 'وقت اخر', 'وقت ثاني',
+  // Samples request
+  'سامبل', 'سمبل', 'عينه', 'عينات', 'نماذج', 'نموذج',
+  // Bring someone / something
+  'احضار', 'يحضر', 'احضر', 'تحضر',
+  // Bring manager / supervisor
+  'مدير', 'سوبر', 'مشرف', 'تيم ليدر', 'قائد الفريق', 'ليدر',
+  // Doctor asked / enquired
+  'سال', 'يسال', 'سوال', 'استفسار', 'استفسر', 'تساءل',
+  // Doctor requested something from rep
+  'طلب', 'يطلب', 'محتاج', 'يحتاج', 'احتياج', 'حاجه',
+  // Reminder needed
+  'تذكير', 'يذكر', 'ذكره', 'تذكر',
+  // Study / research / data
+  'دراسه', 'ابحاث', 'اثبت', 'احصائيات', 'نتائج دراسه', 'papers', 'مقاله',
+  // Doctor agreed / promised
+  'موافق', 'وافق', 'وعد', 'وعدني', 'اتفق', 'بيجرب',
+  // Company / office inquiry
+  'الشركه', 'المكتب', 'الوكيل',
+  // Pharmacy follow-up
+  'صيدليه', 'الصيدليه',
+  // Trial / trying
+  'تجربه', 'يجرب', 'تجريب',
+  // Interested (in notes confirms engagement)
+  'مهتم', 'مهتمه', 'منبسط', 'راضي',
+  // Will contact
+  'اتصل', 'تواصل', 'يتواصل',
+].join('|'));
+
 // ── Smart suggestion for new plan ────────────────────────────
 // Logic: take prev month visits, keep positive feedback, replace negative with new doctors from survey
 export async function suggest(req, res, next) {
@@ -68,6 +114,7 @@ export async function suggest(req, res, next) {
       keepFeedback,          // comma-separated e.g. 'writing,stocked,interested'
       restrictToAreas = 'true',
       sortBy = 'oldest',     // 'oldest' | 'newest' | 'random'
+      useNoteAnalysis = 'true',  // analyze visit notes for positive signals
     } = req.query;
     if (!scientificRepId || !month || !year)
       return res.status(400).json({ error: 'scientificRepId, month, year required' });
@@ -81,20 +128,21 @@ export async function suggest(req, res, next) {
       ? String(keepFeedback).split(',').map(s => s.trim()).filter(Boolean)
       : ['writing', 'stocked', 'interested'];
 
+    const analyzeNotes    = String(useNoteAnalysis) !== 'false';
     const useAreaRestriction = String(restrictToAreas) !== 'false';
 
     // Previous month
     const prevMonth = m === 1 ? 12 : m - 1;
     const prevYear  = m === 1 ? y - 1 : y;
 
-    // Get previous plan visits
+    // Get previous plan visits (all visits so we can scan all notes)
     const prevPlan = await prisma.monthlyPlan.findFirst({
       where: { scientificRepId: repId, month: prevMonth, year: prevYear, userId },
       include: {
         entries: {
           include: {
             doctor:  true,
-            visits:  { orderBy: { visitDate: 'desc' }, take: 1 },
+            visits:  { orderBy: { visitDate: 'desc' } },  // all visits for note analysis
           },
         },
       },
@@ -118,9 +166,21 @@ export async function suggest(req, res, next) {
         // Skip if doctor already in current plan
         if (usedDoctorIds.has(entry.doctor.id)) continue;
         const lastFeedback = entry.visits[0]?.feedback ?? 'pending';
+
         if (KEEP_FEEDBACK.includes(lastFeedback)) {
           keepDoctors.push({ doctor: entry.doctor, reason: lastFeedback });
           usedDoctorIds.add(entry.doctor.id);
+        } else if (analyzeNotes) {
+          // Scan ALL visit notes for positive engagement signals
+          const allNotes = normalizeAr(
+            entry.visits.map(v => v.notes ?? '').join(' ')
+          );
+          if (allNotes.trim() && POSITIVE_NOTE_RE.test(allNotes)) {
+            keepDoctors.push({ doctor: entry.doctor, reason: 'positive_notes' });
+            usedDoctorIds.add(entry.doctor.id);
+          } else {
+            replacedCount++;
+          }
         } else {
           replacedCount++;
         }

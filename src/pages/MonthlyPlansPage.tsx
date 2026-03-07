@@ -84,12 +84,13 @@ interface SuggestResult {
 
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 const FEEDBACK_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  writing:      { label: 'يكتب',       color: '#166534', bg: '#dcfce7' },
-  stocked:      { label: 'نزل الايتم', color: '#1e40af', bg: '#dbeafe' },
-  interested:   { label: 'مهتم',       color: '#7c3aed', bg: '#ede9fe' },
-  not_interested:{ label: 'غير مهتم',  color: '#991b1b', bg: '#fee2e2' },
-  unavailable:  { label: 'غير متوفر',  color: '#92400e', bg: '#fef3c7' },
-  pending:      { label: 'معلق',       color: '#475569', bg: '#f1f5f9' },
+  writing:        { label: 'يكتب',             color: '#166534', bg: '#dcfce7' },
+  stocked:        { label: 'نزل الايتم',        color: '#1e40af', bg: '#dbeafe' },
+  interested:     { label: 'مهتم',              color: '#7c3aed', bg: '#ede9fe' },
+  not_interested: { label: 'غير مهتم',          color: '#991b1b', bg: '#fee2e2' },
+  unavailable:    { label: 'غير متوفر',         color: '#92400e', bg: '#fef3c7' },
+  pending:        { label: 'معلق',              color: '#475569', bg: '#f1f5f9' },
+  positive_notes: { label: '📝 ملاحظات إيجابية', color: '#0369a1', bg: '#e0f2fe' },
 };
 
 // Capture GPS location (resolves to null if denied/unavailable)
@@ -135,6 +136,7 @@ export default function MonthlyPlansPage() {
   const [sKeepFeedback, setSKeepFeedback]   = useState<string[]>(['writing', 'stocked', 'interested']);
   const [sRestrictAreas, setSRestrictAreas] = useState(true);
   const [sSortBy, setSSortBy]               = useState<'oldest' | 'newest' | 'random'>('oldest');
+  const [sUseNoteAnalysis, setSUseNoteAnalysis] = useState(true);
 
   // Upload visits
   const fileRef = useRef<HTMLInputElement>(null);
@@ -368,6 +370,7 @@ export default function MonthlyPlansPage() {
         keepFeedback:     sKeepFeedback.join(','),
         restrictToAreas:  String(sRestrictAreas),
         sortBy:           sSortBy,
+        useNoteAnalysis:  String(sUseNoteAnalysis),
       });
       const r = await fetch(`${API}/api/monthly-plans/suggest?${p}`, { headers: H() });
       const j: SuggestResult = await r.json();
@@ -1223,6 +1226,28 @@ export default function MonthlyPlansPage() {
                         <option value="newest">الأحدث إدخالاً</option>
                         <option value="random">عشوائي</option>
                       </select>
+                    </label>
+
+                    {/* Note analysis toggle */}
+                    <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📝 تحليل ملاحظات الزيارات</p>
+                        <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                          يسحب الأطباء الذين ملاحظات زياراتهم تشير إلى متابعة، طلب عينات، سؤال، زيارة قادمة، إحضار مدير، متابعة صيدلية... حتى لو الفيدباك الأخير سلبي
+                        </p>
+                      </div>
+                      <div onClick={() => setSUseNoteAnalysis(v => !v)}
+                        style={{
+                          width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
+                          background: sUseNoteAnalysis ? '#8b5cf6' : '#e2e8f0', position: 'relative',
+                        }}>
+                        <div style={{
+                          position: 'absolute', top: 3, transition: 'left 0.2s',
+                          left: sUseNoteAnalysis ? 23 : 3,
+                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                        }} />
+                      </div>
                     </label>
 
                     <button onClick={loadSuggest} disabled={suggestLoading}
