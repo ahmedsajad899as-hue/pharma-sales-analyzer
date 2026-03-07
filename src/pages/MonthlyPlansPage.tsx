@@ -1267,51 +1267,56 @@ export default function MonthlyPlansPage() {
                             <div style={{ flex: 1, minWidth: 140 }}>
                               {/* Doctor name — editable on click */}
                               {editingVoiceName === i ? (
-                                <input
-                                  autoFocus
-                                  value={v.doctorName}
-                                  onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, doctorName: e.target.value } : r))}
-                                  onBlur={async () => {
-                                    setEditingVoiceName(null);
-                                    // Re-run server-side matching by calling the same endpoint is complex,
-                                    // so do a client-side plan entry lookup after name edit
-                                    if (!activePlan) return;
-                                    const TITLES = /^(\u062f\u0643\u062a\u0648\u0631|\u062f\u0643\u062a\u0648\u0631\u0647|\u062f\.|\u0627\u0633\u062a\u0627\u0630|\u0627\u0633\u062a\u0627\u0630\u0647|\u0635\u064a\u062f\u0644\u0627\u0646\u064a|\u062d\u0627\u062c|\u062d\u0627\u062c\u0647)\s+/g;
-                                    const norm = (s: string) => s.trim().replace(TITLES,'').toLowerCase()
-                                      .replace(/\u0623|\u0625|\u0622/g,'\u0627').replace(/\u0629/g,'\u0647').replace(/\u0649/g,'\u064a')
-                                      .replace(/[\u064b-\u0652]/g,'').replace(/\s+/g,' ');
-                                    const typed = norm(v.doctorName);
-                                    let matched: number | null = null;
-                                    for (const e of activePlan.entries) {
-                                      const en = norm(e.doctor.name);
-                                      // Exact or full-name containment only
-                                      const exactMatch = en === typed || en.includes(typed) || typed.includes(en);
-                                      // Token match: ALL significant tokens (>=4 chars) in typed must appear in en
-                                      const typedTokens = typed.split(' ').filter((t: string) => t.length >= 4);
-                                      const allTokensMatch = typedTokens.length >= 2 && typedTokens.every((t: string) => en.includes(t));
-                                      // Single long token: one word >= 5 chars that appears exactly as a word in both
-                                      const enTokens = en.split(' ');
-                                      const longTokenMatch = typedTokens.some((t: string) => t.length >= 5 && enTokens.includes(t));
-                                      if (exactMatch || allTokensMatch || longTokenMatch) {
-                                        matched = e.id; break;
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <input
+                                    autoFocus
+                                    value={v.doctorName}
+                                    onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, doctorName: e.target.value } : r))}
+                                    onKeyDown={e => { if (e.key === 'Escape') setEditingVoiceName(null); }}
+                                    placeholder="اسم الطبيب"
+                                    style={{
+                                      fontWeight: 700, fontSize: 13, color: '#1e293b',
+                                      border: '2px solid #6366f1',
+                                      borderRadius: 6, padding: '3px 8px', background: '#fff',
+                                      width: '100%', direction: 'rtl', outline: 'none',
+                                    }}
+                                  />
+                                  {/* Dropdown: pick from plan doctors or leave unmatched */}
+                                  <select
+                                    value={v.entryId ?? ''}
+                                    onChange={e => {
+                                      const picked = e.target.value ? Number(e.target.value) : null;
+                                      if (picked && activePlan) {
+                                        const pe = activePlan.entries.find(en => en.id === picked);
+                                        if (pe) {
+                                          setVoiceResults(prev => prev!.map((r, idx) => idx === i
+                                            ? { ...r, entryId: picked, doctorName: pe.doctor.name } : r));
+                                        }
+                                      } else {
+                                        setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, entryId: null } : r));
                                       }
-                                    }
-                                    setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, entryId: matched } : r));
-                                  }}
-                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
-                                  style={{
-                                    fontWeight: 700, fontSize: 13,
-                                    color: isMatched ? '#166534' : '#92400e',
-                                    border: `2px solid ${isMatched ? '#86efac' : '#fb923c'}`,
-                                    borderRadius: 6, padding: '2px 6px', background: '#fff',
-                                    width: '100%', direction: 'rtl', outline: 'none',
-                                  }}
-                                />
+                                      setEditingVoiceName(null);
+                                    }}
+                                    style={{
+                                      padding: '3px 6px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                                      border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca',
+                                      cursor: 'pointer', direction: 'rtl',
+                                    }}>
+                                    <option value="">⚠️ غير موجود في البلان (طبيب جديد)</option>
+                                    {activePlan?.entries.map(pe => (
+                                      <option key={pe.id} value={pe.id}>✅ {pe.doctor.name}</option>
+                                    ))}
+                                  </select>
+                                  <button onClick={() => setEditingVoiceName(null)}
+                                    style={{ alignSelf: 'flex-end', fontSize: 11, padding: '2px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>
+                                    ✓ تم
+                                  </button>
+                                </div>
                               ) : (
                                 <p
                                   onClick={() => setEditingVoiceName(i)}
-                                  title="اضغط لتعديل الاسم"
-                                  style={{ margin: 0, fontWeight: 700, fontSize: 13, color: isMatched ? '#166534' : '#92400e', cursor: 'text', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  title="اضغط لتعديل الاسم أو ربطه بطبيب في البلان"
+                                  style={{ margin: 0, fontWeight: 700, fontSize: 13, color: isMatched ? '#166534' : '#92400e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                                   {isMatched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
                                   <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>✏️</span>
                                 </p>
