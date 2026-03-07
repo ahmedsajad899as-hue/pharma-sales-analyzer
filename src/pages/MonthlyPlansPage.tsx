@@ -251,6 +251,18 @@ export default function MonthlyPlansPage() {
         .then(r => r.json())
         .then(j => setItems(Array.isArray(j) ? j : (Array.isArray(j?.data) ? j.data : [])))
         .catch(() => {});
+      // Restore last open plan after refresh
+      const savedPlanId = localStorage.getItem('lastPlanId');
+      if (savedPlanId) {
+        const id = parseInt(savedPlanId);
+        if (!isNaN(id)) {
+          try {
+            const r2 = await fetch(`${API}/api/monthly-plans/${id}`, { headers: h });
+            if (r2.ok) { const j2: Plan = await r2.json(); setActivePlan(j2); }
+            else { localStorage.removeItem('lastPlanId'); }
+          } catch { localStorage.removeItem('lastPlanId'); }
+        }
+      }
     } catch (e: any) { setError(e.message ?? 'خطأ في التحميل'); }
     finally { setLoading(false); }
   }, [H]);
@@ -259,6 +271,15 @@ export default function MonthlyPlansPage() {
 
   // Keep ref in sync for popstate handler
   useEffect(() => { activePlanRef.current = activePlan; }, [activePlan]);
+
+  // Persist last open plan to localStorage
+  useEffect(() => {
+    if (activePlan) {
+      localStorage.setItem('lastPlanId', String(activePlan.id));
+    } else {
+      localStorage.removeItem('lastPlanId');
+    }
+  }, [activePlan?.id]);
 
   // Mobile back button: inside a plan → go back to plan list
   useEffect(() => {

@@ -54,15 +54,17 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 function AppInner() {
   const { user } = useAuth();
   // On mobile (< 768px) start with sidebar closed
-  const [activePage, setActivePage]       = useState<PageId>('dashboard');
+  const [activePage, setActivePage]       = useState<PageId>(() => (localStorage.getItem('lastPage') as PageId) || 'dashboard');
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
 
   // Sync with browser history so mobile back button navigates within the app
   useEffect(() => {
-    history.replaceState({ page: 'dashboard' }, '');
+    const saved = (localStorage.getItem('lastPage') as PageId) || 'dashboard';
+    history.replaceState({ page: saved }, '');
     const handlePopState = (e: PopStateEvent) => {
       const page = (e.state?.page as PageId) || 'dashboard';
+      localStorage.setItem('lastPage', page);
       setActivePage(page);
     };
     window.addEventListener('popstate', handlePopState);
@@ -70,6 +72,7 @@ function AppInner() {
   }, []);
 
   const navigateTo = useCallback((page: PageId) => {
+    localStorage.setItem('lastPage', page);
     history.pushState({ page }, '');
     setActivePage(page);
   }, []);
