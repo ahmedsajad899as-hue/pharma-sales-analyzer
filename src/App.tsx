@@ -1,4 +1,5 @@
-﻿import { useState } from 'react';
+﻿import { useState, Component } from 'react';
+import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
@@ -12,7 +13,16 @@ import MonthlyPlansPage from './pages/MonthlyPlansPage';
 import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
 import './App.css';
-import React, { Component, ReactNode } from 'react';
+
+export type PageId =
+  | 'dashboard'
+  | 'upload'
+  | 'representatives'
+  | 'scientific-reps'
+  | 'doctors'
+  | 'monthly-plans'
+  | 'reports'
+  | 'users';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
