@@ -163,10 +163,11 @@ export default function MonthlyPlansPage() {
   const [voiceAddToPlan, setVoiceAddToPlan] = useState<Set<number>>(new Set()); // indices of unmatched visits to add to plan
   const [voiceNewEntries, setVoiceNewEntries] = useState<Set<number>>(new Set()); // entryIds added during this session
   const [voiceSaving, setVoiceSaving] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef  = useRef<Blob[]>([]);
-  const silenceTimerRef = useRef<any>(null);
-  const voicePanelRef   = useRef<HTMLDivElement | null>(null);
+  const mediaRecorderRef    = useRef<MediaRecorder | null>(null);
+  const audioChunksRef      = useRef<Blob[]>([]);
+  const silenceTimerRef     = useRef<any>(null);
+  const voicePanelRef       = useRef<HTMLDivElement | null>(null);
+  const recordingStartRef   = useRef<number>(0); // timestamp when recording started
   // keep legacy refs so voice-result UI still works
   const wantListeningRef = useRef(false);
   const recognitionRef   = useRef<any>(null);
@@ -527,7 +528,8 @@ export default function MonthlyPlansPage() {
         setVoiceListening(false);
         setVoiceReminderVisible(false);
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        if (blob.size > 500) {
+        const durationSec = (Date.now() - recordingStartRef.current) / 1000;
+        if (blob.size > 500 && durationSec >= 2) {
           await parseVoiceAudio(blob, recorder.mimeType || 'audio/webm');
         } else {
           setVoiceError('التسجيل قصير جداً — تحدث لمدة ثانيتين على الأقل ثم أوقف التسجيل');
@@ -535,6 +537,7 @@ export default function MonthlyPlansPage() {
       };
 
       recorder.start();
+      recordingStartRef.current = Date.now();
       setVoiceListening(true);
 
       // 60s max recording auto-stop

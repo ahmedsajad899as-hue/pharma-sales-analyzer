@@ -1065,17 +1065,27 @@ export async function parseVoiceAudio(req, res, next) {
 
     const prompt = `أنت مساعد ذكي لتحليل كلام مندوب طبي. استمع للتسجيل الصوتي واستخرج زيارات الأطباء.
 
-قائمة الأطباء في البلان (اسم الطبيب و entry id):
+قواعد صارمة جداً يجب اتباعها:
+1. إذا التسجيل فارغ أو لا يوجد كلام واضح أو لا يُفهم → أرجع {"visits": []} فوراً بدون أي إضافة
+2. إذا التسجيل يحتوي على ضوضاء فقط أو كلام غير مفهوم → أرجع {"visits": []}
+3. لا تخترع أو تفترض أي زيارة لم تُذكر صراحةً في الكلام
+4. لا تستخدم قائمة الأطباء أو الأيتمات كأساس للاقتراح — فقط ما قيل فعلاً بالصوت
+5. إذا ذُكر اسم طبيب لكن لم يُذكر فيدباك واضح → اجعل feedback = "pending"
+6. فقط الزيارات المذكورة صوتياً بشكل صريح تُضاف
+
+قائمة الأطباء في البلان للمطابقة فقط (لا للاقتراح):
 ${doctorNames}
 
-قائمة الأيتمات/الأدوية المتاحة:
+قائمة الأيتمات/الأدوية للمطابقة فقط:
 ${itemNames}
 
 قيم الفيدباك المتاحة: ${feedbackValues.join(', ')}
 المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
 
-استخرج كل زيارة مذكورة وأرجع JSON فقط:
-{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}`;
+أرجع JSON فقط بدون أي نص آخر:
+{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}
+
+تذكير: إذا ما في كلام أو الكلام غير واضح → {"visits": []}}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
