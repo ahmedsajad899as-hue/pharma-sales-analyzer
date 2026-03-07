@@ -107,6 +107,7 @@ export default function MonthlyPlansPage() {
   // Voice input
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceReminderVisible, setVoiceReminderVisible] = useState(false);
+  const [voiceCountingDown, setVoiceCountingDown] = useState(false);
   const [voiceParsing, setVoiceParsing] = useState(false);
   const [voiceResults, setVoiceResults] = useState<{ entryId: number | null; doctorName: string; itemId: number | null; itemName: string; feedback: string; notes: string; date: string }[] | null>(null);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -413,69 +414,75 @@ export default function MonthlyPlansPage() {
   // Toggle allowExtraVisits for the active plan
   // ── Voice input functions ──────────────────────────────────
   const startVoice = () => {
-    if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play().catch(() => {}); } catch {} }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ar-IQ';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    let finalText = '';
-    // Reset the 10-second silence timer — called on speech or on restart
-    const resetSilenceTimer = () => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
-        wantListeningRef.current = false;
-        recognition.stop();
-      }, 10000);
-    };
 
-    recognition.onresult = (event: any) => {
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
-      }
-      finalTextRef.current = finalText;
-      resetSilenceTimer();
-    };
-    recognition.onerror = (e: any) => {
-      if (e.error === 'no-speech' && wantListeningRef.current) {
-        // On mobile no-speech fires instead of onend — just restart
-        try { recognition.start(); resetSilenceTimer(); } catch {}
-        return;
-      }
-      if (e.error === 'aborted' && !wantListeningRef.current) return;
-      wantListeningRef.current = false;
-      setVoiceListening(false);
-      setVoiceReminderVisible(false);
-    };
-    recognition.onend = () => {
-      if (wantListeningRef.current) {
-        // Restart to keep listening (works on both desktop and mobile)
-        try { recognition.start(); resetSilenceTimer(); } catch {}
-        return;
-      }
-      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-      setVoiceListening(false);
-      setVoiceReminderVisible(false);
-      if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
-      // Auto-parse immediately after stopping
-      const text = finalTextRef.current.trim();
-      if (text) parseVoiceText(text);
-    };
-    recognitionRef.current = recognition;
-    wantListeningRef.current = true;
-    finalTextRef.current = '';
-    recognition.start();
-    resetSilenceTimer();
-    setVoiceListening(true);
-    setVoiceResults(null);
+    // Show overlay immediately with countdown, start recording after 2s
     setVoiceReminderVisible(true);
+    setVoiceCountingDown(true);
+    setVoiceResults(null);
+
+    setTimeout(() => {
+      setVoiceCountingDown(false);
+      if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play().catch(() => {}); } catch {} }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'ar-IQ';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      let finalText = '';
+      const resetSilenceTimer = () => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          wantListeningRef.current = false;
+          recognition.stop();
+        }, 10000);
+      };
+
+      recognition.onresult = (event: any) => {
+        for (let i = 0; i < event.results.length; i++) {
+          if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
+        }
+        finalTextRef.current = finalText;
+        resetSilenceTimer();
+      };
+      recognition.onerror = (e: any) => {
+        if (e.error === 'no-speech' && wantListeningRef.current) {
+          try { recognition.start(); resetSilenceTimer(); } catch {}
+          return;
+        }
+        if (e.error === 'aborted' && !wantListeningRef.current) return;
+        wantListeningRef.current = false;
+        setVoiceListening(false);
+        setVoiceReminderVisible(false);
+      };
+      recognition.onend = () => {
+        if (wantListeningRef.current) {
+          try { recognition.start(); resetSilenceTimer(); } catch {}
+          return;
+        }
+        if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+        setVoiceListening(false);
+        setVoiceReminderVisible(false);
+        if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
+        const text = finalTextRef.current.trim();
+        if (text) parseVoiceText(text);
+      };
+      recognitionRef.current = recognition;
+      wantListeningRef.current = true;
+      finalTextRef.current = '';
+      recognition.start();
+      resetSilenceTimer();
+      setVoiceListening(true);
+    }, 2000);
   };
 
   const stopVoice = () => {
     wantListeningRef.current = false;
+    setVoiceCountingDown(false);
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     setVoiceReminderVisible(false);
+    setVoiceListening(false);
     recognitionRef.current?.stop();
   };
 
@@ -619,14 +626,28 @@ export default function MonthlyPlansPage() {
               background: '#fff', borderRadius: 20, padding: '24px 20px',
               maxWidth: 360, width: '92%', textAlign: 'center', direction: 'rtl',
               boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+              overflow: 'hidden',
             }}
           >
-            <div style={{ fontSize: 34, marginBottom: 6 }}>🎤</div>
+            {/* Countdown progress bar */}
+            {voiceCountingDown && (
+              <div style={{ margin: '-24px -20px 18px', height: 5, background: '#e2e8f0', borderRadius: '20px 20px 0 0', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', background: 'linear-gradient(90deg, #f97316, #ef4444)',
+                  borderRadius: 'inherit',
+                  animation: 'countdown-bar 2s linear forwards',
+                }} />
+              </div>
+            )}
+
+            <div style={{ fontSize: 34, marginBottom: 6 }}>
+              {voiceCountingDown ? '⏳' : '🎙️'}
+            </div>
             <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>
-              تذكير قبل التسجيل
+              {voiceCountingDown ? 'استعد للتسجيل...' : 'جاري التسجيل الآن'}
             </h2>
-            <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b' }}>
-              تأكد من ذكر هذه المعلومات:
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: voiceCountingDown ? '#f97316' : '#64748b', fontWeight: voiceCountingDown ? 700 : 400 }}>
+              {voiceCountingDown ? '🔴 سيبدأ التسجيل خلال ثانيتين' : 'تأكد من ذكر هذه المعلومات:'}
             </p>
 
             {/* Info items */}
@@ -660,16 +681,17 @@ export default function MonthlyPlansPage() {
               ))}
             </div>
 
-            {/* Tap to stop hint */}
+            {/* Tap to stop */}
             <div
               onClick={stopVoice}
               style={{
-                background: '#fee2e2', border: '1.5px solid #fca5a5',
+                background: voiceCountingDown ? '#fef3c7' : '#fee2e2',
+                border: `1.5px solid ${voiceCountingDown ? '#fbbf24' : '#fca5a5'}`,
                 borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
               }}
             >
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#dc2626' }}>
-                👆 اضغط هنا أو في أي مكان على الشاشة لإنهاء التسجيل
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: voiceCountingDown ? '#92400e' : '#dc2626' }}>
+                {voiceCountingDown ? '✋ اضغط هنا للإلغاء' : '👆 اضغط هنا أو في أي مكان لإنهاء التسجيل'}
               </p>
             </div>
           </div>
