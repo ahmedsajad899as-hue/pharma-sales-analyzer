@@ -1189,70 +1189,135 @@ export default function MonthlyPlansPage() {
                   <div>
                     {voiceResults.length === 0 ? (
                       <p style={{ textAlign: 'center', color: '#94a3b8', padding: 12 }}>لم يتم التعرف على أي زيارات في الكلام</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {voiceResults.map((v, i) => {
-                          const fbMeta = FEEDBACK_LABELS[v.feedback] ?? FEEDBACK_LABELS.pending;
-                          const matched = v.entryId !== null;
-                          const willAdd = !matched && voiceAddToPlan.has(i);
-                          return (
-                            <div key={i} style={{
-                              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
-                              background: matched ? '#f0fdf4' : willAdd ? '#eff6ff' : '#fef2f2',
-                              border: `1px solid ${matched ? '#bbf7d0' : willAdd ? '#bfdbfe' : '#fecaca'}`,
-                              borderRadius: 10, flexWrap: 'wrap',
-                            }}>
-                              <button onClick={() => setVoiceResults(prev => prev!.filter((_, idx) => idx !== i))}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: 0, marginTop: 2 }}
-                                title="حذف">×</button>
-                              <div style={{ flex: 1, minWidth: 120 }}>
-                                <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                                  {matched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
-                                </p>
-                                {v.itemName && (
-                                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
-                                )}
-                                {!matched && (
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={willAdd}
-                                      onChange={e => setVoiceAddToPlan(prev => {
-                                        const s = new Set(prev);
-                                        e.target.checked ? s.add(i) : s.delete(i);
-                                        return s;
-                                      })}
-                                    />
-                                    <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700 }}>أضف للبلان وسجّل الكول</span>
-                                  </label>
-                                )}
-                              </div>
-                              <select
-                                value={v.feedback}
-                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, feedback: e.target.value } : r))}
-                                style={{
-                                  padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                                  border: '1px solid #e2e8f0', background: fbMeta.bg, color: fbMeta.color,
-                                  cursor: 'pointer',
-                                }}>
-                                {Object.entries(FEEDBACK_LABELS).map(([key, val]) => (
-                                  <option key={key} value={key}>{(val as any).label}</option>
-                                ))}
-                              </select>
-                              <input
-                                value={v.notes}
-                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, notes: e.target.value } : r))}
-                                placeholder="ملاحظات"
-                                style={{
-                                  padding: '4px 8px', borderRadius: 8, fontSize: 11, border: '1px solid #e2e8f0',
-                                  width: 120, direction: 'rtl', background: '#f8fafc',
-                                }}
-                              />
+                    ) : (() => {
+                      const matchedList   = voiceResults.map((v, i) => ({ v, i })).filter(({ v }) => v.entryId !== null);
+                      const unmatchedList = voiceResults.map((v, i) => ({ v, i })).filter(({ v }) => v.entryId === null);
+
+                      const renderRow = ({ v, i }: { v: typeof voiceResults[0]; i: number }, isMatched: boolean) => {
+                        const fbMeta = FEEDBACK_LABELS[v.feedback] ?? FEEDBACK_LABELS.pending;
+                        const willAdd = !isMatched && voiceAddToPlan.has(i);
+                        return (
+                          <div key={i} style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
+                            background: isMatched ? '#f0fdf4' : willAdd ? '#eff6ff' : '#fff7ed',
+                            border: `1.5px solid ${isMatched ? '#86efac' : willAdd ? '#93c5fd' : '#fed7aa'}`,
+                            borderRadius: 10, flexWrap: 'wrap',
+                          }}>
+                            <button onClick={() => setVoiceResults(prev => prev!.filter((_, idx) => idx !== i))}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 18, padding: 0, lineHeight: 1 }}
+                              title="حذف">×</button>
+                            <div style={{ flex: 1, minWidth: 140 }}>
+                              <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: isMatched ? '#166534' : '#92400e' }}>
+                                {isMatched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
+                              </p>
+                              {v.itemName && (
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
+                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                            <select
+                              value={v.feedback}
+                              onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, feedback: e.target.value } : r))}
+                              style={{
+                                padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                                border: '1px solid #e2e8f0', background: fbMeta.bg, color: fbMeta.color, cursor: 'pointer',
+                              }}>
+                              {Object.entries(FEEDBACK_LABELS).map(([key, val]) => (
+                                <option key={key} value={key}>{(val as any).label}</option>
+                              ))}
+                            </select>
+                            <input
+                              value={v.notes}
+                              onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, notes: e.target.value } : r))}
+                              placeholder="ملاحظات"
+                              style={{
+                                padding: '4px 8px', borderRadius: 8, fontSize: 11, border: '1px solid #e2e8f0',
+                                width: 110, direction: 'rtl', background: '#f8fafc',
+                              }}
+                            />
+                          </div>
+                        );
+                      };
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                          {/* ── Matched doctors (in plan) ── */}
+                          {matchedList.length > 0 && (
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: '#166534' }}>✅ موجودين في البلان ({matchedList.length})</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {matchedList.map(item => renderRow(item, true))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── Unmatched doctors (NOT in plan) ── */}
+                          {unmatchedList.length > 0 && (
+                            <div style={{
+                              background: '#fff7ed', border: '2px dashed #fb923c',
+                              borderRadius: 12, padding: '10px 12px',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: '#c2410c' }}>
+                                  ⚠️ غير موجودين في البلان ({unmatchedList.length})
+                                </span>
+                                <button
+                                  onClick={() => setVoiceAddToPlan(prev => {
+                                    const s = new Set(prev);
+                                    unmatchedList.forEach(({ i }) => s.add(i));
+                                    return s;
+                                  })}
+                                  style={{
+                                    fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 20,
+                                    background: '#ea580c', color: '#fff', border: 'none', cursor: 'pointer',
+                                  }}>
+                                  ➕ اضافة الكل للبلان
+                                </button>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {unmatchedList.map(item => {
+                                  const willAdd = voiceAddToPlan.has(item.i);
+                                  return (
+                                    <div key={item.i}>
+                                      {renderRow(item, false)}
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '6px 14px 8px',
+                                        background: willAdd ? '#dbeafe' : '#fee2e2',
+                                        borderRadius: '0 0 10px 10px',
+                                        borderTop: `1px dashed ${willAdd ? '#93c5fd' : '#fca5a5'}`,
+                                        marginTop: -2,
+                                      }}>
+                                        <input
+                                          type="checkbox"
+                                          id={`add-${item.i}`}
+                                          checked={willAdd}
+                                          onChange={e => setVoiceAddToPlan(prev => {
+                                            const s = new Set(prev);
+                                            e.target.checked ? s.add(item.i) : s.delete(item.i);
+                                            return s;
+                                          })}
+                                          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#2563eb' }}
+                                        />
+                                        <label htmlFor={`add-${item.i}`} style={{
+                                          fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                                          color: willAdd ? '#1d4ed8' : '#b91c1c',
+                                        }}>
+                                          {willAdd ? '✅ سيتم إضافته للبلان وتسجيل الكول' : '❌ لن يُضاف — اضغط لإضافته للبلان'}
+                                        </label>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                    }
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <button onClick={() => { setVoiceResults(null); }}
                         style={btnStyle('#94a3b8', true)}>إلغاء</button>
