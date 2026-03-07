@@ -711,11 +711,13 @@ export default function MonthlyPlansPage() {
     setVoiceSaving(false);
     setVoiceResults(null);
     setVoiceAddToPlan(new Set());
-    // Merge new IDs with any previously voice-added entries for this plan
-    const mergedNew = new Set([...voiceNewEntries, ...newEntryIds]);
+    // Always read from localStorage directly (source of truth) — avoids stale closure bug
+    const lsKey = `voiceNew_${activePlan.id}`;
+    let alreadySaved: number[] = [];
+    try { const raw = localStorage.getItem(lsKey); if (raw) alreadySaved = JSON.parse(raw); } catch {}
+    const mergedNew = new Set([...alreadySaved, ...newEntryIds]);
     setVoiceNewEntries(mergedNew);
-    // Persist to localStorage so it survives navigation / page refresh
-    localStorage.setItem(`voiceNew_${activePlan.id}`, JSON.stringify([...mergedNew]));
+    localStorage.setItem(lsKey, JSON.stringify([...mergedNew]));
     await reloadPlan(activePlan.id);
     const msg = failed > 0
       ? `⚠️ تم تسجيل ${success} زيارة، فشل ${failed} (${skipped} مكررة)`
