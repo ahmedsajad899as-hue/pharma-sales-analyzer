@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import voiceStartSrc from '../assets/voice-start.mp3';
+import voiceStopSrc  from '../assets/voice-stop.mp3';
 
 // --- Voice beep sounds ---
-const voiceStartAudio = typeof window !== 'undefined' ? new Audio(require('../assets/voice-start.mp3')) : null;
-const voiceStopAudio  = typeof window !== 'undefined' ? new Audio(require('../assets/voice-stop.mp3')) : null;
-import { useAuth } from '../context/AuthContext';
+const voiceStartAudio = typeof window !== 'undefined' ? new Audio(voiceStartSrc) : null;
+const voiceStopAudio  = typeof window !== 'undefined' ? new Audio(voiceStopSrc)  : null;
 
 const API = import.meta.env.VITE_API_URL || '';
 
