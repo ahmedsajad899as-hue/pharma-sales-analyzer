@@ -168,6 +168,7 @@ export default function MonthlyPlansPage() {
   const silenceTimerRef     = useRef<any>(null);
   const voicePanelRef       = useRef<HTMLDivElement | null>(null);
   const recordingStartRef   = useRef<number>(0); // timestamp when recording started
+  const activePlanRef       = useRef<typeof activePlan>(null); // for popstate closure
   // keep legacy refs so voice-result UI still works
   const wantListeningRef = useRef(false);
   const recognitionRef   = useRef<any>(null);
@@ -232,6 +233,23 @@ export default function MonthlyPlansPage() {
   }, [H]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Keep ref in sync for popstate handler
+  useEffect(() => { activePlanRef.current = activePlan; }, [activePlan]);
+
+  // Mobile back button: inside a plan → go back to plan list
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (activePlanRef.current && !e.state?.planId) {
+        setActivePlan(null);
+        setSearchQuery('');
+        setVisitFilter('all');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   useEffect(() => {
     if (voiceResults !== null || voiceParsing || voiceError) {
       setTimeout(() => voicePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
@@ -914,7 +932,10 @@ export default function MonthlyPlansPage() {
                   const totalV = p.entries.reduce((s, e) => s + e.visits.length, 0);
                   const pct    = Math.min(100, Math.round((totalV / (p.targetCalls || 150)) * 100));
                   return (
-                    <div key={p.id} onClick={() => { setActivePlan(p); setSearchQuery(''); setVisitFilter('all'); }}
+                    <div key={p.id} onClick={() => {
+                      history.pushState({ page: 'monthly-plans', planId: p.id }, '');
+                      setActivePlan(p); setSearchQuery(''); setVisitFilter('all');
+                    }}
                       style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: 12, padding: 16, cursor: 'pointer', transition: 'all 0.15s' }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.15)'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}>

@@ -1,4 +1,4 @@
-﻿import { useState, Component } from 'react';
+﻿import { useState, useEffect, useCallback, Component } from 'react';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
@@ -58,6 +58,22 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
 
+  // Sync with browser history so mobile back button navigates within the app
+  useEffect(() => {
+    history.replaceState({ page: 'dashboard' }, '');
+    const handlePopState = (e: PopStateEvent) => {
+      const page = (e.state?.page as PageId) || 'dashboard';
+      setActivePage(page);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateTo = useCallback((page: PageId) => {
+    history.pushState({ page }, '');
+    setActivePage(page);
+  }, []);
+
   const toggleFileActive = (id: number | null) => {
     if (id === null) { setActiveFileIds([]); return; }
     setActiveFileIds(prev =>
@@ -71,11 +87,11 @@ function AppInner() {
   const renderPage = () => {
     switch (activePage) {
       case 'dashboard':
-        return <DashboardPage onNavigate={setActivePage} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
+        return <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
       case 'upload':
         return <UploadPage activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
       case 'representatives':
-        return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={setActivePage} />;
+        return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={navigateTo} />;
       case 'scientific-reps':
         return <ScientificRepsPage />;
       case 'doctors':
@@ -83,11 +99,11 @@ function AppInner() {
       case 'monthly-plans':
         return <MonthlyPlansPage />;
       case 'reports':
-        return <ReportsPage activeFileIds={activeFileIds} onNavigate={setActivePage} />;
+        return <ReportsPage activeFileIds={activeFileIds} onNavigate={navigateTo} />;
       case 'users':
         return <UsersPage />;
       default:
-        return <DashboardPage onNavigate={setActivePage} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
+        return <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
     }
   };
 
@@ -95,7 +111,7 @@ function AppInner() {
     <div className="app-shell" dir="rtl">
       <Sidebar
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={navigateTo}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         activeFileIds={activeFileIds}
