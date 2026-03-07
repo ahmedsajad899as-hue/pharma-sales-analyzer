@@ -38,6 +38,24 @@ const playAudio = (src: string) => {
   } catch {}
 };
 
+// Synthesized beep — guaranteed to work on all devices, no file needed
+const playBeep = (freq = 880, duration = 0.18, volume = 0.4) => {
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration);
+  } catch {}
+};
+
 const API = import.meta.env.VITE_API_URL || '';
 
 interface NamedItem { id: number; name: string; }
@@ -459,8 +477,10 @@ export default function MonthlyPlansPage() {
   const startVoice = async () => {
     if (!activePlan) return;
 
-    // Play start sound immediately on user gesture
-    playAudio(voiceStartSrc);
+    // Play start beeps immediately on user gesture (two ascending tones)
+    playBeep(660, 0.12, 0.45);
+    setTimeout(() => playBeep(880, 0.18, 0.45), 130);
+    playAudio(voiceStartSrc); // also try mp3 as backup
 
     // Show overlay immediately (no countdown)
     setVoiceReminderVisible(true);
@@ -500,7 +520,10 @@ export default function MonthlyPlansPage() {
 
       recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
-        playAudio(voiceStopSrc);
+        // Stop beep: two descending tones
+        playBeep(880, 0.12, 0.4);
+        setTimeout(() => playBeep(550, 0.18, 0.4), 130);
+        playAudio(voiceStopSrc); // also try mp3 as backup
         setVoiceListening(false);
         setVoiceReminderVisible(false);
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
