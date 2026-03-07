@@ -16,6 +16,7 @@ router.delete('/:id',                  ctrl.remove);
 router.post('/:id/entries',                                  ctrl.addEntry);
 router.patch('/:id/entries/:entryId',                        ctrl.patchEntry);
 router.delete('/:id/entries/:entryId',                       ctrl.removeEntry);
+router.post('/:id/entries/bulk-delete',                      ctrl.bulkRemoveEntries);
 
 // Entry items (ايتمات لكل طبيب في البلان)
 router.post('/:id/entries/:entryId/items',                   ctrl.addEntryItem);

@@ -200,6 +200,15 @@ export default function MonthlyPlansPage() {
   const entryRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const [highlightEntryId, setHighlightEntryId] = useState<number | null>(null);
 
+  // Selection mode for bulk actions
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedEntries, setSelectedEntries] = useState<Set<number>>(new Set());
+  const toggleSelect = (entryId: number) => setSelectedEntries(prev => {
+    const s = new Set(prev);
+    s.has(entryId) ? s.delete(entryId) : s.add(entryId);
+    return s;
+  });
+
   // Collapsible entries
   const [expandedEntries, setExpandedEntries] = useState<Set<number>>(new Set());
   const toggleEntry = (entryId: number) => setExpandedEntries(prev => {
@@ -376,6 +385,24 @@ export default function MonthlyPlansPage() {
     if (!activePlan) return;
     if (!confirm('إزالة هذا الطبيب من البلان؟')) return;
     await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${entryId}`, { method: 'DELETE', headers: H() });
+    await reloadPlan(activePlan.id);
+  };
+
+  // Bulk remove entries
+  const bulkRemoveEntries = async (ids?: number[]) => {
+    if (!activePlan) return;
+    const toDelete = ids ?? [...selectedEntries];
+    if (toDelete.length === 0) return;
+    const msg = toDelete.length === activePlan.entries.length
+      ? `حذف جميع الأطباء (${toDelete.length}) من البلان؟`
+      : `حذف ${toDelete.length} طبيب من البلان؟`;
+    if (!confirm(msg)) return;
+    await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/bulk-delete`, {
+      method: 'POST', headers: H(),
+      body: JSON.stringify({ entryIds: toDelete }),
+    });
+    setSelectedEntries(new Set());
+    setSelectMode(false);
     await reloadPlan(activePlan.id);
   };
 
@@ -992,7 +1019,7 @@ export default function MonthlyPlansPage() {
                   return (
                     <div key={p.id} onClick={() => {
                       history.pushState({ page: 'monthly-plans', planId: p.id }, '');
-                      setActivePlan(p); setSearchQuery(''); setVisitFilter('all');
+                      setActivePlan(p); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set());
                     }}
                       style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: 12, padding: 16, cursor: 'pointer', transition: 'all 0.15s' }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.15)'; }}
@@ -1023,7 +1050,7 @@ export default function MonthlyPlansPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                  <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); }}
+                  <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set()); }}
                     style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}>
                     ← الرجوع
                   </button>
@@ -1708,6 +1735,56 @@ export default function MonthlyPlansPage() {
               })}
             </div>
 
+            {/* Selection toolbar */}
+            {activePlan.entries.length > 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap',
+                direction: 'rtl',
+              }}>
+                <button
+                  onClick={() => { setSelectMode(!selectMode); setSelectedEntries(new Set()); }}
+                  style={{
+                    padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    cursor: 'pointer',
+                    border: selectMode ? '2px solid #ef4444' : '2px solid #e2e8f0',
+                    background: selectMode ? '#fef2f2' : '#fff',
+                    color: selectMode ? '#ef4444' : '#64748b',
+                  }}>
+                  {selectMode ? '✕ إلغاء التحديد' : '☑ وضع التحديد'}
+                </button>
+                {selectMode && (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (selectedEntries.size === filteredEntries.length)
+                          setSelectedEntries(new Set());
+                        else
+                          setSelectedEntries(new Set(filteredEntries.map(e => e.id)));
+                      }}
+                      style={{
+                        padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                        cursor: 'pointer', border: '2px solid #6366f1', background: '#eff6ff', color: '#4338ca',
+                      }}>
+                      {selectedEntries.size === filteredEntries.length ? 'إلغاء تحديد الكل' : 'تحديد الكل'}
+                    </button>
+                    {selectedEntries.size > 0 && (
+                      <button
+                        onClick={() => bulkRemoveEntries()}
+                        style={{
+                          padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                          cursor: 'pointer', border: '2px solid #ef4444', background: '#ef4444', color: '#fff',
+                        }}>
+                        🗑 حذف المحدد ({selectedEntries.size})
+                      </button>
+                    )}
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                      {selectedEntries.size} / {filteredEntries.length} محدد
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Entries — card layout */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {activePlan.entries.length === 0 ? (
@@ -1765,16 +1842,30 @@ export default function MonthlyPlansPage() {
                     {/* Compact Header — always visible */}
                     <div
                       className="mp-entry-header"
-                      onClick={() => toggleEntry(entry.id)}
+                      onClick={() => selectMode ? toggleSelect(entry.id) : toggleEntry(entry.id)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 0, padding: '10px 16px',
                         cursor: 'pointer', userSelect: 'none',
-                        background: isExpanded
-                          ? (voiceNewEntries.has(entry.id) ? '#dbeafe' : '#fafbfc')
-                          : (voiceNewEntries.has(entry.id) ? '#eff6ff' : '#fff'),
+                        background: selectMode && selectedEntries.has(entry.id)
+                          ? '#fef2f2'
+                          : isExpanded
+                            ? (voiceNewEntries.has(entry.id) ? '#dbeafe' : '#fafbfc')
+                            : (voiceNewEntries.has(entry.id) ? '#eff6ff' : '#fff'),
                         borderBottom: isExpanded ? '1px solid #f1f5f9' : 'none',
                         transition: 'background 0.15s',
                       }}>
+                      {/* Selection checkbox */}
+                      {selectMode && (
+                        <span style={{
+                          width: 22, height: 22, borderRadius: 6, flexShrink: 0, marginLeft: 8,
+                          border: selectedEntries.has(entry.id) ? '2px solid #ef4444' : '2px solid #cbd5e1',
+                          background: selectedEntries.has(entry.id) ? '#ef4444' : '#fff',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', fontSize: 13, fontWeight: 700, transition: 'all 0.15s',
+                        }}>
+                          {selectedEntries.has(entry.id) && '✓'}
+                        </span>
+                      )}
                       {/* Expand chevron */}
                       <span style={{
                         fontSize: 12, color: '#94a3b8', marginLeft: 8, flexShrink: 0,

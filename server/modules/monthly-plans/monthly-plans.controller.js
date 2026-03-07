@@ -270,6 +270,29 @@ export async function removeEntry(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── Bulk remove entries from plan ────────────────────────────
+export async function bulkRemoveEntries(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const { entryIds } = req.body;           // number[]
+
+    if (!Array.isArray(entryIds) || entryIds.length === 0)
+      return res.status(400).json({ error: 'entryIds required' });
+
+    const plan = await prisma.monthlyPlan.findFirst({
+      where: { id: planId, userId: req.user.id },
+    });
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    const ids = entryIds.map(Number).filter(n => !isNaN(n));
+
+    const result = await prisma.planEntry.deleteMany({
+      where: { id: { in: ids }, planId },
+    });
+    res.json({ success: true, deleted: result.count });
+  } catch (e) { next(e); }
+}
+
 export async function patchEntry(req, res, next) {
   try {
     const planId  = parseInt(req.params.id);
