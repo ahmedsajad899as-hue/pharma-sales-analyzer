@@ -617,7 +617,7 @@ export default function MonthlyPlansPage() {
   const submitVoiceVisits = async () => {
     if (!activePlan || !voiceResults?.length) return;
     setVoiceSaving(true);
-    let success = 0, skipped = 0;
+    let success = 0, skipped = 0, failed = 0;
     const newEntryIds = new Set<number>();
     for (let i = 0; i < voiceResults.length; i++) {
       const v = voiceResults[i];
@@ -691,16 +691,19 @@ export default function MonthlyPlansPage() {
           }),
         });
         if (r.ok) success++;
-      } catch {}
+        else { failed++; console.error('Visit POST failed:', r.status, await r.text()); }
+      } catch (e) { failed++; console.error('Visit fetch error:', e); }
     }
     setVoiceSaving(false);
     setVoiceResults(null);
     setVoiceAddToPlan(new Set());
     setVoiceNewEntries(newEntryIds);
     await reloadPlan(activePlan.id);
-    const msg = skipped > 0
-      ? `✅ تم تسجيل ${success} زيارة بنجاح (${skipped} مكررة تم تخطيها)`
-      : `✅ تم تسجيل ${success} زيارة بنجاح`;
+    const msg = failed > 0
+      ? `⚠️ تم تسجيل ${success} زيارة، فشل ${failed} (${skipped} مكررة)`
+      : skipped > 0
+        ? `✅ تم تسجيل ${success} زيارة بنجاح (${skipped} مكررة تم تخطيها)`
+        : `✅ تم تسجيل ${success} زيارة بنجاح`;
     alert(msg);
   };
 

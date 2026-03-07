@@ -1130,17 +1130,30 @@ ${itemNames}
     }
 
     const findEntry = (rawName, geminiEntryId) => {
-      // First: validate Gemini's suggested entryId
-      if (geminiEntryId && validEntryIds.has(geminiEntryId)) return geminiEntryId;
-      // Second: fuzzy match by doctor name
       const n = normalizeAr(rawName);
       if (!n) return null;
+      // First: validate Gemini's entryId ONLY if doctor name also matches
+      if (geminiEntryId && validEntryIds.has(geminiEntryId)) {
+        const matchedEntry = plan.entries.find(e => e.id === geminiEntryId);
+        if (matchedEntry) {
+          const entryNorm = normalizeAr(matchedEntry.doctor.name);
+          if (entryNorm === n || entryNorm.includes(n) || n.includes(entryNorm)) {
+            return geminiEntryId;
+          }
+        }
+        // entryId exists but name doesn't match — fall through to name-based matching
+      }
+      // Second: exact match by normalized name
       if (entryMap.has(n)) return entryMap.get(n);
+      // Third: fuzzy match — stricter: shorter name >= 4 chars AND covers >= 50% of longer
       let best = null, bestScore = 0;
       for (const [key, id] of entryMap) {
         if (key.includes(n) || n.includes(key)) {
-          const score = Math.min(key.length, n.length);
-          if (score > bestScore) { bestScore = score; best = id; }
+          const shorter = Math.min(key.length, n.length);
+          const longer  = Math.max(key.length, n.length);
+          if (shorter >= 4 && shorter / longer >= 0.5) {
+            if (shorter > bestScore) { bestScore = shorter; best = id; }
+          }
         }
       }
       return best;
