@@ -106,6 +106,7 @@ export default function MonthlyPlansPage() {
 
   // Voice input
   const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceReminderVisible, setVoiceReminderVisible] = useState(false);
   const [voiceParsing, setVoiceParsing] = useState(false);
   const [voiceResults, setVoiceResults] = useState<{ entryId: number | null; doctorName: string; itemId: number | null; itemName: string; feedback: string; notes: string; date: string }[] | null>(null);
   const [voiceSaving, setVoiceSaving] = useState(false);
@@ -467,6 +468,9 @@ export default function MonthlyPlansPage() {
     resetSilenceTimer();
     setVoiceListening(true);
     setVoiceResults(null);
+    // Show reminder overlay for 4 seconds
+    setVoiceReminderVisible(true);
+    setTimeout(() => setVoiceReminderVisible(false), 4000);
   };
 
   const stopVoice = () => {
@@ -597,6 +601,51 @@ export default function MonthlyPlansPage() {
 
   return (
     <div className="mp-shell" style={{ flexDirection: 'column', height: '100%' }}>
+
+      {/* ── Voice reminder overlay ── */}
+      {voiceReminderVisible && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.72)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'fadeIn 0.25s ease',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 20, padding: '28px 24px',
+            maxWidth: 340, width: '90%', textAlign: 'center', direction: 'rtl',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+          }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🎤</div>
+            <h2 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 800, color: '#1e293b' }}>
+              تذكير قبل التسجيل
+            </h2>
+            <p style={{ margin: '0 0 18px', fontSize: 13, color: '#64748b' }}>
+              تأكد من ذكر هذه المعلومات:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'right' }}>
+              {[
+                { icon: '🩺', label: 'اسم الطبيب' },
+                { icon: '💊', label: 'الآيتم' },
+                { icon: '💬', label: 'فيدباك الطبيب' },
+                { icon: '📝', label: 'الملاحظات' },
+              ].map(({ icon, label }) => (
+                <div key={label} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: '#f8fafc', borderRadius: 10, padding: '10px 14px',
+                  border: '1px solid #e2e8f0',
+                }}>
+                  <span style={{ fontSize: 22 }}>{icon}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: '#374151' }}>{label}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: '16px 0 0', fontSize: 12, color: '#94a3b8' }}>
+              سيختفي هذا التذكير تلقائياً...
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Top bar: plan selector ── */}
       <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>📅 البلانات الشهرية</h2>
@@ -1086,9 +1135,9 @@ export default function MonthlyPlansPage() {
 
                 {/* Listening indicator */}
                 {voiceListening && (
-                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
                     <div style={{ fontSize: 48, animation: 'pulse-mic 1.5s infinite' }}>🎙️</div>
-                    <p style={{ margin: '10px 0 0', color: '#92400e', fontSize: 13, fontWeight: 600 }}>
+                    <p style={{ margin: '8px 0 0', color: '#92400e', fontSize: 13, fontWeight: 600 }}>
                       تحدث... الاستماع مستمر حتى تضغط إيقاف
                     </p>
                   </div>
