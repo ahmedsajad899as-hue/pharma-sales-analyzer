@@ -418,8 +418,7 @@ export default function MonthlyPlansPage() {
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = 'ar-IQ';
-    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-    recognition.continuous = !isMobile;
+    recognition.continuous = true;
     recognition.interimResults = false;
     let finalText = '';
     // Reset the 10-second silence timer — called on speech or on restart
