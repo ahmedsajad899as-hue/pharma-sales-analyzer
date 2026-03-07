@@ -64,7 +64,7 @@ interface Doctor {
   id: number; name: string; specialty?: string; pharmacyName?: string;
   area?: NamedItem; targetItem?: NamedItem;
 }
-interface DoctorVisit { id: number; feedback: string; visitDate: string; notes?: string | null; item?: { id: number; name: string } | null; }
+interface DoctorVisit { id: number; feedback: string; visitDate: string; notes?: string | null; item?: { id: number; name: string } | null; latitude?: number | null; longitude?: number | null; }
 interface PlanEntry {
   id: number; doctorId: number; targetVisits: number;
   doctor: Doctor; visits: DoctorVisit[];
@@ -1936,7 +1936,7 @@ export default function MonthlyPlansPage() {
                               return (
                                 <div key={v.id} style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
                                   <div style={{
-                                    display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto',
+                                    display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto auto',
                                     alignItems: 'center', gap: 6,
                                     padding: '5px 10px',
                                   }}>
@@ -1976,6 +1976,27 @@ export default function MonthlyPlansPage() {
                                   <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color, whiteSpace: 'nowrap' }}>
                                     {vfb.label}
                                   </span>
+                                  {/* Location */}
+                                  {v.latitude && v.longitude ? (
+                                    <a
+                                      href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`فتح الموقع على الخارطة\nخط: ${v.latitude.toFixed(5)}\nطول: ${v.longitude.toFixed(5)}`}
+                                      style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 22, height: 22, borderRadius: '50%',
+                                        background: '#dcfce7', color: '#16a34a',
+                                        fontSize: 13, textDecoration: 'none', flexShrink: 0,
+                                        border: '1px solid #bbf7d0',
+                                        transition: 'all 0.15s',
+                                      }}
+                                      onMouseEnter={e => { e.currentTarget.style.background = '#16a34a'; e.currentTarget.style.color = '#fff'; }}
+                                      onMouseLeave={e => { e.currentTarget.style.background = '#dcfce7'; e.currentTarget.style.color = '#16a34a'; }}
+                                    >📍</a>
+                                  ) : (
+                                    <span title="لا يوجد موقع مسجل" style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#e2e8f0', flexShrink: 0 }}>📍</span>
+                                  )}
                                   {/* Delete */}
                                   <button onClick={() => deleteVisit(v.id)} title="حذف"
                                     style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>🗑</button>
