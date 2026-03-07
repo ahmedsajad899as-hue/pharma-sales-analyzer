@@ -338,7 +338,7 @@ export async function addVisit(req, res, next) {
     const planId  = parseInt(req.params.id);
     const entryId = parseInt(req.params.entryId);
     const userId  = req.user.id;
-    const { visitDate, itemId, feedback, notes } = req.body;
+    const { visitDate, itemId, feedback, notes, latitude, longitude } = req.body;
 
     const plan = await prisma.monthlyPlan.findFirst({ where: { id: planId, userId } });
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
@@ -355,6 +355,8 @@ export async function addVisit(req, res, next) {
         itemId:          itemId ? parseInt(itemId) : null,
         feedback:        feedback ?? 'pending',
         notes:           notes ?? '',
+        latitude:        latitude  != null ? parseFloat(latitude)  : null,
+        longitude:       longitude != null ? parseFloat(longitude) : null,
         userId,
       },
       include: { item: { select: { id: true, name: true } } },

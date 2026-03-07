@@ -398,6 +398,8 @@ model DoctorVisit {
   feedback        String   @default("pending")
   // "pending" | "writing" | "stocked" | "interested" | "not_interested" | "unavailable"
   notes           String?
+  latitude        Float?   // موقع GPS عند تسجيل الزيارة
+  longitude       Float?
   createdAt       DateTime @default(now())
 
   userId          Int?

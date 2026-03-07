@@ -92,6 +92,17 @@ const FEEDBACK_LABELS: Record<string, { label: string; color: string; bg: string
   pending:      { label: 'معلق',       color: '#475569', bg: '#f1f5f9' },
 };
 
+// Capture GPS location (resolves to null if denied/unavailable)
+const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
+  new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      ()  => resolve(null),
+      { timeout: 8000, maximumAge: 60000 },
+    );
+  });
+
 export default function MonthlyPlansPage() {
   const { token } = useAuth();
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
@@ -147,6 +158,8 @@ export default function MonthlyPlansPage() {
   const [vFeedback, setVFeedback] = useState('pending');
   const [vNotes,    setVNotes]    = useState('');
   const [savingVisit, setSavingVisit] = useState(false);
+  const [visitLocation, setVisitLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [visitLocStatus, setVisitLocStatus] = useState<'idle' | 'getting' | 'ok' | 'denied'>('idle');
 
   // Filter
   const [filterRep, setFilterRep] = useState('all');
@@ -256,6 +269,21 @@ export default function MonthlyPlansPage() {
     }
   }, [voiceResults, voiceParsing, voiceError]);
   useEffect(() => { preloadAudio(voiceStartSrc); preloadAudio(voiceStopSrc); }, []);
+
+  // Auto-capture GPS when visit form opens
+  useEffect(() => {
+    if (visitFormEntry !== null) {
+      setVisitLocation(null);
+      setVisitLocStatus('getting');
+      getLocation().then(loc => {
+        if (loc) { setVisitLocation(loc); setVisitLocStatus('ok'); }
+        else       { setVisitLocStatus('denied'); }
+      });
+    } else {
+      setVisitLocation(null);
+      setVisitLocStatus('idle');
+    }
+  }, [visitFormEntry]);
 
   // Restore voiceNewEntries from localStorage when plan changes
   useEffect(() => {
@@ -385,6 +413,8 @@ export default function MonthlyPlansPage() {
           itemId:    resolvedItemId || null,
           feedback:  vFeedback,
           notes:     vNotes,
+          latitude:  visitLocation?.lat ?? null,
+          longitude: visitLocation?.lng ?? null,
         }),
       });
       if (!r.ok) { const j = await r.json(); throw new Error(j.error); }
@@ -631,6 +661,8 @@ export default function MonthlyPlansPage() {
   const submitVoiceVisits = async () => {
     if (!activePlan || !voiceResults?.length) return;
     setVoiceSaving(true);
+    // Capture GPS once before iterating
+    const voiceLoc = await getLocation();
     let success = 0, skipped = 0, failed = 0;
     const newEntryIds = new Set<number>();
     for (let i = 0; i < voiceResults.length; i++) {
@@ -702,6 +734,8 @@ export default function MonthlyPlansPage() {
             itemId: v.itemId || null,
             feedback: v.feedback || 'pending',
             notes: v.notes || '',
+            latitude:  voiceLoc?.lat ?? null,
+            longitude: voiceLoc?.lng ?? null,
           }),
         });
         if (r.ok) success++;
@@ -2144,12 +2178,39 @@ export default function MonthlyPlansPage() {
                 </div>
               </label>
 
-              <label style={{ ...labelStyle, marginBottom: 16 }}>
+              <label style={{ ...labelStyle, marginBottom: 12 }}>
                 ملاحظات (اختياري)
                 <input type="text" value={vNotes} onChange={e => setVNotes(e.target.value)}
                   placeholder="أي تفاصيل إضافية..."
                   style={inputStyle} />
               </label>
+
+              {/* Location status */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
+                borderRadius: 8, marginBottom: 14,
+                background: visitLocStatus === 'ok' ? '#f0fdf4' : visitLocStatus === 'denied' ? '#fff7ed' : '#f8fafc',
+                border: `1px solid ${visitLocStatus === 'ok' ? '#86efac' : visitLocStatus === 'denied' ? '#fed7aa' : '#e2e8f0'}`,
+                fontSize: 12, color: visitLocStatus === 'ok' ? '#166534' : visitLocStatus === 'denied' ? '#92400e' : '#64748b',
+              }}>
+                <span style={{ fontSize: 16 }}>
+                  {visitLocStatus === 'getting' ? '⏳' : visitLocStatus === 'ok' ? '📍' : visitLocStatus === 'denied' ? '⚠️' : '📍'}
+                </span>
+                <span style={{ fontWeight: 600 }}>
+                  {visitLocStatus === 'getting' ? 'جاري تحديد الموقع...' :
+                   visitLocStatus === 'ok'      ? `تم تحديد الموقع (${visitLocation!.lat.toFixed(5)}, ${visitLocation!.lng.toFixed(5)})` :
+                   visitLocStatus === 'denied'  ? 'لم يتم الحصول على الموقع (مرفوض أو غير متاح)' :
+                   'تحديد الموقع'}
+                </span>
+                {visitLocStatus === 'denied' && (
+                  <button onClick={() => {
+                    setVisitLocStatus('getting');
+                    getLocation().then(loc => { if (loc) { setVisitLocation(loc); setVisitLocStatus('ok'); } else { setVisitLocStatus('denied'); } });
+                  }} style={{ marginRight: 'auto', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#92400e', cursor: 'pointer', fontWeight: 700 }}>
+                    إعادة المحاولة
+                  </button>
+                )}
+              </div>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button onClick={() => setVisitFormEntry(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
