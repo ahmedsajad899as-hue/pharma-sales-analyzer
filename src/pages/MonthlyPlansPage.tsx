@@ -450,12 +450,12 @@ export default function MonthlyPlansPage() {
   const startVoice = async () => {
     if (!activePlan) return;
 
-    // Play start sound immediately on user gesture (before any async/setTimeout)
+    // Play start sound immediately on user gesture
     playAudio(voiceStartSrc);
 
-    // Show countdown overlay immediately
+    // Show overlay immediately (no countdown)
     setVoiceReminderVisible(true);
-    setVoiceCountingDown(true);
+    setVoiceCountingDown(false);
     setVoiceResults(null);
 
     let stream: MediaStream;
@@ -463,31 +463,27 @@ export default function MonthlyPlansPage() {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       setVoiceReminderVisible(false);
-      setVoiceCountingDown(false);
       alert('لم يتم السماح بالوصول للميكروفون');
       return;
     }
 
-    setTimeout(() => {
-      setVoiceCountingDown(false);
+    audioChunksRef.current = [];
 
-      audioChunksRef.current = [];
+    // Pick best supported format
+    const mimeType = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/mp4',
+    ].find(t => MediaRecorder.isTypeSupported(t)) ?? '';
 
-      // Pick best supported format
-      const mimeType = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-        'audio/mp4',
-      ].find(t => MediaRecorder.isTypeSupported(t)) ?? '';
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    mediaRecorderRef.current = recorder;
+    wantListeningRef.current = true;
 
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      mediaRecorderRef.current = recorder;
-      wantListeningRef.current = true;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
 
       recorder.onstop = async () => {
@@ -504,14 +500,13 @@ export default function MonthlyPlansPage() {
       recorder.start();
       setVoiceListening(true);
 
-      // 10-second silence auto-stop timer (resets on manual stop)
+      // 60s max recording auto-stop
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         if (mediaRecorderRef.current?.state === 'recording') {
           mediaRecorderRef.current.stop();
         }
-      }, 60000); // 60s max recording
-    }, 2000);
+      }, 60000);
   };
 
   const stopVoice = () => {
