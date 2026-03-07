@@ -141,6 +141,8 @@ export default function MonthlyPlansPage() {
   const [voiceCountingDown, setVoiceCountingDown] = useState(false);
   const [voiceParsing, setVoiceParsing] = useState(false);
   const [voiceResults, setVoiceResults] = useState<{ entryId: number | null; doctorName: string; itemId: number | null; itemName: string; feedback: string; notes: string; date: string }[] | null>(null);
+  const [voiceAddToPlan, setVoiceAddToPlan] = useState<Set<number>>(new Set()); // indices of unmatched visits to add to plan
+  const [voiceNewEntries, setVoiceNewEntries] = useState<Set<number>>(new Set()); // entryIds added during this session
   const [voiceSaving, setVoiceSaving] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef  = useRef<Blob[]>([]);
@@ -457,6 +459,8 @@ export default function MonthlyPlansPage() {
     setVoiceReminderVisible(true);
     setVoiceCountingDown(false);
     setVoiceResults(null);
+    setvoiceAddToPlan(new Set());
+    setVoiceNewEntries(new Set());
 
     let stream: MediaStream;
     try {
@@ -560,11 +564,37 @@ export default function MonthlyPlansPage() {
     if (!activePlan || !voiceResults?.length) return;
     setVoiceSaving(true);
     let success = 0, skipped = 0;
-    for (const v of voiceResults) {
-      if (!v.entryId) continue;
-      // Duplicate check: skip if entry already has visit on same date with same item
-      const entry = activePlan.entries.find(e => e.id === v.entryId);
+    const newEntryIds = new Set<number>();
+    for (let i = 0; i < voiceResults.length; i++) {
+      const v = voiceResults[i];
+      let entryId = v.entryId;
+
+      // If unmatched but user selected to add to plan
+      if (!entryId && voiceAddToPlan.has(i)) {
+        // Find doctor by name fuzzy match across all plan's known doctors
+        const allDoctors = await fetch(`${API}/api/doctors`, { headers: H() }).then(r => r.json()).catch(() => []);
+        const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+        const matched = (Array.isArray(allDoctors) ? allDoctors : allDoctors.data ?? []).find((d: any) =>
+          normalize(d.name).includes(normalize(v.doctorName)) ||
+          normalize(v.doctorName).includes(normalize(d.name))
+        );
+        if (matched) {
+          const entryRes = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries`, {
+            method: 'POST', headers: H(),
+            body: JSON.stringify({ doctorId: matched.id, targetVisits: 1 }),
+          });
+          if (entryRes.ok) {
+            const entry = await entryRes.json();
+            entryId = entry.id;
+            newEntryIds.add(entry.id);
+          }
+        }
+      }
+
+      if (!entryId) continue;
+
       const visitDate = v.date || new Date().toISOString().split('T')[0];
+      const entry = activePlan.entries.find(e => e.id === entryId);
       if (entry) {
         const dup = entry.visits.some((ev: any) =>
           new Date(ev.visitDate).toISOString().split('T')[0] === visitDate &&
@@ -573,7 +603,7 @@ export default function MonthlyPlansPage() {
         if (dup) { skipped++; continue; }
       }
       try {
-        const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${v.entryId}/visits`, {
+        const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${entryId}/visits`, {
           method: 'POST', headers: H(),
           body: JSON.stringify({
             visitDate,
@@ -587,6 +617,8 @@ export default function MonthlyPlansPage() {
     }
     setVoiceSaving(false);
     setVoiceResults(null);
+    setvoiceAddToPlan(new Set());
+    setVoiceNewEntries(newEntryIds);
     await reloadPlan(activePlan.id);
     const msg = skipped > 0
       ? `✅ تم تسجيل ${success} زيارة بنجاح (${skipped} مكررة تم تخطيها)`
@@ -1269,11 +1301,12 @@ export default function MonthlyPlansPage() {
                         {voiceResults.map((v, i) => {
                           const fbMeta = FEEDBACK_LABELS[v.feedback] ?? FEEDBACK_LABELS.pending;
                           const matched = v.entryId !== null;
+                          const willAdd = !matched && voiceAddToPlan.has(i);
                           return (
                             <div key={i} style={{
                               display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
-                              background: matched ? '#f0fdf4' : '#fef2f2',
-                              border: `1px solid ${matched ? '#bbf7d0' : '#fecaca'}`,
+                              background: matched ? '#f0fdf4' : willAdd ? '#eff6ff' : '#fef2f2',
+                              border: `1px solid ${matched ? '#bbf7d0' : willAdd ? '#bfdbfe' : '#fecaca'}`,
                               borderRadius: 10, flexWrap: 'wrap',
                             }}>
                               <button onClick={() => setVoiceResults(prev => prev!.filter((_, idx) => idx !== i))}
@@ -1281,13 +1314,24 @@ export default function MonthlyPlansPage() {
                                 title="حذف">×</button>
                               <div style={{ flex: 1, minWidth: 120 }}>
                                 <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                                  {matched ? '✅' : '⚠️'} {v.doctorName}
+                                  {matched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
                                 </p>
                                 {v.itemName && (
                                   <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
                                 )}
                                 {!matched && (
-                                  <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 600 }}>طبيب غير موجود بالبلان</span>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={willAdd}
+                                      onChange={e => setvoiceAddToPlan(prev => {
+                                        const s = new Set(prev);
+                                        e.target.checked ? s.add(i) : s.delete(i);
+                                        return s;
+                                      })}
+                                    />
+                                    <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700 }}>أضف للبلان وسجّل الكول</span>
+                                  </label>
                                 )}
                               </div>
                               <select
@@ -1319,12 +1363,13 @@ export default function MonthlyPlansPage() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <button onClick={() => { setVoiceResults(null); }}
                         style={btnStyle('#94a3b8', true)}>إلغاء</button>
-                      <button onClick={submitVoiceVisits} disabled={voiceSaving || !voiceResults.some(v => v.entryId)}
+                      <button onClick={submitVoiceVisits}
+                        disabled={voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0)}
                         style={{
                           ...btnStyle('#22c55e', true),
-                          opacity: voiceSaving || !voiceResults.some(v => v.entryId) ? 0.5 : 1,
+                          opacity: voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0) ? 0.5 : 1,
                         }}>
-                        {voiceSaving ? '⏳ جاري الحفظ...' : `✅ تأكيد وحفظ ${voiceResults.filter(v => v.entryId).length} زيارة`}
+                        {voiceSaving ? '⏳ جاري الحفظ...' : `✅ تأكيد وحفظ ${voiceResults.filter(v => v.entryId).length + voiceAddToPlan.size} زيارة`}
                       </button>
                     </div>
                   </div>
@@ -1465,6 +1510,14 @@ export default function MonthlyPlansPage() {
                       <div className="mp-entry-name" style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {entry.doctor.name}
+                          {voiceNewEntries.has(entry.id) && (
+                            <span style={{
+                              marginRight: 6, fontSize: 10, fontWeight: 700,
+                              background: '#dbeafe', color: '#1d4ed8',
+                              padding: '2px 7px', borderRadius: 20,
+                              verticalAlign: 'middle',
+                            }}>✨ مضاف صوتياً</span>
+                          )}
                         </p>
                         <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
                           {[entry.doctor.specialty, (entry.doctor as any).pharmacyName, entry.doctor.area?.name].filter(Boolean).join(' · ') || '—'}
