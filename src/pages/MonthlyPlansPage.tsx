@@ -467,7 +467,7 @@ export default function MonthlyPlansPage() {
     setVoiceCountingDown(false);
     setVoiceResults(null);
     setVoiceError(null);
-    setvoiceAddToPlan(new Set());
+    setVoiceAddToPlan(new Set());
     setVoiceNewEntries(new Set());
 
     let stream: MediaStream;
@@ -627,7 +627,7 @@ export default function MonthlyPlansPage() {
     }
     setVoiceSaving(false);
     setVoiceResults(null);
-    setvoiceAddToPlan(new Set());
+    setVoiceAddToPlan(new Set());
     setVoiceNewEntries(newEntryIds);
     await reloadPlan(activePlan.id);
     const msg = skipped > 0
@@ -1145,7 +1145,7 @@ export default function MonthlyPlansPage() {
                                     <input
                                       type="checkbox"
                                       checked={willAdd}
-                                      onChange={e => setvoiceAddToPlan(prev => {
+                                      onChange={e => setVoiceAddToPlan(prev => {
                                         const s = new Set(prev);
                                         e.target.checked ? s.add(i) : s.delete(i);
                                         return s;
