@@ -412,7 +412,7 @@ export default function MonthlyPlansPage() {
   // Toggle allowExtraVisits for the active plan
   // ── Voice input functions ──────────────────────────────────
   const startVoice = () => {
-    if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play(); } catch {} }
+    if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play().catch(() => {}); } catch {} }
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
     const recognition = new SpeechRecognition();
@@ -450,7 +450,7 @@ export default function MonthlyPlansPage() {
         return;
       }
       setVoiceListening(false);
-      if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play(); } catch {} }
+      if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
       // Auto-parse immediately after stopping
       const text = finalTextRef.current.trim();
       if (text) parseVoiceText(text);
@@ -466,7 +466,7 @@ export default function MonthlyPlansPage() {
   const stopVoice = () => {
     wantListeningRef.current = false;
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play(); } catch {} }
+    if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
     recognitionRef.current?.stop();
   };
 
