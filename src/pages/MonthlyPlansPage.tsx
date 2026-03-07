@@ -417,6 +417,9 @@ export default function MonthlyPlansPage() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
 
+    // على الموبايل لا نعيد تشغيل التعرف أبداً لتجنب أصوات الإشعارات
+    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+
     // Show overlay immediately with countdown, start recording after 2s
     setVoiceReminderVisible(true);
     setVoiceCountingDown(true);
@@ -447,8 +450,12 @@ export default function MonthlyPlansPage() {
         resetSilenceTimer();
       };
       recognition.onerror = (e: any) => {
-        if (e.error === 'no-speech' && wantListeningRef.current) {
-          try { recognition.start(); resetSilenceTimer(); } catch {}
+        // على الموبايل: لا نعيد التشغيل عند no-speech لتجنب صوت الإشعار
+        if (e.error === 'no-speech') {
+          if (wantListeningRef.current && !isMobile) {
+            try { recognition.start(); resetSilenceTimer(); } catch {}
+          }
+          // على الموبايل onend سيشتغل تلقائياً بعدها ويتولى الأمر
           return;
         }
         if (e.error === 'aborted' && !wantListeningRef.current) return;
@@ -457,10 +464,13 @@ export default function MonthlyPlansPage() {
         setVoiceReminderVisible(false);
       };
       recognition.onend = () => {
-        if (wantListeningRef.current) {
+        // على الديسكتوب فقط: أعد التشغيل للاستمرار بالاستماع
+        if (wantListeningRef.current && !isMobile) {
           try { recognition.start(); resetSilenceTimer(); } catch {}
           return;
         }
+        // على الموبايل أو عند الإيقاف المقصود: توقف وحلّل
+        wantListeningRef.current = false;
         if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
         setVoiceListening(false);
         setVoiceReminderVisible(false);
