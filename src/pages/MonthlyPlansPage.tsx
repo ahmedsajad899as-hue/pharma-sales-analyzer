@@ -140,6 +140,7 @@ export default function MonthlyPlansPage() {
   const [voiceReminderVisible, setVoiceReminderVisible] = useState(false);
   const [voiceCountingDown, setVoiceCountingDown] = useState(false);
   const [voiceParsing, setVoiceParsing] = useState(false);
+  const [voiceError,   setVoiceError]   = useState<string | null>(null);
   const [voiceResults, setVoiceResults] = useState<{ entryId: number | null; doctorName: string; itemId: number | null; itemName: string; feedback: string; notes: string; date: string }[] | null>(null);
   const [voiceAddToPlan, setVoiceAddToPlan] = useState<Set<number>>(new Set()); // indices of unmatched visits to add to plan
   const [voiceNewEntries, setVoiceNewEntries] = useState<Set<number>>(new Set()); // entryIds added during this session
@@ -213,10 +214,10 @@ export default function MonthlyPlansPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (voiceResults !== null || voiceParsing) {
+    if (voiceResults !== null || voiceParsing || voiceError) {
       setTimeout(() => voicePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     }
-  }, [voiceResults, voiceParsing]);
+  }, [voiceResults, voiceParsing, voiceError]);
   useEffect(() => { preloadAudio(voiceStartSrc); preloadAudio(voiceStopSrc); }, []);
 
   // Reload a single plan
@@ -465,6 +466,7 @@ export default function MonthlyPlansPage() {
     setVoiceReminderVisible(true);
     setVoiceCountingDown(false);
     setVoiceResults(null);
+    setVoiceError(null);
     setvoiceAddToPlan(new Set());
     setVoiceNewEntries(new Set());
 
@@ -502,8 +504,10 @@ export default function MonthlyPlansPage() {
         setVoiceListening(false);
         setVoiceReminderVisible(false);
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        if (blob.size > 1000) {
+        if (blob.size > 500) {
           await parseVoiceAudio(blob, recorder.mimeType || 'audio/webm');
+        } else {
+          setVoiceError('التسجيل قصير جداً — تحدث لمدة ثانيتين على الأقل ثم أوقف التسجيل');
         }
       };
 
@@ -542,10 +546,10 @@ export default function MonthlyPlansPage() {
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
       });
-      if (!r.ok) { const j = await r.json(); throw new Error(j.error); }
+      if (!r.ok) { const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` })); throw new Error(j.error); }
       const data = await r.json();
       setVoiceResults(data.visits ?? []);
-    } catch (e: any) { alert('خطأ في تحليل الصوت: ' + e.message); }
+    } catch (e: any) { setVoiceError('خطأ: ' + (e.message ?? String(e))); }
     finally { setVoiceParsing(false); }
   };
 
@@ -559,10 +563,10 @@ export default function MonthlyPlansPage() {
         method: 'POST', headers: H(),
         body: JSON.stringify({ text: inputText }),
       });
-      if (!r.ok) { const j = await r.json(); throw new Error(j.error); }
+      if (!r.ok) { const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` })); throw new Error(j.error); }
       const data = await r.json();
       setVoiceResults(data.visits ?? []);
-    } catch (e: any) { alert('خطأ في تحليل الصوت: ' + e.message); }
+    } catch (e: any) { setVoiceError('خطأ نصي: ' + (e.message ?? String(e))); }
     finally { setVoiceParsing(false); }
   };
 
@@ -1053,7 +1057,7 @@ export default function MonthlyPlansPage() {
             </div>
 
             {/* Voice input panel */}
-            {(voiceListening || voiceParsing || voiceResults) && (
+            {(voiceListening || voiceParsing || voiceResults || voiceError) && (
               <div ref={voicePanelRef} style={{
                 background: voiceListening ? 'linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)' : '#fff',
                 border: `2px solid ${voiceListening ? '#f97316' : '#e2e8f0'}`,
@@ -1073,7 +1077,7 @@ export default function MonthlyPlansPage() {
                     )}
                   </div>
                   {!voiceParsing && (
-                    <button onClick={() => { stopVoice(); setVoiceResults(null); }}
+                    <button onClick={() => { stopVoice(); setVoiceResults(null); setVoiceError(null); }}
                       style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
                   )}
                 </div>
@@ -1095,6 +1099,16 @@ export default function MonthlyPlansPage() {
                     <p style={{ margin: '10px 0 0', color: '#6366f1', fontSize: 13, fontWeight: 600 }}>
                       جاري تحليل الكلام...
                     </p>
+                  </div>
+                )}
+
+                {/* Error state */}
+                {voiceError && !voiceParsing && (
+                  <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                    <div style={{ fontSize: 36 }}>⚠️</div>
+                    <p style={{ margin: '8px 0 12px', color: '#dc2626', fontSize: 13, fontWeight: 600 }}>{voiceError}</p>
+                    <button onClick={() => setVoiceError(null)}
+                      style={btnStyle('#94a3b8', true)}>إغلاق</button>
                   </div>
                 )}
 
