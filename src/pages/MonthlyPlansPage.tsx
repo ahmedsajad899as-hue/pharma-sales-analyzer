@@ -1046,6 +1046,138 @@ export default function MonthlyPlansPage() {
               </div>
             </div>
 
+            {/* Voice input panel */}
+            {(voiceListening || voiceParsing || voiceResults) && (
+              <div style={{
+                background: voiceListening ? 'linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)' : '#fff',
+                border: `2px solid ${voiceListening ? '#f97316' : '#e2e8f0'}`,
+                borderRadius: 14, padding: 16, marginBottom: 20,
+                animation: voiceListening ? 'pulse-border 2s infinite' : 'none',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 20 }}>{voiceListening ? '🔴' : voiceParsing ? '⏳' : '🎤'}</span>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
+                      {voiceListening ? 'جاري التسجيل... تحدث الآن'
+                        : voiceParsing ? '⏳ جاري تحليل الكلام بالذكاء الاصطناعي...'
+                        : 'نتائج التحليل'}
+                    </h3>
+                    {voiceListening && (
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', animation: 'blink 1s infinite' }} />
+                    )}
+                  </div>
+                  {!voiceParsing && (
+                    <button onClick={() => { stopVoice(); setVoiceResults(null); }}
+                      style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+                  )}
+                </div>
+
+                {/* Listening indicator */}
+                {voiceListening && (
+                  <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
+                    <div style={{ fontSize: 48, animation: 'pulse-mic 1.5s infinite' }}>🎙️</div>
+                    <p style={{ margin: '8px 0 0', color: '#92400e', fontSize: 13, fontWeight: 600 }}>
+                      تحدث... الاستماع مستمر حتى تضغط إيقاف
+                    </p>
+                  </div>
+                )}
+
+                {/* Parsing spinner */}
+                {voiceParsing && !voiceListening && (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <div style={{ fontSize: 40, animation: 'pulse-mic 1s infinite' }}>🤖</div>
+                    <p style={{ margin: '10px 0 0', color: '#6366f1', fontSize: 13, fontWeight: 600 }}>
+                      جاري تحليل الكلام...
+                    </p>
+                  </div>
+                )}
+
+                {/* Editable parsed results */}
+                {voiceResults && !voiceParsing && (
+                  <div>
+                    {voiceResults.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#94a3b8', padding: 12 }}>لم يتم التعرف على أي زيارات في الكلام</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {voiceResults.map((v, i) => {
+                          const fbMeta = FEEDBACK_LABELS[v.feedback] ?? FEEDBACK_LABELS.pending;
+                          const matched = v.entryId !== null;
+                          const willAdd = !matched && voiceAddToPlan.has(i);
+                          return (
+                            <div key={i} style={{
+                              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
+                              background: matched ? '#f0fdf4' : willAdd ? '#eff6ff' : '#fef2f2',
+                              border: `1px solid ${matched ? '#bbf7d0' : willAdd ? '#bfdbfe' : '#fecaca'}`,
+                              borderRadius: 10, flexWrap: 'wrap',
+                            }}>
+                              <button onClick={() => setVoiceResults(prev => prev!.filter((_, idx) => idx !== i))}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: 0, marginTop: 2 }}
+                                title="حذف">×</button>
+                              <div style={{ flex: 1, minWidth: 120 }}>
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                                  {matched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
+                                </p>
+                                {v.itemName && (
+                                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
+                                )}
+                                {!matched && (
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={willAdd}
+                                      onChange={e => setvoiceAddToPlan(prev => {
+                                        const s = new Set(prev);
+                                        e.target.checked ? s.add(i) : s.delete(i);
+                                        return s;
+                                      })}
+                                    />
+                                    <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700 }}>أضف للبلان وسجّل الكول</span>
+                                  </label>
+                                )}
+                              </div>
+                              <select
+                                value={v.feedback}
+                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, feedback: e.target.value } : r))}
+                                style={{
+                                  padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                                  border: '1px solid #e2e8f0', background: fbMeta.bg, color: fbMeta.color,
+                                  cursor: 'pointer',
+                                }}>
+                                {Object.entries(FEEDBACK_LABELS).map(([key, val]) => (
+                                  <option key={key} value={key}>{(val as any).label}</option>
+                                ))}
+                              </select>
+                              <input
+                                value={v.notes}
+                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, notes: e.target.value } : r))}
+                                placeholder="ملاحظات"
+                                style={{
+                                  padding: '4px 8px', borderRadius: 8, fontSize: 11, border: '1px solid #e2e8f0',
+                                  width: 120, direction: 'rtl', background: '#f8fafc',
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button onClick={() => { setVoiceResults(null); }}
+                        style={btnStyle('#94a3b8', true)}>إلغاء</button>
+                      <button onClick={submitVoiceVisits}
+                        disabled={voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0)}
+                        style={{
+                          ...btnStyle('#22c55e', true),
+                          opacity: voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0) ? 0.5 : 1,
+                        }}>
+                        {voiceSaving ? '⏳ جاري الحفظ...' : `✅ تأكيد وحفظ ${voiceResults.filter(v => v.entryId).length + voiceAddToPlan.size} زيارة`}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Stats row */}
             {planStats && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -1244,138 +1376,6 @@ export default function MonthlyPlansPage() {
                 </p>
               </div>
             </div>
-
-            {/* Voice input panel */}
-            {(voiceListening || voiceParsing || voiceResults) && (
-              <div style={{
-                background: voiceListening ? 'linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)' : '#fff',
-                border: `2px solid ${voiceListening ? '#f97316' : '#e2e8f0'}`,
-                borderRadius: 14, padding: 16, marginBottom: 20,
-                animation: voiceListening ? 'pulse-border 2s infinite' : 'none',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 20 }}>{voiceListening ? '🔴' : voiceParsing ? '⏳' : '🎤'}</span>
-                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
-                      {voiceListening ? 'جاري التسجيل... تحدث الآن'
-                        : voiceParsing ? '⏳ جاري تحليل الكلام بالذكاء الاصطناعي...'
-                        : 'نتائج التحليل'}
-                    </h3>
-                    {voiceListening && (
-                      <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444', animation: 'blink 1s infinite' }} />
-                    )}
-                  </div>
-                  {!voiceParsing && (
-                    <button onClick={() => { stopVoice(); setVoiceResults(null); }}
-                      style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
-                  )}
-                </div>
-
-                {/* Listening indicator */}
-                {voiceListening && (
-                  <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
-                    <div style={{ fontSize: 48, animation: 'pulse-mic 1.5s infinite' }}>🎙️</div>
-                    <p style={{ margin: '8px 0 0', color: '#92400e', fontSize: 13, fontWeight: 600 }}>
-                      تحدث... الاستماع مستمر حتى تضغط إيقاف
-                    </p>
-                  </div>
-                )}
-
-                {/* Parsing spinner */}
-                {voiceParsing && !voiceListening && (
-                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                    <div style={{ fontSize: 40, animation: 'pulse-mic 1s infinite' }}>🤖</div>
-                    <p style={{ margin: '10px 0 0', color: '#6366f1', fontSize: 13, fontWeight: 600 }}>
-                      جاري تحليل الكلام...
-                    </p>
-                  </div>
-                )}
-
-                {/* Editable parsed results */}
-                {voiceResults && !voiceParsing && (
-                  <div>
-                    {voiceResults.length === 0 ? (
-                      <p style={{ textAlign: 'center', color: '#94a3b8', padding: 12 }}>لم يتم التعرف على أي زيارات في الكلام</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {voiceResults.map((v, i) => {
-                          const fbMeta = FEEDBACK_LABELS[v.feedback] ?? FEEDBACK_LABELS.pending;
-                          const matched = v.entryId !== null;
-                          const willAdd = !matched && voiceAddToPlan.has(i);
-                          return (
-                            <div key={i} style={{
-                              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
-                              background: matched ? '#f0fdf4' : willAdd ? '#eff6ff' : '#fef2f2',
-                              border: `1px solid ${matched ? '#bbf7d0' : willAdd ? '#bfdbfe' : '#fecaca'}`,
-                              borderRadius: 10, flexWrap: 'wrap',
-                            }}>
-                              <button onClick={() => setVoiceResults(prev => prev!.filter((_, idx) => idx !== i))}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 16, padding: 0, marginTop: 2 }}
-                                title="حذف">×</button>
-                              <div style={{ flex: 1, minWidth: 120 }}>
-                                <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                                  {matched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
-                                </p>
-                                {v.itemName && (
-                                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
-                                )}
-                                {!matched && (
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={willAdd}
-                                      onChange={e => setvoiceAddToPlan(prev => {
-                                        const s = new Set(prev);
-                                        e.target.checked ? s.add(i) : s.delete(i);
-                                        return s;
-                                      })}
-                                    />
-                                    <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700 }}>أضف للبلان وسجّل الكول</span>
-                                  </label>
-                                )}
-                              </div>
-                              <select
-                                value={v.feedback}
-                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, feedback: e.target.value } : r))}
-                                style={{
-                                  padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                                  border: '1px solid #e2e8f0', background: fbMeta.bg, color: fbMeta.color,
-                                  cursor: 'pointer',
-                                }}>
-                                {Object.entries(FEEDBACK_LABELS).map(([key, val]) => (
-                                  <option key={key} value={key}>{(val as any).label}</option>
-                                ))}
-                              </select>
-                              <input
-                                value={v.notes}
-                                onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, notes: e.target.value } : r))}
-                                placeholder="ملاحظات"
-                                style={{
-                                  padding: '4px 8px', borderRadius: 8, fontSize: 11, border: '1px solid #e2e8f0',
-                                  width: 120, direction: 'rtl', background: '#f8fafc',
-                                }}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                      <button onClick={() => { setVoiceResults(null); }}
-                        style={btnStyle('#94a3b8', true)}>إلغاء</button>
-                      <button onClick={submitVoiceVisits}
-                        disabled={voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0)}
-                        style={{
-                          ...btnStyle('#22c55e', true),
-                          opacity: voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0) ? 0.5 : 1,
-                        }}>
-                        {voiceSaving ? '⏳ جاري الحفظ...' : `✅ تأكيد وحفظ ${voiceResults.filter(v => v.entryId).length + voiceAddToPlan.size} زيارة`}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Search bar */}
             <div style={{ marginBottom: 12 }}>
