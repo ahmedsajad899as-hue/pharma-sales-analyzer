@@ -257,6 +257,20 @@ export default function MonthlyPlansPage() {
   }, [voiceResults, voiceParsing, voiceError]);
   useEffect(() => { preloadAudio(voiceStartSrc); preloadAudio(voiceStopSrc); }, []);
 
+  // Restore voiceNewEntries from localStorage when plan changes
+  useEffect(() => {
+    if (activePlan) {
+      const saved = localStorage.getItem(`voiceNew_${activePlan.id}`);
+      if (saved) {
+        try { setVoiceNewEntries(new Set(JSON.parse(saved))); } catch { setVoiceNewEntries(new Set()); }
+      } else {
+        setVoiceNewEntries(new Set());
+      }
+    } else {
+      setVoiceNewEntries(new Set());
+    }
+  }, [activePlan?.id]);
+
   // Reload a single plan
   const reloadPlan = async (id: number) => {
     const r = await fetch(`${API}/api/monthly-plans/${id}`, { headers: H() });
@@ -697,7 +711,11 @@ export default function MonthlyPlansPage() {
     setVoiceSaving(false);
     setVoiceResults(null);
     setVoiceAddToPlan(new Set());
-    setVoiceNewEntries(newEntryIds);
+    // Merge new IDs with any previously voice-added entries for this plan
+    const mergedNew = new Set([...voiceNewEntries, ...newEntryIds]);
+    setVoiceNewEntries(mergedNew);
+    // Persist to localStorage so it survives navigation / page refresh
+    localStorage.setItem(`voiceNew_${activePlan.id}`, JSON.stringify([...mergedNew]));
     await reloadPlan(activePlan.id);
     const msg = failed > 0
       ? `⚠️ تم تسجيل ${success} زيارة، فشل ${failed} (${skipped} مكررة)`
