@@ -1119,6 +1119,33 @@ ${itemNames}
       return best;
     };
 
+    // Build a set of valid entry IDs and a name→entryId map for fuzzy matching
+    const entryMap = new Map(); // normalized name → entryId
+    const validEntryIds = new Set(plan.entries.map(e => e.id));
+    const normalizeAr = s => String(s ?? '').trim().toLowerCase()
+      .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
+    for (const e of plan.entries) {
+      entryMap.set(normalizeAr(e.doctor.name), e.id);
+    }
+
+    const findEntry = (rawName, geminiEntryId) => {
+      // First: validate Gemini's suggested entryId
+      if (geminiEntryId && validEntryIds.has(geminiEntryId)) return geminiEntryId;
+      // Second: fuzzy match by doctor name
+      const n = normalizeAr(rawName);
+      if (!n) return null;
+      if (entryMap.has(n)) return entryMap.get(n);
+      let best = null, bestScore = 0;
+      for (const [key, id] of entryMap) {
+        if (key.includes(n) || n.includes(key)) {
+          const score = Math.min(key.length, n.length);
+          if (score > bestScore) { bestScore = score; best = id; }
+        }
+      }
+      return best;
+    };
+
     const visits = (parsed.visits || []).map(v => {
       let itemId = v.itemId || null;
       let itemName = v.itemName || '';
@@ -1126,8 +1153,10 @@ ${itemNames}
         const match = findItem(itemName);
         if (match) { itemId = match.id; itemName = match.name; }
       }
+      // Validate/resolve entryId — null means doctor is NOT in the plan
+      const resolvedEntryId = findEntry(v.doctorName, v.entryId || null);
       return {
-        entryId:    v.entryId  || null,
+        entryId:    resolvedEntryId,
         doctorName: v.doctorName || '',
         itemId,
         itemName,
