@@ -417,7 +417,8 @@ export default function MonthlyPlansPage() {
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = 'ar-IQ';
-    recognition.continuous = true;
+    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+    recognition.continuous = !isMobile;
     recognition.interimResults = false;
     let finalText = '';
     recognition.onresult = (event: any) => {
@@ -433,7 +434,7 @@ export default function MonthlyPlansPage() {
       }, 3000);
     };
     recognition.onerror = (e: any) => {
-      if (e.error === 'no-speech' && wantListeningRef.current) {
+      if (e.error === 'no-speech' && wantListeningRef.current && !isMobile) {
         try { recognition.start(); } catch {}
         return;
       }
@@ -443,8 +444,8 @@ export default function MonthlyPlansPage() {
     };
     recognition.onend = () => {
       if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-      if (wantListeningRef.current) {
-        // Restart recognition to keep listening through pauses
+      if (wantListeningRef.current && !isMobile) {
+        // Restart recognition to keep listening through pauses (desktop only)
         try { recognition.start(); } catch {}
         return;
       }
