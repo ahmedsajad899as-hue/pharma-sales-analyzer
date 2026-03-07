@@ -111,10 +111,12 @@ export default function MonthlyPlansPage() {
   const [voiceParsing, setVoiceParsing] = useState(false);
   const [voiceResults, setVoiceResults] = useState<{ entryId: number | null; doctorName: string; itemId: number | null; itemName: string; feedback: string; notes: string; date: string }[] | null>(null);
   const [voiceSaving, setVoiceSaving] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const wantListeningRef = useRef(false);
-  const finalTextRef = useRef('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef  = useRef<Blob[]>([]);
   const silenceTimerRef = useRef<any>(null);
+  // keep legacy refs so voice-result UI still works
+  const wantListeningRef = useRef(false);
+  const recognitionRef   = useRef<any>(null);
 
   // Import visits Excel for active plan
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -413,66 +415,68 @@ export default function MonthlyPlansPage() {
 
   // Toggle allowExtraVisits for the active plan
   // ── Voice input functions ──────────────────────────────────
-  const startVoice = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
+  const startVoice = async () => {
+    if (!activePlan) return;
 
-    // Show overlay immediately with countdown, start recording after 2s
+    // Show countdown overlay immediately
     setVoiceReminderVisible(true);
     setVoiceCountingDown(true);
     setVoiceResults(null);
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setVoiceReminderVisible(false);
+      setVoiceCountingDown(false);
+      alert('لم يتم السماح بالوصول للميكروفون');
+      return;
+    }
 
     setTimeout(() => {
       setVoiceCountingDown(false);
       if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play().catch(() => {}); } catch {} }
 
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'ar-IQ';
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      let finalText = '';
-      const resetSilenceTimer = () => {
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          wantListeningRef.current = false;
-          recognition.stop();
-        }, 10000);
+      audioChunksRef.current = [];
+
+      // Pick best supported format
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4',
+      ].find(t => MediaRecorder.isTypeSupported(t)) ?? '';
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+      wantListeningRef.current = true;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
 
-      recognition.onresult = (event: any) => {
-        for (let i = 0; i < event.results.length; i++) {
-          if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
-        }
-        finalTextRef.current = finalText;
-        resetSilenceTimer();
-      };
-      recognition.onerror = (e: any) => {
-        if (e.error === 'no-speech') return; // onend يتولى الأمر
-        if (e.error === 'aborted' && !wantListeningRef.current) return;
-        wantListeningRef.current = false;
-        setVoiceListening(false);
-        setVoiceReminderVisible(false);
-      };
-      recognition.onend = () => {
-        // المستخدم لم يوقف التسجيل: أعد التشغيل على جميع الأجهزة
-        if (wantListeningRef.current) {
-          try { recognition.start(); resetSilenceTimer(); } catch {}
-          return;
-        }
-        // المستخدم أوقف التسجيل (أو انتهى وقت الصمت): حلّل النص
-        if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-        setVoiceListening(false);
-        setVoiceReminderVisible(false);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
         if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
-        const text = finalTextRef.current.trim();
-        if (text) parseVoiceText(text);
+        setVoiceListening(false);
+        setVoiceReminderVisible(false);
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size > 1000) {
+          await parseVoiceAudio(blob, recorder.mimeType || 'audio/webm');
+        }
       };
-      recognitionRef.current = recognition;
-      wantListeningRef.current = true;
-      finalTextRef.current = '';
-      recognition.start();
-      resetSilenceTimer();
+
+      recorder.start();
       setVoiceListening(true);
+
+      // 10-second silence auto-stop timer (resets on manual stop)
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+      }, 60000); // 60s max recording
     }, 2000);
   };
 
@@ -480,11 +484,33 @@ export default function MonthlyPlansPage() {
     wantListeningRef.current = false;
     setVoiceCountingDown(false);
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    setVoiceReminderVisible(false);
-    setVoiceListening(false);
-    recognitionRef.current?.stop();
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    } else {
+      setVoiceReminderVisible(false);
+      setVoiceListening(false);
+    }
   };
 
+  const parseVoiceAudio = async (blob: Blob, mimeType: string) => {
+    if (!activePlan) return;
+    setVoiceParsing(true);
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, `voice.${mimeType.split('/')[1]?.split(';')[0] ?? 'webm'}`);
+      const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/voice-record`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!r.ok) { const j = await r.json(); throw new Error(j.error); }
+      const data = await r.json();
+      setVoiceResults(data.visits ?? []);
+    } catch (e: any) { alert('خطأ في تحليل الصوت: ' + e.message); }
+    finally { setVoiceParsing(false); }
+  };
+
+  // keep parseVoiceText for any legacy usage
   const parseVoiceText = async (inputText: string) => {
     if (!activePlan) return;
     if (!inputText.trim()) return;

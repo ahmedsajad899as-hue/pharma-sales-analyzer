@@ -1026,3 +1026,110 @@ export async function parseVoice(req, res, next) {
     next(e);
   }
 }
+
+// ── parseVoiceAudio: receive audio blob, transcribe + parse via Gemini ─────────
+export async function parseVoiceAudio(req, res, next) {
+  try {
+    const userId  = req.user.id;
+    const planId  = parseInt(req.params.id);
+    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
+
+    const plan = await prisma.monthlyPlan.findFirst({
+      where: { id: planId, userId },
+      include: {
+        entries: {
+          include: {
+            doctor: { select: { id: true, name: true, specialty: true } },
+            targetItems: { include: { item: { select: { id: true, name: true } } } },
+          },
+        },
+      },
+    });
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    const allItems = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+
+    const audioData   = fs.readFileSync(req.file.path);
+    const audioBase64 = audioData.toString('base64');
+    const mimeType    = req.file.mimetype || 'audio/webm';
+    fs.unlinkSync(req.file.path); // cleanup
+
+    const doctorNames   = plan.entries.map(e => `${e.doctor.name} (id:${e.id})`).join('\n');
+    const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
+    const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
+    const feedbackAr = {
+      'يكتب': 'writing', 'كاتب': 'writing', 'نزل': 'stocked', 'نزل الايتم': 'stocked',
+      'مهتم': 'interested', 'غير مهتم': 'not_interested', 'مو مهتم': 'not_interested',
+      'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'pending',
+    };
+
+    const prompt = `أنت مساعد ذكي لتحليل كلام مندوب طبي. استمع للتسجيل الصوتي واستخرج زيارات الأطباء.
+
+قائمة الأطباء في البلان (اسم الطبيب و entry id):
+${doctorNames}
+
+قائمة الأيتمات/الأدوية المتاحة:
+${itemNames}
+
+قيم الفيدباك المتاحة: ${feedbackValues.join(', ')}
+المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
+
+استخرج كل زيارة مذكورة وأرجع JSON فقط:
+{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}`;
+
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
+
+    const genAI  = new GoogleGenerativeAI(apiKey);
+    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent([
+      { inlineData: { mimeType, data: audioBase64 } },
+      prompt,
+    ]);
+    const responseText = result.response.text();
+    const jsonMatch    = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Reuse same fuzzy item-matching logic
+    const normalize  = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const itemMap    = new Map(allItems.map(it => [normalize(it.name), it]));
+    const findItem   = (rawName) => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (itemMap.has(n)) return itemMap.get(n);
+      let best = null, bestScore = 0;
+      for (const [key, item] of itemMap) {
+        if (key.includes(n) || n.includes(key)) {
+          const score = key.length;
+          if (score > bestScore) { bestScore = score; best = item; }
+        }
+      }
+      return best;
+    };
+
+    const visits = (parsed.visits || []).map(v => {
+      let itemId = v.itemId || null;
+      let itemName = v.itemName || '';
+      if (itemName && (!itemId || !allItems.some(it => it.id === itemId))) {
+        const match = findItem(itemName);
+        if (match) { itemId = match.id; itemName = match.name; }
+      }
+      return {
+        entryId:    v.entryId  || null,
+        doctorName: v.doctorName || '',
+        itemId,
+        itemName,
+        feedback:   feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
+        notes:      v.notes || '',
+        date:       v.date  || new Date().toISOString().split('T')[0],
+      };
+    });
+
+    res.json({ visits, raw: responseText });
+  } catch (e) {
+    console.error('Voice audio parse error:', e);
+    next(e);
+  }
+}

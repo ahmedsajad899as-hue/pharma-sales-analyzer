@@ -37,4 +37,7 @@ router.patch('/visits/:visitId/item', ctrl.patchVisitItem);
 // Voice-to-visits: parse spoken text
 router.post('/:id/voice-parse', ctrl.parseVoice);
 
+// Voice-to-visits: upload audio blob (MediaRecorder) → Gemini transcribe + parse
+router.post('/:id/voice-record', upload.single('audio'), ctrl.parseVoiceAudio);
+
 export default router;
