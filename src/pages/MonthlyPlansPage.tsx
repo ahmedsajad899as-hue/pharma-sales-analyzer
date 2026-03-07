@@ -581,17 +581,41 @@ export default function MonthlyPlansPage() {
 
       // If unmatched but user selected to add to plan
       if (!entryId && voiceAddToPlan.has(i)) {
-        // Find doctor by name fuzzy match across all plan's known doctors
+        // Normalize Arabic text for better matching
+        const normalizeAr = (s: string) => s
+          .trim().replace(/\s+/g, ' ').toLowerCase()
+          .replace(/أ|إ|آ/g, 'ا')
+          .replace(/ة/g, 'ه')
+          .replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, ''); // remove tashkeel
+
         const allDoctors = await fetch(`${API}/api/doctors`, { headers: H() }).then(r => r.json()).catch(() => []);
-        const normalize = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-        const matched = (Array.isArray(allDoctors) ? allDoctors : allDoctors.data ?? []).find((d: any) =>
-          normalize(d.name).includes(normalize(v.doctorName)) ||
-          normalize(v.doctorName).includes(normalize(d.name))
-        );
-        if (matched) {
+        const doctorList: any[] = Array.isArray(allDoctors) ? allDoctors : (allDoctors.data ?? []);
+
+        const voiceName = normalizeAr(v.doctorName);
+        let matched = doctorList.find((d: any) => {
+          const dbName = normalizeAr(d.name);
+          return dbName === voiceName || dbName.includes(voiceName) || voiceName.includes(dbName);
+        });
+
+        let doctorId: number | null = matched?.id ?? null;
+
+        // If still not found → create the doctor automatically
+        if (!doctorId && v.doctorName.trim()) {
+          const createRes = await fetch(`${API}/api/doctors`, {
+            method: 'POST', headers: H(),
+            body: JSON.stringify({ name: v.doctorName.trim() }),
+          });
+          if (createRes.ok) {
+            const newDoc = await createRes.json();
+            doctorId = newDoc.id;
+          }
+        }
+
+        if (doctorId) {
           const entryRes = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries`, {
             method: 'POST', headers: H(),
-            body: JSON.stringify({ doctorId: matched.id, targetVisits: 1 }),
+            body: JSON.stringify({ doctorId, targetVisits: 1 }),
           });
           if (entryRes.ok) {
             const entry = await entryRes.json();
