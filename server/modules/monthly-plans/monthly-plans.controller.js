@@ -1142,43 +1142,48 @@ ${itemNames}
       const n = cleanName(rawName);
       if (!n) return null;
 
-      // First: validate Gemini's entryId ONLY if doctor name also matches
-      if (geminiEntryId && validEntryIds.has(geminiEntryId)) {
-        const matchedEntry = plan.entries.find(e => e.id === geminiEntryId);
-        if (matchedEntry) {
-          const entryNorm = cleanName(matchedEntry.doctor.name);
-          if (entryNorm === n || entryNorm.includes(n) || n.includes(entryNorm)) {
-            return geminiEntryId;
-          }
-        }
-        // entryId exists but name doesn't match — fall through to name-based matching
-      }
-
-      // Second: exact match by cleaned name
+      // 1. Exact match by cleaned name
       if (entryMap.has(n)) return entryMap.get(n);
 
-      // Third: fuzzy match — ANY common substring >= 4 chars that covers >= 40% of either name
-      let best = null, bestScore = 0;
+      // 2. If Gemini suggested entryId AND the cleaned names are exactly equal → accept
+      if (geminiEntryId && validEntryIds.has(geminiEntryId)) {
+        const matchedEntry = plan.entries.find(e => e.id === geminiEntryId);
+        if (matchedEntry && cleanName(matchedEntry.doctor.name) === n) {
+          return geminiEntryId;
+        }
+      }
+
+      // 3. Strict containment: one name fully contains the other AND
+      //    the shorter must have >= 2 words AND cover >= 70% of the longer
       for (const [key, id] of entryMap) {
+        if (key === n) return id; // exact (already checked but safe)
         if (key.includes(n) || n.includes(key)) {
           const shorter = Math.min(key.length, n.length);
           const longer  = Math.max(key.length, n.length);
-          // Relaxed: >= 4 chars AND >= 40% overlap
-          if (shorter >= 4 && shorter / longer >= 0.4) {
-            if (shorter > bestScore) { bestScore = shorter; best = id; }
-          }
-        } else {
-          // Token-based: check if any word in n matches a word in key (>= 4 chars)
-          const nTokens   = n.split(' ').filter(t => t.length >= 4);
-          const keyTokens = key.split(' ').filter(t => t.length >= 4);
-          const common = nTokens.filter(t => keyTokens.includes(t));
-          if (common.length > 0) {
-            const score = common.reduce((s, t) => s + t.length, 0);
-            if (score > bestScore) { bestScore = score; best = id; }
+          const shorterStr = key.length < n.length ? key : n;
+          const wordCount  = shorterStr.split(' ').filter(t => t.length >= 2).length;
+          if (wordCount >= 2 && shorter / longer >= 0.7) {
+            return id;
           }
         }
       }
-      return best;
+
+      // 4. ALL tokens from voice name must appear in plan name (and vice versa)
+      //    Both must have >= 2 words and ALL must match
+      const nWords = n.split(' ').filter(t => t.length >= 2);
+      if (nWords.length >= 2) {
+        for (const [key, id] of entryMap) {
+          const keyWords = key.split(' ').filter(t => t.length >= 2);
+          if (keyWords.length >= 2) {
+            const allVoiceInPlan = nWords.every(t => keyWords.includes(t));
+            const allPlanInVoice = keyWords.every(t => nWords.includes(t));
+            if (allVoiceInPlan || allPlanInVoice) return id;
+          }
+        }
+      }
+
+      // No confident match → return null (user picks from dropdown)
+      return null;
     };
 
     const visits = (parsed.visits || []).map(v => {
