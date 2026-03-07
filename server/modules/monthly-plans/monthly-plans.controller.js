@@ -1124,37 +1124,57 @@ ${itemNames}
     // Build a set of valid entry IDs and a name→entryId map for fuzzy matching
     const entryMap = new Map(); // normalized name → entryId
     const validEntryIds = new Set(plan.entries.map(e => e.id));
+    // Title prefixes to strip before matching (doctor titles, etc.)
+    const TITLE_PREFIXES = /^(دكتور|دكتوره|د\.|دكتوراه|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
+
     const normalizeAr = s => String(s ?? '').trim().toLowerCase()
       .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
       .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
+
+    // Strip title AND normalize
+    const cleanName = s => normalizeAr(s.replace(TITLE_PREFIXES, ''));
+
     for (const e of plan.entries) {
-      entryMap.set(normalizeAr(e.doctor.name), e.id);
+      entryMap.set(cleanName(e.doctor.name), e.id);
     }
 
     const findEntry = (rawName, geminiEntryId) => {
-      const n = normalizeAr(rawName);
+      const n = cleanName(rawName);
       if (!n) return null;
+
       // First: validate Gemini's entryId ONLY if doctor name also matches
       if (geminiEntryId && validEntryIds.has(geminiEntryId)) {
         const matchedEntry = plan.entries.find(e => e.id === geminiEntryId);
         if (matchedEntry) {
-          const entryNorm = normalizeAr(matchedEntry.doctor.name);
+          const entryNorm = cleanName(matchedEntry.doctor.name);
           if (entryNorm === n || entryNorm.includes(n) || n.includes(entryNorm)) {
             return geminiEntryId;
           }
         }
         // entryId exists but name doesn't match — fall through to name-based matching
       }
-      // Second: exact match by normalized name
+
+      // Second: exact match by cleaned name
       if (entryMap.has(n)) return entryMap.get(n);
-      // Third: fuzzy match — stricter: shorter name >= 4 chars AND covers >= 50% of longer
+
+      // Third: fuzzy match — ANY common substring >= 4 chars that covers >= 40% of either name
       let best = null, bestScore = 0;
       for (const [key, id] of entryMap) {
         if (key.includes(n) || n.includes(key)) {
           const shorter = Math.min(key.length, n.length);
           const longer  = Math.max(key.length, n.length);
-          if (shorter >= 4 && shorter / longer >= 0.5) {
+          // Relaxed: >= 4 chars AND >= 40% overlap
+          if (shorter >= 4 && shorter / longer >= 0.4) {
             if (shorter > bestScore) { bestScore = shorter; best = id; }
+          }
+        } else {
+          // Token-based: check if any word in n matches a word in key (>= 4 chars)
+          const nTokens   = n.split(' ').filter(t => t.length >= 4);
+          const keyTokens = key.split(' ').filter(t => t.length >= 4);
+          const common = nTokens.filter(t => keyTokens.includes(t));
+          if (common.length > 0) {
+            const score = common.reduce((s, t) => s + t.length, 0);
+            if (score > bestScore) { bestScore = score; best = id; }
           }
         }
       }
