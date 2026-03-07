@@ -147,6 +147,7 @@ export default function MonthlyPlansPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef  = useRef<Blob[]>([]);
   const silenceTimerRef = useRef<any>(null);
+  const voicePanelRef   = useRef<HTMLDivElement | null>(null);
   // keep legacy refs so voice-result UI still works
   const wantListeningRef = useRef(false);
   const recognitionRef   = useRef<any>(null);
@@ -211,6 +212,11 @@ export default function MonthlyPlansPage() {
   }, [H]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (voiceResults !== null || voiceParsing) {
+      setTimeout(() => voicePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    }
+  }, [voiceResults, voiceParsing]);
   useEffect(() => { preloadAudio(voiceStartSrc); preloadAudio(voiceStopSrc); }, []);
 
   // Reload a single plan
@@ -1048,7 +1054,7 @@ export default function MonthlyPlansPage() {
 
             {/* Voice input panel */}
             {(voiceListening || voiceParsing || voiceResults) && (
-              <div style={{
+              <div ref={voicePanelRef} style={{
                 background: voiceListening ? 'linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)' : '#fff',
                 border: `2px solid ${voiceListening ? '#f97316' : '#e2e8f0'}`,
                 borderRadius: 14, padding: 16, marginBottom: 20,
