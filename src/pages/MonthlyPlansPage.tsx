@@ -176,6 +176,7 @@ export default function MonthlyPlansPage() {
   const [voiceAddToPlan, setVoiceAddToPlan] = useState<Set<number>>(new Set()); // indices of unmatched visits to add to plan
   const [voiceNewEntries, setVoiceNewEntries] = useState<Set<number>>(new Set()); // entryIds added during this session
   const [voiceSaving, setVoiceSaving] = useState(false);
+  const [editingVoiceName, setEditingVoiceName] = useState<number | null>(null); // index of row being edited
   const mediaRecorderRef    = useRef<MediaRecorder | null>(null);
   const audioChunksRef      = useRef<Blob[]>([]);
   const silenceTimerRef     = useRef<any>(null);
@@ -1264,9 +1265,51 @@ export default function MonthlyPlansPage() {
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 18, padding: 0, lineHeight: 1 }}
                               title="حذف">×</button>
                             <div style={{ flex: 1, minWidth: 140 }}>
-                              <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: isMatched ? '#166534' : '#92400e' }}>
-                                {isMatched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
-                              </p>
+                              {/* Doctor name — editable on click */}
+                              {editingVoiceName === i ? (
+                                <input
+                                  autoFocus
+                                  value={v.doctorName}
+                                  onChange={e => setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, doctorName: e.target.value } : r))}
+                                  onBlur={async () => {
+                                    setEditingVoiceName(null);
+                                    // Re-run server-side matching by calling the same endpoint is complex,
+                                    // so do a client-side plan entry lookup after name edit
+                                    if (!activePlan) return;
+                                    const TITLES = /^(\u062f\u0643\u062a\u0648\u0631|\u062f\u0643\u062a\u0648\u0631\u0647|\u062f\.|\u0627\u0633\u062a\u0627\u0630|\u0627\u0633\u062a\u0627\u0630\u0647|\u0635\u064a\u062f\u0644\u0627\u0646\u064a|\u062d\u0627\u062c|\u062d\u0627\u062c\u0647)\s+/g;
+                                    const norm = (s: string) => s.trim().replace(TITLES,'').toLowerCase()
+                                      .replace(/\u0623|\u0625|\u0622/g,'\u0627').replace(/\u0629/g,'\u0647').replace(/\u0649/g,'\u064a')
+                                      .replace(/[\u064b-\u0652]/g,'').replace(/\s+/g,' ');
+                                    const typed = norm(v.doctorName);
+                                    let matched: number | null = null;
+                                    for (const e of activePlan.entries) {
+                                      const en = norm(e.doctor.name);
+                                      const tokens = typed.split(' ').filter(t => t.length >= 3);
+                                      if (en === typed || en.includes(typed) || typed.includes(en) ||
+                                          tokens.some(t => en.includes(t))) {
+                                        matched = e.id; break;
+                                      }
+                                    }
+                                    setVoiceResults(prev => prev!.map((r, idx) => idx === i ? { ...r, entryId: matched } : r));
+                                  }}
+                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
+                                  style={{
+                                    fontWeight: 700, fontSize: 13,
+                                    color: isMatched ? '#166534' : '#92400e',
+                                    border: `2px solid ${isMatched ? '#86efac' : '#fb923c'}`,
+                                    borderRadius: 6, padding: '2px 6px', background: '#fff',
+                                    width: '100%', direction: 'rtl', outline: 'none',
+                                  }}
+                                />
+                              ) : (
+                                <p
+                                  onClick={() => setEditingVoiceName(i)}
+                                  title="اضغط لتعديل الاسم"
+                                  style={{ margin: 0, fontWeight: 700, fontSize: 13, color: isMatched ? '#166534' : '#92400e', cursor: 'text', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  {isMatched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
+                                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>✏️</span>
+                                </p>
+                              )}
                               {v.itemName && (
                                 <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
                               )}
