@@ -151,7 +151,7 @@ export default function MonthlyPlansPage() {
   // Filter
   const [filterRep, setFilterRep] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [visitFilter, setVisitFilter] = useState<'all' | 'done' | 'not_done'>('all');
+  const [visitFilter, setVisitFilter] = useState<'all' | 'done' | 'not_done' | 'voice_added'>('all');
 
   // Voice input
   const [voiceListening, setVoiceListening] = useState(false);
@@ -735,8 +735,9 @@ export default function MonthlyPlansPage() {
 
   const filteredEntries = activePlan ? (() => {
     let entries = activePlan.entries;
-    if (visitFilter === 'done')     entries = entries.filter(e => e.visits.length >= e.targetVisits);
-    if (visitFilter === 'not_done') entries = entries.filter(e => e.visits.length < e.targetVisits);
+    if (visitFilter === 'done')        entries = entries.filter(e => e.visits.length >= e.targetVisits);
+    if (visitFilter === 'not_done')    entries = entries.filter(e => e.visits.length < e.targetVisits);
+    if (visitFilter === 'voice_added') entries = entries.filter(e => voiceNewEntries.has(e.id));
     const q = searchQuery.trim().toLowerCase();
     if (!q) return entries;
     return entries.filter(entry => {
@@ -1484,24 +1485,25 @@ export default function MonthlyPlansPage() {
             {/* Visit status filter tabs */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
               {([
-                { key: 'all'      as const, label: '📋 الكل',     count: activePlan.entries.length },
-                { key: 'done'     as const, label: '✅ تمت',      count: activePlan.entries.filter(e => e.visits.length >= e.targetVisits).length },
-                { key: 'not_done' as const, label: '⏳ لم تتم',   count: activePlan.entries.filter(e => e.visits.length < e.targetVisits).length },
+                { key: 'all'         as const, label: '📋 الكل',         count: activePlan.entries.length,                                                              color: '#6366f1' },
+                { key: 'done'        as const, label: '✅ تمت',           count: activePlan.entries.filter(e => e.visits.length >= e.targetVisits).length,            color: '#22c55e' },
+                { key: 'not_done'    as const, label: '⏳ لم تتم',        count: activePlan.entries.filter(e => e.visits.length < e.targetVisits).length,             color: '#f59e0b' },
+                { key: 'voice_added' as const, label: '🎤 خارج البلان',  count: voiceNewEntries.size,                                                                  color: '#3b82f6' },
               ]).map(f => {
                 const active = visitFilter === f.key;
                 return (
                   <button key={f.key} onClick={() => setVisitFilter(f.key)} style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '7px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700,
-                    cursor: 'pointer', border: `2px solid ${active ? '#6366f1' : '#e2e8f0'}`,
-                    background: active ? '#6366f1' : '#fff',
+                    cursor: 'pointer', border: `2px solid ${active ? f.color : '#e2e8f0'}`,
+                    background: active ? f.color : '#fff',
                     color: active ? '#fff' : '#64748b',
                     transition: 'all 0.15s',
                   }}>
                     {f.label}
                     <span style={{
                       background: active ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
-                      color: active ? '#fff' : '#6366f1',
+                      color: active ? '#fff' : f.color,
                       borderRadius: 10, padding: '1px 8px', fontSize: 12, fontWeight: 800,
                     }}>{f.count}</span>
                   </button>
@@ -1520,11 +1522,12 @@ export default function MonthlyPlansPage() {
               ) : filteredEntries.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#fff', borderRadius: 12, border: '2px dashed #e2e8f0' }}>
                   <p style={{ fontSize: 32, margin: '0 0 8px' }}>
-                    {visitFilter === 'done' ? '✅' : visitFilter === 'not_done' ? '⏳' : '🔍'}
+                    {visitFilter === 'done' ? '✅' : visitFilter === 'not_done' ? '⏳' : visitFilter === 'voice_added' ? '🎤' : '🔍'}
                   </p>
                   <p style={{ margin: 0, fontSize: 15 }}>
                     {visitFilter === 'done' ? 'لا توجد كولات مكتملة حتى الآن' :
                      visitFilter === 'not_done' ? 'جميع الكولات اكتملت! 🎉' :
+                     visitFilter === 'voice_added' ? 'لم يتم إضافة أي طبيب من خارج البلان صوتياً في هذه الجلسة' :
                      `لا توجد نتائج لـ "${searchQuery}"`}
                   </p>
                   {(visitFilter !== 'all' || searchQuery) && (
