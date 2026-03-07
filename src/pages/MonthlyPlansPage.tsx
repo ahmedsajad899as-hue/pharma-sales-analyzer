@@ -476,7 +476,6 @@ export default function MonthlyPlansPage() {
   const stopVoice = () => {
     wantListeningRef.current = false;
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
     recognitionRef.current?.stop();
   };
 
