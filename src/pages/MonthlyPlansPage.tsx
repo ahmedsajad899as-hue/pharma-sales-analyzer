@@ -447,6 +447,7 @@ export default function MonthlyPlansPage() {
       if (e.error === 'aborted' && !wantListeningRef.current) return;
       wantListeningRef.current = false;
       setVoiceListening(false);
+      setVoiceReminderVisible(false);
     };
     recognition.onend = () => {
       if (wantListeningRef.current) {
@@ -456,6 +457,7 @@ export default function MonthlyPlansPage() {
       }
       if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
       setVoiceListening(false);
+      setVoiceReminderVisible(false);
       if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
       // Auto-parse immediately after stopping
       const text = finalTextRef.current.trim();
@@ -468,14 +470,13 @@ export default function MonthlyPlansPage() {
     resetSilenceTimer();
     setVoiceListening(true);
     setVoiceResults(null);
-    // Show reminder overlay for 4 seconds
     setVoiceReminderVisible(true);
-    setTimeout(() => setVoiceReminderVisible(false), 4000);
   };
 
   const stopVoice = () => {
     wantListeningRef.current = false;
     if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    setVoiceReminderVisible(false);
     recognitionRef.current?.stop();
   };
 
@@ -603,44 +604,75 @@ export default function MonthlyPlansPage() {
 
       {/* ── Voice reminder overlay ── */}
       {voiceReminderVisible && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.72)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: 'fadeIn 0.25s ease',
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 20, padding: '28px 24px',
-            maxWidth: 340, width: '90%', textAlign: 'center', direction: 'rtl',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
-          }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>🎤</div>
-            <h2 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 800, color: '#1e293b' }}>
+        <div
+          onClick={stopVoice}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'fadeIn 0.25s ease',
+            cursor: 'pointer',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 20, padding: '24px 20px',
+              maxWidth: 360, width: '92%', textAlign: 'center', direction: 'rtl',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div style={{ fontSize: 34, marginBottom: 6 }}>🎤</div>
+            <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>
               تذكير قبل التسجيل
             </h2>
-            <p style={{ margin: '0 0 18px', fontSize: 13, color: '#64748b' }}>
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b' }}>
               تأكد من ذكر هذه المعلومات:
             </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'right' }}>
+
+            {/* Info items */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               {[
                 { icon: '🩺', label: 'اسم الطبيب' },
                 { icon: '💊', label: 'الآيتم' },
-                { icon: '💬', label: 'فيدباك الطبيب' },
                 { icon: '📝', label: 'الملاحظات' },
               ].map(({ icon, label }) => (
                 <div key={label} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  background: '#f8fafc', borderRadius: 10, padding: '10px 14px',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: '#f8fafc', borderRadius: 9, padding: '8px 12px',
                   border: '1px solid #e2e8f0',
                 }}>
-                  <span style={{ fontSize: 22 }}>{icon}</span>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: '#374151' }}>{label}</span>
+                  <span style={{ fontSize: 18 }}>{icon}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{label}</span>
                 </div>
               ))}
             </div>
-            <p style={{ margin: '16px 0 0', fontSize: 12, color: '#94a3b8' }}>
-              سيختفي هذا التذكير تلقائياً...
-            </p>
+
+            {/* Feedback badges */}
+            <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>💬 أنواع الفيدباك:</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginBottom: 18 }}>
+              {Object.entries(FEEDBACK_LABELS).map(([key, { label, color, bg }]) => (
+                <span key={key} style={{
+                  fontSize: 11, fontWeight: 700, padding: '4px 10px',
+                  borderRadius: 20, color, background: bg,
+                  border: `1px solid ${color}30`,
+                  whiteSpace: 'nowrap',
+                }}>{label}</span>
+              ))}
+            </div>
+
+            {/* Tap to stop hint */}
+            <div
+              onClick={stopVoice}
+              style={{
+                background: '#fee2e2', border: '1.5px solid #fca5a5',
+                borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
+              }}
+            >
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#dc2626' }}>
+                👆 اضغط هنا أو في أي مكان على الشاشة لإنهاء التسجيل
+              </p>
+            </div>
           </div>
         </div>
       )}
