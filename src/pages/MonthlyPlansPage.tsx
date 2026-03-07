@@ -1284,9 +1284,15 @@ export default function MonthlyPlansPage() {
                                     let matched: number | null = null;
                                     for (const e of activePlan.entries) {
                                       const en = norm(e.doctor.name);
-                                      const tokens = typed.split(' ').filter(t => t.length >= 3);
-                                      if (en === typed || en.includes(typed) || typed.includes(en) ||
-                                          tokens.some(t => en.includes(t))) {
+                                      // Exact or full-name containment only
+                                      const exactMatch = en === typed || en.includes(typed) || typed.includes(en);
+                                      // Token match: ALL significant tokens (>=4 chars) in typed must appear in en
+                                      const typedTokens = typed.split(' ').filter((t: string) => t.length >= 4);
+                                      const allTokensMatch = typedTokens.length >= 2 && typedTokens.every((t: string) => en.includes(t));
+                                      // Single long token: one word >= 5 chars that appears exactly as a word in both
+                                      const enTokens = en.split(' ');
+                                      const longTokenMatch = typedTokens.some((t: string) => t.length >= 5 && enTokens.includes(t));
+                                      if (exactMatch || allTokensMatch || longTokenMatch) {
                                         matched = e.id; break;
                                       }
                                     }
