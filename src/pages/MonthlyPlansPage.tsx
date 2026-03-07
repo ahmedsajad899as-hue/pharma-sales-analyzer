@@ -3,9 +3,13 @@ import { useAuth } from '../context/AuthContext';
 import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
 
-// --- Voice beep sounds ---
-const voiceStartAudio = typeof window !== 'undefined' ? new Audio(voiceStartSrc) : null;
-const voiceStopAudio  = typeof window !== 'undefined' ? new Audio(voiceStopSrc)  : null;
+// --- Voice beep sounds (created fresh each time to avoid mobile autoplay issues) ---
+const playAudio = (src: string) => {
+  try {
+    const a = new Audio(src);
+    a.play().catch(() => {});
+  } catch {}
+};
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -418,6 +422,9 @@ export default function MonthlyPlansPage() {
   const startVoice = async () => {
     if (!activePlan) return;
 
+    // Play start sound immediately on user gesture (before any async/setTimeout)
+    playAudio(voiceStartSrc);
+
     // Show countdown overlay immediately
     setVoiceReminderVisible(true);
     setVoiceCountingDown(true);
@@ -435,7 +442,6 @@ export default function MonthlyPlansPage() {
 
     setTimeout(() => {
       setVoiceCountingDown(false);
-      if (voiceStartAudio) { try { voiceStartAudio.currentTime = 0; voiceStartAudio.play().catch(() => {}); } catch {} }
 
       audioChunksRef.current = [];
 
@@ -458,7 +464,7 @@ export default function MonthlyPlansPage() {
 
       recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
-        if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
+        playAudio(voiceStopSrc);
         setVoiceListening(false);
         setVoiceReminderVisible(false);
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
