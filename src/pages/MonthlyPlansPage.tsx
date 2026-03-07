@@ -421,21 +421,26 @@ export default function MonthlyPlansPage() {
     recognition.continuous = !isMobile;
     recognition.interimResults = false;
     let finalText = '';
-    recognition.onresult = (event: any) => {
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
-      }
-      finalTextRef.current = finalText;
-      // Reset silence timer on speech
+    // Reset the 10-second silence timer — called on speech or on restart
+    const resetSilenceTimer = () => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         wantListeningRef.current = false;
         recognition.stop();
       }, 10000);
     };
+
+    recognition.onresult = (event: any) => {
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript + ' ';
+      }
+      finalTextRef.current = finalText;
+      resetSilenceTimer();
+    };
     recognition.onerror = (e: any) => {
-      if (e.error === 'no-speech' && wantListeningRef.current && !isMobile) {
-        try { recognition.start(); } catch {}
+      if (e.error === 'no-speech' && wantListeningRef.current) {
+        // On mobile no-speech fires instead of onend — just restart
+        try { recognition.start(); resetSilenceTimer(); } catch {}
         return;
       }
       if (e.error === 'aborted' && !wantListeningRef.current) return;
@@ -443,12 +448,12 @@ export default function MonthlyPlansPage() {
       setVoiceListening(false);
     };
     recognition.onend = () => {
-      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-      if (wantListeningRef.current && !isMobile) {
-        // Restart recognition to keep listening through pauses (desktop only)
-        try { recognition.start(); } catch {}
+      if (wantListeningRef.current) {
+        // Restart to keep listening (works on both desktop and mobile)
+        try { recognition.start(); resetSilenceTimer(); } catch {}
         return;
       }
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
       setVoiceListening(false);
       if (voiceStopAudio) { try { voiceStopAudio.currentTime = 0; voiceStopAudio.play().catch(() => {}); } catch {} }
       // Auto-parse immediately after stopping
@@ -459,6 +464,7 @@ export default function MonthlyPlansPage() {
     wantListeningRef.current = true;
     finalTextRef.current = '';
     recognition.start();
+    resetSilenceTimer();
     setVoiceListening(true);
     setVoiceResults(null);
   };
