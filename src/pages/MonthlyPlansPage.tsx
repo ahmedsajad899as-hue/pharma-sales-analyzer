@@ -417,9 +417,6 @@ export default function MonthlyPlansPage() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { alert('المتصفح لا يدعم التعرف على الصوت. استخدم Chrome أو Edge.'); return; }
 
-    // على الموبايل لا نعيد تشغيل التعرف أبداً لتجنب أصوات الإشعارات
-    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-
     // Show overlay immediately with countdown, start recording after 2s
     setVoiceReminderVisible(true);
     setVoiceCountingDown(true);
@@ -450,27 +447,19 @@ export default function MonthlyPlansPage() {
         resetSilenceTimer();
       };
       recognition.onerror = (e: any) => {
-        // على الموبايل: لا نعيد التشغيل عند no-speech لتجنب صوت الإشعار
-        if (e.error === 'no-speech') {
-          if (wantListeningRef.current && !isMobile) {
-            try { recognition.start(); resetSilenceTimer(); } catch {}
-          }
-          // على الموبايل onend سيشتغل تلقائياً بعدها ويتولى الأمر
-          return;
-        }
+        if (e.error === 'no-speech') return; // onend يتولى الأمر
         if (e.error === 'aborted' && !wantListeningRef.current) return;
         wantListeningRef.current = false;
         setVoiceListening(false);
         setVoiceReminderVisible(false);
       };
       recognition.onend = () => {
-        // على الديسكتوب فقط: أعد التشغيل للاستمرار بالاستماع
-        if (wantListeningRef.current && !isMobile) {
+        // المستخدم لم يوقف التسجيل: أعد التشغيل على جميع الأجهزة
+        if (wantListeningRef.current) {
           try { recognition.start(); resetSilenceTimer(); } catch {}
           return;
         }
-        // على الموبايل أو عند الإيقاف المقصود: توقف وحلّل
-        wantListeningRef.current = false;
+        // المستخدم أوقف التسجيل (أو انتهى وقت الصمت): حلّل النص
         if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
         setVoiceListening(false);
         setVoiceReminderVisible(false);
