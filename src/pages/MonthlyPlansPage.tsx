@@ -431,7 +431,7 @@ export default function MonthlyPlansPage() {
       silenceTimerRef.current = setTimeout(() => {
         wantListeningRef.current = false;
         recognition.stop();
-      }, 3000);
+      }, 10000);
     };
     recognition.onerror = (e: any) => {
       if (e.error === 'no-speech' && wantListeningRef.current && !isMobile) {
