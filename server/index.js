@@ -151,6 +151,23 @@ app.get('/api/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post('/api/items', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const { name } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
+    const trimmed = String(name).trim();
+    // Upsert: create if not exists, return existing if duplicate
+    const item = await prisma.item.upsert({
+      where:  { name_userId: { name: trimmed, userId } },
+      update: {},
+      create: { name: trimmed, userId },
+      select: { id: true, name: true },
+    });
+    res.status(201).json({ success: true, data: item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/companies', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;

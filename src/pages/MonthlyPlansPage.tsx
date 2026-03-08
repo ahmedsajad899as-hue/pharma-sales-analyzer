@@ -152,6 +152,7 @@ export default function MonthlyPlansPage() {
   const [entryItemMenuOpen, setEntryItemMenuOpen] = useState<number | null>(null); // entryId
   const [showEntryItems, setShowEntryItems] = useState<Set<number>>(new Set()); // entryIds with items visible
   const [addingEntryItem, setAddingEntryItem]     = useState(false);
+  const [newItemName, setNewItemName]             = useState(''); // name for creating a new item inline
 
   // Add visit form
   const [visitFormEntry, setVisitFormEntry] = useState<number | null>(null); // entryId
@@ -238,21 +239,19 @@ export default function MonthlyPlansPage() {
     setLoading(true); setError('');
     try {
       const h = H();
-      const [pl, re] = await Promise.all([
+      const [pl, re, it] = await Promise.all([
         fetch(`${API}/api/monthly-plans`,   { headers: h }),
         fetch(`${API}/api/scientific-reps`, { headers: h }),
+        fetch(`${API}/api/items`,           { headers: h }),
       ]);
       const plJson = await pl.json();
       const reJson = await re.json();
+      const itJson = it.ok ? await it.json() : { data: [] };
       if (!pl.ok) throw new Error(plJson.error ?? `خطأ ${pl.status}`);
       if (!re.ok) throw new Error(reJson.error ?? `خطأ ${re.status}`);
       setPlans(Array.isArray(plJson) ? plJson : (Array.isArray(plJson?.data) ? plJson.data : []));
       setReps(Array.isArray(reJson) ? reJson : (Array.isArray(reJson?.data) ? reJson.data : []));
-      // جلب الايتمات بشكل مستقل - لا تأثر على تحميل البلانات إذا فشل
-      fetch(`${API}/api/items`, { headers: h })
-        .then(r => r.json())
-        .then(j => setItems(Array.isArray(j) ? j : (Array.isArray(j?.data) ? j.data : [])))
-        .catch(() => {});
+      setItems(Array.isArray(itJson) ? itJson : (Array.isArray(itJson?.data) ? itJson.data : []));
       // Restore last open plan after refresh
       const savedPlanId = localStorage.getItem('lastPlanId');
       if (savedPlanId) {
@@ -516,6 +515,38 @@ export default function MonthlyPlansPage() {
     setAddingEntryItem(false);
     setEntryItemMenuOpen(null);
     await reloadPlan(activePlan.id);
+  };
+
+  // Create a new item by name then add it to the entry
+  const createAndAddItem = async (entryId: number) => {
+    const name = newItemName.trim();
+    if (!name || !activePlan) return;
+    setAddingEntryItem(true);
+    try {
+      // 1. create (or fetch existing) item
+      const r = await fetch(`${API}/api/items`, {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({ name }),
+      });
+      const j = await r.json();
+      const item = j?.data ?? j;
+      if (!item?.id) throw new Error('فشل إنشاء الايتم');
+      // 2. add to entry
+      await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${entryId}/items`, {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({ itemId: item.id }),
+      });
+      setNewItemName('');
+      setEntryItemMenuOpen(null);
+      // 3. refresh items list + plan
+      const [itR] = await Promise.all([
+        fetch(`${API}/api/items`, { headers: H() }),
+        reloadPlan(activePlan.id),
+      ]);
+      const itJ = await itR.json();
+      setItems(Array.isArray(itJ) ? itJ : (Array.isArray(itJ?.data) ? itJ.data : []));
+    } catch (e: any) { alert(e.message ?? 'خطأ'); }
+    finally { setAddingEntryItem(false); }
   };
 
   // Remove item from entry
@@ -2082,14 +2113,16 @@ export default function MonthlyPlansPage() {
                             {/* Add item dropdown */}
                             <div style={{ position: 'relative' }}>
                               {entryItemMenuOpen === entry.id ? (
-                                <div style={{ position: 'absolute', bottom: '110%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 220, maxHeight: 220, overflowY: 'auto', direction: 'rtl' }}>
+                                <div style={{ position: 'absolute', bottom: '110%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 240, maxHeight: 300, overflowY: 'auto', direction: 'rtl' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                                     <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#374151' }}>اختر ايتم</p>
-                                    <button onClick={() => setEntryItemMenuOpen(null)} style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
+                                    <button onClick={() => { setEntryItemMenuOpen(null); setNewItemName(''); }} style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
                                   </div>
-                                  {items.filter(it => !targetItemsList.some(ti => ti.item.id === it.id)).length === 0 ? (
-                                    <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', padding: '4px 10px', textAlign: 'center' }}>تمت إضافة جميع الايتمات</p>
-                                  ) : items.filter(it => !targetItemsList.some(ti => ti.item.id === it.id)).map(it => (
+                                  {/* Existing items list */}
+                                  {items.filter(it => !targetItemsList.some(ti => ti.item.id === it.id)).length === 0 && items.length > 0 && (
+                                    <p style={{ margin: '0 0 8px', fontSize: 12, color: '#94a3b8', padding: '4px 10px', textAlign: 'center' }}>تمت إضافة جميع الايتمات</p>
+                                  )}
+                                  {items.filter(it => !targetItemsList.some(ti => ti.item.id === it.id)).map(it => (
                                     <div key={it.id}
                                       onClick={() => !addingEntryItem && addEntryItem(entry.id, it.id)}
                                       style={{ padding: '7px 10px', borderRadius: 7, cursor: addingEntryItem ? 'wait' : 'pointer', fontSize: 13, color: '#1e293b', transition: 'background 0.1s' }}
@@ -2098,9 +2131,37 @@ export default function MonthlyPlansPage() {
                                       {it.name}
                                     </div>
                                   ))}
+                                  {/* ── Create new item ── */}
+                                  <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6 }}>
+                                    <p style={{ margin: '0 0 5px', fontSize: 11, color: '#64748b', fontWeight: 600 }}>+ إنشاء ايتم جديد</p>
+                                    <div style={{ display: 'flex', gap: 4 }}>
+                                      <input
+                                        value={newItemName}
+                                        onChange={e => setNewItemName(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') createAndAddItem(entry.id); }}
+                                        placeholder="اسم الايتم..."
+                                        disabled={addingEntryItem}
+                                        style={{
+                                          flex: 1, padding: '5px 8px', border: '1px solid #e2e8f0', borderRadius: 6,
+                                          fontSize: 12, direction: 'rtl', outline: 'none',
+                                          background: '#fafafa',
+                                        }}
+                                      />
+                                      <button
+                                        onClick={() => createAndAddItem(entry.id)}
+                                        disabled={!newItemName.trim() || addingEntryItem}
+                                        style={{
+                                          background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6,
+                                          padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                          opacity: !newItemName.trim() || addingEntryItem ? 0.5 : 1,
+                                        }}>
+                                        {addingEntryItem ? '...' : '✓'}
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
                               ) : (
-                                <button onClick={() => setEntryItemMenuOpen(entry.id)}
+                                <button onClick={() => { setEntryItemMenuOpen(entry.id); setNewItemName(''); }}
                                   style={{ background: 'none', color: '#2563eb', border: '1px dashed #93c5fd', borderRadius: 20, padding: '3px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                                   + إضافة
                                 </button>
