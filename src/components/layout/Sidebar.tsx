@@ -32,7 +32,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const visibleItems = navItems.filter(item => item.roles.includes(role));
 
   const roleLabel = role === 'admin' ? t.sidebar.admin
-    : role === 'manager' ? 'مدير'
+    : role === 'manager' ? 'مدير الفريق'
     : t.sidebar.user;
   const roleIcon = role === 'admin' ? '👑' : role === 'manager' ? '🛡️' : '👤';
 

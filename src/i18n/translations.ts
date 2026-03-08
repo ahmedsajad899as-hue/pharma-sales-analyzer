@@ -18,8 +18,8 @@ const translations = {
     },
     sidebar: {
       collapse: 'طي القائمة',
-      admin: 'مدير',
-      user: 'مستخدم',
+      admin: 'مدير الشركة',
+      user: 'مندوب',
       logout: 'تسجيل الخروج',
     },
 
@@ -438,8 +438,8 @@ const translations = {
       colUsername: 'اسم المستخدم',
       colRole: 'الدور',
       colActions: 'الإجراءات',
-      admin: 'مدير',
-      user: 'مستخدم',
+      admin: 'مدير الشركة',
+      user: 'مندوب',
       deleteConfirm: 'هل تريد حذف هذا المستخدم؟',
       editBtn: '✏️ تعديل',
       deleteBtn: '🗑️',

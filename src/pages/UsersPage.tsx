@@ -180,7 +180,7 @@ export default function UsersPage() {
                       : 'badge--blue'
                     }`}>
                       {u.role === 'admin' ? `👑 ${t.users.admin}`
-                        : u.role === 'manager' ? '🛡️ مدير'
+                        : u.role === 'manager' ? '🛡️ مدير الفريق'
                         : `👤 ${t.users.user}`}
                     </span>
                   </td>
@@ -236,7 +236,7 @@ export default function UsersPage() {
                 <label className="form-label">{t.users.colRole}</label>
                 <select className="form-input" value={fRole} onChange={e => setFRole(e.target.value as any)}>
                   <option value="user">👤 {t.users.user}</option>
-                  <option value="manager">🛡️ مدير</option>
+                  <option value="manager">🛡️ مدير الفريق</option>
                   <option value="admin">👑 {t.users.admin}</option>
                 </select>
               </div>

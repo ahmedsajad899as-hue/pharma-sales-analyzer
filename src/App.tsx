@@ -58,6 +58,27 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
 
+  // Redirect to first accessible page if user doesn't have permission for current page
+  useEffect(() => {
+    if (!user) return;
+    const pageRoles: Record<string, string[]> = {
+      'dashboard':       ['admin'],
+      'upload':          ['admin'],
+      'representatives': ['admin'],
+      'scientific-reps': ['admin', 'manager'],
+      'doctors':         ['admin', 'manager'],
+      'monthly-plans':   ['admin', 'manager', 'user'],
+      'reports':         ['admin'],
+      'users':           ['admin'],
+    };
+    const role = user.role;
+    if (!pageRoles[activePage]?.includes(role)) {
+      const firstPage = (Object.keys(pageRoles) as PageId[]).find(p => pageRoles[p].includes(role));
+      navigateTo(firstPage ?? 'monthly-plans');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role]);
+
   // Sync with browser history so mobile back button navigates within the app
   useEffect(() => {
     const saved = (localStorage.getItem('lastPage') as PageId) || 'dashboard';
