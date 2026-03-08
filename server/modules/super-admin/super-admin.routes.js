@@ -18,9 +18,9 @@ router.post('/login', loginSuperAdmin);
 router.get('/me', requireSuperAdmin, getSuperAdminProfile);
 
 // Protected — master only
-router.get('/',        requireMasterAdmin, listSuperAdmins);
-router.post('/',       requireMasterAdmin, createSuperAdmin);
-router.put('/:id',     requireMasterAdmin, updateSuperAdmin);
-router.delete('/:id',  requireMasterAdmin, deleteSuperAdmin);
+router.get('/admins',        requireMasterAdmin, listSuperAdmins);
+router.post('/admins',       requireMasterAdmin, createSuperAdmin);
+router.put('/admins/:id',    requireMasterAdmin, updateSuperAdmin);
+router.delete('/admins/:id', requireMasterAdmin, deleteSuperAdmin);
 
 export default router;

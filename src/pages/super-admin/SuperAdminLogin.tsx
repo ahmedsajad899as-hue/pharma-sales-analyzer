@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useSuperAdmin } from '../context/SuperAdminContext';
+import { useSuperAdmin } from '../../context/SuperAdminContext';
 
 export default function SuperAdminLogin() {
   const { login } = useSuperAdmin();

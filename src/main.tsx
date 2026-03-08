@@ -4,12 +4,14 @@ import App from './App.tsx'
 import SuperAdminApp from './SuperAdminApp.tsx'
 import './index.css'
 
-// ── Global fetch interceptor: attach JWT to every localhost:8080 request ──
+// ── Global fetch interceptor: attach JWT to every /api request ──────────
+// Only injects auth_token if no Authorization header is already provided
 const _origFetch = window.fetch.bind(window);
 window.fetch = function(input: RequestInfo | URL, init: RequestInit = {}) {
   const token = localStorage.getItem('auth_token');
   const url   = typeof input === 'string' ? input : (input instanceof Request ? input.url : input.toString());
-  if (token && (url.includes('localhost:8080') || url.startsWith('/api'))) {
+  const existingAuth = (init.headers as Record<string,string>)?.['Authorization'];
+  if (token && !existingAuth && (url.includes('localhost:8080') || url.startsWith('/api'))) {
     init = {
       ...init,
       headers: {
