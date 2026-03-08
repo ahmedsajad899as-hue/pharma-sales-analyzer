@@ -49,7 +49,8 @@ export default function UsersPage() {
       const rj = await rr.json();
       if (!ur.ok) throw new Error(uj.error || 'فشل تحميل المستخدمين');
       setUsers(Array.isArray(uj.data) ? uj.data : []);
-      setSciReps(Array.isArray(rj) ? rj.map((r: any) => ({ id: r.id, name: r.name })) : []);
+      const repsArr = Array.isArray(rj) ? rj : Array.isArray(rj?.data) ? rj.data : [];
+      setSciReps(repsArr.map((r: any) => ({ id: r.id, name: r.name })));
     } catch (err: any) { setError(err.message || 'فشل تحميل المستخدمين'); }
     finally   { setLoading(false); }
   }, []);
