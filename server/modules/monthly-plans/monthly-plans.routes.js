@@ -12,6 +12,10 @@ router.post('/',                       ctrl.create);
 router.put('/:id',                     ctrl.update);
 router.delete('/:id',                  ctrl.remove);
 
+// Plan transfer (manager → rep user)
+router.post('/:id/transfer',           ctrl.transferPlan);
+router.delete('/:id/transfer',         ctrl.revokePlanTransfer);
+
 // Entries (doctors in plan)
 router.post('/:id/entries',                                  ctrl.addEntry);
 router.patch('/:id/entries/:entryId',                        ctrl.patchEntry);

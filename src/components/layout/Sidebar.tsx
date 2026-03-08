@@ -12,22 +12,29 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, activeFileIds = [] }: SidebarProps) {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isManager, isManagerOrAdmin } = useAuth();
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems: { id: PageId; label: string; icon: string; adminOnly?: boolean }[] = [
-    { id: 'dashboard',        label: t.nav.dashboard,        icon: '📊' },
-    { id: 'upload',           label: t.nav.upload,           icon: '📤' },
-    { id: 'representatives',  label: t.nav.representatives,  icon: '💰' },
-    { id: 'scientific-reps',  label: t.nav.scientificReps,   icon: '🔬' },
-    { id: 'doctors',          label: t.nav.doctors,          icon: '🏥' },
-    { id: 'monthly-plans',    label: t.nav.monthlyPlans,     icon: '📅' },
-    { id: 'reports',          label: t.nav.reports,          icon: '📋' },
-    { id: 'users',            label: t.nav.users,            icon: '👥', adminOnly: true },
+  const role = user?.role ?? 'user';
+
+  const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
+    { id: 'dashboard',       label: t.nav.dashboard,       icon: '📊', roles: ['admin'] },
+    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: ['admin'] },
+    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: ['admin'] },
+    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin', 'manager'] },
+    { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: ['admin', 'manager'] },
+    { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: ['admin', 'manager', 'user'] },
+    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin'] },
+    { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin'] },
   ];
 
-  const visibleItems = navItems.filter(item => !item.adminOnly || isAdmin);
+  const visibleItems = navItems.filter(item => item.roles.includes(role));
+
+  const roleLabel = role === 'admin' ? t.sidebar.admin
+    : role === 'manager' ? 'مدير'
+    : t.sidebar.user;
+  const roleIcon = role === 'admin' ? '👑' : role === 'manager' ? '🛡️' : '👤';
 
   const LangToggleBtn = ({ full }: { full?: boolean }) => (
     <button
@@ -89,11 +96,11 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           {isOpen ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 18 }}>{user?.role === 'admin' ? '👑' : '👤'}</span>
+                <span style={{ fontSize: 18 }}>{roleIcon}</span>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0' }}>{user?.username}</div>
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    {user?.role === 'admin' ? t.sidebar.admin : t.sidebar.user}
+                    {roleLabel}
                   </div>
                 </div>
               </div>
@@ -132,7 +139,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             🌐 {lang === 'ar' ? 'EN' : 'ع'}
           </button>
           <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>
-            {user?.role === 'admin' ? '👑' : '👤'} {user?.username}
+            {roleIcon} {user?.username}
           </span>
           <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu">
             ☰
@@ -152,15 +159,6 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             <span className="mobile-nav-label">{item.label}</span>
           </button>
         ))}
-        {isAdmin && (
-          <button
-            className={`mobile-nav-item ${activePage === 'users' ? 'mobile-nav-item--active' : ''}`}
-            onClick={() => handleMobileNavigate('users')}
-          >
-            <span className="mobile-nav-icon">👥</span>
-            <span className="mobile-nav-label">{t.nav.users}</span>
-          </button>
-        )}
       </nav>
 
       {/* ── MOBILE SLIDE-IN MENU (drawer) ── */}
@@ -173,7 +171,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{t.appName}</div>
                   <div style={{ fontSize: 12, color: '#64748b' }}>
-                    {user?.username} · {user?.role === 'admin' ? t.sidebar.admin : t.sidebar.user}
+                    {user?.username} · {roleLabel}
                   </div>
                 </div>
               </div>

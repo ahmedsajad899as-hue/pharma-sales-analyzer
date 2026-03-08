@@ -16,10 +16,13 @@ model User {
   id           Int      @id @default(autoincrement())
   username     String   @unique
   passwordHash String
-  role         String   @default("user")   // "admin" | "user"
+  role         String   @default("user")   // "admin" | "manager" | "user"
   isActive     Boolean  @default(true)
+  linkedRepId  Int?                         // (role=user) linked ScientificRep for this account
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  linkedRep      ScientificRepresentative?  @relation("UserLinkedRep", fields: [linkedRepId], references: [id])
 
   areas          Area[]
   items          Item[]
@@ -31,6 +34,7 @@ model User {
   sales          Sale[]
   doctors        Doctor[]
   monthlyPlans   MonthlyPlan[]
+  assignedPlans  MonthlyPlan[]              @relation("AssignedPlans")
   doctorVisits   DoctorVisit[]
 
   @@map("users")
@@ -243,6 +247,7 @@ model ScientificRepresentative {
   commercialReps ScientificRepCommercial[]
   monthlyPlans   MonthlyPlan[]
   doctorVisits   DoctorVisit[]
+  linkedUsers    User[]                    @relation("UserLinkedRep")
 
   @@unique([name, userId])
   @@index([userId])
@@ -341,14 +346,17 @@ model MonthlyPlan {
   createdAt        DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  userId          Int?
-  user            User?                    @relation(fields: [userId], references: [id])
-  scientificRep   ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  userId           Int?
+  user             User?                    @relation(fields: [userId], references: [id])
+  assignedUserId   Int?                      // rep user this plan is transferred/assigned to
+  assignedUser     User?                    @relation("AssignedPlans", fields: [assignedUserId], references: [id])
+  scientificRep    ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
 
   entries         PlanEntry[]
 
   @@unique([scientificRepId, month, year, userId])
   @@index([userId])
+  @@index([assignedUserId])
   @@index([scientificRepId])
   @@map("monthly_plans")
 }

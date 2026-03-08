@@ -74,6 +74,8 @@ interface Plan {
   id: number; scientificRepId: number; month: number; year: number;
   targetCalls: number; targetDoctors: number; status: string; notes?: string;
   allowExtraVisits: boolean;
+  assignedUserId?: number | null;
+  assignedUser?: { id: number; username: string } | null;
   scientificRep: NamedItem; entries: PlanEntry[];
 }
 interface SuggestResult {
@@ -105,7 +107,7 @@ const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
   });
 
 export default function MonthlyPlansPage() {
-  const { token } = useAuth();
+  const { token, isManagerOrAdmin } = useAuth();
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [plans, setPlans]         = useState<Plan[]>([]);
@@ -198,6 +200,14 @@ export default function MonthlyPlansPage() {
 
   // Feedback doctors popup
   const [fbPopup, setFbPopup] = useState<{ fb: string; label: string; meta: { color: string; bg: string }; doctors: { name: string; entryId: number }[] } | null>(null);
+
+  // Transfer plan modal
+  interface RepUser { id: number; username: string; linkedRepId: number | null; }
+  const [transferPlan, setTransferPlan]   = useState<Plan | null>(null);
+  const [repUsers, setRepUsers]           = useState<RepUser[]>([]);
+  const [transferTarget, setTransferTarget] = useState<number | ''>('');
+  const [transferring, setTransferring]   = useState(false);
+  const [transferError, setTransferError] = useState('');
 
   // Scroll-to-entry highlight
   const entryRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -874,6 +884,45 @@ export default function MonthlyPlansPage() {
     a.click(); URL.revokeObjectURL(url);
   };
 
+  // ── Transfer plan to rep user ─────────────────────────────────
+  const openTransferModal = async (e: React.MouseEvent, plan: Plan) => {
+    e.stopPropagation();
+    setTransferError('');
+    setTransferTarget('');
+    setTransferPlan(plan);
+    try {
+      const r = await fetch(`${API}/api/admin/users`, { headers: H() });
+      const j = await r.json();
+      const allUsers: RepUser[] = Array.isArray(j.data) ? j.data : [];
+      setRepUsers(allUsers.filter((u: any) => u.role === 'user' && u.linkedRepId === plan.scientificRepId));
+    } catch { setRepUsers([]); }
+  };
+
+  const doTransfer = async () => {
+    if (!transferPlan || !transferTarget) return;
+    setTransferring(true); setTransferError('');
+    try {
+      const r = await fetch(`${API}/api/monthly-plans/${transferPlan.id}/transfer`, {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({ targetUserId: transferTarget }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'فشل التحويل');
+      setTransferPlan(null);
+      await load();
+    } catch (err: any) { setTransferError(err.message); }
+    finally { setTransferring(false); }
+  };
+
+  const revokeTransfer = async (e: React.MouseEvent, planId: number) => {
+    e.stopPropagation();
+    if (!confirm('هل تريد إلغاء تحويل البلان؟')) return;
+    try {
+      await fetch(`${API}/api/monthly-plans/${planId}/transfer`, { method: 'DELETE', headers: H() });
+      await load();
+    } catch {}
+  };
+
   // ── Computed stats for active plan ──────────────────────────
   const planStats = activePlan ? (() => {
     const totalVisits  = activePlan.entries.reduce((s, e) => s + e.visits.length, 0);
@@ -1093,6 +1142,28 @@ export default function MonthlyPlansPage() {
                         <div style={{ background: pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#3b82f6', width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
                       </div>
                       <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>{pct}%</p>
+                      {isManagerOrAdmin && (
+                        <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                          {p.assignedUserId ? (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>
+                                🔗 {p.assignedUser?.username ?? 'مُحوَّل'}
+                              </span>
+                              <button
+                                style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 700 }}
+                                onClick={e => revokeTransfer(e, p.id)}>
+                                ✕ إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600 }}
+                              onClick={e => openTransferModal(e, p)}>
+                              📤 تحويل للمندوب
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2582,6 +2653,47 @@ export default function MonthlyPlansPage() {
 
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setFbPopup(null)} style={btnStyle('#64748b')}>إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Transfer Plan Modal ── */}
+      {transferPlan && (
+        <div style={overlayStyle} onClick={() => setTransferPlan(null)}>
+          <div style={{ ...modalStyle, maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📤 تحويل البلان إلى مندوب</h2>
+              <button onClick={() => setTransferPlan(null)}
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
+            </div>
+            <p style={{ margin: '0 0 14px', fontSize: 14, color: '#475569' }}>
+              البلان: <strong>{transferPlan.scientificRep.name}</strong> — {MONTHS_AR[transferPlan.month - 1]} {transferPlan.year}
+            </p>
+            {repUsers.length === 0 ? (
+              <p style={{ color: '#ef4444', fontSize: 13, background: '#fee2e2', borderRadius: 8, padding: '10px 14px' }}>
+                ⚠️ لا يوجد حساب مندوب مرتبط بهذا المندوب العلمي. قم بربط حساب مستخدم بالمندوب أولاً من صفحة المستخدمين.
+              </p>
+            ) : (
+              <label style={labelStyle}>
+                اختر حساب المندوب
+                <select style={inputStyle} value={transferTarget}
+                  onChange={e => setTransferTarget(e.target.value === '' ? '' : parseInt(e.target.value))}>
+                  <option value="">— اختر —</option>
+                  {repUsers.map(u => <option key={u.id} value={u.id}>👤 {u.username}</option>)}
+                </select>
+              </label>
+            )}
+            {transferError && (
+              <p style={{ color: '#ef4444', fontSize: 13, marginTop: 10 }}>{transferError}</p>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button onClick={() => setTransferPlan(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
+              {repUsers.length > 0 && (
+                <button onClick={doTransfer} disabled={transferring || !transferTarget} style={btnStyle('#0369a1')}>
+                  {transferring ? '⏳...' : '📤 تحويل'}
+                </button>
+              )}
             </div>
           </div>
         </div>

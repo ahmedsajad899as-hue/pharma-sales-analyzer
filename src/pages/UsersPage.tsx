@@ -2,12 +2,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
+interface ScientificRep { id: number; name: string; }
+
 interface User {
   id: number;
   username: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'manager' | 'user';
   isActive: boolean;
   createdAt: string;
+  linkedRepId: number | null;
+  linkedRep: ScientificRep | null;
 }
 
 type ModalType = 'add' | 'edit' | 'password' | null;
@@ -17,6 +21,7 @@ export default function UsersPage() {
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [users, setUsers]     = useState<User[]>([]);
+  const [sciReps, setSciReps] = useState<ScientificRep[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [modal, setModal]     = useState<ModalType>(null);
@@ -24,21 +29,27 @@ export default function UsersPage() {
   const [saving, setSaving]   = useState(false);
 
   // Form fields
-  const [fUsername, setFUsername] = useState('');
-  const [fPassword, setFPassword] = useState('');
-  const [fRole, setFRole]         = useState<'admin' | 'user'>('user');
-  const [fIsActive, setFIsActive] = useState(true);
-  const [fNewPass, setFNewPass]   = useState('');
-  const [fConfirm, setFConfirm]   = useState('');
+  const [fUsername,     setFUsername]     = useState('');
+  const [fPassword,     setFPassword]     = useState('');
+  const [fRole,         setFRole]         = useState<'admin' | 'manager' | 'user'>('user');
+  const [fIsActive,     setFIsActive]     = useState(true);
+  const [fLinkedRepId,  setFLinkedRepId]  = useState<number | ''>('');
+  const [fNewPass,      setFNewPass]      = useState('');
+  const [fConfirm,      setFConfirm]      = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const r = await fetch('/api/admin/users', { headers: authH() });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'فشل تحميل المستخدمين');
-      setUsers(Array.isArray(j.data) ? j.data : []);
+      const [ur, rr] = await Promise.all([
+        fetch('/api/admin/users', { headers: authH() }),
+        fetch('/api/scientific-reps', { headers: authH() }),
+      ]);
+      const uj = await ur.json();
+      const rj = await rr.json();
+      if (!ur.ok) throw new Error(uj.error || 'فشل تحميل المستخدمين');
+      setUsers(Array.isArray(uj.data) ? uj.data : []);
+      setSciReps(Array.isArray(rj) ? rj.map((r: any) => ({ id: r.id, name: r.name })) : []);
     } catch (err: any) { setError(err.message || 'فشل تحميل المستخدمين'); }
     finally   { setLoading(false); }
   }, []);
@@ -46,7 +57,7 @@ export default function UsersPage() {
   useEffect(() => { load(); }, [load]);
 
   const openAdd = () => {
-    setFUsername(''); setFPassword(''); setFRole('user'); setFIsActive(true);
+    setFUsername(''); setFPassword(''); setFRole('user'); setFIsActive(true); setFLinkedRepId('');
     setSelected(null);
     setModal('add');
   };
@@ -56,6 +67,7 @@ export default function UsersPage() {
     setFUsername(u.username);
     setFRole(u.role);
     setFIsActive(u.isActive);
+    setFLinkedRepId(u.linkedRepId ?? '');
     setFPassword('');
     setModal('edit');
   };
@@ -71,7 +83,12 @@ export default function UsersPage() {
     if (modal === 'add' && (!fPassword || fPassword.length < 6)) return setError('كلمة المرور يجب أن تكون 6 أحرف على الأقل.');
     setSaving(true);
     try {
-      const body: any = { username: fUsername.trim(), role: fRole, isActive: fIsActive };
+      const body: any = {
+        username: fUsername.trim(),
+        role: fRole,
+        isActive: fIsActive,
+        linkedRepId: fRole === 'user' && fLinkedRepId !== '' ? fLinkedRepId : null,
+      };
       if (modal === 'add') body.password = fPassword;
 
       const url    = modal === 'add' ? '/api/admin/users' : `/api/admin/users/${selected!.id}`;
@@ -140,6 +157,7 @@ export default function UsersPage() {
                 <th>#</th>
                 <th>{t.users.colUsername}</th>
                 <th>{t.users.colRole}</th>
+                <th>المندوب المرتبط</th>
                 <th>{t.reps.colStatus}</th>
                 <th>{t.dashboard.colDate}</th>
                 <th>{t.users.colActions}</th>
@@ -147,7 +165,7 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {users.length === 0 ? (
-                <tr><td colSpan={6} className="empty-row">{t.users.noUsers}</td></tr>
+                <tr><td colSpan={7} className="empty-row">{t.users.noUsers}</td></tr>
               ) : users.map(u => (
                 <tr key={u.id}>
                   <td>{u.id}</td>
@@ -156,9 +174,22 @@ export default function UsersPage() {
                     {u.id === currentUser?.id && <span className="tag tag--blue" style={{ marginRight: 8 }}>أنت</span>}
                   </td>
                   <td>
-                    <span className={`badge ${u.role === 'admin' ? 'badge--purple' : 'badge--blue'}`}>
-                      {u.role === 'admin' ? `👑 ${t.users.admin}` : `👤 ${t.users.user}`}
+                    <span className={`badge ${
+                      u.role === 'admin' ? 'badge--purple'
+                      : u.role === 'manager' ? 'badge--orange'
+                      : 'badge--blue'
+                    }`}>
+                      {u.role === 'admin' ? `👑 ${t.users.admin}`
+                        : u.role === 'manager' ? '🛡️ مدير'
+                        : `👤 ${t.users.user}`}
                     </span>
+                  </td>
+                  <td style={{ fontSize: 13, color: '#475569' }}>
+                    {u.linkedRep ? (
+                      <span className="tag tag--blue">🔬 {u.linkedRep.name}</span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>—</span>
+                    )}
                   </td>
                   <td>
                     <span className={`badge ${u.isActive ? 'badge--green' : 'badge--red'}`}>
@@ -205,9 +236,26 @@ export default function UsersPage() {
                 <label className="form-label">{t.users.colRole}</label>
                 <select className="form-input" value={fRole} onChange={e => setFRole(e.target.value as any)}>
                   <option value="user">👤 {t.users.user}</option>
+                  <option value="manager">🛡️ مدير</option>
                   <option value="admin">👑 {t.users.admin}</option>
                 </select>
               </div>
+              {fRole === 'user' && (
+                <div className="form-group">
+                  <label className="form-label">🔬 ربط بمندوب علمي (اختياري)</label>
+                  <select
+                    className="form-input"
+                    value={fLinkedRepId}
+                    onChange={e => setFLinkedRepId(e.target.value === '' ? '' : parseInt(e.target.value))}
+                  >
+                    <option value="">— بدون ربط</option>
+                    {sciReps.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                  <small style={{ color: '#64748b', fontSize: 12 }}>ربط هذا الحساب بمندوب علمي محدد حتى يستلم بلاناته.</small>
+                </div>
+              )}
               <div className="form-group">
                 <label className="form-label">{t.reps.colStatus}</label>
                 <select className="form-input" value={fIsActive ? 'true' : 'false'} onChange={e => setFIsActive(e.target.value === 'true')}>

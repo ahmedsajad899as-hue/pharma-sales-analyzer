@@ -3,12 +3,29 @@ import XLSX from 'xlsx';
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// ── Helper: find a plan the user has access to ──────────────
+// - owner (admin/manager): plans where userId = myId
+// - assigned user (rep):   plans where assignedUserId = myId
+async function findAccessiblePlan(planId, userId, role) {
+  const where = role === 'user'
+    ? { id: planId, assignedUserId: userId }
+    : { id: planId, userId };
+  return prisma.monthlyPlan.findFirst({ where });
+}
+
 // ── List all plans ────────────────────────────────────────────
 export async function list(req, res, next) {
   try {
     const userId = req.user.id;
+    const role   = req.user.role;
     const { scientificRepId, month, year } = req.query;
-    const where = { userId };
+
+    // rep users only see plans assigned to them
+    const baseFilter = role === 'user'
+      ? { assignedUserId: userId }
+      : { userId };
+
+    const where = { ...baseFilter };
     if (scientificRepId) where.scientificRepId = parseInt(scientificRepId);
     if (month)           where.month           = parseInt(month);
     if (year)            where.year            = parseInt(year);
@@ -16,7 +33,8 @@ export async function list(req, res, next) {
     const plans = await prisma.monthlyPlan.findMany({
       where,
       include: {
-        scientificRep: { select: { id: true, name: true } },
+        scientificRep:  { select: { id: true, name: true } },
+        assignedUser:   { select: { id: true, username: true } },
         entries: {
           include: {
             doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } }, targetItem: { select: { id: true, name: true } } } },
@@ -34,8 +52,15 @@ export async function list(req, res, next) {
 // ── Get one plan ──────────────────────────────────────────────
 export async function getOne(req, res, next) {
   try {
+    const uid  = req.user.id;
+    const role = req.user.role;
+    const planId = parseInt(req.params.id);
+    // owner sees by userId, assigned rep sees by assignedUserId
+    const accessWhere = role === 'user'
+      ? { id: planId, assignedUserId: uid }
+      : { id: planId, userId: uid };
     const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: parseInt(req.params.id), userId: req.user.id },
+      where: accessWhere,
       include: {
         scientificRep: { select: { id: true, name: true } },
         entries: {
@@ -297,10 +322,8 @@ export async function addEntry(req, res, next) {
     const planId   = parseInt(req.params.id);
     const { doctorId, targetVisits } = req.body;
 
-    // Verify plan belongs to user
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId: req.user.id },
-    });
+    // Verify plan belongs to user (only owners can add entries)
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const entry = await prisma.planEntry.create({
@@ -320,9 +343,7 @@ export async function removeEntry(req, res, next) {
     const planId   = parseInt(req.params.id);
     const entryId  = parseInt(req.params.entryId);
 
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId: req.user.id },
-    });
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     await prisma.planEntry.delete({ where: { id: entryId } });
@@ -339,9 +360,7 @@ export async function bulkRemoveEntries(req, res, next) {
     if (!Array.isArray(entryIds) || entryIds.length === 0)
       return res.status(400).json({ error: 'entryIds required' });
 
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId: req.user.id },
-    });
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const ids = entryIds.map(Number).filter(n => !isNaN(n));
@@ -359,9 +378,7 @@ export async function patchEntry(req, res, next) {
     const entryId = parseInt(req.params.entryId);
     const { targetVisits } = req.body;
 
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId: req.user.id },
-    });
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const entry = await prisma.planEntry.update({
@@ -380,9 +397,7 @@ export async function addEntryItem(req, res, next) {
     const { itemId } = req.body;
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
 
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId: req.user.id },
-    });
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const record = await prisma.planEntryItem.create({
@@ -403,9 +418,7 @@ export async function removeEntryItem(req, res, next) {
     const entryId = parseInt(req.params.entryId);
     const itemId  = parseInt(req.params.itemId);
 
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId: req.user.id },
-    });
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     await prisma.planEntryItem.deleteMany({
@@ -421,9 +434,10 @@ export async function addVisit(req, res, next) {
     const planId  = parseInt(req.params.id);
     const entryId = parseInt(req.params.entryId);
     const userId  = req.user.id;
+    const role    = req.user.role;
     const { visitDate, itemId, feedback, notes, latitude, longitude } = req.body;
 
-    const plan = await prisma.monthlyPlan.findFirst({ where: { id: planId, userId } });
+    const plan = await findAccessiblePlan(planId, userId, role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const entry = await prisma.planEntry.findFirst({ where: { id: entryId, planId } });
@@ -490,9 +504,12 @@ export async function importPlanVisits(req, res, next) {
     const planId = parseInt(req.params.id);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    // Load the plan with entries + doctors
+    // Load the plan with entries + doctors (accessible by owner or assigned rep)
+    const role = req.user.role;
+    const planBase = await findAccessiblePlan(planId, userId, role);
+    if (!planBase) { fs.unlink(req.file.path, () => {}); return res.status(404).json({ error: 'Plan not found' }); }
     const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId },
+      where: { id: planId },
       include: {
         scientificRep: true,
         entries: {
@@ -503,7 +520,6 @@ export async function importPlanVisits(req, res, next) {
         },
       },
     });
-    if (!plan) { fs.unlink(req.file.path, () => {}); return res.status(404).json({ error: 'Plan not found' }); }
 
     const workbook = XLSX.readFile(req.file.path);
     const sheet    = workbook.Sheets[workbook.SheetNames[0]];
@@ -947,12 +963,16 @@ export async function uploadVisits(req, res, next) {
 export async function parseVoice(req, res, next) {
   try {
     const userId = req.user.id;
+    const role   = req.user.role;
     const planId = parseInt(req.params.id);
     const { text } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ error: 'لا يوجد نص' });
 
+    const planAccess = await findAccessiblePlan(planId, userId, role);
+    if (!planAccess) return res.status(404).json({ error: 'Plan not found' });
+
     const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId },
+      where: { id: planId },
       include: {
         entries: {
           include: {
@@ -1116,11 +1136,15 @@ export async function parseVoice(req, res, next) {
 export async function parseVoiceAudio(req, res, next) {
   try {
     const userId  = req.user.id;
+    const role    = req.user.role;
     const planId  = parseInt(req.params.id);
     if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
 
+    const planAccess = await findAccessiblePlan(planId, userId, role);
+    if (!planAccess) return res.status(404).json({ error: 'Plan not found' });
+
     const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId, userId },
+      where: { id: planId },
       include: {
         entries: {
           include: {
@@ -1294,4 +1318,75 @@ ${itemNames}
     console.error('Voice audio parse error:', e);
     next(e);
   }
+}
+
+// ── Transfer (assign) plan to a rep user account ─────────────
+// POST /api/monthly-plans/:id/transfer { targetUserId }
+// Only the plan owner (admin/manager) can transfer.
+// targetUserId must be a 'user'-role account whose linkedRepId matches the plan's scientificRepId.
+export async function transferPlan(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const { targetUserId } = req.body;
+
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'targetUserId مطلوب.' });
+    }
+
+    // Only admin / manager can transfer
+    const role = req.user.role;
+    if (role !== 'admin' && role !== 'manager') {
+      return res.status(403).json({ error: 'تحويل البلان متاح للمدير فقط.' });
+    }
+
+    // Verify plan belongs to the calling user
+    const plan = await prisma.monthlyPlan.findFirst({
+      where: { id: planId, userId: req.user.id },
+    });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود أو لا تملك صلاحية تحويله.' });
+
+    // Verify target user exists, is a 'user' role, and their linked rep matches the plan's rep
+    const targetUser = await prisma.user.findUnique({
+      where: { id: parseInt(targetUserId) },
+      select: { id: true, username: true, role: true, linkedRepId: true, isActive: true },
+    });
+    if (!targetUser || !targetUser.isActive) {
+      return res.status(404).json({ error: 'المستخدم المحدد غير موجود أو غير نشط.' });
+    }
+    if (targetUser.role !== 'user') {
+      return res.status(400).json({ error: 'يمكن تحويل البلان إلى حسابات المندوبين فقط (دور: مستخدم).' });
+    }
+    if (targetUser.linkedRepId !== plan.scientificRepId) {
+      return res.status(400).json({ error: 'حساب المستخدم المحدد غير مرتبط بنفس المندوب العلمي الخاص بهذا البلان.' });
+    }
+
+    // Perform the transfer
+    const updated = await prisma.monthlyPlan.update({
+      where: { id: planId },
+      data:  { assignedUserId: targetUser.id },
+      select: { id: true, assignedUserId: true },
+    });
+
+    res.json({ success: true, assignedUserId: updated.assignedUserId, username: targetUser.username });
+  } catch (e) { next(e); }
+}
+
+// ── Revoke (un-assign) a plan from a rep user ────────────────
+// DELETE /api/monthly-plans/:id/transfer
+export async function revokePlanTransfer(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const role   = req.user.role;
+    if (role !== 'admin' && role !== 'manager') {
+      return res.status(403).json({ error: 'إلغاء التحويل متاح للمدير فقط.' });
+    }
+
+    const plan = await prisma.monthlyPlan.findFirst({
+      where: { id: planId, userId: req.user.id },
+    });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود.' });
+
+    await prisma.monthlyPlan.update({ where: { id: planId }, data: { assignedUserId: null } });
+    res.json({ success: true });
+  } catch (e) { next(e); }
 }

@@ -29,3 +29,13 @@ export function requireAdmin(req, res, next) {
   }
   next();
 }
+
+/**
+ * Middleware: require admin OR manager role (must come after requireAuth)
+ */
+export function requireManagerOrAdmin(req, res, next) {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'manager') {
+    return res.status(403).json({ error: 'هذه العملية تتطلب صلاحيات المدير.' });
+  }
+  next();
+}

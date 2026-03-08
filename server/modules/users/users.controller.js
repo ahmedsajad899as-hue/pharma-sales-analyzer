@@ -11,14 +11,14 @@ export async function listUsers(req, res, next) {
 /** POST /api/admin/users */
 export async function createUser(req, res, next) {
   try {
-    const { username, password, role } = req.body;
+    const { username, password, role, linkedRepId } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان.' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.' });
     }
-    const user = await repo.createUser(username, password, role || 'user');
+    const user = await repo.createUser(username, password, role || 'user', linkedRepId || null);
     res.status(201).json({ success: true, data: user });
   } catch (err) {
     if (err.code === 'P2002') return res.status(409).json({ error: 'اسم المستخدم مستخدم بالفعل.' });
