@@ -8,4 +8,4 @@ cmds = ["npm install --include=dev"]
 cmds = ["npm run build"]
 
 [start]
-cmd = "npx prisma db push && npm start"
+cmd = "npx prisma db push && node prisma/seed-super-admin.js && npm start"
