@@ -208,6 +208,7 @@ export default function MonthlyPlansPage() {
   const [transferTarget, setTransferTarget] = useState<number | ''>('');
   const [transferring, setTransferring]   = useState(false);
   const [transferError, setTransferError] = useState('');
+  const [refreshing, setRefreshing]       = useState(false);
 
   // Scroll-to-entry highlight
   const entryRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -245,8 +246,9 @@ export default function MonthlyPlansPage() {
     }, 50);
   };
 
-  const load = useCallback(async () => {
-    setLoading(true); setError('');
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError('');
     try {
       const h = H();
       const [pl, re, it] = await Promise.all([
@@ -274,8 +276,8 @@ export default function MonthlyPlansPage() {
           } catch { localStorage.removeItem('lastPlanId'); }
         }
       }
-    } catch (e: any) { setError(e.message ?? 'خطأ في التحميل'); }
-    finally { setLoading(false); }
+    } catch (e: any) { if (!silent) setError(e.message ?? 'خطأ في التحميل'); }
+    finally { if (!silent) setLoading(false); }
   }, [H]);
 
   useEffect(() => { load(); }, [load]);
@@ -304,6 +306,18 @@ export default function MonthlyPlansPage() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Auto-refresh when app regains focus or comes to foreground (mobile <-> desktop sync)
+  useEffect(() => {
+    const refresh = () => load(true);
+    const handleVisibility = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [load]);
 
   useEffect(() => {
     if (voiceResults !== null || voiceParsing || voiceError) {
@@ -1082,6 +1096,13 @@ export default function MonthlyPlansPage() {
         </select>
 
         <button onClick={() => setShowCreate(true)} style={btnStyle('#3b82f6', true)}>+ جديد</button>
+        <button
+          onClick={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+          disabled={refreshing}
+          title="تحديث البيانات من الخادم"
+          style={{ ...btnStyle('#64748b', true), padding: '6px 10px', minWidth: 36 }}>
+          {refreshing ? '⏳' : '🔄'}
+        </button>
 
         {/* Upload visits */}
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
