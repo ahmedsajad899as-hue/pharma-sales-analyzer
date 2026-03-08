@@ -16,13 +16,24 @@ model User {
   id           Int      @id @default(autoincrement())
   username     String   @unique
   passwordHash String
-  role         String   @default("user")   // "admin" | "manager" | "user"
+  role         String   @default("user")
+  // Legacy roles: "admin" | "manager" | "user"
+  // New roles:    "office_manager" | "office_hr" | "office_employee"
+  //               "company_manager" | "supervisor" | "product_manager" | "team_leader"
+  //               "scientific_rep" | "commercial_supervisor" | "commercial_team_leader" | "commercial_rep"
   isActive     Boolean  @default(true)
-  linkedRepId  Int?                         // (role=user) linked ScientificRep for this account
+  displayName  String?
+  phone        String?
+  linkedRepId  Int?
+  officeId     Int? // المكتب العلمي المرتبط به
+  permissions  String? // JSON: { pages:[], hiddenFields:[], features:[] }
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  linkedRep      ScientificRepresentative?  @relation("UserLinkedRep", fields: [linkedRepId], references: [id])
+  // New office link
+  office    ScientificOffice?         @relation(fields: [officeId], references: [id])
+  // Legacy links
+  linkedRep ScientificRepresentative? @relation("UserLinkedRep", fields: [linkedRepId], references: [id])
 
   areas          Area[]
   items          Item[]
@@ -37,6 +48,18 @@ model User {
   assignedPlans  MonthlyPlan[]              @relation("AssignedPlans")
   doctorVisits   DoctorVisit[]
 
+  // Multi-tenant assignments
+  companyAssignments  UserCompanyAssignment[]
+  lineAssignments     UserLineAssignment[]
+  itemAssignments     UserItemAssignment[]
+  areaAssignments     UserAreaAssignment[]
+  managersOfUser      UserManagerAssignment[]     @relation("UserSubordinates")
+  subordinatesOfUser  UserManagerAssignment[]     @relation("UserManagers")
+  interactionAsActor  UserInteractionPermission[] @relation("InteractionActor")
+  interactionAsTarget UserInteractionPermission[] @relation("InteractionTarget")
+  invoiceSheets       InvoiceSheet[]
+
+  @@index([officeId])
   @@map("users")
 }
 
@@ -54,9 +77,9 @@ model MedicalRepresentative {
   user   User? @relation(fields: [userId], references: [id])
 
   // Relations
-  areas         RepresentativeArea[]
-  items         RepresentativeItem[]
-  sales         Sale[]
+  areas          RepresentativeArea[]
+  items          RepresentativeItem[]
+  sales          Sale[]
   scientificReps ScientificRepCommercial[]
 
   @@unique([name, userId])
@@ -70,17 +93,21 @@ model Area {
   name      String
   createdAt DateTime @default(now())
 
-  userId Int?
-  user   User? @relation(fields: [userId], references: [id])
+  userId   Int?
+  user     User?             @relation(fields: [userId], references: [id])
+  officeId Int?
+  office   ScientificOffice? @relation("OfficeAreas", fields: [officeId], references: [id])
 
   // Relations
-  representatives RepresentativeArea[]
-  scientificReps  ScientificRepArea[]
-  sales           Sale[]
-  doctors         Doctor[]
+  representatives     RepresentativeArea[]
+  scientificReps      ScientificRepArea[]
+  sales               Sale[]
+  doctors             Doctor[]
+  userAreaAssignments UserAreaAssignment[]
 
   @@unique([name, userId])
   @@index([userId])
+  @@index([officeId])
   @@map("areas")
 }
 
@@ -107,22 +134,27 @@ model Item {
   name      String
   createdAt DateTime @default(now())
 
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id])
-  companyId Int?
-  company   Company? @relation(fields: [companyId], references: [id])
+  userId              Int?
+  user                User?              @relation(fields: [userId], references: [id])
+  companyId           Int?
+  company             Company?           @relation(fields: [companyId], references: [id])
+  scientificCompanyId Int?
+  scientificCompany   ScientificCompany? @relation("CompanyItems", fields: [scientificCompanyId], references: [id])
 
   // Relations
-  representatives RepresentativeItem[]
-  scientificReps  ScientificRepItem[]
-  sales           Sale[]
-  doctors         Doctor[]
-  doctorVisits    DoctorVisit[]
-  planEntryItems  PlanEntryItem[]
+  representatives     RepresentativeItem[]
+  scientificReps      ScientificRepItem[]
+  sales               Sale[]
+  doctors             Doctor[]
+  doctorVisits        DoctorVisit[]
+  planEntryItems      PlanEntryItem[]
+  lineItems           ProductLineItem[]
+  userItemAssignments UserItemAssignment[]
 
   @@unique([name, userId])
   @@index([userId])
   @@index([companyId])
+  @@index([scientificCompanyId])
   @@map("items")
 }
 
@@ -182,8 +214,8 @@ model Sale {
   saleDate         DateTime @default(now())
   uploadedFileId   Int?
   createdAt        DateTime @default(now())
-  rawData          String?  // JSON-encoded original Excel row
-  recordType       String   @default("sale")  // "sale" | "return"
+  rawData          String? // JSON-encoded original Excel row
+  recordType       String   @default("sale") // "sale" | "return"
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
@@ -214,7 +246,7 @@ model UploadedFile {
   rowCount     Int
   uploadedAt   DateTime @default(now())
   uploadedBy   String?
-  fileType     String   @default("sales")  // "sales" | "returns"
+  fileType     String   @default("sales") // "sales" | "returns"
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
@@ -308,24 +340,24 @@ model ScientificRepCommercial {
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────
 model Doctor {
-  id             Int      @id @default(autoincrement())
-  name           String
-  specialty      String?  // الاختصاص
-  areaId         Int?
-  pharmacyName   String?  // اسم الصيدلية المرتبطة
-  targetItemId   Int?     // الإيتم المستهدف
-  notes          String?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  name         String
+  specialty    String? // الاختصاص
+  areaId       Int?
+  pharmacyName String? // اسم الصيدلية المرتبطة
+  targetItemId Int? // الإيتم المستهدف
+  notes        String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  userId         Int?
-  user           User?    @relation(fields: [userId], references: [id])
-  area           Area?    @relation(fields: [areaId], references: [id])
-  targetItem     Item?    @relation(fields: [targetItemId], references: [id])
+  userId     Int?
+  user       User? @relation(fields: [userId], references: [id])
+  area       Area? @relation(fields: [areaId], references: [id])
+  targetItem Item? @relation(fields: [targetItemId], references: [id])
 
-  planEntries    PlanEntry[]
-  visits         DoctorVisit[]
+  planEntries PlanEntry[]
+  visits      DoctorVisit[]
 
   @@index([userId])
   @@index([areaId])
@@ -336,23 +368,23 @@ model Doctor {
 model MonthlyPlan {
   id               Int      @id @default(autoincrement())
   scientificRepId  Int
-  month            Int      // 1-12
+  month            Int // 1-12
   year             Int
   targetCalls      Int      @default(150)
   targetDoctors    Int      @default(75)
   notes            String?
   status           String   @default("draft") // "draft" | "active" | "completed"
-  allowExtraVisits Boolean  @default(false)   // السماح بكولات أطباء خارج البلان
+  allowExtraVisits Boolean  @default(false) // السماح بكولات أطباء خارج البلان
   createdAt        DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  updatedAt        DateTime @updatedAt
 
-  userId           Int?
-  user             User?                    @relation(fields: [userId], references: [id])
-  assignedUserId   Int?                      // rep user this plan is transferred/assigned to
-  assignedUser     User?                    @relation("AssignedPlans", fields: [assignedUserId], references: [id])
-  scientificRep    ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  userId         Int?
+  user           User?                    @relation(fields: [userId], references: [id])
+  assignedUserId Int? // rep user this plan is transferred/assigned to
+  assignedUser   User?                    @relation("AssignedPlans", fields: [assignedUserId], references: [id])
+  scientificRep  ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
 
-  entries         PlanEntry[]
+  entries PlanEntry[]
 
   @@unique([scientificRepId, month, year, userId])
   @@index([userId])
@@ -363,16 +395,16 @@ model MonthlyPlan {
 
 // ─── Plan Entry: طبيب في البلان ──────────────────────────────
 model PlanEntry {
-  id            Int      @id @default(autoincrement())
-  planId        Int
-  doctorId      Int
-  targetVisits  Int      @default(2)  // عادةً زيارتان
-  createdAt     DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  planId       Int
+  doctorId     Int
+  targetVisits Int      @default(2) // عادةً زيارتان
+  createdAt    DateTime @default(now())
 
-  plan          MonthlyPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
-  doctor        Doctor         @relation(fields: [doctorId], references: [id])
-  visits        DoctorVisit[]
-  targetItems   PlanEntryItem[]
+  plan        MonthlyPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  doctor      Doctor          @relation(fields: [doctorId], references: [id])
+  visits      DoctorVisit[]
+  targetItems PlanEntryItem[]
 
   @@unique([planId, doctorId])
   @@index([planId])
@@ -382,13 +414,13 @@ model PlanEntry {
 
 // ─── Plan Entry ↔ Item (الايتمات المستهدفة لكل طبيب) ─────────
 model PlanEntryItem {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   planEntryId Int
   itemId      Int
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
 
-  planEntry   PlanEntry @relation(fields: [planEntryId], references: [id], onDelete: Cascade)
-  item        Item      @relation(fields: [itemId], references: [id])
+  planEntry PlanEntry @relation(fields: [planEntryId], references: [id], onDelete: Cascade)
+  item      Item      @relation(fields: [itemId], references: [id])
 
   @@unique([planEntryId, itemId])
   @@index([planEntryId])
@@ -400,26 +432,237 @@ model DoctorVisit {
   id              Int      @id @default(autoincrement())
   doctorId        Int
   scientificRepId Int
-  planEntryId     Int?     // ربط بالبلان (اختياري)
+  planEntryId     Int? // ربط بالبلان (اختياري)
   visitDate       DateTime
   itemId          Int?
   feedback        String   @default("pending")
   // "pending" | "writing" | "stocked" | "interested" | "not_interested" | "unavailable"
   notes           String?
-  latitude        Float?   // موقع GPS عند تسجيل الزيارة
+  latitude        Float? // موقع GPS عند تسجيل الزيارة
   longitude       Float?
   createdAt       DateTime @default(now())
 
-  userId          Int?
-  user            User?                    @relation(fields: [userId], references: [id])
-  doctor          Doctor                   @relation(fields: [doctorId], references: [id])
-  scientificRep   ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
-  item            Item?                    @relation(fields: [itemId], references: [id])
-  planEntry       PlanEntry?               @relation(fields: [planEntryId], references: [id])
+  userId        Int?
+  user          User?                    @relation(fields: [userId], references: [id])
+  doctor        Doctor                   @relation(fields: [doctorId], references: [id])
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  item          Item?                    @relation(fields: [itemId], references: [id])
+  planEntry     PlanEntry?               @relation(fields: [planEntryId], references: [id])
 
   @@index([doctorId])
   @@index([scientificRepId])
   @@index([visitDate])
   @@index([userId])
   @@map("doctor_visits")
+}
+
+// ════════════════════════════════════════════════════════════
+// MULTI-TENANT STRUCTURE — New Models
+// ════════════════════════════════════════════════════════════
+
+// ─── Super Admin (مالك التطبيق) ─────────────────────────────
+model SuperAdmin {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  isMaster     Boolean  @default(false) // true = المدير الرئيسي للسوبر أدمنيه
+  displayName  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdById   Int?
+  createdBy     SuperAdmin?  @relation("AdminCreator", fields: [createdById], references: [id])
+  createdAdmins SuperAdmin[] @relation("AdminCreator")
+
+  @@map("super_admins")
+}
+
+// ─── Scientific Office (مكتب علمي) ──────────────────────────
+model ScientificOffice {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  phone     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companies ScientificCompany[]
+  users     User[]
+  areas     Area[]              @relation("OfficeAreas")
+
+  @@map("scientific_offices")
+}
+
+// ─── Scientific Company (شركة علمية داخل المكتب) ────────────
+model ScientificCompany {
+  id        Int      @id @default(autoincrement())
+  name      String
+  officeId  Int
+  isActive  Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  office                 ScientificOffice        @relation(fields: [officeId], references: [id])
+  items                  Item[]                  @relation("CompanyItems")
+  lines                  ProductLine[]
+  userCompanyAssignments UserCompanyAssignment[]
+
+  @@unique([name, officeId])
+  @@index([officeId])
+  @@map("scientific_companies")
+}
+
+// ─── Product Line (لاين داخل الشركة) ────────────────────────
+model ProductLine {
+  id        Int      @id @default(autoincrement())
+  name      String? // اختياري — مثل "لاين الجلدية"
+  companyId Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company             ScientificCompany    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lineItems           ProductLineItem[]
+  userLineAssignments UserLineAssignment[]
+
+  @@index([companyId])
+  @@map("product_lines")
+}
+
+// ─── Product Line ↔ Item ─────────────────────────────────────
+model ProductLineItem {
+  lineId Int
+  itemId Int
+
+  line ProductLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  item Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([lineId, itemId])
+  @@map("product_line_items")
+}
+
+// ─── User ↔ Company Assignment ───────────────────────────────
+model UserCompanyAssignment {
+  userId     Int
+  companyId  Int
+  assignedAt DateTime @default(now())
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company ScientificCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, companyId])
+  @@map("user_company_assignments")
+}
+
+// ─── User ↔ Line Assignment ──────────────────────────────────
+model UserLineAssignment {
+  userId     Int
+  lineId     Int
+  assignedAt DateTime @default(now())
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  line ProductLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lineId])
+  @@map("user_line_assignments")
+}
+
+// ─── User ↔ Item Assignment (ايتمات مخصصة بدون لاين) ────────
+model UserItemAssignment {
+  userId     Int
+  itemId     Int
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([userId, itemId])
+  @@map("user_item_assignments")
+}
+
+// ─── User ↔ Area Assignment ──────────────────────────────────
+model UserAreaAssignment {
+  userId     Int
+  areaId     Int
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  area Area @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@id([userId, areaId])
+  @@map("user_area_assignments")
+}
+
+// ─── User Manager Assignment (التسلسل الوظيفي — مرن) ────────
+model UserManagerAssignment {
+  userId     Int // الموظف
+  managerId  Int // المدير
+  assignedAt DateTime @default(now())
+
+  user    User @relation("UserSubordinates", fields: [userId], references: [id], onDelete: Cascade)
+  manager User @relation("UserManagers", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@id([userId, managerId])
+  @@map("user_manager_assignments")
+}
+
+// ─── User Interaction Permission (من يتفاعل مع بيانات من) ───
+model UserInteractionPermission {
+  actorId  Int // من يملك الصلاحية
+  targetId Int // صاحب البيانات
+  // JSON array: ["orders","reports","plans","visits","invoices"]
+  canTypes String @default("[]")
+
+  actor  User @relation("InteractionActor", fields: [actorId], references: [id], onDelete: Cascade)
+  target User @relation("InteractionTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@id([actorId, targetId])
+  @@map("user_interaction_permissions")
+}
+
+// ─── Invoice Sheet (كشف الاستحصال — المندوب التجاري) ────────
+model InvoiceSheet {
+  id          Int      @id @default(autoincrement())
+  repId       Int // المندوب التجاري
+  companyId   Int? // الشركة المعنية
+  areaId      Int? // المنطقة
+  title       String?
+  notes       String?
+  status      String   @default("active") // "active" | "completed" | "archived"
+  totalAmount Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rep     User           @relation(fields: [repId], references: [id])
+  entries InvoiceEntry[]
+
+  @@index([repId])
+  @@index([status])
+  @@map("invoice_sheets")
+}
+
+// ─── Invoice Entry (صيدلية في كشف الاستحصال) ────────────────
+model InvoiceEntry {
+  id            Int       @id @default(autoincrement())
+  sheetId       Int
+  pharmacyName  String
+  orderRef      String? // رقم الطلبية
+  orderDetails  String? // تفاصيل إضافية (JSON)
+  amount        Float
+  isCollected   Boolean   @default(false)
+  collectedAt   DateTime?
+  collectedById Int? // من أشّر على الاستحصال
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sheet InvoiceSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId])
+  @@index([isCollected])
+  @@map("invoice_entries")
 }

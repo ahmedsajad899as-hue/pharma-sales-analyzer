@@ -26,6 +26,10 @@ import reportsRoutes            from './modules/reports/reports.routes.js';
 import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.routes.js';
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
+import superAdminRoutes         from './modules/super-admin/super-admin.routes.js';
+import officesRoutes            from './modules/offices/offices.routes.js';
+import companiesRoutes          from './modules/companies/companies.routes.js';
+import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
 
 dotenv.config();
 
@@ -51,6 +55,12 @@ app.get('/api/health', (req, res) => {
 
 // ── Auth routes (PUBLIC — no token required) ─────────────────
 app.use('/api/auth', authRoutes);
+
+// ── Super Admin routes (own JWT — no requireAuth middleware) ──
+app.use('/api/super-admin',       superAdminRoutes);
+app.use('/api/sa/offices',        officesRoutes);
+app.use('/api/sa/companies',      companiesRoutes);
+app.use('/api/sa/users',          adminUsersRoutes);
 
 // ── All /api routes below require a valid JWT ────────────────
 // Skip auth for health check and auth routes (already handled above)

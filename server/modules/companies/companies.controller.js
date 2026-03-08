@@ -1,0 +1,143 @@
+import { prisma } from '../../lib/prisma.js';
+
+// ── List companies (optionally filtered by officeId) ──────────────────────
+export async function listCompanies(req, res) {
+  const officeId = req.query.officeId ? parseInt(req.query.officeId) : undefined;
+  const companies = await prisma.scientificCompany.findMany({
+    where: officeId ? { officeId } : undefined,
+    include: {
+      office: { select: { id: true, name: true } },
+      _count: { select: { items: true, lines: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
+  res.json({ success: true, data: companies });
+}
+
+// ── Get single company with items and lines ───────────────────────────────
+export async function getCompany(req, res) {
+  const id = parseInt(req.params.id);
+  const company = await prisma.scientificCompany.findUnique({
+    where: { id },
+    include: {
+      office: { select: { id: true, name: true } },
+      items: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+      lines: {
+        include: {
+          lineItems: { include: { item: { select: { id: true, name: true } } } },
+        },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  });
+
+  if (!company) return res.status(404).json({ error: 'Company not found' });
+  res.json({ success: true, data: company });
+}
+
+// ── Create company ────────────────────────────────────────────────────────
+export async function createCompany(req, res) {
+  const { name, officeId, notes } = req.body;
+  if (!name || !officeId)
+    return res.status(400).json({ error: 'name and officeId required' });
+
+  const company = await prisma.scientificCompany.create({
+    data: { name, officeId: parseInt(officeId), notes },
+    include: { office: { select: { id: true, name: true } } },
+  });
+  res.status(201).json({ success: true, data: company });
+}
+
+// ── Update company ────────────────────────────────────────────────────────
+export async function updateCompany(req, res) {
+  const id = parseInt(req.params.id);
+  const { name, notes, isActive } = req.body;
+  const data = {};
+  if (name     !== undefined) data.name     = name;
+  if (notes    !== undefined) data.notes    = notes;
+  if (isActive !== undefined) data.isActive = Boolean(isActive);
+
+  const company = await prisma.scientificCompany.update({ where: { id }, data });
+  res.json({ success: true, data: company });
+}
+
+// ── Delete company ────────────────────────────────────────────────────────
+export async function deleteCompany(req, res) {
+  const id = parseInt(req.params.id);
+  await prisma.scientificCompany.delete({ where: { id } });
+  res.json({ success: true });
+}
+
+// ── List lines of a company ───────────────────────────────────────────────
+export async function listLines(req, res) {
+  const companyId = parseInt(req.params.id);
+  const lines = await prisma.productLine.findMany({
+    where: { companyId },
+    include: {
+      lineItems: { include: { item: { select: { id: true, name: true } } } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json({ success: true, data: lines });
+}
+
+// ── Create line ───────────────────────────────────────────────────────────
+export async function createLine(req, res) {
+  const companyId = parseInt(req.params.id);
+  const { name, itemIds = [] } = req.body;
+
+  const line = await prisma.productLine.create({
+    data: {
+      name,
+      companyId,
+      lineItems: {
+        create: itemIds.map(id => ({ item: { connect: { id: parseInt(id) } } })),
+      },
+    },
+    include: {
+      lineItems: { include: { item: { select: { id: true, name: true } } } },
+    },
+  });
+  res.status(201).json({ success: true, data: line });
+}
+
+// ── Update line ───────────────────────────────────────────────────────────
+export async function updateLine(req, res) {
+  const lineId = parseInt(req.params.lineId);
+  const { name, isActive } = req.body;
+  const data = {};
+  if (name     !== undefined) data.name     = name;
+  if (isActive !== undefined) data.isActive = Boolean(isActive);
+
+  const line = await prisma.productLine.update({ where: { id: lineId }, data });
+  res.json({ success: true, data: line });
+}
+
+// ── Delete line ───────────────────────────────────────────────────────────
+export async function deleteLine(req, res) {
+  const lineId = parseInt(req.params.lineId);
+  await prisma.productLine.delete({ where: { id: lineId } });
+  res.json({ success: true });
+}
+
+// ── Set items in a line (replace all) ────────────────────────────────────
+export async function setLineItems(req, res) {
+  const lineId = parseInt(req.params.lineId);
+  const { itemIds = [] } = req.body;
+
+  await prisma.$transaction([
+    prisma.productLineItem.deleteMany({ where: { lineId } }),
+    prisma.productLineItem.createMany({
+      data: itemIds.map(id => ({ lineId, itemId: parseInt(id) })),
+      skipDuplicates: true,
+    }),
+  ]);
+
+  const line = await prisma.productLine.findUnique({
+    where: { id: lineId },
+    include: {
+      lineItems: { include: { item: { select: { id: true, name: true } } } },
+    },
+  });
+  res.json({ success: true, data: line });
+}
