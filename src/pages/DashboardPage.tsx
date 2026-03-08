@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PageId } from '../App';
 import AnalysisRenderer from '../components/AnalysisRenderer';
+import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -8,9 +9,11 @@ interface Stats { sciRepsCount: number; filesCount: number; areasCount: number; 
 interface UploadedFile { id: number; originalName: string; rowCount: number; uploadedAt: string; _count?: { sales: number }; }
 interface FileMonetary { id: number; name: string; salesValue: number; returnsValue: number; }
 interface ActiveStats { totalSalesValue: number; totalReturnsValue: number; files: FileMonetary[]; }
+interface DailyRep { id: number; name: string; }
+interface DailyCallsData { visits: VisitPoint[]; reps: DailyRep[]; total: number; }
 
 export default function DashboardPage({ onNavigate, activeFileIds, onFileActivated }: { onNavigate: (p: PageId) => void; activeFileIds: number[]; onFileActivated: (id: number) => void }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [stats, setStats]         = useState<Stats>({ sciRepsCount: 0, filesCount: 0, areasCount: 0, totalSales: 0, totalReturns: 0 });
@@ -38,6 +41,38 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [analyzeFile, setAnalyzeFile]   = useState<UploadedFile | null>(null);
   const [analysisText, setAnalysisText] = useState('');
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
+
+  // ── Daily Calls ───────────────────────────────────────────
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [callsDate, setCallsDate]       = useState<string>(todayStr);
+  const [callsRepId, setCallsRepId]     = useState<number | ''>('');
+  const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [showMap, setShowMap]           = useState(false);
+  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'manager';
+
+  const loadDailyCalls = (date: string, repId: number | '') => {
+    setCallsLoading(true);
+    const params = new URLSearchParams({ date });
+    if (repId) params.set('repId', String(repId));
+    fetch(`/api/doctor-visits/daily?${params}`, { headers: authH() })
+      .then(r => r.json())
+      .then(json => { if (json.success) setCallsData(json.data); })
+      .catch(() => {})
+      .finally(() => setCallsLoading(false));
+  };
+
+  useEffect(() => { loadDailyCalls(todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCallsDateChange = (d: string) => {
+    setCallsDate(d);
+    loadDailyCalls(d, callsRepId);
+  };
+
+  const handleCallsRepChange = (rid: number | '') => {
+    setCallsRepId(rid);
+    loadDailyCalls(callsDate, rid);
+  };
 
   // Load dashboard stats
   useEffect(() => {
@@ -126,6 +161,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('ar-IQ-u-nu-latn');
+  const fmtTime = (d: string) => new Date(d).toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
+
+  const feedbackLabel = (fb: string) => {
+    const td = t.dashboard as any;
+    const map: Record<string, string> = {
+      writing:        td.feedbackWriting,
+      stocked:        td.feedbackStocked,
+      interested:     td.feedbackInterested,
+      not_interested: td.feedbackNotInterested,
+      unavailable:    td.feedbackUnavailable,
+      pending:        td.feedbackPending,
+    };
+    return map[fb] ?? fb;
+  };
+  const feedbackColor: Record<string, string> = {
+    writing:       '#10b981', stocked: '#0ea5e9', interested: '#6366f1',
+    not_interested:'#ef4444', unavailable: '#9ca3af', pending: '#f59e0b',
+  };
 
   const quickActions = [
     { label: t.dashboard.uploadFile,   desc: t.dashboard.uploadFileDesc,   icon: '📤', page: 'upload'          as PageId, color: '#6366f1' },
@@ -285,6 +338,154 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           <p>{t.dashboard.aiDesc}</p>
         </div>
       </div>
+
+      {/* ─── Daily Calls Section ─── */}
+      <div style={{ marginTop: '2rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+          <h2 className="section-title" style={{ margin: 0 }}>
+            📞 {(t.dashboard as any).dailyCalls}
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {/* Date picker */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                📅 {(t.dashboard as any).dailyCallsDate}:
+              </label>
+              <input
+                type="date"
+                className="form-input"
+                style={{ padding: '5px 10px', fontSize: '13px', minWidth: 140 }}
+                value={callsDate}
+                onChange={e => handleCallsDateChange(e.target.value)}
+              />
+            </div>
+            {/* Rep filter — only for admin/manager */}
+            {isManagerOrAdmin && callsData && callsData.reps.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                  👤 {(t.dashboard as any).dailyCallsRep}:
+                </label>
+                <select
+                  className="form-input"
+                  style={{ padding: '5px 10px', fontSize: '13px' }}
+                  value={callsRepId}
+                  onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
+                >
+                  <option value="">{(t.dashboard as any).dailyCallsAllReps}</option>
+                  {callsData.reps.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Map button */}
+            {callsData && callsData.visits.length > 0 && (
+              <button
+                className="btn btn--primary"
+                style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => setShowMap(true)}
+              >
+                {(t.dashboard as any).dailyCallsMapBtn}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Table card */}
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          {callsLoading ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+              {(t.dashboard as any).dailyCallsLoading}
+            </div>
+          ) : !callsData || callsData.visits.length === 0 ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '14px' }}>
+              📭 {(t.dashboard as any).dailyCallsNoData}
+            </div>
+          ) : (
+            <>
+              {/* Summary bar */}
+              <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, fontSize: '14px', color: '#374151' }}>
+                  📞 {(t.dashboard as any).dailyCallsTotal}: {callsData.visits.length}
+                </span>
+                {/* Per-rep counts */}
+                {callsData.reps.map(rep => {
+                  const cnt = callsData.visits.filter(v => v.scientificRep.id === rep.id).length;
+                  return (
+                    <span key={rep.id} style={{ fontSize: '12px', background: '#eef2ff', color: '#4f46e5', borderRadius: '8px', padding: '2px 10px' }}>
+                      👤 {rep.name}: {cnt}
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* Table */}
+              <div style={{ overflowX: 'auto', maxHeight: '380px', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{(t.dashboard as any).dailyCallsColNum}</th>
+                      <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
+                      {isManagerOrAdmin && <th>{(t.dashboard as any).dailyCallsColRep}</th>}
+                      <th>{(t.dashboard as any).dailyCallsColTime}</th>
+                      <th>{(t.dashboard as any).dailyCallsColItem}</th>
+                      <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
+                      <th>{(t.dashboard as any).dailyCallsColLocation}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {callsData.visits.map((v, idx) => (
+                      <tr key={v.id}>
+                        <td>{idx + 1}</td>
+                        <td>
+                          <strong>{v.doctor.name}</strong>
+                          {v.doctor.specialty && (
+                            <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
+                          )}
+                        </td>
+                        {isManagerOrAdmin && <td>{v.scientificRep.name}</td>}
+                        <td style={{ whiteSpace: 'nowrap' }}>{fmtTime(v.visitDate)}</td>
+                        <td>{v.item?.name ?? '—'}</td>
+                        <td>
+                          <span style={{
+                            background: (feedbackColor[v.feedback] ?? '#e5e7eb') + '22',
+                            color:      feedbackColor[v.feedback] ?? '#374151',
+                            border:     `1px solid ${feedbackColor[v.feedback] ?? '#e5e7eb'}55`,
+                            borderRadius: '6px',
+                            padding:    '2px 8px',
+                            fontSize:   '12px',
+                            fontWeight: 500,
+                          }}>
+                            {feedbackLabel(v.feedback)}
+                          </span>
+                        </td>
+                        <td>
+                          {v.latitude != null
+                            ? <span style={{ color: '#0ea5e9', fontSize: '12px' }}>{(t.dashboard as any).dailyCallsHasGps}</span>
+                            : <span style={{ color: '#d1d5db' }}>{(t.dashboard as any).dailyCallsNoGps}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ─── Map Modal ─── */}
+      {showMap && callsData && (
+        <DailyCallsMap
+          visits={callsData.visits}
+          repName={
+            callsRepId
+              ? callsData.reps.find(r => r.id === callsRepId)?.name
+              : callsData.reps.length === 1 ? callsData.reps[0].name : undefined
+          }
+          onClose={() => setShowMap(false)}
+        />
+      )}
 
       {/* ─── Areas Panel Modal ─── */}
       {showAreas && (

@@ -95,14 +95,14 @@ const FEEDBACK_LABELS: Record<string, { label: string; color: string; bg: string
   positive_notes: { label: '📝 ملاحظات إيجابية', color: '#0369a1', bg: '#e0f2fe' },
 };
 
-// Capture GPS location (resolves to null if denied/unavailable)
+// Capture GPS location — returns null + errorCode on failure
 const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
   new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return; }
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       ()  => resolve(null),
-      { timeout: 8000, maximumAge: 60000 },
+      { timeout: 12000, maximumAge: 0, enableHighAccuracy: false },
     );
   });
 
@@ -165,6 +165,9 @@ export default function MonthlyPlansPage() {
   const [savingVisit, setSavingVisit] = useState(false);
   const [visitLocation, setVisitLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [visitLocStatus, setVisitLocStatus] = useState<'idle' | 'getting' | 'ok' | 'denied'>('idle');
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+  const [showManualLoc, setShowManualLoc] = useState(false);
 
   // Filter
   const [filterRep, setFilterRep] = useState('all');
@@ -331,6 +334,9 @@ export default function MonthlyPlansPage() {
     if (visitFormEntry !== null) {
       setVisitLocation(null);
       setVisitLocStatus('getting');
+      setShowManualLoc(false);
+      setManualLat('');
+      setManualLng('');
       getLocation().then(loc => {
         if (loc) { setVisitLocation(loc); setVisitLocStatus('ok'); }
         else       { setVisitLocStatus('denied'); }
@@ -338,6 +344,7 @@ export default function MonthlyPlansPage() {
     } else {
       setVisitLocation(null);
       setVisitLocStatus('idle');
+      setShowManualLoc(false);
     }
   }, [visitFormEntry]);
 
@@ -2551,29 +2558,86 @@ export default function MonthlyPlansPage() {
               </label>
 
               {/* Location status */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
-                borderRadius: 8, marginBottom: 14,
-                background: visitLocStatus === 'ok' ? '#f0fdf4' : visitLocStatus === 'denied' ? '#fff7ed' : '#f8fafc',
-                border: `1px solid ${visitLocStatus === 'ok' ? '#86efac' : visitLocStatus === 'denied' ? '#fed7aa' : '#e2e8f0'}`,
-                fontSize: 12, color: visitLocStatus === 'ok' ? '#166534' : visitLocStatus === 'denied' ? '#92400e' : '#64748b',
-              }}>
-                <span style={{ fontSize: 16 }}>
-                  {visitLocStatus === 'getting' ? '⏳' : visitLocStatus === 'ok' ? '📍' : visitLocStatus === 'denied' ? '⚠️' : '📍'}
-                </span>
-                <span style={{ fontWeight: 600 }}>
-                  {visitLocStatus === 'getting' ? 'جاري تحديد الموقع...' :
-                   visitLocStatus === 'ok'      ? `تم تحديد الموقع (${visitLocation!.lat.toFixed(5)}, ${visitLocation!.lng.toFixed(5)})` :
-                   visitLocStatus === 'denied'  ? 'لم يتم الحصول على الموقع (مرفوض أو غير متاح)' :
-                   'تحديد الموقع'}
-                </span>
-                {visitLocStatus === 'denied' && (
-                  <button onClick={() => {
-                    setVisitLocStatus('getting');
-                    getLocation().then(loc => { if (loc) { setVisitLocation(loc); setVisitLocStatus('ok'); } else { setVisitLocStatus('denied'); } });
-                  }} style={{ marginRight: 'auto', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#92400e', cursor: 'pointer', fontWeight: 700 }}>
-                    إعادة المحاولة
-                  </button>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
+                  borderRadius: 8,
+                  background: visitLocStatus === 'ok' ? '#f0fdf4' : visitLocStatus === 'denied' ? '#fff7ed' : '#f8fafc',
+                  border: `1px solid ${visitLocStatus === 'ok' ? '#86efac' : visitLocStatus === 'denied' ? '#fed7aa' : '#e2e8f0'}`,
+                  fontSize: 12, color: visitLocStatus === 'ok' ? '#166534' : visitLocStatus === 'denied' ? '#92400e' : '#64748b',
+                }}>
+                  <span style={{ fontSize: 16 }}>
+                    {visitLocStatus === 'getting' ? '⏳' : visitLocStatus === 'ok' ? '📍' : visitLocStatus === 'denied' ? '⚠️' : '📍'}
+                  </span>
+                  <span style={{ fontWeight: 600, flex: 1 }}>
+                    {visitLocStatus === 'getting' ? 'جاري تحديد الموقع...' :
+                     visitLocStatus === 'ok'      ? `✓ تم تحديد الموقع (${visitLocation!.lat.toFixed(5)}, ${visitLocation!.lng.toFixed(5)})` :
+                     visitLocStatus === 'denied'  ? 'تعذّر تحديد الموقع تلقائياً' :
+                     'جاري تحديد الموقع...'}
+                  </span>
+                  {visitLocStatus === 'denied' && (
+                    <>
+                      <button onClick={() => {
+                        setVisitLocStatus('getting');
+                        setShowManualLoc(false);
+                        getLocation().then(loc => { if (loc) { setVisitLocation(loc); setVisitLocStatus('ok'); setShowManualLoc(false); } else { setVisitLocStatus('denied'); } });
+                      }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#92400e', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        🔄 إعادة
+                      </button>
+                      <button onClick={() => setShowManualLoc(p => !p)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        ✏️ إدخال يدوي
+                      </button>
+                    </>
+                  )}
+                  {visitLocStatus === 'ok' && (
+                    <button onClick={() => { setVisitLocation(null); setVisitLocStatus('denied'); setShowManualLoc(false); }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}>
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Manual coordinate entry */}
+                {visitLocStatus === 'denied' && showManualLoc && (
+                  <div style={{ marginTop: 8, padding: '10px 12px', background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe' }}>
+                    <div style={{ fontSize: 11, color: '#1e40af', marginBottom: 6, fontWeight: 600 }}>
+                      📌 أدخل الإحداثيات يدوياً (من خرائط Google أو GPS الهاتف)
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="number" step="any"
+                        placeholder="خط العرض (Lat) مثال: 33.3152"
+                        value={manualLat}
+                        onChange={e => setManualLat(e.target.value)}
+                        style={{ flex: 1, padding: '5px 8px', borderRadius: 6, border: '1px solid #bfdbfe', fontSize: 12 }}
+                      />
+                      <input
+                        type="number" step="any"
+                        placeholder="خط الطول (Lng) مثال: 44.3661"
+                        value={manualLng}
+                        onChange={e => setManualLng(e.target.value)}
+                        style={{ flex: 1, padding: '5px 8px', borderRadius: 6, border: '1px solid #bfdbfe', fontSize: 12 }}
+                      />
+                      <button
+                        onClick={() => {
+                          const lat = parseFloat(manualLat);
+                          const lng = parseFloat(manualLng);
+                          if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                            alert('أدخل إحداثيات صحيحة');
+                            return;
+                          }
+                          setVisitLocation({ lat, lng });
+                          setVisitLocStatus('ok');
+                          setShowManualLoc(false);
+                        }}
+                        style={{ padding: '5px 12px', borderRadius: 6, background: '#1d4ed8', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
+                      >
+                        ✓ تأكيد
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 5 }}>
+                      💡 افتح Google Maps → اضغط على موقعك → ستظهر الإحداثيات في الأسفل
+                    </div>
+                  </div>
                 )}
               </div>
 

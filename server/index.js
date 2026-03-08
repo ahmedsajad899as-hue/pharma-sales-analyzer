@@ -748,6 +748,71 @@ ${JSON.stringify(data, null, 2)}
   }
 });
 
+// ── Daily doctor visits for dashboard ────────────────────────
+// GET /api/doctor-visits/daily?date=YYYY-MM-DD&repId=5
+app.get('/api/doctor-visits/daily', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const role   = req.user?.role ?? 'user';
+
+    // Parse date (default today in local timezone)
+    const rawDate = req.query.date ? String(req.query.date) : null;
+    const targetDate = rawDate ? new Date(rawDate) : new Date();
+    const dayStart = new Date(targetDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(targetDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const repId = req.query.repId ? parseInt(String(req.query.repId)) : null;
+
+    // Build where filter
+    const where = {
+      visitDate: { gte: dayStart, lte: dayEnd },
+    };
+
+    // Scope by userId for non-admin
+    if (userId) {
+      where.userId = userId;
+    }
+
+    // If user role (rep), restrict to their linked rep
+    if (role === 'user' && req.user?.linkedRepId) {
+      where.scientificRepId = req.user.linkedRepId;
+    } else if (repId) {
+      where.scientificRepId = repId;
+    }
+
+    const visits = await prisma.doctorVisit.findMany({
+      where,
+      include: {
+        doctor:        { select: { id: true, name: true, specialty: true, pharmacyName: true } },
+        scientificRep: { select: { id: true, name: true } },
+        item:          { select: { id: true, name: true } },
+      },
+      orderBy: { visitDate: 'asc' },
+    });
+
+    // List of distinct reps who have visits (for filter dropdown)
+    const repMap = new Map();
+    visits.forEach(v => {
+      if (v.scientificRep && !repMap.has(v.scientificRep.id)) {
+        repMap.set(v.scientificRep.id, v.scientificRep);
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        visits,
+        reps: Array.from(repMap.values()),
+        total: visits.length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Catch-all: serve index.html for React Router (production) ─
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res, next) => {
