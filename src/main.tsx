@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import SuperAdminApp from './SuperAdminApp.tsx'
 import './index.css'
 
 // ── Global fetch interceptor: attach JWT to every localhost:8080 request ──
@@ -22,6 +23,6 @@ window.fetch = function(input: RequestInfo | URL, init: RequestInit = {}) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    {window.location.pathname.startsWith('/super-admin') ? <SuperAdminApp /> : <App />}
   </React.StrictMode>,
 )

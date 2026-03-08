@@ -2,13 +2,16 @@ import express from 'express';
 import {
   listCompanies, getCompany, createCompany, updateCompany, deleteCompany,
   listLines, createLine, updateLine, deleteLine,
-  setLineItems,
+  setLineItems, getAllLines,
 } from './companies.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
 const router = express.Router();
 
 router.use(requireSuperAdmin);
+
+// Static routes first (must be before /:id)
+router.get('/all-lines',  getAllLines);
 
 // Companies
 router.get('/',           listCompanies);

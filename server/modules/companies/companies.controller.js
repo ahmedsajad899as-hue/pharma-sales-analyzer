@@ -68,6 +68,17 @@ export async function deleteCompany(req, res) {
   res.json({ success: true });
 }
 
+// ── Get ALL lines across all companies ──────────────────────────────────
+export async function getAllLines(req, res) {
+  const lines = await prisma.productLine.findMany({
+    include: {
+      lineItems: { include: { item: { select: { id: true, name: true } } } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json({ success: true, data: lines });
+}
+
 // ── List lines of a company ───────────────────────────────────────────────
 export async function listLines(req, res) {
   const companyId = parseInt(req.params.id);

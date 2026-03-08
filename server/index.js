@@ -62,6 +62,17 @@ app.use('/api/sa/offices',        officesRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/users',          adminUsersRoutes);
 
+// ── SA reference lookups (items + areas for user assignments) ─
+import { requireSuperAdmin } from './middleware/superAdminMiddleware.js';
+app.get('/api/sa/items', requireSuperAdmin, async (req, res) => {
+  const items = await prisma.item.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  res.json({ success: true, data: items });
+});
+app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
+  const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  res.json({ success: true, data: areas });
+});
+
 // ── All /api routes below require a valid JWT ────────────────
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
