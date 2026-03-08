@@ -770,16 +770,17 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       visitDate: { gte: dayStart, lte: dayEnd },
     };
 
-    // Scope by userId for non-admin
-    if (userId) {
-      where.userId = userId;
-    }
-
-    // If user role (rep), restrict to their linked rep
-    if (role === 'user' && req.user?.linkedRepId) {
-      where.scientificRepId = req.user.linkedRepId;
-    } else if (repId) {
-      where.scientificRepId = repId;
+    // admin/manager see ALL visits (optionally filtered by repId)
+    // user role sees only visits they recorded, scoped to their linked rep
+    if (role === 'user') {
+      if (userId) where.userId = userId;
+      if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
+    } else if (role === 'manager') {
+      // manager can filter by rep
+      if (repId) where.scientificRepId = repId;
+    } else {
+      // admin: optionally filter by rep
+      if (repId) where.scientificRepId = repId;
     }
 
     const visits = await prisma.doctorVisit.findMany({
