@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npx prisma db push && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start",
+    "startCommand": "npx prisma db push && (node prisma/seed-super-admin.js || echo 'seed skipped') && (node prisma/seed-local-data.js || echo 'local seed skipped') && npm start",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE"
