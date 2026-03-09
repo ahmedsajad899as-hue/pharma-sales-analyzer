@@ -1,4 +1,4 @@
-import { prisma } from '../../lib/prisma.js';
+import prisma from '../../lib/prisma.js';
 
 // ── List all offices ──────────────────────────────────────────────────────
 export async function listOffices(req, res) {

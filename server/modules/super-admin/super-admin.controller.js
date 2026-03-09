@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../../lib/prisma.js';
+import prisma from '../../lib/prisma.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super_admin_secret_change_in_prod';
 
