@@ -135,10 +135,16 @@ export default function UsersPage() {
     const keyMap: Record<string, string> = {
       companies: 'companyIds', lines: 'lineIds', items: 'itemIds', areas: 'areaIds', managers: 'managerIds',
     };
-    await fetch(`/api/sa/users/${detail.id}/${type}`, {
-      method: 'PUT', headers: H(), body: JSON.stringify({ [keyMap[type]]: ids }),
-    });
-    setSaving(false); loadDetail(detail.id);
+    try {
+      await fetch(`/api/sa/users/${detail.id}/${type}`, {
+        method: 'PUT', headers: H(), body: JSON.stringify({ [keyMap[type]]: ids }),
+      });
+      loadDetail(detail.id);
+    } catch (e) {
+      console.error('saveAssignment error:', e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleUser = async (u: UserRow) => {

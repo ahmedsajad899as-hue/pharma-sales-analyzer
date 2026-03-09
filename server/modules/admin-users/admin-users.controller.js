@@ -103,7 +103,6 @@ export async function setUserCompanies(req, res) {
     prisma.userCompanyAssignment.deleteMany({ where: { userId } }),
     prisma.userCompanyAssignment.createMany({
       data: companyIds.map(id => ({ userId, companyId: parseInt(id) })),
-      skipDuplicates: true,
     }),
   ]);
   res.json({ success: true });
@@ -118,7 +117,6 @@ export async function setUserAreas(req, res) {
     prisma.userAreaAssignment.deleteMany({ where: { userId } }),
     prisma.userAreaAssignment.createMany({
       data: areaIds.map(id => ({ userId, areaId: parseInt(id) })),
-      skipDuplicates: true,
     }),
   ]);
   res.json({ success: true });
@@ -133,7 +131,6 @@ export async function setUserItems(req, res) {
     prisma.userItemAssignment.deleteMany({ where: { userId } }),
     prisma.userItemAssignment.createMany({
       data: itemIds.map(id => ({ userId, itemId: parseInt(id) })),
-      skipDuplicates: true,
     }),
   ]);
   res.json({ success: true });
@@ -148,7 +145,6 @@ export async function setUserLines(req, res) {
     prisma.userLineAssignment.deleteMany({ where: { userId } }),
     prisma.userLineAssignment.createMany({
       data: lineIds.map(id => ({ userId, lineId: parseInt(id) })),
-      skipDuplicates: true,
     }),
   ]);
   res.json({ success: true });
@@ -163,7 +159,6 @@ export async function setUserManagers(req, res) {
     prisma.userManagerAssignment.deleteMany({ where: { userId } }),
     prisma.userManagerAssignment.createMany({
       data: managerIds.map(id => ({ userId, managerId: parseInt(id) })),
-      skipDuplicates: true,
     }),
   ]);
   res.json({ success: true });
@@ -185,7 +180,6 @@ export async function setUserInteractions(req, res) {
         targetId: parseInt(t.targetId),
         canTypes: JSON.stringify(t.canTypes || []),
       })),
-      skipDuplicates: true,
     });
   }
   res.json({ success: true });
