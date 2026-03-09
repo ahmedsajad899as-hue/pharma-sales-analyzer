@@ -1333,9 +1333,10 @@ export async function transferPlan(req, res, next) {
       return res.status(400).json({ error: 'targetUserId مطلوب.' });
     }
 
-    // Only admin / manager can transfer
+    // Only admin / manager / manager-like roles can transfer
     const role = req.user.role;
-    if (role !== 'admin' && role !== 'manager') {
+    const managerRoles = ['admin','manager','company_manager','supervisor','product_manager','team_leader','office_manager','commercial_supervisor','commercial_team_leader'];
+    if (!managerRoles.includes(role)) {
       return res.status(403).json({ error: 'تحويل البلان متاح للمدير فقط.' });
     }
 
@@ -1377,7 +1378,8 @@ export async function revokePlanTransfer(req, res, next) {
   try {
     const planId = parseInt(req.params.id);
     const role   = req.user.role;
-    if (role !== 'admin' && role !== 'manager') {
+    const managerRoles = ['admin','manager','company_manager','supervisor','product_manager','team_leader','office_manager','commercial_supervisor','commercial_team_leader'];
+    if (!managerRoles.includes(role)) {
       return res.status(403).json({ error: 'إلغاء التحويل متاح للمدير فقط.' });
     }
 

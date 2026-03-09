@@ -188,3 +188,70 @@ export async function setLineItems(req, res) {
   });
   res.json({ success: true, data: line });
 }
+
+// ── Get company org chart (users hierarchy + items) ───────────────────────
+export async function getCompanyOrg(req, res) {
+  try {
+    const id = parseInt(req.params.id);
+
+    const company = await prisma.scientificCompany.findUnique({
+      where: { id },
+      include: {
+        office: { select: { id: true, name: true } },
+        items: {
+          select: { id: true, name: true, scientificName: true, dosage: true, form: true, price: true },
+          orderBy: { name: 'asc' },
+        },
+        lines: {
+          include: {
+            lineItems: { include: { item: { select: { id: true, name: true } } } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!company) return res.status(404).json({ success: false, error: 'Company not found' });
+
+    // Fetch user assignments
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { companyId: id },
+      select: { userId: true },
+    });
+
+    const userIds = [...new Set(assignments.map(a => a.userId))];
+
+    // Fetch users with their manager relationships
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        role: true,
+        isActive: true,
+        phone: true,
+        managersOfUser:     { select: { managerId: true } },
+        subordinatesOfUser: { select: { userId: true } },
+      },
+    });
+
+    const userIdSet = new Set(userIds);
+    const result = users.map(u => ({
+      id:             u.id,
+      username:       u.username,
+      displayName:    u.displayName,
+      role:           u.role,
+      isActive:       u.isActive,
+      phone:          u.phone,
+      // Only links between users in this company
+      managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => userIdSet.has(mid)),
+      subordinateIds: u.subordinatesOfUser.map(s => s.userId).filter(sid => userIdSet.has(sid)),
+    }));
+
+    res.json({ success: true, data: { company, users: result } });
+  } catch (err) {
+    console.error('[getCompanyOrg]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}

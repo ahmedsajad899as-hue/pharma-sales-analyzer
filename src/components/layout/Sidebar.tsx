@@ -18,18 +18,20 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   const role = user?.role ?? 'user';
 
+  // roles: [] means "all roles"; roles with entries means restricted to those roles only
   const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
-    { id: 'dashboard',       label: t.nav.dashboard,       icon: '📊', roles: ['admin'] },
-    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: ['admin'] },
-    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: ['admin'] },
-    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin', 'manager'] },
-    { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: ['admin', 'manager'] },
-    { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: ['admin', 'manager', 'user'] },
-    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin'] },
+    { id: 'dashboard',       label: t.nav.dashboard,       icon: '📊', roles: [] },
+    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: [] },
+    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: [] },
+    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: [] },
+    { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
+    { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
+    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: [] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin'] },
   ];
 
-  const visibleItems = navItems.filter(item => item.roles.includes(role));
+  // empty roles array = visible to all; otherwise check role inclusion
+  const visibleItems = navItems.filter(item => item.roles.length === 0 || item.roles.includes(role));
 
   const roleLabel = role === 'admin' ? t.sidebar.admin
     : role === 'manager' ? 'مدير الفريق'

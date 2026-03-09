@@ -3,8 +3,11 @@ import { createContext, useContext, useState, ReactNode, useEffect } from 'react
 export interface AuthUser {
   id: number;
   username: string;
-  role: 'admin' | 'manager' | 'user';
+  role: string; // 'admin' | 'manager' | 'user' | 'company_manager' | 'supervisor' | 'scientific_rep' | ...
   linkedRepId?: number | null;
+  displayName?: string | null;
+  officeId?: number | null;
+  permissions?: string | null;
 }
 
 interface AuthContextType {
@@ -85,7 +88,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAdmin          = user?.role === 'admin';
   const isManager        = user?.role === 'manager';
-  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'manager' ||
+    user?.role === 'company_manager' || user?.role === 'supervisor' ||
+    user?.role === 'product_manager' || user?.role === 'team_leader' ||
+    user?.role === 'office_manager'  || user?.role === 'commercial_supervisor' ||
+    user?.role === 'commercial_team_leader';
 
   return (
     <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin }}>

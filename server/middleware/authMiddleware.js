@@ -33,8 +33,14 @@ export function requireAdmin(req, res, next) {
 /**
  * Middleware: require admin OR manager role (must come after requireAuth)
  */
+export const MANAGER_ROLES = new Set([
+  'admin', 'manager', 'company_manager', 'supervisor',
+  'product_manager', 'team_leader', 'office_manager',
+  'commercial_supervisor', 'commercial_team_leader',
+]);
+
 export function requireManagerOrAdmin(req, res, next) {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'manager') {
+  if (!MANAGER_ROLES.has(req.user?.role)) {
     return res.status(403).json({ error: 'هذه العملية تتطلب صلاحيات المدير.' });
   }
   next();

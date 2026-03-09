@@ -4,6 +4,7 @@ import {
   listLines, createLine, updateLine, deleteLine,
   setLineItems, getAllLines,
   createCompanyItem, deleteCompanyItem,
+  getCompanyOrg,
 } from './companies.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -16,6 +17,7 @@ router.get('/all-lines',  getAllLines);
 
 // Companies
 router.get('/',           listCompanies);
+router.get('/:id/org',    getCompanyOrg);
 router.get('/:id',        getCompany);
 router.post('/',          createCompany);
 router.put('/:id',        updateCompany);

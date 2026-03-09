@@ -32,7 +32,7 @@ export async function login(req, res) {
     res.json({
       success: true,
       token,
-      user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null },
+      user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null, displayName: user.displayName ?? null },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -44,7 +44,7 @@ export async function me(req, res) {
   try {
     const user = await prisma.user.findUnique({
       where:  { id: req.user.id },
-      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true },
+      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true, displayName: true, officeId: true, permissions: true },
     });
     res.json({ success: true, user });
   } catch (err) {

@@ -49,7 +49,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
-  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isManagerOrAdmin = useAuth().isManagerOrAdmin;
 
   const loadDailyCalls = (date: string, repId: number | '') => {
     setCallsLoading(true);
