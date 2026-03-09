@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const username = process.env.MASTER_ADMIN_USERNAME || 'master';
-  const password = process.env.MASTER_ADMIN_PASSWORD || 'Master@2026!';
+  const password = process.env.MASTER_ADMIN_PASSWORD || '1231234a';
 
   const existing = await prisma.superAdmin.findUnique({ where: { username } });
   if (existing) {
