@@ -7,6 +7,7 @@ export default function LoginPage() {
   const { t, toggleLang, lang } = useLanguage();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPwd,  setShowPwd]  = useState(false);
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
@@ -72,14 +73,21 @@ export default function LoginPage() {
 
           <div className="form-group">
             <label className="form-label">{t.login.password}</label>
-            <input
-              className="form-input"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder={t.login.passwordPlaceholder}
-              autoComplete="current-password"
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                className="form-input"
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder={t.login.passwordPlaceholder}
+                autoComplete="current-password"
+                style={{ paddingLeft: 44 }}
+              />
+              <button type="button" onClick={() => setShowPwd(v => !v)}
+                style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#94a3b8', padding: 0 }}>
+                {showPwd ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           <button

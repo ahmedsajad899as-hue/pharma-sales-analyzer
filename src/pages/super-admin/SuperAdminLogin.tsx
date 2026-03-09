@@ -5,6 +5,7 @@ export default function SuperAdminLogin() {
   const { login } = useSuperAdmin();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPwd,  setShowPwd]  = useState(false);
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
@@ -38,12 +39,18 @@ export default function SuperAdminLogin() {
           </div>
           <div style={{ marginBottom: 24 }}>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>كلمة المرور</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              style={{ width: '100%', padding: '10px 14px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, boxSizing: 'border-box', outline: 'none' }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                style={{ width: '100%', padding: '10px 44px 10px 14px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, boxSizing: 'border-box', outline: 'none' }}
+              />
+              <button type="button" onClick={() => setShowPwd(v => !v)}
+                style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: '#64748b', padding: 0 }}>
+                {showPwd ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
           {error && <div style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>{error}</div>}
           <button
