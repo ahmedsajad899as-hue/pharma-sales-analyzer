@@ -42,6 +42,9 @@ export async function updateScientificRep(id, data) {
 }
 
 export async function deleteScientificRep(id) {
+  // Delete related records without cascade first
+  await prisma.doctorVisit.deleteMany({ where: { scientificRepId: id } });
+  await prisma.monthlyPlan.deleteMany({ where: { scientificRepId: id } });
   return prisma.scientificRepresentative.delete({ where: { id } });
 }
 
