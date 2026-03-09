@@ -4,9 +4,10 @@ import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
 interface Office   { id: number; name: string; }
 interface Company  { id: number; name: string; officeId: number; isActive: boolean; notes?: string; office?: { name: string }; _count?: { items: number; lines: number }; }
-interface Item     { id: number; name: string; }
+interface Item     { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; scientificMessage?: string; }
 interface Line     { id: number; name?: string; isActive: boolean; lineItems: { item: Item }[]; }
 interface CompanyDetail extends Company { items: Item[]; lines: Line[]; }
+interface ItemForm { name: string; scientificName: string; dosage: string; form: string; price: string; scientificMessage: string; }
 
 export default function CompaniesPage() {
   const { token } = useSuperAdmin();
@@ -20,7 +21,7 @@ export default function CompaniesPage() {
   const [lineForm,  setLineForm]  = useState<{ lineId?: number; name: string; itemIds: number[] } | null>(null);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
-  const [itemForm,  setItemForm]  = useState<string | null>(null); // null=closed, string=item name being typed
+  const [itemForm,  setItemForm]  = useState<ItemForm | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -74,11 +75,21 @@ export default function CompaniesPage() {
     loadDetail(detail.id);
   };
 
+  const blankItemForm = (): ItemForm => ({ name: '', scientificName: '', dosage: '', form: '', price: '', scientificMessage: '' });
+
   const addItem = async () => {
-    if (!detail || !itemForm?.trim()) return;
+    if (!detail || !itemForm?.name?.trim()) return;
     setSaving(true); setError('');
+    const payload = {
+      name:              itemForm.name.trim(),
+      scientificName:    itemForm.scientificName.trim() || null,
+      dosage:            itemForm.dosage.trim()         || null,
+      form:              itemForm.form.trim()           || null,
+      price:             itemForm.price !== '' ? parseFloat(itemForm.price) : null,
+      scientificMessage: itemForm.scientificMessage.trim() || null,
+    };
     const res = await fetch(`/api/sa/companies/${detail.id}/items`, {
-      method: 'POST', headers: H(), body: JSON.stringify({ name: itemForm.trim() }),
+      method: 'POST', headers: H(), body: JSON.stringify(payload),
     });
     const d = await res.json();
     if (!res.ok) { setError(d.error || 'خطأ'); setSaving(false); return; }
@@ -117,12 +128,18 @@ export default function CompaniesPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#374151' }}>الايتمات ({detail.items.length})</h3>
-          <button onClick={() => { setItemForm(''); setError(''); }} style={btnStyle('#059669', true)}>+ إضافة ايتم</button>
+          <button onClick={() => { setItemForm(blankItemForm()); setError(''); }} style={btnStyle('#059669', true)}>+ إضافة ايتم</button>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {detail.items.map(i => (
             <span key={i.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 10px', fontSize: 13 }}>
-              {i.name}
+              <span>
+                <strong>{i.name}</strong>
+                {i.scientificName && <span style={{ color: '#6366f1', marginRight: 4 }}>({i.scientificName})</span>}
+                {i.dosage && <span style={{ color: '#64748b', fontSize: 11, marginRight: 4 }}>{i.dosage}</span>}
+                {i.form && <span style={{ color: '#64748b', fontSize: 11, marginRight: 4 }}>· {i.form}</span>}
+                {i.price != null && <span style={{ color: '#059669', fontSize: 11, marginRight: 4 }}>· {i.price.toLocaleString()} د.ع</span>}
+              </span>
               <button onClick={() => delItem(i.id, i.name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontWeight: 700, fontSize: 14, padding: '0 2px', lineHeight: 1 }}>×</button>
             </span>
           ))}
@@ -154,11 +171,18 @@ export default function CompaniesPage() {
       {/* Item add modal */}
       {itemForm !== null && (
         <Modal onClose={() => { setItemForm(null); setError(''); }} title="إضافة ايتم للشركة">
-          <Field label="اسم الايتم *" value={itemForm} onChange={v => setItemForm(v)} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+            <Field label="الاسم التجاري *" value={itemForm.name} onChange={v => setItemForm(f => ({ ...f!, name: v }))} />
+            <Field label="الاسم العلمي" value={itemForm.scientificName} onChange={v => setItemForm(f => ({ ...f!, scientificName: v }))} />
+            <Field label="الجرعة الدوائية" value={itemForm.dosage} onChange={v => setItemForm(f => ({ ...f!, dosage: v }))} placeholder="مثال: 500mg" />
+            <Field label="الشكل الدوائي" value={itemForm.form} onChange={v => setItemForm(f => ({ ...f!, form: v }))} placeholder="أقراص / كبسول / شراب..." />
+            <Field label="السعر (د.ع)" value={itemForm.price} onChange={v => setItemForm(f => ({ ...f!, price: v }))} type="number" />
+          </div>
+          <Field label="المسج العلمي" value={itemForm.scientificMessage} onChange={v => setItemForm(f => ({ ...f!, scientificMessage: v }))} textarea />
           {error && <ErrBox msg={error} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={() => { setItemForm(null); setError(''); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
-            <button onClick={addItem} disabled={saving || !itemForm?.trim()} style={btnStyle('#059669', true)}>{saving ? '...' : 'إضافة'}</button>
+            <button onClick={addItem} disabled={saving || !itemForm?.name?.trim()} style={btnStyle('#059669', true)}>{saving ? '...' : 'إضافة'}</button>
           </div>
         </Modal>
       )}
