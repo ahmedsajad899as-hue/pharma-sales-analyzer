@@ -88,12 +88,9 @@ function AppInner() {
   // Redirect to first accessible page if user doesn't have permission for current page
   useEffect(() => {
     if (!user) return;
-    // 'users' page is admin-only; all other pages are accessible to every role
-    const adminOnlyPages: string[] = ['users'];
-    const role = user.role;
-    if (adminOnlyPages.includes(activePage) && role !== 'admin') {
-      navigateTo('dashboard');
-    }
+    // All pages are accessible to every role
+    void activePage;
+    void user.role;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 

@@ -27,7 +27,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: [] },
-    { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin'] },
+    { id: 'users',           label: t.nav.users,           icon: '👥', roles: [] },
   ];
 
   // empty roles array = visible to all; otherwise check role inclusion
