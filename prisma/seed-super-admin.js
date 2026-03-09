@@ -25,7 +25,8 @@ async function main() {
 
   // ── Sub admins ─────────────────────────────────────────────
   const subAdmins = [
-    { username: 'Ahmed', password: process.env.AHMED_PASSWORD || '1231234a', displayName: 'Ahmed' },
+    { username: 'Ahmed',     password: process.env.AHMED_PASSWORD     || '1231234a', displayName: 'Ahmed' },
+    { username: 'محمد حسن', password: process.env.MOHAMAD_PASSWORD    || '1231234a', displayName: 'محمد حسن' },
   ];
 
   for (const sa of subAdmins) {
