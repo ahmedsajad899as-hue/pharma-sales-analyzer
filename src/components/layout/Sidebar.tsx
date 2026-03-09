@@ -33,10 +33,30 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // empty roles array = visible to all; otherwise check role inclusion
   const visibleItems = navItems.filter(item => item.roles.length === 0 || item.roles.includes(role));
 
-  const roleLabel = role === 'admin' ? t.sidebar.admin
-    : role === 'manager' ? 'مدير الفريق'
-    : t.sidebar.user;
-  const roleIcon = role === 'admin' ? '👑' : role === 'manager' ? '🛡️' : '👤';
+  const ROLE_LABELS: Record<string, string> = {
+    admin:                    t.sidebar.admin,
+    manager:                  'مدير الفريق',
+    company_manager:          'مدير شركة',
+    supervisor:               'مشرف',
+    product_manager:          'مدير منتج',
+    team_leader:              'قائد فريق',
+    office_manager:           'مدير مكتب',
+    office_hr:                'HR مكتب',
+    office_employee:          'موظف مكتب',
+    commercial_supervisor:    'مشرف تجاري',
+    commercial_team_leader:   'قائد فريق تجاري',
+    commercial_rep:           'مندوب تجاري',
+    scientific_rep:           'مندوب علمي',
+    user:                     'مستخدم',
+  };
+  const ROLE_ICONS: Record<string, string> = {
+    admin: '👑', manager: '🛡️', company_manager: '🏢', supervisor: '🔍',
+    product_manager: '📦', team_leader: '🎯', office_manager: '🏠',
+    commercial_supervisor: '💼', commercial_team_leader: '📋',
+    commercial_rep: '💰', scientific_rep: '🔬',
+  };
+  const roleLabel = ROLE_LABELS[role] ?? role;
+  const roleIcon  = ROLE_ICONS[role]  ?? '👤';
 
   const LangToggleBtn = ({ full }: { full?: boolean }) => (
     <button
