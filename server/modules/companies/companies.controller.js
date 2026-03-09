@@ -68,6 +68,34 @@ export async function deleteCompany(req, res) {
   res.json({ success: true });
 }
 
+// ── Add item to company ───────────────────────────────────────────────────
+export async function createCompanyItem(req, res) {
+  const companyId = parseInt(req.params.id);
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'اسم الايتم مطلوب' });
+
+  // Check if item with same name already exists for this company
+  const existing = await prisma.item.findFirst({
+    where: { name: name.trim(), scientificCompanyId: companyId },
+  });
+  if (existing) return res.status(400).json({ error: 'الايتم موجود مسبقاً في هذه الشركة' });
+
+  const item = await prisma.item.create({
+    data: { name: name.trim(), scientificCompanyId: companyId },
+  });
+  res.status(201).json({ success: true, data: item });
+}
+
+// ── Remove item from company (unlink) ────────────────────────────────────
+export async function deleteCompanyItem(req, res) {
+  const itemId = parseInt(req.params.itemId);
+  await prisma.item.update({
+    where: { id: itemId },
+    data: { scientificCompanyId: null },
+  });
+  res.json({ success: true });
+}
+
 // ── Get ALL lines across all companies ──────────────────────────────────
 export async function getAllLines(req, res) {
   const lines = await prisma.productLine.findMany({

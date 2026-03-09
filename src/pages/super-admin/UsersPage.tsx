@@ -54,6 +54,13 @@ export default function UsersPage() {
   const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'>('info');
   const [search,    setSearch]    = useState('');
 
+  // ── Draft assignment states (must be at top level — Rules of Hooks) ──────
+  const [draftCompanyIds, setDraftCompanyIds] = useState<number[]>([]);
+  const [draftLineIds,    setDraftLineIds]    = useState<number[]>([]);
+  const [draftItemIds,    setDraftItemIds]    = useState<number[]>([]);
+  const [draftAreaIds,    setDraftAreaIds]    = useState<number[]>([]);
+  const [draftMgrIds,     setDraftMgrIds]     = useState<number[]>([]);
+
   const load = () => {
     setLoading(true);
     Promise.all([
@@ -79,6 +86,16 @@ export default function UsersPage() {
   };
 
   useEffect(load, []);
+
+  // Reset drafts whenever detail changes
+  useEffect(() => {
+    if (!detail) return;
+    setDraftCompanyIds(detail.companyAssignments.map(a => a.companyId));
+    setDraftLineIds(detail.lineAssignments.map(a => a.lineId));
+    setDraftItemIds(detail.itemAssignments.map(a => a.itemId));
+    setDraftAreaIds(detail.areaAssignments.map(a => a.areaId));
+    setDraftMgrIds(detail.managersOfUser.map(a => a.managerId));
+  }, [detail?.id]);
 
   const loadDetail = (id: number) => {
     fetch(`/api/sa/users/${id}`, { headers: H() }).then(r => r.json()).then(d => {
@@ -133,11 +150,11 @@ export default function UsersPage() {
 
   // ── DETAIL VIEW ────────────────────────────────────────────
   if (detail) {
-    const selCompanyIds = detail.companyAssignments.map(a => a.companyId);
-    const selLineIds    = detail.lineAssignments.map(a => a.lineId);
-    const selItemIds    = detail.itemAssignments.map(a => a.itemId);
-    const selAreaIds    = detail.areaAssignments.map(a => a.areaId);
-    const selMgrIds     = detail.managersOfUser.map(a => a.managerId);
+    const selCompanyIds = draftCompanyIds;
+    const selLineIds    = draftLineIds;
+    const selItemIds    = draftItemIds;
+    const selAreaIds    = draftAreaIds;
+    const selMgrIds     = draftMgrIds;
 
     const TabBtn = ({ id, label }: { id: typeof tab; label: string }) => (
       <button onClick={() => setTab(id)} style={{
@@ -160,20 +177,6 @@ export default function UsersPage() {
 
     const mkToggle = (selIds: number[], setter: (ids: number[]) => void) =>
       (id: number, checked: boolean) => setter(checked ? [...selIds, id] : selIds.filter(x => x !== id));
-
-    const [draftCompanyIds, setDraftCompanyIds] = useState<number[]>(selCompanyIds);
-    const [draftLineIds,    setDraftLineIds]    = useState<number[]>(selLineIds);
-    const [draftItemIds,    setDraftItemIds]    = useState<number[]>(selItemIds);
-    const [draftAreaIds,    setDraftAreaIds]    = useState<number[]>(selAreaIds);
-    const [draftMgrIds,     setDraftMgrIds]     = useState<number[]>(selMgrIds);
-
-    useEffect(() => {
-      setDraftCompanyIds(selCompanyIds);
-      setDraftLineIds(selLineIds);
-      setDraftItemIds(selItemIds);
-      setDraftAreaIds(selAreaIds);
-      setDraftMgrIds(selMgrIds);
-    }, [detail.id]);
 
     return (
       <div>
