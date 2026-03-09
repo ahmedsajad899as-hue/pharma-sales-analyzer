@@ -127,14 +127,14 @@ export function Modal({ children, onClose, title }: { children: React.ReactNode;
     </div>
   );
 }
-export function Field({ label, value, onChange, textarea, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; textarea?: boolean; type?: string }) {
+export function Field({ label, value, onChange, textarea, type = 'text', placeholder }: { label: string; value: string; onChange: (v: string) => void; textarea?: boolean; type?: string; placeholder?: string }) {
   const style: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, boxSizing: 'border-box', outline: 'none', resize: 'vertical', fontFamily: 'inherit' };
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>{label}</label>
       {textarea
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} style={{ ...style, minHeight: 80 }} />
-        : <input type={type} value={value} onChange={e => onChange(e.target.value)} style={style} />}
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} style={style} placeholder={placeholder} />
+        : <input type={type} value={value} onChange={e => onChange(e.target.value)} style={style} placeholder={placeholder} />}
     </div>
   );
 }
