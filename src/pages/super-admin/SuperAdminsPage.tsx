@@ -28,7 +28,7 @@ export default function SuperAdminsPage() {
     if (!form.id && !form.password?.trim()) { setError('كلمة المرور مطلوبة'); return; }
     setSaving(true); setError('');
     const isEdit = Boolean(form.id);
-    const payload: any = { username: form.username };
+    const payload: any = { username: form.username?.trim() };
     if (form.password) payload.password = form.password;
     const res = await fetch(isEdit ? `/api/super-admin/admins/${form.id}` : '/api/super-admin/admins', {
       method: isEdit ? 'PUT' : 'POST', headers: H(), body: JSON.stringify(payload),
