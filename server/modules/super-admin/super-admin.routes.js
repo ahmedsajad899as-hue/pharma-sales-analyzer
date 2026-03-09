@@ -6,6 +6,7 @@ import {
   createSuperAdmin,
   updateSuperAdmin,
   deleteSuperAdmin,
+  impersonateUser,
 } from './super-admin.controller.js';
 import { requireSuperAdmin, requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -22,5 +23,8 @@ router.get('/admins',        requireMasterAdmin, listSuperAdmins);
 router.post('/admins',       requireMasterAdmin, createSuperAdmin);
 router.put('/admins/:id',    requireMasterAdmin, updateSuperAdmin);
 router.delete('/admins/:id', requireMasterAdmin, deleteSuperAdmin);
+
+// Any super admin can impersonate a user
+router.post('/impersonate/:userId', requireSuperAdmin, impersonateUser);
 
 export default router;

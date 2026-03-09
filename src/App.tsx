@@ -51,8 +51,35 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 }
 
+function ImpersonationBanner() {
+  const { user, logout } = useAuth();
+  if (sessionStorage.getItem('_is_impersonating') !== '1') return null;
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+      background: 'linear-gradient(90deg, #92400e, #b45309)',
+      color: '#fff', padding: '8px 20px',
+      display: 'flex', alignItems: 'center', gap: 12,
+      fontSize: 13, fontWeight: 600, direction: 'rtl',
+      boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+    }}>
+      <span style={{ fontSize: 16 }}>👁️</span>
+      <span>وضع المراقبة — تشاهد كـ:</span>
+      <span style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 6, padding: '2px 10px' }}>
+        {user?.username} ({user?.role})
+      </span>
+      <span style={{ marginRight: 'auto', fontSize: 11, opacity: 0.8 }}>القراءة فقط — إغلاق التبويب للخروج</span>
+      <button onClick={logout} style={{
+        background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+        borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '3px 12px', fontSize: 12, fontWeight: 700,
+      }}>✕ إغلاق</button>
+    </div>
+  );
+}
+
 function AppInner() {
   const { user } = useAuth();
+  const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
   // On mobile (< 768px) start with sidebar closed
   const [activePage, setActivePage]       = useState<PageId>(() => (localStorage.getItem('lastPage') as PageId) || 'dashboard');
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
@@ -133,6 +160,7 @@ function AppInner() {
 
   return (
     <div className="app-shell" dir="rtl">
+      <ImpersonationBanner />
       <Sidebar
         activePage={activePage}
         onNavigate={navigateTo}
@@ -140,7 +168,8 @@ function AppInner() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         activeFileIds={activeFileIds}
       />
-      <main className={`app-main ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
+      <main className={`app-main ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
+        style={isImpersonating ? { paddingTop: 40 } : undefined}>
         {renderPage()}
       </main>
     </div>

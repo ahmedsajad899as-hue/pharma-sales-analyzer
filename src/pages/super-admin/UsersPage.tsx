@@ -40,6 +40,15 @@ export default function UsersPage() {
   const { token } = useSuperAdmin();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
+  const viewAsUser = async (u: UserRow) => {
+    if (!u.isActive) { alert('المستخدم غير نشط'); return; }
+    const res = await fetch(`/api/super-admin/impersonate/${u.id}`, { method: 'POST', headers: H() });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'فشل'); return; }
+    localStorage.setItem('_imp', JSON.stringify({ token: d.token, user: d.user }));
+    window.open('/?imp=1', '_blank');
+  };
+
   const [users,     setUsers]     = useState<UserRow[]>([]);
   const [offices,   setOffices]   = useState<Office[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -307,7 +316,8 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => viewAsUser(u)} title="دخول كهذا المستخدم" style={btnStyle('#0ea5e9', true)}>👁️ مراقبة</button>
                       <button onClick={() => loadDetail(u.id)} style={btnStyle('#6366f1', true)}>تفاصيل</button>
                       <button onClick={() => setForm({ ...u, password: '' })} style={btnStyle('#3b82f6', true)}>تعديل</button>
                       <button onClick={() => toggleUser(u)} style={btnStyle(u.isActive ? '#f59e0b' : '#10b981', true)}>{u.isActive ? 'تعطيل' : 'تفعيل'}</button>

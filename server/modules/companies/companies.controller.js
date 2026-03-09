@@ -71,7 +71,7 @@ export async function deleteCompany(req, res) {
 // ── Add item to company ───────────────────────────────────────────────────
 export async function createCompanyItem(req, res) {
   const companyId = parseInt(req.params.id);
-  const { name } = req.body;
+  const { name, scientificName, dosage, form, price, scientificMessage } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'اسم الايتم مطلوب' });
 
   // Check if item with same name already exists for this company
@@ -81,7 +81,15 @@ export async function createCompanyItem(req, res) {
   if (existing) return res.status(400).json({ error: 'الايتم موجود مسبقاً في هذه الشركة' });
 
   const item = await prisma.item.create({
-    data: { name: name.trim(), scientificCompanyId: companyId },
+    data: {
+      name: name.trim(),
+      scientificName:    scientificName?.trim()    || null,
+      dosage:            dosage?.trim()            || null,
+      form:              form?.trim()              || null,
+      price:             price != null ? parseFloat(price) : null,
+      scientificMessage: scientificMessage?.trim() || null,
+      scientificCompanyId: companyId,
+    },
   });
   res.status(201).json({ success: true, data: item });
 }

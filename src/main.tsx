@@ -4,6 +4,22 @@ import App from './App.tsx'
 import SuperAdminApp from './SuperAdminApp.tsx'
 import './index.css'
 
+// ── Impersonation bootstrap: if opened via ?imp=1, read one-time token from localStorage ──
+const _impParams = new URLSearchParams(window.location.search);
+if (_impParams.get('imp') === '1') {
+  try {
+    const raw = localStorage.getItem('_imp');
+    if (raw) {
+      const { token, user } = JSON.parse(raw);
+      localStorage.removeItem('_imp');
+      sessionStorage.setItem('_imp_token', token);
+      sessionStorage.setItem('_imp_user', JSON.stringify(user));
+      sessionStorage.setItem('_is_impersonating', '1');
+    }
+  } catch {}
+  window.history.replaceState({}, '', '/');
+}
+
 // ── Global fetch interceptor: attach JWT to every /api request ──────────
 // Only injects auth_token if no Authorization header is already provided
 const _origFetch = window.fetch.bind(window);

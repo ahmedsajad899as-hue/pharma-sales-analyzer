@@ -130,9 +130,14 @@ model Company {
 
 // ─── Item (Drug / Product) ───────────────────────────────────
 model Item {
-  id        Int      @id @default(autoincrement())
-  name      String
-  createdAt DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  name              String   // الاسم التجاري
+  scientificName    String?  // الاسم العلمي
+  dosage            String?  // الجرعة الدوائية
+  form              String?  // الشكل الدوائي (أقراص، كبسول، شراب...)
+  price             Float?   // السعر
+  scientificMessage String?  // المسج العلمي
+  createdAt         DateTime @default(now())
 
   userId              Int?
   user                User?              @relation(fields: [userId], references: [id])

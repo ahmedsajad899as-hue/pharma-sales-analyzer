@@ -1,0 +1,143 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "passwordHash": "$2b$10$fU9poEfYtntLkwPECAMtPO3TigD8apgCIddC6tLHq4zEqzQ2vK33e",
+      "role": "admin",
+      "isActive": true,
+      "displayName": null,
+      "phone": null,
+      "linkedRepId": null,
+      "officeId": null,
+      "permissions": null,
+      "createdAt": "2026-03-06T17:38:00.644Z",
+      "updatedAt": "2026-03-09T00:38:32.392Z"
+    },
+    {
+      "id": 2,
+      "username": "ahmed",
+      "passwordHash": "$2b$12$RZSL3fZMIL6wWSfCdOOM/OjUH..KKPbK2QiZJPqPVdPfKCsz1fATa",
+      "role": "company_manager",
+      "isActive": true,
+      "displayName": null,
+      "phone": null,
+      "linkedRepId": null,
+      "officeId": 1,
+      "permissions": null,
+      "createdAt": "2026-03-08T01:02:00.370Z",
+      "updatedAt": "2026-03-09T00:44:41.950Z"
+    },
+    {
+      "id": 3,
+      "username": "sajad",
+      "passwordHash": "$2b$10$tNy0.Lj6kWtyISJ9kOsNGeGur3gl7x4H7vNrLoATlocMjG1iZUXfa",
+      "role": "user",
+      "isActive": true,
+      "displayName": null,
+      "phone": null,
+      "linkedRepId": null,
+      "officeId": null,
+      "permissions": null,
+      "createdAt": "2026-03-08T01:02:37.233Z",
+      "updatedAt": "2026-03-08T01:02:37.233Z"
+    }
+  ],
+  "reps": [
+    {
+      "id": 1,
+      "name": "يحيى",
+      "phone": null,
+      "email": null,
+      "company": null,
+      "isActive": true,
+      "notes": null,
+      "createdAt": "2026-03-07T20:35:41.357Z",
+      "updatedAt": "2026-03-07T20:35:41.357Z",
+      "userId": 1
+    }
+  ],
+  "doctors": [
+    {
+      "id": 1,
+      "name": "عبير احمد",
+      "specialty": null,
+      "areaId": null,
+      "pharmacyName": null,
+      "targetItemId": 1,
+      "notes": "زياره سابقه",
+      "isActive": true,
+      "createdAt": "2026-03-07T20:36:18.685Z",
+      "updatedAt": "2026-03-07T20:36:18.685Z",
+      "userId": 1
+    },
+    {
+      "id": 2,
+      "name": "زينة العبيدي",
+      "specialty": null,
+      "areaId": null,
+      "pharmacyName": null,
+      "targetItemId": 2,
+      "notes": "متابعه",
+      "isActive": true,
+      "createdAt": "2026-03-07T20:36:18.710Z",
+      "updatedAt": "2026-03-07T20:36:18.710Z",
+      "userId": 1
+    },
+    {
+      "id": 3,
+      "name": "علي الساجي",
+      "specialty": null,
+      "areaId": null,
+      "pharmacyName": null,
+      "targetItemId": 3,
+      "notes": "غير مهتم",
+      "isActive": true,
+      "createdAt": "2026-03-07T20:36:18.737Z",
+      "updatedAt": "2026-03-07T20:36:18.737Z",
+      "userId": 1
+    }
+  ],
+  "items": [
+    {
+      "id": 1,
+      "name": "مهتم",
+      "createdAt": "2026-03-07T20:36:18.645Z",
+      "userId": 1,
+      "companyId": null,
+      "scientificCompanyId": null
+    },
+    {
+      "id": 2,
+      "name": "معلق",
+      "createdAt": "2026-03-07T20:36:18.697Z",
+      "userId": 1,
+      "companyId": null,
+      "scientificCompanyId": null
+    },
+    {
+      "id": 3,
+      "name": "نزل الايتم",
+      "createdAt": "2026-03-07T20:36:18.721Z",
+      "userId": 1,
+      "companyId": null,
+      "scientificCompanyId": null
+    }
+  ],
+  "areas": [],
+  "companies": [],
+  "customers": [],
+  "medReps": [],
+  "offices": [
+    {
+      "id": 1,
+      "name": "مكتب النسق العلمي",
+      "phone": "",
+      "address": "المنصور",
+      "isActive": true,
+      "notes": "",
+      "createdAt": "2026-03-09T00:41:57.839Z",
+      "updatedAt": "2026-03-09T00:42:08.144Z"
+    }
+  ]
+}

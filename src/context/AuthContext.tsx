@@ -20,14 +20,22 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>(null!);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const _isImp = () => sessionStorage.getItem('_is_impersonating') === '1';
+
   const [user, setUser] = useState<AuthUser | null>(() => {
-    try { return JSON.parse(localStorage.getItem('auth_user') || 'null'); }
+    try {
+      if (_isImp()) return JSON.parse(sessionStorage.getItem('_imp_user') || 'null');
+      return JSON.parse(localStorage.getItem('auth_user') || 'null');
+    }
     catch { return null; }
   });
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
+  const [token, setToken] = useState<string | null>(
+    () => _isImp() ? sessionStorage.getItem('_imp_token') : localStorage.getItem('auth_token')
+  );
 
   // On load: verify token and refresh user data from server
   useEffect(() => {
+    if (_isImp()) return; // skip verification for impersonation sessions
     const storedToken = localStorage.getItem('auth_token');
     if (!storedToken) return;
     fetch('/api/auth/me', {
@@ -64,6 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    if (_isImp()) {
+      sessionStorage.clear();
+      window.close();
+      return;
+    }
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     setToken(null);

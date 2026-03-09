@@ -106,3 +106,30 @@ export async function deleteSuperAdmin(req, res) {
   await prisma.superAdmin.delete({ where: { id } });
   res.json({ success: true });
 }
+
+// ── Impersonate user (view as) ────────────────────────────────────────────
+const USER_JWT_SECRET = process.env.JWT_SECRET || 'pharma-sales-secret-key-2026';
+
+export async function impersonateUser(req, res) {
+  try {
+    const userId = parseInt(req.params.userId);
+    if (isNaN(userId)) return res.status(400).json({ error: 'Invalid userId' });
+
+    const user = await prisma.user.findUnique({
+      where:  { id: userId },
+      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true },
+    });
+    if (!user)           return res.status(404).json({ error: 'المستخدم غير موجود' });
+    if (!user.isActive)  return res.status(403).json({ error: 'المستخدم غير نشط' });
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      USER_JWT_SECRET,
+      { expiresIn: '3h' }
+    );
+
+    res.json({ success: true, token, user: { id: user.id, username: user.username, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
