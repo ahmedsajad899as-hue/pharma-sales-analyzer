@@ -102,6 +102,25 @@ async function main() {
   }
   await resetSeq('doctors');
 
+  // ── 6. Scientific Companies ───────────────────────────────
+  const companiesData = [
+    { name: 'humanis' },
+    { name: 'deva' },
+  ];
+
+  for (const c of companiesData) {
+    const existing = await prisma.scientificCompany.findFirst({ where: { name: c.name, officeId: office.id } });
+    if (!existing) {
+      const created = await prisma.scientificCompany.create({
+        data: { name: c.name, officeId: office.id, isActive: true },
+      });
+      console.log(`✅ Company: ${created.name} (id=${created.id})`);
+    } else {
+      console.log(`✅ Company: ${existing.name} (id=${existing.id}) — already exists`);
+    }
+  }
+  await resetSeq('scientific_companies');
+
   console.log('\n✅ Local data seeded successfully!');
 }
 
