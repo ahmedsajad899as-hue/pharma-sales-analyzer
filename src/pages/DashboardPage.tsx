@@ -357,6 +357,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   const startGpsCapture = () => {
+    // GPS requires a Secure Context (HTTPS or localhost).
+    // On plain HTTP (local network IP) mobile browsers block it entirely.
+    const isSecure = window.isSecureContext ||
+      location.hostname === 'localhost' ||
+      location.hostname === '127.0.0.1';
+    if (!isSecure) { setClGpsStatus('denied'); return; }
     if (!navigator.geolocation) { setClGpsStatus('denied'); return; }
     stopGpsWatch();
     setClLat(null); setClLng(null); setClAccuracy(null); setClGpsStatus('getting');
@@ -419,17 +425,20 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }, 90000);
   };
 
-  // Open device location settings (Android intent / iOS prefs)
+  // Open device location settings — works on Android via geo: prompt
   const openLocationSettings = () => {
+    // Try to force a new geolocation prompt; if denied, user must go to browser settings manually
+    startGpsCapture();
+    // For Android Chrome: opening a geo: URI triggers location prompt if not yet asked
     const ua = navigator.userAgent;
     if (/Android/i.test(ua)) {
-      window.location.href = 'intent://settings#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
-    } else if (/iP(hone|ad|od)/i.test(ua)) {
-      window.location.href = 'App-Prefs:Privacy&path=LOCATION';
+      try { window.open('geo:0,0', '_blank'); } catch {}
     }
-    // After returning from settings give it a moment then retry
-    setTimeout(startGpsCapture, 2500);
   };
+
+  // Detect if running on plain HTTP (local IP) — GPS not available
+  const isInsecureHttp = !window.isSecureContext &&
+    location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
 
   // Retry GPS: if already denied → open phone settings; otherwise just retry
   const retryGps = () => {
@@ -1290,6 +1299,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </div>
               )}
 
+              {/* HTTP warning — GPS blocked on plain HTTP */}
+              {isInsecureHttp && (
+                <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', fontSize: '12px', color: '#991b1b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                  <span>⚠️ GPS لا يعمل على HTTP — استخدم الرابط الآمن للهاتف</span>
+                  <a href="https://ordine-sales.up.railway.app" target="_blank" rel="noopener noreferrer"
+                    style={{ background: '#059669', color: '#fff', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                    🔗 فتح الرابط الآمن
+                  </a>
+                </div>
+              )}
+
               {/* ── Call Type Tabs ── */}
               <div style={{ display: 'flex', gap: '6px', marginBottom: '18px' }}>
                 <button
@@ -1792,15 +1812,26 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginBottom: '14px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#92400e', marginBottom: '6px' }}>📍 الموقع الجغرافي غير محدد</div>
                   <div style={{ fontSize: '13px', color: '#78350f', marginBottom: '12px' }}>
-                    {clGpsStatus === 'getting'
-                      ? 'جاري تحديد الموقع... انتظر لحظة أو تابع بدون موقع.'
-                      : 'الموقع غير متاح. اضغط على «إعادة تحديد الموقع» لفتح إعدادات GPS في الجهاز وتفعيله.'}
+                    {isInsecureHttp
+                      ? 'أنت على رابط HTTP غير آمن — متصفح الهاتف يمنع GPS على هذا الرابط. يجب فتح التطبيق من رابط الشبكة الآمن.'
+                      : clGpsStatus === 'getting'
+                        ? 'جاري تحديد الموقع... انتظر لحظة أو تابع بدون موقع.'
+                        : 'تم رفض إذن الموقع. اضغط «إعادة المحاولة» أو افتح إعدادات المتصفح ← الموقع الجغرافي ← السماح.'}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={retryGps}
-                      style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                    >{clGpsStatus === 'denied' ? '⚙️ إعدادات الموقع' : '🔄 إعادة تحديد الموقع'}</button>
+                    {isInsecureHttp ? (
+                      <a
+                        href="https://ordine-sales.up.railway.app"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer', textDecoration: 'none' }}
+                      >🔗 فتح الرابط الآمن (Railway)</a>
+                    ) : (
+                      <button
+                        onClick={retryGps}
+                        style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
+                      >{clGpsStatus === 'getting' ? '⏳ جاري التحديد...' : '🔄 إعادة المحاولة'}</button>
+                    )}
                     <button
                       onClick={submitCallLog}
                       style={{ padding: '7px 16px', background: '#6b7280', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer' }}
