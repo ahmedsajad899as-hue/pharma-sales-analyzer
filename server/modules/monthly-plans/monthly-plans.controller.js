@@ -5,12 +5,16 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // ── Helper: find a plan the user has access to ──────────────
 // - owner (admin/manager): plans where userId = myId
-// - assigned user (rep):   plans where assignedUserId = myId
+// - assigned rep (any rep role): plans where assignedUserId = myId
+const REP_ROLES = new Set(['user','scientific_rep','team_leader','commercial_rep']);
 async function findAccessiblePlan(planId, userId, role) {
-  const where = role === 'user'
-    ? { id: planId, assignedUserId: userId }
-    : { id: planId, userId };
-  return prisma.monthlyPlan.findFirst({ where });
+  if (REP_ROLES.has(role)) {
+    // Rep can access plan either as assigned user OR as owner
+    return prisma.monthlyPlan.findFirst({
+      where: { id: planId, OR: [{ assignedUserId: userId }, { userId }] },
+    });
+  }
+  return prisma.monthlyPlan.findFirst({ where: { id: planId, userId } });
 }
 
 // ── List all plans ────────────────────────────────────────────
@@ -293,7 +297,7 @@ export async function update(req, res, next) {
   try {
     const { notes, status, targetCalls, targetDoctors, allowExtraVisits } = req.body;
     const result = await prisma.monthlyPlan.updateMany({
-      where: { id: parseInt(req.params.id), userId: req.user.id },
+      where: { id: parseInt(req.params.id), OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
       data: {
         ...(notes             !== undefined && { notes }),
         ...(status            !== undefined && { status }),
@@ -311,7 +315,7 @@ export async function update(req, res, next) {
 export async function remove(req, res, next) {
   try {
     const result = await prisma.monthlyPlan.deleteMany({
-      where: { id: parseInt(req.params.id), userId: req.user.id },
+      where: { id: parseInt(req.params.id), OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
     });
     if (result.count === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
@@ -468,9 +472,7 @@ export async function addVisit(req, res, next) {
 export async function deleteVisit(req, res, next) {
   try {
     const visitId = parseInt(req.params.visitId);
-    const visit = await prisma.doctorVisit.findFirst({
-      where: { id: visitId, userId: req.user.id },
-    });
+    const visit = await prisma.doctorVisit.findUnique({ where: { id: visitId } });
     if (!visit) return res.status(404).json({ error: 'Visit not found' });
     await prisma.doctorVisit.delete({ where: { id: visitId } });
     res.json({ success: true });
@@ -483,10 +485,7 @@ export async function patchVisitItem(req, res, next) {
     const visitId = parseInt(req.params.visitId);
     const { itemId } = req.body;
 
-    // التحقق من ملكية الزيارة
-    const visit = await prisma.doctorVisit.findFirst({
-      where: { id: visitId, userId: req.user.id },
-    });
+    const visit = await prisma.doctorVisit.findUnique({ where: { id: visitId } });
     if (!visit) return res.status(404).json({ error: 'Visit not found' });
 
     const updated = await prisma.doctorVisit.update({
