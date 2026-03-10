@@ -20,8 +20,9 @@ export async function list(req, res, next) {
     const role   = req.user.role;
     const { scientificRepId, month, year } = req.query;
 
-    // rep users only see plans assigned to them
-    const baseFilter = role === 'user'
+    // rep roles see plans assigned to them; managers/admins see plans they created
+    const REP_ROLES = new Set(['user','scientific_rep','team_leader','commercial_rep']);
+    const baseFilter = REP_ROLES.has(role)
       ? { assignedUserId: userId }
       : { userId };
 
@@ -56,7 +57,8 @@ export async function getOne(req, res, next) {
     const role = req.user.role;
     const planId = parseInt(req.params.id);
     // owner sees by userId, assigned rep sees by assignedUserId
-    const accessWhere = role === 'user'
+    const REP_ROLES_ONE = new Set(['user','scientific_rep','team_leader','commercial_rep']);
+    const accessWhere = REP_ROLES_ONE.has(role)
       ? { id: planId, assignedUserId: uid }
       : { id: planId, userId: uid };
     const plan = await prisma.monthlyPlan.findFirst({
