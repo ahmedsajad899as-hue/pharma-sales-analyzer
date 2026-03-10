@@ -14,6 +14,7 @@ router.delete('/:id',                  ctrl.remove);
 
 // Plan transfer (manager → rep user)
 router.get('/:id/transfer-targets',    ctrl.getTransferTargets);
+router.get('/:id/available-doctors',   ctrl.availableDoctors);
 router.post('/:id/transfer',           ctrl.transferPlan);
 router.delete('/:id/transfer',         ctrl.revokePlanTransfer);
 

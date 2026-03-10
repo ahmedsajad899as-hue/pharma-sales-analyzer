@@ -39,7 +39,13 @@ export default function DoctorsPage() {
   const [fPharmacy, setFPharmacy]       = useState('');
   const [fNotes, setFNotes]             = useState('');
   const [fAreaId, setFAreaId]           = useState('');
+  const [fAreaName, setFAreaName]       = useState('');
+  const [fAreaSugg, setFAreaSugg]       = useState<Area[]>([]);
+  const [fAreaShowSugg, setFAreaShowSugg] = useState(false);
   const [fItemId, setFItemId]           = useState('');
+  const [fItemName, setFItemName]       = useState('');
+  const [fItemSugg, setFItemSugg]       = useState<Item[]>([]);
+  const [fItemShowSugg, setFItemShowSugg] = useState(false);
   const [fActive, setFActive]           = useState(true);
 
   // excel import
@@ -80,24 +86,41 @@ export default function DoctorsPage() {
   const openAdd = () => {
     setSelected(null);
     setFName(''); setFSpecialty(''); setFPharmacy(''); setFNotes('');
-    setFAreaId(''); setFItemId(''); setFActive(true);
+    setFAreaId(''); setFAreaName(''); setFAreaSugg([]); setFAreaShowSugg(false);
+    setFItemId(''); setFItemName(''); setFItemSugg([]); setFItemShowSugg(false);
+    setFActive(true);
     setModal('add');
   };
 
   const openEdit = (d: Doctor) => {
     setSelected(d);
     setFName(d.name); setFSpecialty(d.specialty ?? ''); setFPharmacy(d.pharmacyName ?? '');
-    setFNotes(d.notes ?? ''); setFAreaId(d.area?.id?.toString() ?? '');
-    setFItemId(d.targetItem?.id?.toString() ?? ''); setFActive(d.isActive);
+    setFNotes(d.notes ?? '');
+    setFAreaId(d.area?.id?.toString() ?? ''); setFAreaName(d.area?.name ?? ''); setFAreaSugg([]); setFAreaShowSugg(false);
+    setFItemId(d.targetItem?.id?.toString() ?? ''); setFItemName(d.targetItem?.name ?? ''); setFItemSugg([]); setFItemShowSugg(false);
+    setFActive(d.isActive);
     setModal('edit');
   };
 
   const save = async () => {
     if (!fName.trim()) { alert('اسم الطبيب مطلوب'); return; }
     setSaving(true);
-    const body = { name: fName.trim(), specialty: fSpecialty.trim() || null, pharmacyName: fPharmacy.trim() || null,
-      notes: fNotes.trim() || null, areaId: fAreaId || null, targetItemId: fItemId || null, isActive: fActive };
     try {
+      // Resolve or create area
+      let resolvedAreaId = fAreaId;
+      if (fAreaName.trim() && !resolvedAreaId) {
+        const r = await fetch(`${API}/api/areas`, { method: 'POST', headers: H(), body: JSON.stringify({ name: fAreaName.trim() }) });
+        if (r.ok) { const j = await r.json(); resolvedAreaId = String(j.id); setAreas(prev => prev.some(a => a.id === j.id) ? prev : [...prev, j].sort((a, b) => a.name.localeCompare(b.name))); }
+      } else if (!fAreaName.trim()) { resolvedAreaId = ''; }
+      // Resolve or create item
+      let resolvedItemId = fItemId;
+      if (fItemName.trim() && !resolvedItemId) {
+        const r = await fetch(`${API}/api/items`, { method: 'POST', headers: H(), body: JSON.stringify({ name: fItemName.trim() }) });
+        if (r.ok) { const j = await r.json(); const item = j.data ?? j; resolvedItemId = String(item.id); setItems(prev => prev.some(i => i.id === item.id) ? prev : [...prev, item].sort((a, b) => a.name.localeCompare(b.name))); }
+      } else if (!fItemName.trim()) { resolvedItemId = ''; }
+
+      const body = { name: fName.trim(), specialty: fSpecialty.trim() || null, pharmacyName: fPharmacy.trim() || null,
+        notes: fNotes.trim() || null, areaId: resolvedAreaId || null, targetItemId: resolvedItemId || null, isActive: fActive };
       const url  = modal === 'edit' ? `${API}/api/doctors/${selected!.id}` : `${API}/api/doctors`;
       const resp = await fetch(url, { method: modal === 'edit' ? 'PUT' : 'POST', headers: H(), body: JSON.stringify(body) });
       if (!resp.ok) { const j = await resp.json(); throw new Error(j.error ?? 'فشل الحفظ'); }
@@ -320,10 +343,40 @@ export default function DoctorsPage() {
               </label>
               <label style={labelStyle}>
                 المنطقة
-                <select value={fAreaId} onChange={e => setFAreaId(e.target.value)} style={inputStyle}>
-                  <option value="">-- اختر منطقة --</option>
-                  {areas.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-                </select>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    value={fAreaName}
+                    autoComplete="off"
+                    placeholder="اكتب اسم المنطقة..."
+                    style={{ ...inputStyle, paddingLeft: fAreaId ? '28px' : undefined }}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setFAreaName(v); setFAreaId('');
+                      if (!v.trim()) { setFAreaSugg([]); setFAreaShowSugg(false); return; }
+                      const lv = v.toLowerCase();
+                      const m = areas.filter(a => a.name.toLowerCase().includes(lv)).slice(0, 7);
+                      setFAreaSugg(m); setFAreaShowSugg(true);
+                    }}
+                    onBlur={() => setTimeout(() => setFAreaShowSugg(false), 180)}
+                    onFocus={() => { if (fAreaSugg.length > 0) setFAreaShowSugg(true); }}
+                  />
+                  {fAreaId && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#059669', fontWeight: 700 }}>✓</span>}
+                  {!fAreaId && fAreaName.trim() && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#f59e0b', fontWeight: 600 }}>جديد</span>}
+                  {fAreaShowSugg && fAreaSugg.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginTop: 2, overflow: 'hidden' }}>
+                      {fAreaSugg.map(a => (
+                        <div key={a.id}
+                          onMouseDown={() => { setFAreaId(String(a.id)); setFAreaName(a.name); setFAreaSugg([]); setFAreaShowSugg(false); }}
+                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          {a.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </label>
               <label style={labelStyle}>
                 اسم الصيدلية
@@ -331,10 +384,40 @@ export default function DoctorsPage() {
               </label>
               <label style={labelStyle}>
                 الايتم المستهدف
-                <select value={fItemId} onChange={e => setFItemId(e.target.value)} style={inputStyle}>
-                  <option value="">-- اختر ايتم --</option>
-                  {items.map(i => <option key={i.id} value={String(i.id)}>{i.name}</option>)}
-                </select>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    value={fItemName}
+                    autoComplete="off"
+                    placeholder="اكتب اسم الصنف..."
+                    style={{ ...inputStyle, paddingLeft: fItemId ? '28px' : undefined }}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setFItemName(v); setFItemId('');
+                      if (!v.trim()) { setFItemSugg([]); setFItemShowSugg(false); return; }
+                      const lv = v.toLowerCase();
+                      const m = items.filter(i => i.name.toLowerCase().includes(lv)).slice(0, 7);
+                      setFItemSugg(m); setFItemShowSugg(true);
+                    }}
+                    onBlur={() => setTimeout(() => setFItemShowSugg(false), 180)}
+                    onFocus={() => { if (fItemSugg.length > 0) setFItemShowSugg(true); }}
+                  />
+                  {fItemId && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#059669', fontWeight: 700 }}>✓</span>}
+                  {!fItemId && fItemName.trim() && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: '#f59e0b', fontWeight: 600 }}>جديد</span>}
+                  {fItemShowSugg && fItemSugg.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginTop: 2, overflow: 'hidden' }}>
+                      {fItemSugg.map(i => (
+                        <div key={i.id}
+                          onMouseDown={() => { setFItemId(String(i.id)); setFItemName(i.name); setFItemSugg([]); setFItemShowSugg(false); }}
+                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          {i.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </label>
               <label style={labelStyle}>
                 الحالة

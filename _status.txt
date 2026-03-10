@@ -1,0 +1,3 @@
+=== PM2 STATUS ===
+pharma-frontend: online | restarts: 4 | mem: 330MB
+pharma-backend: online | restarts: 5 | mem: 106MB

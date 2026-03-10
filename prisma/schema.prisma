@@ -47,6 +47,7 @@ model User {
   monthlyPlans   MonthlyPlan[]
   assignedPlans  MonthlyPlan[]              @relation("AssignedPlans")
   doctorVisits   DoctorVisit[]
+  pharmacyVisits PharmacyVisit[]
 
   // Multi-tenant assignments
   companyAssignments  UserCompanyAssignment[]
@@ -104,6 +105,7 @@ model Area {
   sales               Sale[]
   doctors             Doctor[]
   userAreaAssignments UserAreaAssignment[]
+  pharmacyVisits      PharmacyVisit[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -155,6 +157,7 @@ model Item {
   planEntryItems      PlanEntryItem[]
   lineItems           ProductLineItem[]
   userItemAssignments UserItemAssignment[]
+  pharmacyVisitItems  PharmacyVisitItem[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -284,6 +287,7 @@ model ScientificRepresentative {
   commercialReps ScientificRepCommercial[]
   monthlyPlans   MonthlyPlan[]
   doctorVisits   DoctorVisit[]
+  pharmacyVisits PharmacyVisit[]
   linkedUsers    User[]                    @relation("UserLinkedRep")
 
   @@unique([name, userId])
@@ -443,6 +447,7 @@ model DoctorVisit {
   feedback        String   @default("pending")
   // "pending" | "writing" | "stocked" | "interested" | "not_interested" | "unavailable"
   notes           String?
+  isDoubleVisit   Boolean  @default(false) // زيارة مزدوجة مع مدير/سوبرفايزر
   latitude        Float? // موقع GPS عند تسجيل الزيارة
   longitude       Float?
   createdAt       DateTime @default(now())
@@ -459,6 +464,48 @@ model DoctorVisit {
   @@index([visitDate])
   @@index([userId])
   @@map("doctor_visits")
+}
+
+// ─── Pharmacy Visit (زيارة صيدلية) ──────────────────────────
+model PharmacyVisit {
+  id              Int      @id @default(autoincrement())
+  pharmacyName    String
+  areaId          Int?
+  areaName        String?  // free-text fallback when areaId is null
+  scientificRepId Int
+  visitDate       DateTime
+  notes           String?
+  isDoubleVisit   Boolean  @default(false) // زيارة مزدوجة مع مدير/سوبرفايزر
+  latitude        Float?
+  longitude       Float?
+  createdAt       DateTime @default(now())
+
+  userId        Int?
+  user          User?                    @relation(fields: [userId], references: [id])
+  area          Area?                    @relation(fields: [areaId], references: [id])
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  items         PharmacyVisitItem[]
+
+  @@index([userId])
+  @@index([scientificRepId])
+  @@index([visitDate])
+  @@map("pharmacy_visits")
+}
+
+// ─── Pharmacy Visit Item (ايتمات زيارة الصيدلية) ─────────────
+model PharmacyVisitItem {
+  id              Int      @id @default(autoincrement())
+  pharmacyVisitId Int
+  itemId          Int?     // nullable: matched DB item; null when free-text only
+  itemName        String?  // free-text item name when itemId is null
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  pharmacyVisit PharmacyVisit @relation(fields: [pharmacyVisitId], references: [id], onDelete: Cascade)
+  item          Item?         @relation(fields: [itemId], references: [id])
+
+  @@index([pharmacyVisitId])
+  @@map("pharmacy_visit_items")
 }
 
 // ════════════════════════════════════════════════════════════

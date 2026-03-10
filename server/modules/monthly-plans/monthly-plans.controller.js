@@ -441,7 +441,7 @@ export async function addVisit(req, res, next) {
     const entryId = parseInt(req.params.entryId);
     const userId  = req.user.id;
     const role    = req.user.role;
-    const { visitDate, itemId, feedback, notes, latitude, longitude } = req.body;
+    const { visitDate, itemId, itemName, feedback, notes, latitude, longitude, isDoubleVisit } = req.body;
 
     const plan = await findAccessiblePlan(planId, userId, role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
@@ -449,15 +449,39 @@ export async function addVisit(req, res, next) {
     const entry = await prisma.planEntry.findFirst({ where: { id: entryId, planId } });
     if (!entry) return res.status(404).json({ error: 'Entry not found' });
 
+    // Resolve itemId: if not provided, look up by name among user/rep items
+    let resolvedItemId = itemId ? parseInt(itemId) : null;
+    if (!resolvedItemId && itemName && String(itemName).trim()) {
+      const rawName = String(itemName).trim();
+      const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const n = normalize(rawName);
+      // Fetch items accessible to this user
+      let candidateItems;
+      if (role === 'scientific_rep') {
+        const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+        if (rep) {
+          const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId: rep.id }, include: { item: { select: { id: true, name: true } } } });
+          candidateItems = ri.map(r => r.item);
+        } else { candidateItems = []; }
+      } else {
+        candidateItems = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+      }
+      // Fuzzy match: exact first, then contains
+      let matched = candidateItems.find(it => normalize(it.name) === n);
+      if (!matched) matched = candidateItems.find(it => normalize(it.name).includes(n) || n.includes(normalize(it.name)));
+      if (matched) { resolvedItemId = matched.id; }
+    }
+
     const visit = await prisma.doctorVisit.create({
       data: {
         doctorId:        entry.doctorId,
         scientificRepId: plan.scientificRepId,
         planEntryId:     entryId,
         visitDate:       visitDate ? new Date(visitDate) : new Date(),
-        itemId:          itemId ? parseInt(itemId) : null,
+        itemId:          resolvedItemId,
         feedback:        feedback ?? 'pending',
         notes:           notes ?? '',
+        isDoubleVisit:   isDoubleVisit === true || isDoubleVisit === 'true',
         latitude:        latitude  != null ? parseFloat(latitude)  : null,
         longitude:       longitude != null ? parseFloat(longitude) : null,
         userId,
@@ -1023,7 +1047,7 @@ export async function parseVoice(req, res, next) {
   مهم جداً: لا تكتب أي اسم دواء غير موجود في القائمة. إذا لم تتعرف على الدواء تجاهله أو اتركه فارغاً.
 
   أرجع JSON فقط بالشكل التالي بدون أي نص إضافي:
-  {"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}`;
+  {"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
@@ -1157,7 +1181,22 @@ export async function parseVoiceAudio(req, res, next) {
     });
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
-    const allItems = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+    // scientific_rep: items assigned via ScientificRepItem junction, not by userId ownership
+    let allItems;
+    if (role === 'scientific_rep') {
+      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+      if (rep) {
+        const repItems = await prisma.scientificRepItem.findMany({
+          where: { scientificRepId: rep.id },
+          include: { item: { select: { id: true, name: true } } },
+        });
+        allItems = repItems.map(ri => ri.item);
+      } else {
+        allItems = [];
+      }
+    } else {
+      allItems = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+    }
 
     const audioData   = fs.readFileSync(req.file.path);
     const audioBase64 = audioData.toString('base64');
@@ -1182,6 +1221,11 @@ export async function parseVoiceAudio(req, res, next) {
 4. لا تستخدم قائمة الأطباء أو الأيتمات كأساس للاقتراح — فقط ما قيل فعلاً بالصوت
 5. إذا ذُكر اسم طبيب لكن لم يُذكر فيدباك واضح → اجعل feedback = "pending"
 6. فقط الزيارات المذكورة صوتياً بشكل صريح تُضاف
+7. إذا ذُكر طبيب غير موجود في قائمة البلان (entryId = null)، استخرج تفاصيله إذا ذُكرت صوتياً:
+   - specialty: الاختصاص الطبي (مثل: باطنية، أطفال، قلب، عظام...)
+   - pharmacyName: اسم الصيدلية أو العيادة إذا ذُكرت
+   - areaName: اسم المنطقة أو الحي إذا ذُكر
+   - ضع "" لأي حقل لم يُذكر
 
 قائمة الأطباء في البلان للمطابقة فقط (لا للاقتراح):
 ${doctorNames}
@@ -1193,7 +1237,7 @@ ${itemNames}
 المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
 
 أرجع JSON فقط بدون أي نص آخر:
-{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null}]}
+{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}
 
 تذكير: إذا ما في كلام أو الكلام غير واضح → {"visits": []}}`;
 
@@ -1211,6 +1255,10 @@ ${itemNames}
     if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
 
     const parsed = JSON.parse(jsonMatch[0]);
+
+    // Arabic feedback words that must NEVER be treated as item/drug names
+    const FEEDBACK_AR_SET = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود']);
+    const isFeedbackWord = name => FEEDBACK_AR_SET.has(String(name ?? '').trim());
 
     // Reuse same fuzzy item-matching logic
     const normalize  = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -1297,6 +1345,8 @@ ${itemNames}
     const visits = (parsed.visits || []).map(v => {
       let itemId = v.itemId || null;
       let itemName = v.itemName || '';
+      // Guard: never treat a feedback word as an item name
+      if (isFeedbackWord(itemName)) { itemId = null; itemName = ''; }
       if (itemName && (!itemId || !allItems.some(it => it.id === itemId))) {
         const match = findItem(itemName);
         if (match) { itemId = match.id; itemName = match.name; }
@@ -1304,13 +1354,16 @@ ${itemNames}
       // Validate/resolve entryId — null means doctor is NOT in the plan
       const resolvedEntryId = findEntry(v.doctorName, v.entryId || null);
       return {
-        entryId:    resolvedEntryId,
-        doctorName: v.doctorName || '',
+        entryId:      resolvedEntryId,
+        doctorName:   v.doctorName    || '',
         itemId,
         itemName,
-        feedback:   feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
-        notes:      v.notes || '',
-        date:       v.date  || new Date().toISOString().split('T')[0],
+        feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
+        notes:        v.notes        || '',
+        date:         v.date         || new Date().toISOString().split('T')[0],
+        specialty:    v.specialty    || '',
+        pharmacyName: v.pharmacyName || '',
+        areaName:     v.areaName     || '',
       };
     });
 
@@ -1358,6 +1411,39 @@ export async function getTransferTargets(req, res, next) {
     }
 
     res.json({ success: true, data: users });
+  } catch (e) { next(e); }
+}
+
+// ── Get doctors available to add to a plan (not currently in entries) ──
+export async function availableDoctors(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const { q }  = req.query;
+
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    const usedIds = (await prisma.planEntry.findMany({
+      where:  { planId },
+      select: { doctorId: true },
+    })).map(e => e.doctorId);
+
+    const doctors = await prisma.doctor.findMany({
+      where: {
+        userId:   plan.userId,
+        isActive: true,
+        ...(q ? { name: { contains: String(q) } } : {}),
+        id: { notIn: usedIds },
+      },
+      select: {
+        id: true, name: true, specialty: true, pharmacyName: true,
+        areaId: true,
+        area: { select: { name: true } },
+      },
+      take: 10,
+      orderBy: { name: 'asc' },
+    });
+    res.json(doctors);
   } catch (e) { next(e); }
 }
 

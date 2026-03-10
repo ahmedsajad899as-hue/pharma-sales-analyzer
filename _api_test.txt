@@ -1,0 +1,5 @@
+LOGIN: 200 success=true
+
+ORG1: status=200 body={"success":true,"data":{"company":{"id":1,"name":"humanis","officeId":1,"isActive":true,"notes":null,"createdAt":"2026-03-09T00:42:35.506Z","updatedAt":"2026-03-09T00:42:35.506Z","office":{"id":1,"name":"مكتب النسق العلمي"},"items":[],"lines":[]},"users":[]}}
+
+ORG2: status=200 body={"success":true,"data":{"company":{"id":2,"name":"deva","officeId":1,"isActive":true,"notes":null,"createdAt":"2026-03-09T00:43:08.424Z","updatedAt":"2026-03-09T00:43:08.424Z","office":{"id":1,"name":"مكتب النسق العلمي"},"items":[],"lines":[]},"users":[]}}
