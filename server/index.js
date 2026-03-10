@@ -104,6 +104,22 @@ app.get('/api/areas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post('/api/areas', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const { name } = req.body;
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
+    const trimmed = String(name).trim();
+    const area = await prisma.area.upsert({
+      where:  { name_userId: { name: trimmed, userId } },
+      update: {},
+      create: { name: trimmed, userId },
+      select: { id: true, name: true },
+    });
+    res.json(area);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Raw sales rows for export (by commercial rep IDs) ────────
 // GET /api/export/raw-sales?commRepIds=1,2&fileIds=3,4&startDate=...&endDate=...&recordType=sale|return
 app.get('/api/export/raw-sales', async (req, res) => {
@@ -159,15 +175,34 @@ app.get('/api/export/raw-sales', async (req, res) => {
 app.get('/api/items', async (req, res) => {
   try {
     const userId    = req.user?.id ?? null;
+    const userRole  = req.user?.role ?? 'user';
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
-    const items = await prisma.item.findMany({
-      where: {
-        ...(userId ? { userId } : {}),
-        ...(companyId ? { companyId } : {}),
-      },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, companyId: true },
-    });
+    let items;
+    // scientific_rep: items are assigned via ScientificRepItem, not by userId ownership
+    if (userRole === 'scientific_rep' && userId) {
+      const rep = await prisma.scientificRepresentative.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      if (rep) {
+        const repItems = await prisma.scientificRepItem.findMany({
+          where: { scientificRepId: rep.id },
+          include: { item: { select: { id: true, name: true, companyId: true } } },
+        });
+        items = repItems.map(ri => ri.item).sort((a, b) => a.name.localeCompare(b.name));
+      } else {
+        items = [];
+      }
+    } else {
+      items = await prisma.item.findMany({
+        where: {
+          ...(userId ? { userId } : {}),
+          ...(companyId ? { companyId } : {}),
+        },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, companyId: true },
+      });
+    }
     res.json({ success: true, data: items });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -769,6 +804,269 @@ ${JSON.stringify(data, null, 2)}
   }
 });
 
+// ── Pharmacy Visits API ────────────────────────────────────────
+// GET /api/pharmacies/suggestions — autocomplete pharmacy names
+app.get('/api/pharmacies/suggestions', requireAuth, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q?.trim()) return res.json([]);
+    const userId = req.user?.id ?? null;
+    const userFilter = userId ? { userId } : {};
+    const qLower = String(q).trim().toLowerCase();
+    const visits = await prisma.pharmacyVisit.findMany({
+      where: { ...userFilter, pharmacyName: { contains: String(q).trim() } },
+      select: { pharmacyName: true },
+      distinct: ['pharmacyName'],
+      orderBy: { visitDate: 'desc' },
+      take: 10,
+    });
+    // Also check Doctor.pharmacyName field
+    const doctors = await prisma.doctor.findMany({
+      where: { ...userFilter, pharmacyName: { contains: String(q).trim(), not: null } },
+      select: { pharmacyName: true },
+      distinct: ['pharmacyName'],
+      take: 8,
+    });
+    const names = new Set();
+    visits.forEach(v => { if (v.pharmacyName) names.add(v.pharmacyName); });
+    doctors.forEach(d => { if (d.pharmacyName) names.add(d.pharmacyName); });
+    // Sort: exact match first, then starts-with, then contains
+    const sorted = [...names].sort((a, b) => {
+      const al = a.toLowerCase(), bl = b.toLowerCase();
+      const as = al.startsWith(qLower), bs = bl.startsWith(qLower);
+      if (as && !bs) return -1;
+      if (!as && bs) return 1;
+      return al.localeCompare(bl);
+    });
+    res.json(sorted.slice(0, 10));
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// GET /api/pharmacy-area-lookup — auto-fill area for a pharmacy name
+app.get('/api/pharmacy-area-lookup', requireAuth, async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name?.trim()) return res.json({ areaId: null, areaName: '' });
+    const userId = req.user?.id ?? null;
+    const userFilter = userId ? { userId } : {};
+    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const n = normalize(name);
+    // 1. Search previous pharmacy visits for matching pharmacy name with an area
+    const prevVisits = await prisma.pharmacyVisit.findMany({
+      where: { ...userFilter, areaId: { not: null } },
+      select: { pharmacyName: true, area: { select: { id: true, name: true } } },
+      orderBy: { visitDate: 'desc' },
+    });
+    const matchedPrev = prevVisits.find(pv => {
+      const pvn = normalize(pv.pharmacyName);
+      return pvn === n || pvn.includes(n) || n.includes(pvn);
+    });
+    if (matchedPrev?.area) return res.json({ areaId: matchedPrev.area.id, areaName: matchedPrev.area.name });
+    // 2. Search doctors table for same pharmacyName
+    const doctors = await prisma.doctor.findMany({
+      where: { ...userFilter, pharmacyName: { not: null } },
+      select: { pharmacyName: true, area: { select: { id: true, name: true } } },
+    });
+    const matchedDoc = doctors.find(d => {
+      const dn = normalize(d.pharmacyName);
+      return dn === n || dn.includes(n) || n.includes(dn);
+    });
+    if (matchedDoc?.area) return res.json({ areaId: matchedDoc.area.id, areaName: matchedDoc.area.name });
+    res.json({ areaId: null, areaName: '' });
+  } catch (e) {
+    res.json({ areaId: null, areaName: '' });
+  }
+});
+
+// POST /api/pharmacy-visits  — create a pharmacy visit with items
+app.post('/api/pharmacy-visits', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const { pharmacyName, areaId, areaName, items, notes, latitude, longitude, visitDate, isDoubleVisit } = req.body;
+
+    if (!pharmacyName || !pharmacyName.trim()) {
+      return res.status(400).json({ error: 'اسم الصيدلية مطلوب' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'يجب إضافة صنف واحد على الأقل' });
+    }
+
+    // Find the linked scientific rep for the current user
+    let scientificRepId = req.user?.linkedRepId ?? null;
+    if (!scientificRepId) {
+      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId } });
+      if (rep) scientificRepId = rep.id;
+    }
+    if (!scientificRepId) {
+      return res.status(400).json({ error: 'لا يوجد مندوب مرتبط بهذا الحساب' });
+    }
+
+    // Resolve areaId: from explicit areaId, or look up areaName in areas table
+    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    let resolvedAreaId = areaId ? parseInt(areaId) : null;
+    if (!resolvedAreaId && areaName?.trim()) {
+      const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+      const an = normalize(areaName);
+      const matchedArea = allAreas.find(a => normalize(a.name) === an || normalize(a.name).includes(an) || an.includes(normalize(a.name)));
+      if (matchedArea) resolvedAreaId = matchedArea.id;
+    }
+
+    // Resolve items: try itemId first, then fuzzy-match by itemName
+    const allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+    const findItemByName = rawName => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      const exact = allItems.find(i => normalize(i.name) === n);
+      if (exact) return exact;
+      return allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name))) || null;
+    };
+    const itemsToCreate = items
+      .map(it => {
+        let resolvedItemId = it.itemId ? parseInt(it.itemId) : null;
+        let resolvedItemName = null;
+        if (!resolvedItemId && it.itemName?.trim()) {
+          const matched = findItemByName(it.itemName);
+          if (matched) resolvedItemId = matched.id;
+          else resolvedItemName = it.itemName.trim();
+        }
+        return { itemId: resolvedItemId || null, itemName: resolvedItemName, notes: it.notes?.trim() || null };
+      })
+      .filter(it => it.itemId || it.itemName);
+
+    if (itemsToCreate.length === 0) {
+      return res.status(400).json({ error: 'يجب إضافة صنف واحد على الأقل' });
+    }
+
+    const finalVisitDate = visitDate ? new Date(visitDate) : new Date();
+
+    const pharmacyVisit = await prisma.pharmacyVisit.create({
+      data: {
+        pharmacyName: pharmacyName.trim(),
+        areaId: resolvedAreaId,
+        areaName: resolvedAreaId ? null : (areaName?.trim() || null),
+        scientificRepId,
+        visitDate: finalVisitDate,
+        notes: notes?.trim() || null,
+        isDoubleVisit: isDoubleVisit === true || isDoubleVisit === 'true',
+        latitude:  latitude  ?? null,
+        longitude: longitude ?? null,
+        userId,
+        items: { create: itemsToCreate },
+      },
+      include: {
+        area:  { select: { id: true, name: true } },
+        items: { include: { item: { select: { id: true, name: true } } } },
+      },
+    });
+
+    res.json({ success: true, data: pharmacyVisit });
+  } catch (err) {
+    console.error('Pharmacy visit create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/pharmacy-visits/voice-record — transcribe audio and parse pharmacy visit data
+app.post('/api/pharmacy-visits/voice-record', upload.single('audio'), async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
+
+    const allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+    const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+
+    const audioData   = fs.readFileSync(req.file.path);
+    const audioBase64 = audioData.toString('base64');
+    const mimeType    = req.file.mimetype || 'audio/webm';
+    fs.unlinkSync(req.file.path);
+
+    const itemNames = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
+    const areaNames = allAreas.map(a => `${a.name} (id:${a.id})`).join('\n');
+
+    const prompt = `أنت مساعد ذكي لتحليل كلام مندوب طبي. هذا الكول خاص بزيارة صيدلية (وليس طبيب).
+استمع للتسجيل الصوتي واستخرج بيانات زيارة الصيدلية.
+
+قواعد:
+1. إذا التسجيل فارغ أو غير واضح → أرجع {"pharmacyName":"","areaName":"","items":[]} فوراً
+2. استخرج اسم الصيدلية واسم المنطقة إذا ذُكرا
+3. استخرج قائمة الأصناف المذكورة — كل صنف قد يكون معه ملاحظات خاصة
+4. لا تخترع معلومات لم تُذكر صراحةً
+
+قائمة الأيتمات/الأدوية للمطابقة:
+${itemNames}
+
+قائمة المناطق للمطابقة:
+${areaNames}
+
+أرجع JSON فقط بدون أي نص آخر:
+{"pharmacyName":"اسم الصيدلية","areaName":"اسم المنطقة","items":[{"itemId":123,"itemName":"...","notes":"..."},{"itemId":null,"itemName":"صنف غير موجود","notes":""}]}
+
+ملاحظة: itemId يكون null إذا لم يُطابق أي صنف من القائمة`;
+
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
+
+    const genAI  = new GoogleGenerativeAI(apiKey);
+    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent([
+      { inlineData: { mimeType, data: audioBase64 } },
+      prompt,
+    ]);
+    const responseText = result.response.text();
+    const jsonMatch    = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Normalize + fuzzy-match items
+    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
+    const areaMap   = new Map(allAreas.map(a => [normalize(a.name), a]));
+
+    const findItem = rawName => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (itemMap.has(n)) return itemMap.get(n);
+      for (const [key, item] of itemMap) {
+        if (key.includes(n) || n.includes(key)) return item;
+      }
+      return null;
+    };
+    const findArea = rawName => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (areaMap.has(n)) return areaMap.get(n);
+      for (const [key, area] of areaMap) {
+        if (key.includes(n) || n.includes(key)) return area;
+      }
+      return null;
+    };
+
+    const matchedArea = findArea(parsed.areaName || '');
+    const items = (parsed.items || []).map(it => {
+      const matched = it.itemId ? allItems.find(i => i.id === it.itemId) : findItem(it.itemName || '');
+      return {
+        itemId:   matched ? matched.id : null,
+        itemName: matched ? matched.name : (it.itemName || ''),
+        notes:    it.notes || '',
+      };
+    });
+
+    res.json({
+      pharmacyName: parsed.pharmacyName || '',
+      areaName:     parsed.areaName     || '',
+      areaId:       matchedArea ? matchedArea.id : null,
+      items,
+      raw: responseText,
+    });
+  } catch (e) {
+    console.error('Pharmacy voice parse error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Daily doctor visits for dashboard ────────────────────────
 // GET /api/doctor-visits/daily?date=YYYY-MM-DD&repId=5
 app.get('/api/doctor-visits/daily', async (req, res) => {
@@ -813,10 +1111,66 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       },
       orderBy: { visitDate: 'asc' },
     });
+    // Mark out-of-plan visits (planEntryId is null means doctor was added outside the plan)
+    const visitsWithFlag = visits.map(v => ({ ...v, _outOfPlan: v.planEntryId == null, _visitType: 'doctor', _isDoubleVisit: v.isDoubleVisit ?? false }));
+
+    // ── Pharmacy visits for the same date/rep filter ────────
+    let pharmVisitsNorm = [];
+    try {
+    const pharmWhere = {
+      visitDate: { gte: dayStart, lte: dayEnd },
+    };
+    if (role === 'user') {
+      if (userId) pharmWhere.userId = userId;
+      if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
+    } else if (role === 'manager') {
+      if (repId) pharmWhere.scientificRepId = repId;
+    } else {
+      if (repId) pharmWhere.scientificRepId = repId;
+    }
+    const pharmacyVisits = await prisma.pharmacyVisit.findMany({
+      where: pharmWhere,
+      include: {
+        area:          { select: { id: true, name: true } },
+        scientificRep: { select: { id: true, name: true } },
+        items:         { include: { item: { select: { id: true, name: true } } } },
+      },
+      orderBy: { visitDate: 'asc' },
+    });
+    // areaName is a plain scalar on PharmacyVisit — included automatically in select
+    // Normalize pharmacy visits to match the doctor visit shape for the table
+    pharmVisitsNorm = pharmacyVisits.map(pv => ({
+      id:           pv.id,
+      visitDate:    pv.visitDate,
+      latitude:     pv.latitude,
+      longitude:    pv.longitude,
+      feedback:     'pharmacy',
+      notes:        pv.notes,
+      scientificRep: pv.scientificRep,
+      _visitType:   'pharmacy',
+      // Mimic the doctor shape so the table renderer can reuse existing columns
+      doctor: {
+        id:           0,
+        name:         pv.pharmacyName,
+        specialty:    null,
+        pharmacyName: null,
+        area:         pv.area ?? (pv.areaName ? { id: 0, name: pv.areaName } : null),
+      },
+      item:    pv.items[0]?.item ?? null, // primary item for the map
+      pharmItems: pv.items,               // all items, for the table
+      _isDoubleVisit: pv.isDoubleVisit ?? false,
+    }));
+    } catch (pharmErr) {
+      console.warn('[daily] PharmacyVisit query skipped:', pharmErr.message);
+    }
+
+    // Merge and sort by visitDate
+    const allVisits = [...visitsWithFlag, ...pharmVisitsNorm]
+      .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime());
 
     // List of distinct reps who have visits (for filter dropdown)
     const repMap = new Map();
-    visits.forEach(v => {
+    allVisits.forEach(v => {
       if (v.scientificRep && !repMap.has(v.scientificRep.id)) {
         repMap.set(v.scientificRep.id, v.scientificRep);
       }
@@ -825,9 +1179,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     res.json({
       success: true,
       data: {
-        visits,
+        visits: allVisits,
         reps: Array.from(repMap.values()),
-        total: visits.length,
+        total: allVisits.length,
       },
     });
   } catch (err) {
