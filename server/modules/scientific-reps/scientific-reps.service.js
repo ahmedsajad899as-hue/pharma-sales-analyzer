@@ -17,8 +17,39 @@ export async function create(dto) {
   return repo.createScientificRep(dto);
 }
 
-export async function list(filters, userId = null) {
-  const reps = await repo.listAll({ ...filters });
+// Roles that see only their assigned-company reps (not all reps)
+const COMPANY_SCOPED_ROLES = new Set([
+  'company_manager', 'supervisor', 'product_manager', 'team_leader',
+  'office_manager', 'commercial_supervisor', 'commercial_team_leader',
+]);
+
+export async function list(filters, user = null) {
+  let whereFilters = { ...filters };
+
+  if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
+    // Get this manager's company assignments
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { userId: user.id },
+      select: { companyId: true },
+    });
+    const companyIds = assignments.map(a => a.companyId);
+
+    if (companyIds.length === 0) return [];
+
+    // Show only reps whose linked users are assigned to the same companies
+    whereFilters = {
+      ...whereFilters,
+      linkedUsers: {
+        some: {
+          companyAssignments: {
+            some: { companyId: { in: companyIds } },
+          },
+        },
+      },
+    };
+  }
+
+  const reps = await repo.listAll(whereFilters);
   return reps.map(r => ({
     ...r,
     areas:           r.areas?.map(a => a.area) ?? [],

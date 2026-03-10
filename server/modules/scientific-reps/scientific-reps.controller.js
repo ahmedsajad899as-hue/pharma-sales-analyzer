@@ -16,7 +16,7 @@ export async function createRep(req, res, next) {
 
 export async function listReps(req, res, next) {
   try {
-    const reps = await svc.list({}, req.user?.id ?? null);
+    const reps = await svc.list({}, req.user ?? null);
     res.json({ success: true, data: reps, total: reps.length });
   } catch (err) { next(err); }
 }
