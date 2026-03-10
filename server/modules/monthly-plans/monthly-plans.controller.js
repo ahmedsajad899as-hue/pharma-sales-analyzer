@@ -1354,10 +1354,19 @@ export async function transferPlan(req, res, next) {
     if (!targetUser || !targetUser.isActive) {
       return res.status(404).json({ error: 'المستخدم المحدد غير موجود أو غير نشط.' });
     }
-    if (targetUser.role !== 'user') {
-      return res.status(400).json({ error: 'يمكن تحويل البلان إلى حسابات المندوبين فقط (دور: مستخدم).' });
+    // Allow reps (scientific_rep, team_leader, etc.) in addition to classic 'user' role
+    const repRoles = ['user','scientific_rep','team_leader','commercial_rep'];
+    if (!repRoles.includes(targetUser.role)) {
+      return res.status(400).json({ error: 'يمكن تحويل البلان إلى المندوبين فقط.' });
     }
-    if (targetUser.linkedRepId !== plan.scientificRepId) {
+    // Check link: either classic linkedRepId match OR the user is the userId of the ScientificRepresentative
+    const scientificRep = await prisma.scientificRepresentative.findUnique({
+      where: { id: plan.scientificRepId },
+      select: { userId: true },
+    });
+    const linkedByRepId  = targetUser.linkedRepId === plan.scientificRepId;
+    const linkedByUserId = scientificRep?.userId === targetUser.id;
+    if (!linkedByRepId && !linkedByUserId) {
       return res.status(400).json({ error: 'حساب المستخدم المحدد غير مرتبط بنفس المندوب العلمي الخاص بهذا البلان.' });
     }
 

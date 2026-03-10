@@ -915,7 +915,8 @@ export default function MonthlyPlansPage() {
       const r = await fetch(`${API}/api/admin/users`, { headers: H() });
       const j = await r.json();
       const allUsers: RepUser[] = Array.isArray(j.data) ? j.data : [];
-      setRepUsers(allUsers.filter((u: any) => u.role === 'user' && u.linkedRepId === plan.scientificRepId));
+      // Filter by linkedRepId (no role restriction — scientific_rep/team_leader users are valid targets)
+      setRepUsers(allUsers.filter((u: any) => u.linkedRepId === plan.scientificRepId));
     } catch { setRepUsers([]); }
   };
 
