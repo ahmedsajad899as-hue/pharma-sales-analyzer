@@ -47,25 +47,43 @@ export async function list(filters, user = null) {
         companyAssignments: { include: { company: { select: { id: true, name: true } } } },
         areaAssignments:    { include: { area:    { select: { id: true, name: true } } } },
         itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
+        linkedRep:          true,
       },
     });
 
-    // Shape to match ScientificRep interface
-    return repUsers.map(u => ({
-      id: u.id,
-      name: u.displayName || u.username,
-      phone: u.phone || null,
-      email: null,
-      company: u.companyAssignments[0]?.company?.name || null,
-      notes: null,
-      isActive: u.isActive,
-      areas:         u.areaAssignments.map(a => a.area),
-      items:         u.itemAssignments.map(a => a.item),
-      companies:     u.companyAssignments.map(a => a.company),
-      commercialReps: [],
-      _isUser: true,
-      role: u.role,
+    // For each user, ensure they have a linked ScientificRepresentative record
+    const repsWithIds = await Promise.all(repUsers.map(async u => {
+      let repId = u.linkedRepId;
+      if (!repId) {
+        // Auto-create a ScientificRepresentative and link to this user
+        const rep = await prisma.scientificRepresentative.create({
+          data: {
+            name: u.displayName || u.username,
+            phone: u.phone || null,
+            userId: u.id,
+          },
+        });
+        await prisma.user.update({ where: { id: u.id }, data: { linkedRepId: rep.id } });
+        repId = rep.id;
+      }
+      return {
+        id: repId,
+        name: u.displayName || u.username,
+        phone: u.phone || null,
+        email: null,
+        company: u.companyAssignments[0]?.company?.name || null,
+        notes: null,
+        isActive: u.isActive,
+        areas:         u.areaAssignments.map(a => a.area),
+        items:         u.itemAssignments.map(a => a.item),
+        companies:     u.companyAssignments.map(a => a.company),
+        commercialReps: [],
+        _isUser: true,
+        role: u.role,
+      };
     }));
+
+    return repsWithIds;
   }
 
   const reps = await repo.listAll(whereFilters);
