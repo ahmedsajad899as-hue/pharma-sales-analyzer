@@ -233,6 +233,117 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     },
   ];
 
+  const isScientificRep = user?.role === 'scientific_rep';
+
+  // ── Scientific Rep dashboard: daily calls only ─────────────
+  if (isScientificRep) {
+    return (
+      <div className="page">
+        <div className="page-header">
+          <h1 className="page-title">📞 {(t.dashboard as any).dailyCalls}</h1>
+          <p className="page-subtitle">{callsDate}</p>
+        </div>
+
+        {/* Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+              📅 {(t.dashboard as any).dailyCallsDate}:
+            </label>
+            <input
+              type="date"
+              className="form-input"
+              style={{ padding: '5px 10px', fontSize: '13px', minWidth: 140 }}
+              value={callsDate}
+              onChange={e => handleCallsDateChange(e.target.value)}
+            />
+          </div>
+          {callsData && callsData.visits.length > 0 && (
+            <button
+              className="btn btn--primary"
+              style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => setShowMap(true)}
+            >
+              {(t.dashboard as any).dailyCallsMapBtn}
+            </button>
+          )}
+        </div>
+
+        {/* Table card */}
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          {callsLoading ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+              {(t.dashboard as any).dailyCallsLoading}
+            </div>
+          ) : !callsData || callsData.visits.length === 0 ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '14px' }}>
+              📭 {(t.dashboard as any).dailyCallsNoData}
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, fontSize: '14px', color: '#374151' }}>
+                  📞 {(t.dashboard as any).dailyCallsTotal}: {callsData.visits.length}
+                </span>
+              </div>
+              <div style={{ overflowX: 'auto', maxHeight: '520px', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{(t.dashboard as any).dailyCallsColNum}</th>
+                      <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
+                      <th>{(t.dashboard as any).dailyCallsColTime}</th>
+                      <th>{(t.dashboard as any).dailyCallsColItem}</th>
+                      <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
+                      <th>{(t.dashboard as any).dailyCallsColLocation}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {callsData.visits
+                      .slice()
+                      .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime())
+                      .map((v, idx) => (
+                        <tr key={v.id}>
+                          <td>{idx + 1}</td>
+                          <td>
+                            <strong>{v.doctor.name}</strong>
+                            {v.doctor.specialty && (
+                              <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
+                            )}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{fmtTime(v.visitDate)}</td>
+                          <td>{v.item?.name ?? '—'}</td>
+                          <td>
+                            <span style={{
+                              background: (feedbackColor[v.feedback] ?? '#e5e7eb') + '22',
+                              color:      feedbackColor[v.feedback] ?? '#374151',
+                              border:     `1px solid ${feedbackColor[v.feedback] ?? '#e5e7eb'}55`,
+                              borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500,
+                            }}>
+                              {feedbackLabel(v.feedback)}
+                            </span>
+                          </td>
+                          <td>
+                            {v.latitude != null
+                              ? <span style={{ color: '#0ea5e9', fontSize: '12px' }}>{(t.dashboard as any).dailyCallsHasGps}</span>
+                              : <span style={{ color: '#d1d5db' }}>{(t.dashboard as any).dailyCallsNoGps}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
+        {showMap && callsData && (
+          <DailyCallsMap visits={callsData.visits} onClose={() => setShowMap(false)} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="page-header">
