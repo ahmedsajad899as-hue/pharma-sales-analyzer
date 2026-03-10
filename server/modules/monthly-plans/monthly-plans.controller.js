@@ -1324,6 +1324,42 @@ ${itemNames}
 // POST /api/monthly-plans/:id/transfer { targetUserId }
 // Only the plan owner (admin/manager) can transfer.
 // targetUserId must be a 'user'-role account whose linkedRepId matches the plan's scientificRepId.
+// ── Get users eligible to receive a plan transfer ──────────────────────────
+// GET /api/monthly-plans/:id/transfer-targets
+export async function getTransferTargets(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const plan = await prisma.monthlyPlan.findUnique({
+      where: { id: planId },
+      select: { scientificRepId: true, userId: true },
+    });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود.' });
+
+    // Find users linked via linkedRepId OR via ScientificRepresentative.userId
+    const [byLinkedRepId, repRecord] = await Promise.all([
+      prisma.user.findMany({
+        where: { linkedRepId: plan.scientificRepId, isActive: true },
+        select: { id: true, username: true, displayName: true, role: true, linkedRepId: true },
+      }),
+      prisma.scientificRepresentative.findUnique({
+        where: { id: plan.scientificRepId },
+        select: { userId: true },
+      }),
+    ]);
+
+    let users = [...byLinkedRepId];
+    if (repRecord?.userId && !users.find(u => u.id === repRecord.userId)) {
+      const repUser = await prisma.user.findUnique({
+        where: { id: repRecord.userId, isActive: true },
+        select: { id: true, username: true, displayName: true, role: true, linkedRepId: true },
+      });
+      if (repUser) users.push(repUser);
+    }
+
+    res.json({ success: true, data: users });
+  } catch (e) { next(e); }
+}
+
 export async function transferPlan(req, res, next) {
   try {
     const planId = parseInt(req.params.id);

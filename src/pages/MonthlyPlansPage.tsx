@@ -912,11 +912,9 @@ export default function MonthlyPlansPage() {
     setTransferTarget('');
     setTransferPlan(plan);
     try {
-      const r = await fetch(`${API}/api/admin/users`, { headers: H() });
+      const r = await fetch(`${API}/api/monthly-plans/${plan.id}/transfer-targets`, { headers: H() });
       const j = await r.json();
-      const allUsers: RepUser[] = Array.isArray(j.data) ? j.data : [];
-      // Filter by linkedRepId (no role restriction — scientific_rep/team_leader users are valid targets)
-      setRepUsers(allUsers.filter((u: any) => u.linkedRepId === plan.scientificRepId));
+      setRepUsers(Array.isArray(j.data) ? j.data : []);
     } catch { setRepUsers([]); }
   };
 
