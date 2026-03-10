@@ -491,7 +491,7 @@ export default function MonthlyPlansPage() {
       const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${visitFormEntry}/visits`, {
         method: 'POST', headers: H(),
         body: JSON.stringify({
-          visitDate: vDate || new Date().toISOString().split('T')[0],
+          visitDate: vDate ? `${vDate}T${new Date().toTimeString().slice(0,8)}` : new Date().toISOString(),
           itemId:    resolvedItemId || null,
           feedback:  vFeedback,
           notes:     vNotes,
@@ -831,7 +831,7 @@ export default function MonthlyPlansPage() {
 
       if (!entryId) continue;
 
-      const visitDate = v.date || new Date().toISOString().split('T')[0];
+      const visitDate = v.date ? `${v.date}T${new Date().toTimeString().slice(0,8)}` : new Date().toISOString();
       const entry = activePlan.entries.find(e => e.id === entryId);
       if (entry) {
         const dup = entry.visits.some((ev: any) =>
