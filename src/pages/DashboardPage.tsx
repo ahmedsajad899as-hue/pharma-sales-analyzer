@@ -50,7 +50,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
-  const isScientificRep  = user?.role === 'scientific_rep';
+  const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
 
   // ── Quick Call Log ──────────────────────────────────────────
   const [showCallLog, setShowCallLog]         = useState(false);
@@ -175,7 +175,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const openVoicePanel = () => {
     // For doctor mode we still need a plan; for pharmacy we don't
     if (callType === 'doctor' && !activePlan) {
-      setVoiceError('لا يوجد بلان نشط — يمكنك التبديل لكول صيدلية');
+      setVoiceError('لا يوجد خطة نشطة — يمكنك التبديل لزيارة صيدلية');
       setVoiceOverlay(true);
       setVoiceReady(true);
       return;
@@ -580,7 +580,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     if (callType === 'pharmacy') {
       if (!clPharmacyName.trim()) { setClError('الرجاء إدخال اسم الصيدلية'); return; }
       const validItems = clPharmacyItems.filter(it => it.itemId || it.itemName.trim());
-      if (validItems.length === 0) { setClError('الرجاء إدخال صنف واحد على الأقل'); return; }
+      if (validItems.length === 0) { setClError('الرجاء إدخال ايتم واحد على الأقل'); return; }
       if (clGpsStatus !== 'got' && !clGpsWarning) { setClGpsWarning(true); return; }
       setClGpsWarning(false);
       setClSaving(true); setClError('');
@@ -614,7 +614,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       return;
     }
     // ── Doctor call path ───────────────────────────────────
-    if (!activePlan) { setClError('لا يوجد بلان نشط'); return; }
+    if (!activePlan) { setClError('لا يوجد خطة شهرية نشطة'); return; }
     if (!clSelectedEntry && !clOtherDocId && !clManualMode) {
       setClError('الرجاء اختيار طبيب أو إدخال بياناته يدوياً');
       return;
@@ -907,10 +907,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: '#059669', borderColor: '#059669', marginRight: 'auto' }}
             onClick={openCallLog}
           >
-            ✏️ تسجيل كول
+            ✏️ تسجيل زيارة
           </button>
           <button
-            title={isDoubleVisit ? 'دبل فيزت — اضغط لإيقاف' : 'فيزت منفرد — اضغط لتفعيل دبل فيزت'}
+            title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
             onClick={() => setIsDoubleVisit(p => !p)}
             style={{
               padding: '6px 12px', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '5px',
@@ -921,7 +921,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             }}
           >
             {isDoubleVisit ? '👥' : '👤'}
-            <span style={{ fontSize: '11px' }}>{isDoubleVisit ? 'دبل فيزت' : 'منفرد'}</span>
+            <span style={{ fontSize: '11px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
           </button>
           <button
             style={{
@@ -932,9 +932,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             }}
             onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
             disabled={voiceParsing}
-            title={voiceListening ? 'إيقاف التسجيل' : 'كول صوتي'}
+            title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
           >
-            {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 كول صوتي'}
+            {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
           </button>
         </div>
 
@@ -959,7 +959,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               <div style={{ padding: '8px 10px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
-                  placeholder="🔍 بحث: طبيب، صيدلية، منطقة، صنف..."
+                  placeholder="🔍 بحث: طبيب، صيدلية، منطقة، ايتم..."
                   value={fSearch}
                   onChange={e => setFSearch(e.target.value)}
                   style={{ flex: 1, minWidth: 150, padding: '5px 10px', fontSize: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff' }}
@@ -974,7 +974,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
                   style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? '#7c3aed' : '#d1d5db'}`, background: fDouble ? '#ede9fe' : '#fff', color: fDouble ? '#6d28d9' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  👥 دبل
+                  👥 مزدوجة
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
@@ -1016,7 +1016,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 <strong>🏪 {v.doctor.name}</strong>
                                 <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>صيدلية</span>
                                 {(v as any)._isDoubleVisit && (
-                                  <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 دبل</span>
+                                  <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
                                 )}
                               </div>
                             ) : (
@@ -1026,7 +1026,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                   <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
                                 )}
                                 {(v as any)._isDoubleVisit && (
-                                  <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 دبل</span>
+                                  <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
                                 )}
                               </div>
                             )}
@@ -1120,7 +1120,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 {voiceReady && !voiceListening && !voiceParsing && (
                   <>
                     <div style={{ fontSize: 44, marginBottom: 8 }}>🎙️</div>
-                    <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', marginBottom: 10 }}>نوع الكول الصوتي</div>
+                    <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', marginBottom: 10 }}>نوع الزيارة الصوتية</div>
                     {/* Call type selector */}
                     <div style={{ display: 'flex', gap: '8px', marginBottom: 14, justifyContent: 'center' }}>
                       <button
@@ -1140,11 +1140,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </div>
                     {callType === 'doctor' ? (
                       <>
-                        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>اذكر بالترتيب: اسم الطبيب ← الصنف ← النتيجة ← ملاحظات</div>
+                        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>اذكر بالترتيب: اسم الطبيب ← الايتم ← النتيجة ← ملاحظات</div>
                         {planItems.length > 0 && (
                           <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px',
                             padding: '10px 14px', marginBottom: 16, textAlign: 'right' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>📦 الأصناف في بلانك:</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>📦 الايتمات في بلانك:</div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
                               {planItems.map((name, i) => (
                                 <span key={i} style={{ background: '#dcfce7', color: '#166534', borderRadius: '6px',
@@ -1158,7 +1158,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px',
                         padding: '10px 14px', marginBottom: 16, textAlign: 'right' }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 4 }}>🏪 اذكر بالترتيب لزيارة الصيدلية:</div>
-                        <div style={{ fontSize: 12, color: '#374151' }}>اسم الصيدلية ← المنطقة ← الأصناف (مع ملاحظة كل صنف)</div>
+                        <div style={{ fontSize: 12, color: '#374151' }}>اسم الصيدلية ← المنطقة ← الايتمات (مع ملاحظة كل ايتم)</div>
                       </div>
                     )}
                     <button
@@ -1182,7 +1182,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 {voiceListening && !voiceParsing && (
                   <>
                     <div style={{ fontSize: 52, marginBottom: 8, animation: 'clGpsPulse 1.2s ease-in-out infinite', color: '#ef4444' }}>🎤</div>
-                    <div style={{ fontWeight: 800, fontSize: 17, color: '#111827', marginBottom: 4 }}>{callType === 'pharmacy' ? 'جاري تسجيل كول صيدلية...' : 'جاري التسجيل...'}</div>
+                    <div style={{ fontWeight: 800, fontSize: 17, color: '#111827', marginBottom: 4 }}>{callType === 'pharmacy' ? 'جاري تسجيل زيارة صيدلية...' : 'جاري التسجيل...'}</div>
                     {callType === 'doctor' && planItems.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', justifyContent: 'center',
                         marginBottom: 14 }}>
@@ -1194,8 +1194,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     )}
                     <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 14px' }}>
                       {callType === 'pharmacy'
-                        ? 'اذكر: الصيدلية ← المنطقة ← الأصناف ← الملاحظات'
-                        : 'اذكر: الطبيب ← الصنف ← النتيجة ← ملاحظات'}
+                        ? 'اذكر: الصيدلية ← المنطقة ← الايتمات ← الملاحظات'
+                        : 'اذكر: الطبيب ← الايتم ← النتيجة ← ملاحظات'}
                     </p>
                     <button onClick={stopVoice}
                       style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '10px',
@@ -1283,9 +1283,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     <span style={{ fontSize: '9px', fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1,
                       color: clGpsStatus === 'got' ? '#10b981' : clGpsStatus === 'getting' ? '#d97706' : '#ef4444' }}>
                       {clGpsStatus === 'got'
-                        ? (clAccuracy !== null ? `±${clAccuracy}م` : 'GPS ✓')
-                        : clGpsStatus === 'getting' ? 'GPS…'
-                        : '✕ GPS'}
+                        ? (clAccuracy !== null ? `±${clAccuracy}م` : '✓ محدَّد')
+                        : clGpsStatus === 'getting' ? 'جاري...'
+                        : '✕ موقع'}
                     </span>
                   </div>
                   <button onClick={() => { clearInterval(clTimerRef.current); stopGpsWatch(); setShowCallLog(false); }} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: '#6b7280', lineHeight: 1, padding: '0 4px' }}>×</button>
@@ -1318,14 +1318,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     border: `2px solid ${callType === 'doctor' ? '#6366f1' : '#e5e7eb'}`,
                     background: callType === 'doctor' ? '#eef2ff' : '#f9fafb',
                     color: callType === 'doctor' ? '#4338ca' : '#6b7280' }}
-                >👨‍⚕️ كول طبيب</button>
+                >👨‍⚕️ زيارة طبيب</button>
                 <button
                   onClick={() => setCallType('pharmacy')}
                   style={{ flex: 1, padding: '9px 10px', borderRadius: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
                     border: `2px solid ${callType === 'pharmacy' ? '#059669' : '#e5e7eb'}`,
                     background: callType === 'pharmacy' ? '#f0fdf4' : '#f9fafb',
                     color: callType === 'pharmacy' ? '#065f46' : '#6b7280' }}
-                >🏪 كول صيدلية</button>
+                >🏪 زيارة صيدلية</button>
               </div>
 
               {/* ── Pharmacy Form ─────────────────────────────── */}
@@ -1456,7 +1456,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   </div>
                   {/* Items list */}
                   <div style={{ marginBottom: '14px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '8px' }}>📦 الأصناف <span style={{ color: '#ef4444' }}>*</span></label>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '8px' }}>📦 الايتمات <span style={{ color: '#ef4444' }}>*</span></label>
                     {clPharmacyItems.map((pit, idx) => (
                       <div key={pit.tempId} style={{ border: '1px solid #e5e7eb', borderRadius: '10px', padding: '10px 12px', marginBottom: '8px', background: '#fafafa', position: 'relative' }}>
                         {/* Item search */}
@@ -1464,7 +1464,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <input
                             type="text"
                             className="form-input"
-                            placeholder="ابحث باسم الصنف..."
+                            placeholder="ابحث باسم الايتم..."
                             value={pit.itemName}
                             autoComplete="off"
                             onChange={e => {
@@ -1505,7 +1505,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <input
                           type="text"
                           className="form-input"
-                          placeholder="ملاحظات هذا الصنف (اختياري)..."
+                          placeholder="ملاحظات هذا الايتم (اختياري)..."
                           value={pit.notes}
                           onChange={e => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, notes: e.target.value } : p))}
                           style={{ width: '100%', boxSizing: 'border-box', fontSize: '12px' }}
@@ -1515,7 +1515,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <button
                             onClick={() => setClPharmacyItems(prev => prev.filter(p => p.tempId !== pit.tempId))}
                             style={{ position: 'absolute', top: '6px', left: '8px', background: 'none', border: 'none', fontSize: '16px', cursor: 'pointer', color: '#ef4444', lineHeight: 1, padding: 0 }}
-                            title="حذف الصنف"
+                            title="حذف الايتم"
                           >×</button>
                         )}
                       </div>
@@ -1527,7 +1527,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       }}
                       style={{ fontSize: '13px', color: '#059669', background: 'none', border: '1px dashed #6ee7b7', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', width: '100%' }}
                     >
-                      + إضافة صنف آخر
+                      + إضافة ايتم آخر
                     </button>
                   </div>
                   {/* General notes */}
@@ -1721,11 +1721,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Item selector */}
               <div style={{ marginBottom: '16px', position: 'relative' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📦 الصنف</label>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📦 الايتم</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="ابحث باسم الصنف..."
+                  placeholder="ابحث باسم الايتم..."
                   value={clItemName}
                   autoComplete="off"
                   onChange={e => {
@@ -1738,7 +1738,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     setClItemSugg(matches);
                     setClItemShowSugg(true);
                   }}
-                  onBlur={() => setTimeout(() => setClItemShowSugg(false), 200)}
+                  onBlur={() => setTimeout(() => {
+                    setClItemShowSugg(false);
+                    // Auto-resolve: if text set but no ID yet, pick the first exact/partial match
+                    if (!clItemId && clItemName.trim()) {
+                      const lv = clItemName.trim().toLowerCase();
+                      const first = clItemSugg[0] ?? clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
+                      if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
+                    }
+                  }, 200)}
                   onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
                   style={{ width: '100%', boxSizing: 'border-box' }}
                 />
@@ -2069,7 +2077,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               <div style={{ padding: '8px 10px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
-                  placeholder="🔍 بحث: طبيب، صيدلية، منطقة، صنف..."
+                  placeholder="🔍 بحث: طبيب، صيدلية، منطقة، ايتم..."
                   value={fSearch}
                   onChange={e => setFSearch(e.target.value)}
                   style={{ flex: 1, minWidth: 150, padding: '5px 10px', fontSize: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff' }}
@@ -2085,7 +2093,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
                   style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? '#7c3aed' : '#d1d5db'}`, background: fDouble ? '#ede9fe' : '#fff', color: fDouble ? '#6d28d9' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  👥 دبل
+                  👥 مزدوجة
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}

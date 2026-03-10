@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // ── Helper: find a plan the user has access to ──────────────
 // - owner (admin/manager): plans where userId = myId
 // - assigned rep (any rep role): plans where assignedUserId = myId
-const REP_ROLES = new Set(['user','scientific_rep','team_leader','commercial_rep']);
+const REP_ROLES = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
 async function findAccessiblePlan(planId, userId, role) {
   if (REP_ROLES.has(role)) {
     // Rep can access plan either as assigned user OR as owner
@@ -25,7 +25,7 @@ export async function list(req, res, next) {
     const { scientificRepId, month, year } = req.query;
 
     // rep roles see plans assigned to them; managers/admins see plans they created
-    const REP_ROLES = new Set(['user','scientific_rep','team_leader','commercial_rep']);
+    const REP_ROLES = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
     const baseFilter = REP_ROLES.has(role)
       ? { assignedUserId: userId }
       : { userId };
@@ -61,7 +61,7 @@ export async function getOne(req, res, next) {
     const role = req.user.role;
     const planId = parseInt(req.params.id);
     // owner sees by userId, assigned rep sees by assignedUserId
-    const REP_ROLES_ONE = new Set(['user','scientific_rep','team_leader','commercial_rep']);
+    const REP_ROLES_ONE = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
     const accessWhere = REP_ROLES_ONE.has(role)
       ? { id: planId, assignedUserId: uid }
       : { id: planId, userId: uid };
@@ -457,7 +457,7 @@ export async function addVisit(req, res, next) {
       const n = normalize(rawName);
       // Fetch items accessible to this user
       let candidateItems;
-      if (role === 'scientific_rep') {
+      if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
         const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
         if (rep) {
           const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId: rep.id }, include: { item: { select: { id: true, name: true } } } });
@@ -470,6 +470,28 @@ export async function addVisit(req, res, next) {
       let matched = candidateItems.find(it => normalize(it.name) === n);
       if (!matched) matched = candidateItems.find(it => normalize(it.name).includes(n) || n.includes(normalize(it.name)));
       if (matched) { resolvedItemId = matched.id; }
+
+      // Still no match — upsert the item so the free-text name is never lost
+      if (!resolvedItemId) {
+        const upserted = await prisma.item.upsert({
+          where: { name_userId: { name: rawName, userId } },
+          create: { name: rawName, userId },
+          update: {},
+          select: { id: true },
+        });
+        resolvedItemId = upserted.id;
+        // Link the new item to the scientific rep so it appears in future suggestions
+        if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
+          const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+          if (repRow) {
+            await prisma.scientificRepItem.upsert({
+              where: { scientificRepId_itemId: { scientificRepId: repRow.id, itemId: resolvedItemId } },
+              create: { scientificRepId: repRow.id, itemId: resolvedItemId },
+              update: {},
+            });
+          }
+        }
+      }
     }
 
     const visit = await prisma.doctorVisit.create({
@@ -1181,9 +1203,9 @@ export async function parseVoiceAudio(req, res, next) {
     });
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
-    // scientific_rep: items assigned via ScientificRepItem junction, not by userId ownership
+    // scientific_rep/team_leader/supervisor: items assigned via ScientificRepItem junction
     let allItems;
-    if (role === 'scientific_rep') {
+    if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
       const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
       if (rep) {
         const repItems = await prisma.scientificRepItem.findMany({
@@ -1477,8 +1499,8 @@ export async function transferPlan(req, res, next) {
     if (!targetUser || !targetUser.isActive) {
       return res.status(404).json({ error: 'المستخدم المحدد غير موجود أو غير نشط.' });
     }
-    // Allow reps (scientific_rep, team_leader, etc.) in addition to classic 'user' role
-    const repRoles = ['user','scientific_rep','team_leader','commercial_rep'];
+    // Allow reps (scientific_rep, team_leader, supervisor, etc.) in addition to classic 'user' role
+    const repRoles = ['user','scientific_rep','team_leader','supervisor','commercial_rep'];
     if (!repRoles.includes(targetUser.role)) {
       return res.status(400).json({ error: 'يمكن تحويل البلان إلى المندوبين فقط.' });
     }

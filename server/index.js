@@ -36,6 +36,26 @@ dotenv.config();
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
+// Multer for item images (keeps file extension, stores in uploads/items/)
+const imageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const dir = path.join(__serverDir, 'uploads', 'items');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      cb(null, `item-${req.params.id}-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('ملفات الصور فقط مسموح بها'), false);
+  },
+});
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
@@ -47,6 +67,9 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(distPath));
   console.log('✓ Serving static files from:', distPath);
 }
+
+// ── Serve uploads (images etc.) — always available ─────────────
+app.use('/uploads', express.static(path.join(__serverDir, 'uploads')));
 
 // ── Health check (PUBLIC — no auth required) ─────────────────
 app.get('/api/health', (req, res) => {
@@ -178,8 +201,9 @@ app.get('/api/items', async (req, res) => {
     const userRole  = req.user?.role ?? 'user';
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
-    // scientific_rep: items are assigned via ScientificRepItem, not by userId ownership
-    if (userRole === 'scientific_rep' && userId) {
+    const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } };
+    // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction
+    if (['scientific_rep', 'team_leader', 'supervisor'].includes(userRole) && userId) {
       const rep = await prisma.scientificRepresentative.findFirst({
         where: { userId },
         select: { id: true },
@@ -187,7 +211,7 @@ app.get('/api/items', async (req, res) => {
       if (rep) {
         const repItems = await prisma.scientificRepItem.findMany({
           where: { scientificRepId: rep.id },
-          include: { item: { select: { id: true, name: true, companyId: true } } },
+          include: { item: { select: itemSelect } },
         });
         items = repItems.map(ri => ri.item).sort((a, b) => a.name.localeCompare(b.name));
       } else {
@@ -200,7 +224,7 @@ app.get('/api/items', async (req, res) => {
           ...(companyId ? { companyId } : {}),
         },
         orderBy: { name: 'asc' },
-        select: { id: true, name: true, companyId: true },
+        select: itemSelect,
       });
     }
     res.json({ success: true, data: items });
@@ -221,6 +245,149 @@ app.post('/api/items', async (req, res) => {
       select: { id: true, name: true },
     });
     res.status(201).json({ success: true, data: item });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/items/:id', async (req, res) => {
+  try {
+    const id     = parseInt(req.params.id);
+    const userId = req.user?.id ?? null;
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const { name, scientificName, dosage, form, price, scientificMessage } = req.body;
+    const updated = await prisma.item.update({
+      where: { id },
+      data: {
+        ...(name              != null ? { name: String(name).trim() }                    : {}),
+        ...(scientificName    != null ? { scientificName: scientificName?.trim() || null }   : {}),
+        ...(dosage            != null ? { dosage: dosage?.trim() || null }               : {}),
+        ...(form              != null ? { form: form?.trim() || null }                   : {}),
+        ...(price             != null ? { price: price !== '' ? parseFloat(price) : null } : {}),
+        ...(scientificMessage != null ? { scientificMessage: scientificMessage?.trim() || null } : {}),
+      },
+      select: { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/items/:id', async (req, res) => {
+  try {
+    const id     = parseInt(req.params.id);
+    const userId = req.user?.id ?? null;
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const item = await prisma.item.findFirst({ where: { id, ...(userId ? { userId } : {}) } });
+    if (!item) return res.status(404).json({ error: 'الايتم غير موجود' });
+    await prisma.item.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/items/:id/image — upload item image
+app.post('/api/items/:id/image', requireAuth, imageUpload.single('image'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صورة' });
+    // Delete old image if exists
+    const old = await prisma.item.findUnique({ where: { id }, select: { imageUrl: true } });
+    if (old?.imageUrl) {
+      const oldPath = path.join(__serverDir, old.imageUrl);
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+    const imageUrl = `/uploads/items/${req.file.filename}`;
+    await prisma.item.update({ where: { id }, data: { imageUrl } });
+    res.json({ success: true, imageUrl });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/items/:id/image — remove item image
+app.delete('/api/items/:id/image', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const item = await prisma.item.findUnique({ where: { id }, select: { imageUrl: true } });
+    if (item?.imageUrl) {
+      const filePath = path.join(__serverDir, item.imageUrl);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      await prisma.item.update({ where: { id }, data: { imageUrl: null } });
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/items/import-excel — bulk import from xlsx
+app.post('/api/items/import-excel', upload.single('file'), async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف' });
+
+    const buf      = fs.readFileSync(req.file.path);
+    fs.unlinkSync(req.file.path);
+    const wb       = XLSX.read(buf, { type: 'buffer' });
+    const sheet    = wb.Sheets[wb.SheetNames[0]];
+    const rows     = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (!rows.length) return res.status(400).json({ error: 'الملف فارغ أو لا يحتوي بيانات' });
+
+    // Normalize column names (accept Arabic or English headers)
+    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+    const COL_MAP = {
+      name:              ['name','اسم_الايتم','الاسم','الايتم','اسم'],
+      scientificName:    ['scientificname','scientific_name','الاسم_العلمي','اسم_علمي'],
+      dosage:            ['dosage','الجرعة','جرعة'],
+      form:              ['form','الشكل','الشكل_الدوائي'],
+      price:             ['price','السعر','سعر'],
+      scientificMessage: ['scientificmessage','scientific_message','scientific_msg','المسج_العلمي','المسج','ملاحظات','notes'],
+      companyName:       ['company','companyname','company_name','الشركة','اسم_الشركة'],
+    };
+
+    const mapRow = (raw) => {
+      const out = {};
+      const keys = Object.keys(raw);
+      for (const [field, aliases] of Object.entries(COL_MAP)) {
+        const found = keys.find(k => aliases.includes(normalize(k)));
+        out[field] = found != null ? String(raw[found]).trim() : '';
+      }
+      return out;
+    };
+
+    let inserted = 0, skipped = 0, errors = [];
+
+    for (const raw of rows) {
+      const r = mapRow(raw);
+      if (!r.name) { skipped++; continue; }
+      try {
+        // Optionally resolve company
+        let companyId = null;
+        if (r.companyName) {
+          const co = await prisma.company.findFirst({ where: { name: r.companyName, ...(userId ? { userId } : {}) } });
+          if (co) companyId = co.id;
+        }
+        await prisma.item.upsert({
+          where: { name_userId: { name: r.name, userId } },
+          create: {
+            name: r.name, userId,
+            scientificName:    r.scientificName    || null,
+            dosage:            r.dosage            || null,
+            form:              r.form              || null,
+            price:             r.price !== '' ? parseFloat(r.price) || null : null,
+            scientificMessage: r.scientificMessage || null,
+            ...(companyId ? { companyId } : {}),
+          },
+          update: {
+            scientificName:    r.scientificName    || null,
+            dosage:            r.dosage            || null,
+            form:              r.form              || null,
+            price:             r.price !== '' ? parseFloat(r.price) || null : null,
+            scientificMessage: r.scientificMessage || null,
+            ...(companyId ? { companyId } : {}),
+          },
+        });
+        inserted++;
+      } catch (e) { errors.push(`${r.name}: ${e.message}`); }
+    }
+
+    res.json({ success: true, inserted, skipped, errors });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

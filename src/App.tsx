@@ -5,6 +5,7 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import RepAnalysisPage from './pages/RepAnalysisPage';
 import UploadPage from './pages/UploadPage';
 import RepresentativesPage from './pages/RepresentativesPage';
 import ScientificRepsPage from './pages/ScientificRepsPage';
@@ -22,7 +23,8 @@ export type PageId =
   | 'doctors'
   | 'monthly-plans'
   | 'reports'
-  | 'users';
+  | 'users'
+  | 'rep-analysis';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -141,6 +143,8 @@ function AppInner() {
         return <ReportsPage activeFileIds={activeFileIds} onNavigate={navigateTo} />;
       case 'users':
         return <UsersPage />;
+      case 'rep-analysis':
+        return <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
       default:
         return <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
     }

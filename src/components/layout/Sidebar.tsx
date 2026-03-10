@@ -18,15 +18,21 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   const role = user?.role ?? 'user';
 
+  // Roles that see the merged "rep analysis" page instead of 4 separate pages
+  const REP_ANALYSIS_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor']);
+
   // roles: [] means "all roles"; roles with entries means restricted to those roles only
   const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
     { id: 'dashboard',       label: t.nav.dashboard,       icon: '📊', roles: [] },
-    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: [] },
-    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: [] },
-    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: [] },
+    // Merged page — shown only to rep roles
+    { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor'] },
+    // Individual pages — hidden for rep roles
+    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
-    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: [] },
+    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: [] },
   ];
 
@@ -102,16 +108,24 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
         </div>
 
         <nav className="sidebar-nav">
-          {visibleItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className={`sidebar-nav-item ${activePage === item.id ? 'sidebar-nav-item--active' : ''}`}
-            >
-              <span className="sidebar-nav-icon">{item.icon}</span>
-              {isOpen && <span className="sidebar-nav-label">{item.label}</span>}
-            </button>
-          ))}
+          {visibleItems.map(item => {
+            const isActive = activePage === item.id;
+            const isRepAnalysis = item.id === 'rep-analysis';
+            return (
+              <button
+                key={item.id}
+                onClick={() => onNavigate(item.id)}
+                className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`}
+                style={isRepAnalysis && !isActive ? {
+                  background: 'linear-gradient(90deg,rgba(99,102,241,0.18),rgba(99,102,241,0.08))',
+                  borderLeft: '3px solid rgba(99,102,241,0.6)',
+                } : undefined}
+              >
+                <span className="sidebar-nav-icon">{item.icon}</span>
+                {isOpen && <span className="sidebar-nav-label">{item.label}</span>}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer" style={{ marginTop: 'auto' }}>
@@ -200,16 +214,24 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <button className="mobile-drawer-close" onClick={() => setMobileMenuOpen(false)}>✕</button>
             </div>
             <nav className="mobile-drawer-nav">
-              {visibleItems.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => handleMobileNavigate(item.id)}
-                  className={`mobile-drawer-item ${activePage === item.id ? 'mobile-drawer-item--active' : ''}`}
-                >
-                  <span style={{ fontSize: 20 }}>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              ))}
+              {visibleItems.map(item => {
+                const isRepAnalysis = item.id === 'rep-analysis';
+                const isActive = activePage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleMobileNavigate(item.id)}
+                    className={`mobile-drawer-item ${isActive ? 'mobile-drawer-item--active' : ''}`}
+                    style={isRepAnalysis && !isActive ? {
+                      background: 'linear-gradient(90deg,rgba(99,102,241,0.1),transparent)',
+                      borderRight: '3px solid rgba(99,102,241,0.5)',
+                    } : undefined}
+                  >
+                    <span style={{ fontSize: 20 }}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
             </nav>
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <button

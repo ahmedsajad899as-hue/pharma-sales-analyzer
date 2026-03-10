@@ -70,6 +70,14 @@ export default function DailyCallsMap({ visits, repName, onClose }: Props) {
   const mapRef    = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<L.Map | null>(null);
 
+  const getFeedbackLabel = (feedback: string) =>
+    feedback === 'writing'        ? (t.dashboard as any).feedbackWriting :
+    feedback === 'stocked'        ? (t.dashboard as any).feedbackStocked :
+    feedback === 'interested'     ? (t.dashboard as any).feedbackInterested :
+    feedback === 'not_interested' ? (t.dashboard as any).feedbackNotInterested :
+    feedback === 'unavailable'    ? (t.dashboard as any).feedbackUnavailable :
+                                    (t.dashboard as any).feedbackPending;
+
   const gpsVisits = visits
     .filter(v => v.latitude != null && v.longitude != null)
     .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime());
@@ -105,13 +113,7 @@ export default function DailyCallsMap({ visits, repName, onClose }: Props) {
         hour: '2-digit', minute: '2-digit',
       });
 
-      const feedbackLabel =
-        v.feedback === 'writing'        ? (t.dashboard as any).feedbackWriting :
-        v.feedback === 'stocked'        ? (t.dashboard as any).feedbackStocked :
-        v.feedback === 'interested'     ? (t.dashboard as any).feedbackInterested :
-        v.feedback === 'not_interested' ? (t.dashboard as any).feedbackNotInterested :
-        v.feedback === 'unavailable'    ? (t.dashboard as any).feedbackUnavailable :
-                                          (t.dashboard as any).feedbackPending;
+      const feedbackLabel = getFeedbackLabel(v.feedback);
 
       const popup = `
         <div dir="rtl" style="font-family:sans-serif;min-width:180px;line-height:1.6">
@@ -161,56 +163,202 @@ export default function DailyCallsMap({ visits, repName, onClose }: Props) {
       style={{ zIndex: 10000 }}
     >
       <div
-        className="modal modal--wide"
-        style={{ maxWidth: 860, height: '82vh', display: 'flex', flexDirection: 'column' }}
         onClick={e => e.stopPropagation()}
+        style={{
+          width: '96vw',
+          maxWidth: 1040,
+          height: '88vh',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: 16,
+          overflow: 'hidden',
+          boxShadow: '0 28px 70px rgba(0,0,0,0.38)',
+          background: '#fff',
+        }}
       >
-        {/* Header */}
-        <div className="modal-header" style={{ flexShrink: 0 }}>
-          <h2 className="modal-title">
-            🗺️ {(t.dashboard as any).mapTitle}
-            {repName && (
-              <span style={{ fontSize: '0.85rem', fontWeight: 400, marginRight: '8px', color: '#6b7280' }}>
-                — {repName}
+        {/* ── Header ── */}
+        <div style={{
+          background: 'linear-gradient(135deg, #0f2544 0%, #1d4ed8 100%)',
+          padding: '12px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+          gap: 10,
+        }}>
+          {/* Left: icon + title */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+            <div style={{
+              background: 'rgba(255,255,255,0.18)',
+              borderRadius: 10,
+              width: 42, height: 42,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 22, flexShrink: 0,
+            }}>🗺️</div>
+            <div>
+              <div style={{ color: '#fff', fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>
+                خريطة مسار الزيارات
+              </div>
+              {repName && (
+                <div style={{ color: 'rgba(255,255,255,0.68)', fontSize: 12, marginTop: 3 }}>
+                  👤 {repName}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: GPS badge + close */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              background: 'rgba(255,255,255,0.12)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: 20,
+              padding: '5px 13px',
+            }}>
+              <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>نقاط GPS</span>
+              <span style={{
+                background: gpsVisits.length === visits.length ? '#10b981' : '#f59e0b',
+                color: '#fff', borderRadius: 12, padding: '1px 9px',
+                fontSize: 12, fontWeight: 700,
+              }}>
+                {gpsVisits.length} / {visits.length}
               </span>
-            )}
-          </h2>
-          <button className="modal-close" onClick={onClose}>{(t.dashboard as any).mapClose} ✕</button>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'rgba(255,255,255,0.14)',
+                border: '1.5px solid rgba(255,255,255,0.32)',
+                color: '#fff', borderRadius: 8,
+                padding: '7px 15px', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.26)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.14)')}
+            >
+              ✕ إغلاق
+            </button>
+          </div>
         </div>
 
-        {/* Legend */}
-        {gpsVisits.length > 0 && (
-          <div style={{ padding: '8px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '12px', flexWrap: 'wrap', flexShrink: 0 }}>
-            {Object.entries(feedbackColor).map(([key, color]) => {
-              const label =
-                key === 'writing'        ? (t.dashboard as any).feedbackWriting :
-                key === 'stocked'        ? (t.dashboard as any).feedbackStocked :
-                key === 'interested'     ? (t.dashboard as any).feedbackInterested :
-                key === 'not_interested' ? (t.dashboard as any).feedbackNotInterested :
-                key === 'unavailable'    ? (t.dashboard as any).feedbackUnavailable :
-                                           (t.dashboard as any).feedbackPending;
-              const count = gpsVisits.filter(v => v.feedback === key).length;
-              if (count === 0) return null;
-              return (
-                <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
-                  {label} ({count})
-                </span>
-              );
-            })}
-            <span style={{ fontSize: '12px', color: '#9ca3af', marginRight: 'auto' }}>
-              {gpsVisits.length} / {visits.length} نقطة بـ GPS
-            </span>
-          </div>
-        )}
-
-        {/* Map or no-GPS message */}
+        {/* ── Body ── */}
         {gpsVisits.length === 0 ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: '14px' }}>
-            📍 {(t.dashboard as any).mapNoGps}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, color: '#94a3b8' }}>
+            <div style={{ fontSize: 50 }}>📭</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>لا توجد زيارات مسجّلة بموقع GPS</div>
           </div>
         ) : (
-          <div ref={mapRef} style={{ flex: 1, minHeight: 0 }} />
+          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+
+            {/* ── Map ── */}
+            <div ref={mapRef} style={{ flex: 1, minHeight: 0 }} />
+
+            {/* ── Sidebar ── */}
+            <div style={{
+              width: 282,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              borderRight: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              direction: 'rtl',
+            }}>
+              {/* Sidebar header */}
+              <div style={{
+                padding: '11px 14px 10px',
+                borderBottom: '1px solid #e2e8f0',
+                background: '#fff',
+                flexShrink: 0,
+              }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', marginBottom: 8 }}>
+                  📋 قائمة الزيارات ({gpsVisits.length})
+                </div>
+                {/* Legend pills */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 7px' }}>
+                  {Object.entries(feedbackColor).map(([key, color]) => {
+                    const count = gpsVisits.filter(v => v.feedback === key).length;
+                    if (count === 0) return null;
+                    return (
+                      <span key={key} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        background: `${color}18`,
+                        border: `1px solid ${color}45`,
+                        borderRadius: 12,
+                        padding: '2px 8px',
+                        fontSize: 11, color, fontWeight: 600,
+                      }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+                        {getFeedbackLabel(key)} {count}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Visit cards */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '9px 10px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {gpsVisits.map((v, idx) => {
+                  const color = feedbackColor[v.feedback] ?? defaultColor;
+                  const timeStr = new Date(v.visitDate).toLocaleTimeString('ar-IQ-u-nu-latn', {
+                    hour: '2-digit', minute: '2-digit',
+                  });
+                  return (
+                    <div key={v.id} style={{
+                      background: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 10,
+                      padding: '9px 11px',
+                      display: 'flex',
+                      gap: 9,
+                      alignItems: 'flex-start',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      transition: 'box-shadow 0.15s',
+                    }}>
+                      {/* Number bubble */}
+                      <div style={{
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: color, color: '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, fontSize: 13, flexShrink: 0,
+                        boxShadow: `0 2px 6px ${color}55`,
+                      }}>{idx + 1}</div>
+
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontWeight: 700, fontSize: 13, color: '#1e293b',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {v.doctor.name}
+                        </div>
+                        {v.doctor.specialty && (
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>{v.doctor.specialty}</div>
+                        )}
+                        {v.doctor.area && (
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>📍 {v.doctor.area.name}</div>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 4 }}>
+                          <span style={{
+                            background: color, color: '#fff',
+                            borderRadius: 6, padding: '2px 8px',
+                            fontSize: 11, fontWeight: 600,
+                          }}>
+                            {getFeedbackLabel(v.feedback)}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>🕐 {timeStr}</span>
+                        </div>
+                        {v.item && (
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>💊 {v.item.name}</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+          </div>
         )}
       </div>
     </div>

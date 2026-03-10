@@ -139,6 +139,7 @@ model Item {
   form              String?  // الشكل الدوائي (أقراص، كبسول، شراب...)
   price             Float?   // السعر
   scientificMessage String?  // المسج العلمي
+  imageUrl          String?  // صورة الايتم
   createdAt         DateTime @default(now())
 
   userId              Int?
