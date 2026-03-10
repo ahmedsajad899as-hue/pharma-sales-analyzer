@@ -44,6 +44,33 @@ button {
   touch-action: manipulation; /* No 300ms delay on mobile */
 }
 
+/* GPS Ripple animation — used in call log modal */
+@-webkit-keyframes gpsRipple {
+  0%   { -webkit-transform: scale(1); transform: scale(1); opacity: .7; }
+  100% { -webkit-transform: scale(2.8); transform: scale(2.8); opacity: 0; }
+}
+@keyframes gpsRipple {
+  0%   { transform: scale(1); opacity: .7; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+@-webkit-keyframes clGpsPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .3; }
+}
+@keyframes clGpsPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .3; }
+}
+.gps-ripple {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  -webkit-animation: gpsRipple 1.6s ease-out infinite;
+          animation: gpsRipple 1.6s ease-out infinite;
+  will-change: transform, opacity;
+}
+
 button:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);

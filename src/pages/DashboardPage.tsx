@@ -1229,11 +1229,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             <div style={{ background: '#fff', borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '500px', direction: 'rtl', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '92vh', overflowY: 'auto' }}>
 
               {/* Header */}
-              <style>{`
-                @keyframes gpsRipple{0%{transform:scale(1);opacity:.7}100%{transform:scale(2.8);opacity:0}}
-                @keyframes clGpsPulse{0%,100%{opacity:1}50%{opacity:.35}}
-                .gps-ripple{position:absolute;top:0;right:0;bottom:0;left:0;border-radius:50%;pointer-events:none;will-change:transform,opacity;}
-              `}</style>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#111827' }}>
                   {callType === 'pharmacy' ? '🏪 تسجيل زيارة صيدلية' : '✏️ تسجيل زيارة طبيب'}
