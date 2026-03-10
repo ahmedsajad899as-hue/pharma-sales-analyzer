@@ -27,7 +27,7 @@ export async function listAllUsers(req, res) {
     where,
     select: {
       id: true, username: true, displayName: true, role: true,
-      isActive: true, phone: true, officeId: true,
+      isActive: true, phone: true, officeId: true, linkedRepId: true,
       office: { select: { id: true, name: true } },
       _count: { select: { companyAssignments: true, doctorVisits: true } },
     },
