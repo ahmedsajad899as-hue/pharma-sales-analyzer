@@ -30,23 +30,42 @@ export async function list(filters, user = null) {
     // Get this manager's company assignments
     const assignments = await prisma.userCompanyAssignment.findMany({
       where: { userId: user.id },
-      select: { companyId: true },
+      select: { companyId: true, company: { select: { id: true, name: true } } },
     });
     const companyIds = assignments.map(a => a.companyId);
 
     if (companyIds.length === 0) return [];
 
-    // Show only reps whose linked users are assigned to the same companies
-    whereFilters = {
-      ...whereFilters,
-      linkedUsers: {
-        some: {
-          companyAssignments: {
-            some: { companyId: { in: companyIds } },
-          },
-        },
+    // Return Users with scientific_rep / team_leader roles assigned to same companies
+    const repUsers = await prisma.user.findMany({
+      where: {
+        role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
+        isActive: true,
+        companyAssignments: { some: { companyId: { in: companyIds } } },
       },
-    };
+      include: {
+        companyAssignments: { include: { company: { select: { id: true, name: true } } } },
+        areaAssignments:    { include: { area:    { select: { id: true, name: true } } } },
+        itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
+      },
+    });
+
+    // Shape to match ScientificRep interface
+    return repUsers.map(u => ({
+      id: u.id,
+      name: u.displayName || u.username,
+      phone: u.phone || null,
+      email: null,
+      company: u.companyAssignments[0]?.company?.name || null,
+      notes: null,
+      isActive: u.isActive,
+      areas:         u.areaAssignments.map(a => a.area),
+      items:         u.itemAssignments.map(a => a.item),
+      companies:     u.companyAssignments.map(a => a.company),
+      commercialReps: [],
+      _isUser: true,
+      role: u.role,
+    }));
   }
 
   const reps = await repo.listAll(whereFilters);
