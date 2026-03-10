@@ -10,7 +10,7 @@ export interface VisitPoint {
   longitude: number | null;
   feedback: string;
   notes?: string | null;
-  doctor: { id: number; name: string; specialty?: string | null };
+  doctor: { id: number; name: string; specialty?: string | null; pharmacyName?: string | null; area?: { name: string } | null };
   scientificRep: { id: number; name: string };
   item?: { id: number; name: string } | null;
 }

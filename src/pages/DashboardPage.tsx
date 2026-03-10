@@ -290,11 +290,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>{(t.dashboard as any).dailyCallsColNum}</th>
+                      <th style={{ width: 36 }}>#</th>
                       <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
+                      <th>الصيدلية</th>
+                      <th>المنطقة</th>
                       <th>{(t.dashboard as any).dailyCallsColTime}</th>
                       <th>{(t.dashboard as any).dailyCallsColItem}</th>
                       <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
+                      <th>الملاحظات</th>
                       <th>{(t.dashboard as any).dailyCallsColLocation}</th>
                     </tr>
                   </thead>
@@ -304,15 +307,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime())
                       .map((v, idx) => (
                         <tr key={v.id}>
-                          <td>{idx + 1}</td>
+                          <td style={{ textAlign: 'center', color: '#94a3b8' }}>{idx + 1}</td>
                           <td>
                             <strong>{v.doctor.name}</strong>
                             {v.doctor.specialty && (
                               <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                             )}
                           </td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{fmtTime(v.visitDate)}</td>
-                          <td>{v.item?.name ?? '—'}</td>
+                          <td style={{ fontSize: '13px', color: '#374151' }}>{v.doctor.pharmacyName ?? '—'}</td>
+                          <td style={{ fontSize: '13px', color: '#374151' }}>{v.doctor.area?.name ?? '—'}</td>
+                          <td style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>{fmtTime(v.visitDate)}</td>
+                          <td style={{ fontSize: '13px' }}>{v.item?.name ?? '—'}</td>
                           <td>
                             <span style={{
                               background: (feedbackColor[v.feedback] ?? '#e5e7eb') + '22',
@@ -322,6 +327,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             }}>
                               {feedbackLabel(v.feedback)}
                             </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {v.notes || '—'}
                           </td>
                           <td>
                             {v.latitude != null

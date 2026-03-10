@@ -807,7 +807,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     const visits = await prisma.doctorVisit.findMany({
       where,
       include: {
-        doctor:        { select: { id: true, name: true, specialty: true, pharmacyName: true } },
+        doctor:        { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } } },
         scientificRep: { select: { id: true, name: true } },
         item:          { select: { id: true, name: true } },
       },
