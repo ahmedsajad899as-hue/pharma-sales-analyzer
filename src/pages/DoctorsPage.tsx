@@ -815,22 +815,23 @@ export default function DoctorsPage() {
                     {s.clickable === 'total' && showTotalPopup && (() => {
                       const sorted = [...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors);
                       return (
-                        <div
-                          onClick={e => e.stopPropagation()}
-                          style={{
-                            position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
-                            transform: 'translateX(-50%)',
-                            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
-                            boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
-                            minWidth: 270, maxWidth: 360, padding: '14px 0 8px',
-                            direction: 'rtl',
-                          }}>
-                          <div style={{ position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)', width: 14, height: 14, background: '#fff', border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none', rotate: '45deg' }} />
-                          <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#4338ca' }}>👥 توزيع الأطباء بالمناطق</span>
-                            <button onClick={() => setShowTotalPopup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                        <>
+                          <div onClick={() => setShowTotalPopup(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              position: 'fixed', top: '50%', left: '50%',
+                              transform: 'translate(-50%,-50%)',
+                              background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0',
+                              boxShadow: '0 12px 48px rgba(0,0,0,0.22)', zIndex: 999,
+                              width: 'min(92vw,380px)', maxHeight: '80vh',
+                              display: 'flex', flexDirection: 'column', direction: 'rtl',
+                            }}>
+                          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#4338ca' }}>👥 توزيع الأطباء بالمناطق</span>
+                            <button onClick={() => setShowTotalPopup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>×</button>
                           </div>
-                          <div style={{ maxHeight: 300, overflowY: 'auto', padding: '8px 0' }}>
+                          <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
                             {sorted.map((area, idx) => {
                               const pctArea = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
                               const barColor = pctArea >= 80 ? '#10b981' : pctArea >= 50 ? '#6366f1' : pctArea > 0 ? '#f59e0b' : '#d1d5db';
@@ -853,11 +854,12 @@ export default function DoctorsPage() {
                               );
                             })}
                           </div>
-                          <div style={{ padding: '8px 16px 2px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between' }}>
+                          <div style={{ padding: '8px 16px 2px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
                             <span style={{ fontSize: 11, color: '#94a3b8' }}>الإجمالي</span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: '#4338ca' }}>{total} طبيب في {sorted.length} منطقة</span>
                           </div>
-                        </div>
+                          </div>
+                        </>
                       );
                     })()}
 
@@ -865,31 +867,27 @@ export default function DoctorsPage() {
                     {s.clickable === 'visited' && showVisitedPopup && (() => {
                       const visitedDocs = visitAreas.flatMap(a => a.doctors.filter(d => d.visited));
                       return (
-                        <div
-                          onClick={e => e.stopPropagation()}
-                          style={{
-                            position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
-                            transform: 'translateX(-50%)',
-                            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
-                            boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
-                            minWidth: 320, maxWidth: 420, padding: '16px 0 8px',
-                            direction: 'rtl',
-                          }}>
-                          <div style={{
-                            position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)',
-                            width: 14, height: 14, background: '#fff',
-                            border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none',
-                            rotate: '45deg',
-                          }} />
-                          <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>✅ الأطباء المُزارون ({visitedDocs.length})</span>
+                        <>
+                          <div onClick={() => setShowVisitedPopup(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              position: 'fixed', top: '50%', left: '50%',
+                              transform: 'translate(-50%,-50%)',
+                              background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0',
+                              boxShadow: '0 12px 48px rgba(0,0,0,0.22)', zIndex: 999,
+                              width: 'min(92vw,440px)', maxHeight: '80vh',
+                              display: 'flex', flexDirection: 'column', direction: 'rtl',
+                            }}>
+                          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#065f46' }}>✅ الأطباء المُزارون ({visitedDocs.length})</span>
                             <button onClick={() => setShowVisitedPopup(false)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>×</button>
                           </div>
                           {visitedDocs.length === 0 ? (
                             <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13 }}>لا توجد زيارات</div>
                           ) : (
-                            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                            <div style={{ overflowY: 'auto', flex: 1 }}>
                               {visitedDocs.map((doc, idx) => {
                                 const lastVisit = doc.visits[0];
                                 const item = lastVisit?.item ?? doc.targetItem;
@@ -923,35 +921,31 @@ export default function DoctorsPage() {
                               })}
                             </div>
                           )}
-                        </div>
+                          </div>
+                        </>
                       );
                     })()}
 
                     {/* Coverage popup */}
                     {s.clickable === 'coverage' && showCoveragePopup && (
-                      <div
-                        onClick={e => e.stopPropagation()}
-                        style={{
-                          position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
-                          transform: 'translateX(-50%)',
-                          background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
-                          minWidth: 280, maxWidth: 340, padding: '16px 0 8px',
-                          direction: 'rtl',
-                        }}>
-                        {/* Arrow */}
-                        <div style={{
-                          position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)',
-                          width: 14, height: 14, background: '#fff',
-                          border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none',
-                          rotate: '45deg',
-                        }} />
-                        <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', marginBottom: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>📊 التغطية بالمناطق</span>
+                      <>
+                        <div onClick={() => setShowCoveragePopup(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'fixed', top: '50%', left: '50%',
+                            transform: 'translate(-50%,-50%)',
+                            background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0',
+                            boxShadow: '0 12px 48px rgba(0,0,0,0.22)', zIndex: 999,
+                            width: 'min(92vw,360px)', maxHeight: '80vh',
+                            display: 'flex', flexDirection: 'column', direction: 'rtl',
+                          }}>
+                        <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, marginBottom: 6 }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>📊 التغطية بالمناطق</span>
                           <button onClick={() => setShowCoveragePopup(false)}
-                            style={{ float: 'left', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>×</button>
                         </div>
-                        <div style={{ maxHeight: 280, overflowY: 'auto', padding: '0 16px' }}>
+                        <div style={{ overflowY: 'auto', flex: 1, padding: '0 16px 8px' }}>
                           {sortedAreas.map(area => {
                             const ap = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
                             const barColor = ap >= 80 ? '#10b981' : ap >= 50 ? '#6366f1' : ap > 0 ? '#f59e0b' : '#e2e8f0';
@@ -975,7 +969,8 @@ export default function DoctorsPage() {
                             );
                           })}
                         </div>
-                      </div>
+                        </div>
+                      </>
                     )}
 
                     {/* Writing doctors popup */}
@@ -990,24 +985,20 @@ export default function DoctorsPage() {
                         ? allWritingDocs.filter(d => d._item?.name === writingItemFilter)
                         : allWritingDocs;
                       return (
-                        <div
-                          onClick={e => e.stopPropagation()}
-                          style={{
-                            position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
-                            transform: 'translateX(-50%)',
-                            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
-                            boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
-                            minWidth: 340, maxWidth: 440, padding: '16px 0 8px',
-                            direction: 'rtl',
-                          }}>
-                          <div style={{
-                            position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)',
-                            width: 14, height: 14, background: '#fff',
-                            border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none',
-                            rotate: '45deg',
-                          }} />
+                        <>
+                          <div onClick={() => { setShowWritingPopup(false); setWritingItemFilter(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              position: 'fixed', top: '50%', left: '50%',
+                              transform: 'translate(-50%,-50%)',
+                              background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0',
+                              boxShadow: '0 12px 48px rgba(0,0,0,0.22)', zIndex: 999,
+                              width: 'min(92vw,460px)', maxHeight: '80vh',
+                              display: 'flex', flexDirection: 'column', direction: 'rtl',
+                            }}>
                           {/* Header */}
-                          <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                             <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>
                               ✏️ الأطباء الكاتبون ({filtered.length}{writingItemFilter ? `/${allWritingDocs.length}` : ''})
                             </span>
@@ -1043,7 +1034,7 @@ export default function DoctorsPage() {
                           {filtered.length === 0 ? (
                             <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13 }}>لا يوجد أطباء لهذا الايتم</div>
                           ) : (
-                            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                            <div style={{ overflowY: 'auto', flex: 1 }}>
                               {filtered.map((doc, idx) => (
                                 <div key={doc.id} style={{
                                   display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
@@ -1073,7 +1064,8 @@ export default function DoctorsPage() {
                               ))}
                             </div>
                           )}
-                        </div>
+                          </div>
+                        </>
                       );
                     })()}
                   </div>
