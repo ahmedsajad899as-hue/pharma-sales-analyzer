@@ -5,7 +5,6 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "(node_modules/.bin/prisma db push --accept-data-loss --skip-generate || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && (node prisma/seed-local-data.js || echo 'local seed skipped') && npm start",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE"
