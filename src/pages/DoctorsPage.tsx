@@ -52,11 +52,12 @@ function fmt(dateStr: string) {
 }
 
 export default function DoctorsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const isCommercialRep = user?.role === 'commercial_rep';
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
   // ── Tab ──────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'list' | 'visits'>('visits');
+  const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits'>('visits');
 
   // ── Doctors list ─────────────────────────────────────────────
   const [doctors, setDoctors]   = useState<Doctor[]>([]);
@@ -129,6 +130,43 @@ export default function DoctorsPage() {
   });
   const [showWishPanel, setShowWishPanel] = useState(false);
   const [showWritingPopup, setShowWritingPopup] = useState(false);
+
+  // ── Visits analysis toggle (doctors vs pharmacies) ─────────────
+  const [visitAnalysisType, setVisitAnalysisType] = useState<'doctors' | 'pharmacies'>('doctors');
+  // pharmacy visits state
+  interface PharmVisitItem { id: number; name: string; }
+  interface PharmVisitRecord { id: number; visitDate: string; notes?: string | null; items: PharmVisitItem[]; }
+  interface PharmEntry { name: string; visits: PharmVisitRecord[]; }
+  interface PharmAreaGroup { id: number | null; name: string; pharmacies: PharmEntry[]; totalPharmacies: number; totalVisits: number; }
+  const [pharmVisitAreas, setPharmVisitAreas]       = useState<PharmAreaGroup[]>([]);
+  const [pharmVisitLoading, setPharmVisitLoading]   = useState(false);
+  const [pharmVisitMonthFilter, setPharmVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
+  const [pharmExpandedAreas, setPharmExpandedAreas] = useState<Set<string>>(new Set());
+  const [pharmSearch, setPharmSearch]               = useState('');
+  const [expandedPharma, setExpandedPharma]         = useState<Set<string>>(new Set());
+
+  // ── Survey pharmacies (for commercial rep) ───────────────────
+  interface SurveyPharmacy { id: number; name: string; ownerName?: string | null; phone?: string | null; address?: string | null; areaName?: string | null; area?: { id: number; name: string } | null; }
+  const [surveyPharmacies, setSurveyPharmacies]         = useState<SurveyPharmacy[]>([]);
+  const [surveyPharmLoading, setSurveyPharmLoading]     = useState(false);
+  const [surveyPharmSearch, setSurveyPharmSearch]       = useState('');
+  const [surveyPharmArea, setSurveyPharmArea]           = useState('all');
+  const [surveyPharmLoaded, setSurveyPharmLoaded]       = useState(false);
+  // Add pharmacy modal state
+  const [pharmModal, setPharmModal]                     = useState<'add' | 'edit' | null>(null);
+  const [pharmEditTarget, setPharmEditTarget]           = useState<SurveyPharmacy | null>(null);
+  const [pharmFName, setPharmFName]                     = useState('');
+  const [pharmFOwner, setPharmFOwner]                   = useState('');
+  const [pharmFPhone, setPharmFPhone]                   = useState('');
+  const [pharmFAddress, setPharmFAddress]               = useState('');
+  const [pharmFAreaName, setPharmFAreaName]             = useState('');
+  const [pharmSaving, setPharmSaving]                   = useState(false);
+  const [pharmSaveErr, setPharmSaveErr]                 = useState('');
+  // Import pharmacies state
+  const [showPharmImport, setShowPharmImport]           = useState(false);
+  const [pharmImporting, setPharmImporting]             = useState(false);
+  const [pharmImportResult, setPharmImportResult]       = useState<{ imported: number; skipped: number; errors: {name:string;error:string}[]; detectedCols?: Record<string,string> } | null>(null);
+  const pharmFileRef = useRef<HTMLInputElement>(null);
   const [writingItemFilter, setWritingItemFilter] = useState<string | null>(null);
   const [showVisitedPopup, setShowVisitedPopup] = useState(false);
   const writingCardRef = useRef<HTMLDivElement>(null);
@@ -232,6 +270,91 @@ export default function DoctorsPage() {
     });
   }, [doctors]);
   useEffect(() => { if (activeTab === 'visits') loadVisits(); }, [activeTab, loadVisits]);
+
+  const loadPharmVisits = useCallback(async () => {
+    setPharmVisitLoading(true);
+    try {
+      const params = pharmVisitMonthFilter ? `?month=${pharmVisitMonthFilter.month}&year=${pharmVisitMonthFilter.year}` : '';
+      const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area${params}`, { headers: H() });
+      const j = await r.json();
+      setPharmVisitAreas(Array.isArray(j.areas) ? j.areas : []);
+    } catch (e) { console.error(e); }
+    finally { setPharmVisitLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, pharmVisitMonthFilter]);
+
+  const loadSurveyPharmacies = useCallback(async () => {
+    if (!isCommercialRep) return;
+    setSurveyPharmLoading(true);
+    try {
+      const r = await fetch(`${API}/api/commercial/survey-pharmacies`, { headers: H() });
+      const j = await r.json();
+      setSurveyPharmacies(Array.isArray(j) ? j : []);
+      setSurveyPharmLoaded(true);
+    } catch (e) { console.error(e); }
+    finally { setSurveyPharmLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, isCommercialRep]);
+
+  const openAddPharm = () => {
+    setPharmEditTarget(null);
+    setPharmFName(''); setPharmFOwner(''); setPharmFPhone(''); setPharmFAddress(''); setPharmFAreaName('');
+    setPharmSaveErr(''); setPharmModal('add');
+  };
+  const openEditPharm = (p: SurveyPharmacy) => {
+    setPharmEditTarget(p);
+    setPharmFName(p.name); setPharmFOwner(p.ownerName ?? ''); setPharmFPhone(p.phone ?? '');
+    setPharmFAddress(p.address ?? ''); setPharmFAreaName(p.areaName ?? '');
+    setPharmSaveErr(''); setPharmModal('edit');
+  };
+  const savePharm = async () => {
+    if (!pharmFName.trim()) { setPharmSaveErr('اسم الصيدلية مطلوب'); return; }
+    setPharmSaving(true); setPharmSaveErr('');
+    try {
+      const body = { name: pharmFName.trim(), ownerName: pharmFOwner.trim() || null, phone: pharmFPhone.trim() || null, address: pharmFAddress.trim() || null, areaName: pharmFAreaName.trim() || null };
+      const url    = pharmModal === 'edit' ? `${API}/api/commercial/pharmacies/${pharmEditTarget!.id}` : `${API}/api/commercial/pharmacies`;
+      const method = pharmModal === 'edit' ? 'PATCH' : 'POST';
+      const r = await fetch(url, { method, headers: H(), body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? 'فشل الحفظ');
+      if (pharmModal === 'edit') {
+        setSurveyPharmacies(prev => prev.map(p => p.id === j.id ? j : p));
+      } else {
+        setSurveyPharmacies(prev => [j, ...prev]);
+      }
+      setPharmModal(null);
+    } catch (e: any) { setPharmSaveErr(e.message); }
+    finally { setPharmSaving(false); }
+  };
+  const deletePharm = async (id: number) => {
+    if (!confirm('هل تريد حذف هذه الصيدلية؟')) return;
+    try {
+      const r = await fetch(`${API}/api/commercial/pharmacies/${id}`, { method: 'DELETE', headers: H() });
+      if (!r.ok) { const j = await r.json(); throw new Error(j.error ?? 'فشل الحذف'); }
+      setSurveyPharmacies(prev => prev.filter(p => p.id !== id));
+    } catch (e: any) { alert(e.message); }
+  };
+  const importPharmExcel = async (file: File) => {
+    setPharmImporting(true); setPharmImportResult(null);
+    const fd = new FormData(); fd.append('file', file);
+    try {
+      const r = await fetch(`${API}/api/commercial/pharmacies/import`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      const j = await r.json();
+      setPharmImportResult(j);
+      if (r.ok && j.imported > 0) { setSurveyPharmLoaded(false); loadSurveyPharmacies(); }
+    } catch (e: any) { alert(e.message); }
+    finally { setPharmImporting(false); if (pharmFileRef.current) pharmFileRef.current.value = ''; }
+  };
+
+  // Load pharmacy visits when toggling to pharmacies in visits tab
+  useEffect(() => {
+    if (activeTab === 'visits' && visitAnalysisType === 'pharmacies') loadPharmVisits();
+  }, [activeTab, visitAnalysisType, loadPharmVisits]);
+
+  // Load survey pharmacies when tab opens
+  useEffect(() => {
+    if (activeTab === 'pharmacies' && !surveyPharmLoaded) loadSurveyPharmacies();
+  }, [activeTab, surveyPharmLoaded, loadSurveyPharmacies]);
   useEffect(() => {
     if (!showCoveragePopup) return;
     const handler = (e: MouseEvent) => {
@@ -375,17 +498,35 @@ export default function DoctorsPage() {
             )}
           </div>
         )}
-        {activeTab === 'visits' && (
+        {activeTab === 'visits' && visitAnalysisType === 'doctors' && (
           <button onClick={loadVisits} disabled={visitLoading}
             style={{ ...btnStyle('#6366f1'), opacity: visitLoading ? 0.7 : 1 }}>
             {visitLoading ? '⏳ تحديث...' : '↻ تحديث'}
+          </button>
+        )}
+        {activeTab === 'visits' && visitAnalysisType === 'pharmacies' && (
+          <button onClick={loadPharmVisits} disabled={pharmVisitLoading}
+            style={{ ...btnStyle('#0ea5e9'), opacity: pharmVisitLoading ? 0.7 : 1 }}>
+            {pharmVisitLoading ? '⏳ تحديث...' : '↻ تحديث'}
+          </button>
+        )}
+        {activeTab === 'pharmacies' && (
+          <button onClick={loadSurveyPharmacies} disabled={surveyPharmLoading}
+            style={{ ...btnStyle('#0ea5e9'), opacity: surveyPharmLoading ? 0.7 : 1 }}>
+            {surveyPharmLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
         )}
       </div>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
-        {([['visits', '📍 تحليل الزيارات'], ['list', '📋 قائمة الأطباء']] as const).map(([tab, label]) => (
+        {([          ['visits',    '📍 تحليل الزيارات'],
+          ['list',      '📋 قائمة الأطباء'],
+          ...(isCommercialRep ? [
+            ['myvisits',   '📝 زياراتي'],
+            ['pharmacies', '🏪 قائمة الصيدليات'],
+          ] : []),
+        ] as ['list' | 'visits' | 'pharmacies' | 'myvisits', string][]).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
             padding: '8px 18px', fontSize: 14, fontWeight: 600,
@@ -555,6 +696,29 @@ export default function DoctorsPage() {
       {/* ── VISITS TAB ───────────────────────────────────── */}
       {activeTab === 'visits' && (
         <div>
+          {/* Analysis type toggle: doctors vs pharmacies */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>عرض تحليل:</span>
+            <button
+              onClick={() => setVisitAnalysisType('doctors')}
+              style={{
+                padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                border: `1.5px solid ${visitAnalysisType === 'doctors' ? '#6366f1' : '#e2e8f0'}`,
+                background: visitAnalysisType === 'doctors' ? '#eef2ff' : '#f8fafc',
+                color: visitAnalysisType === 'doctors' ? '#4338ca' : '#64748b',
+              }}>👨‍⚕️ الأطباء</button>
+            <button
+              onClick={() => setVisitAnalysisType('pharmacies')}
+              style={{
+                padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                border: `1.5px solid ${visitAnalysisType === 'pharmacies' ? '#0ea5e9' : '#e2e8f0'}`,
+                background: visitAnalysisType === 'pharmacies' ? '#e0f2fe' : '#f8fafc',
+                color: visitAnalysisType === 'pharmacies' ? '#0369a1' : '#64748b',
+              }}>🏪 الصيدليات</button>
+          </div>
+
+          {/* ─── DOCTORS ANALYSIS ───────────────────────────── */}
+          {visitAnalysisType === 'doctors' && (<>
           {/* Month filter bar */}
           {(() => {
             const now = new Date();
@@ -1244,6 +1408,428 @@ export default function DoctorsPage() {
               </div>
             );
           })}
+          </>)}
+
+          {/* ─── PHARMACIES ANALYSIS ────────────────────────── */}
+          {visitAnalysisType === 'pharmacies' && (
+            <div>
+              {/* Month filter bar */}
+              {(() => {
+                const now = new Date();
+                const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+                const options: { month: number; year: number; label: string }[] = [];
+                for (let i = 0; i < 12; i++) {
+                  const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                  options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
+                }
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, flexWrap: 'wrap', direction: 'rtl' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
+                    <button onClick={() => setPharmVisitMonthFilter(null)} style={{
+                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14,
+                      border: `1px solid ${pharmVisitMonthFilter === null ? '#0ea5e9' : '#e2e8f0'}`,
+                      background: pharmVisitMonthFilter === null ? '#e0f2fe' : 'transparent',
+                      color: pharmVisitMonthFilter === null ? '#0369a1' : '#94a3b8', cursor: 'pointer',
+                    }}>الكل</button>
+                    {options.map(o => {
+                      const active = pharmVisitMonthFilter?.month === o.month && pharmVisitMonthFilter?.year === o.year;
+                      return (
+                        <button key={`${o.month}-${o.year}`}
+                          onClick={() => setPharmVisitMonthFilter({ month: o.month, year: o.year })}
+                          style={{
+                            fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14,
+                            border: `1px solid ${active ? '#0ea5e9' : '#e2e8f0'}`,
+                            background: active ? '#e0f2fe' : 'transparent',
+                            color: active ? '#0369a1' : '#94a3b8', cursor: 'pointer',
+                          }}>{o.label}</button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Summary strip */}
+              {!pharmVisitLoading && pharmVisitAreas.length > 0 && (() => {
+                const totalPharma = pharmVisitAreas.reduce((s, a) => s + a.totalPharmacies, 0);
+                const totalVisits = pharmVisitAreas.reduce((s, a) => s + a.totalVisits, 0);
+                return (
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'إجمالي الصيدليات', value: totalPharma, icon: '🏪', accent: '#0ea5e9' },
+                      { label: 'إجمالي الزيارات',  value: totalVisits, icon: '📍', accent: '#10b981' },
+                      { label: 'عدد المناطق',       value: pharmVisitAreas.length, icon: '🗺️', accent: '#6366f1' },
+                    ].map(s => (
+                      <div key={s.label} style={{
+                        flex: '1 1 110px', background: '#fff', borderRadius: 12,
+                        padding: '12px 16px', border: `1.5px solid #e2e8f0`,
+                        textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                      }}>
+                        <div style={{ fontSize: 20 }}>{s.icon}</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Search + expand/collapse */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input value={pharmSearch} onChange={e => setPharmSearch(e.target.value)}
+                  placeholder="بحث باسم الصيدلية..."
+                  style={{ ...inputStyle, maxWidth: 260 }} />
+                <button onClick={() => setPharmExpandedAreas(
+                  pharmExpandedAreas.size > 0 ? new Set() : new Set(pharmVisitAreas.map(a => String(a.id)))
+                )} style={{
+                  padding: '7px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0',
+                  background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                }}>
+                  {pharmExpandedAreas.size > 0 ? '▲ طي الكل' : '▼ فتح الكل'}
+                </button>
+              </div>
+
+              {/* Loading */}
+              {pharmVisitLoading && (
+                <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                  جاري التحميل...
+                </div>
+              )}
+
+              {/* Empty */}
+              {!pharmVisitLoading && pharmVisitAreas.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+                  <div style={{ fontSize: 44, marginBottom: 12 }}>🏪</div>
+                  لا توجد بيانات زيارات صيدليات
+                </div>
+              )}
+
+              {/* Area groups */}
+              {!pharmVisitLoading && pharmVisitAreas.map(area => {
+                const key    = String(area.id);
+                const isOpen = pharmExpandedAreas.has(key);
+                const searchQ = pharmSearch.trim().toLowerCase();
+                const filteredPharmas = area.pharmacies.filter(p =>
+                  !searchQ || p.name.toLowerCase().includes(searchQ)
+                );
+                if (filteredPharmas.length === 0 && searchQ) return null;
+                return (
+                  <div key={key} style={{
+                    background: '#fff', borderRadius: 14, border: '1px solid #bae6fd',
+                    marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 6px rgba(14,165,233,0.05)',
+                  }}>
+                    {/* Area header */}
+                    <button onClick={() => setPharmExpandedAreas(prev => {
+                      const next = new Set(prev);
+                      next.has(key) ? next.delete(key) : next.add(key);
+                      return next;
+                    })} style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+                      padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                      textAlign: 'right', direction: 'rtl',
+                    }}>
+                      <div style={{
+                        width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
+                        background: '#e0f2fe', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', fontSize: 18,
+                      }}>🏪</div>
+                      <div style={{ flex: 1, textAlign: 'right' }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{area.name}</div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: '#0369a1', background: '#e0f2fe', borderRadius: 20, padding: '2px 9px' }}>
+                            🏪 {area.totalPharmacies} صيدلية
+                          </span>
+                          <span style={{ fontSize: 12, color: '#065f46', background: '#d1fae5', borderRadius: 20, padding: '2px 9px' }}>
+                            📍 {area.totalVisits} زيارة
+                          </span>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 18, color: '#94a3b8', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+                    </button>
+
+                    {/* Pharmacies list */}
+                    {isOpen && (
+                      <div style={{ borderTop: '1px solid #e0f2fe', padding: '4px 0 8px' }}>
+                        {filteredPharmas.map(pharm => {
+                          const pharmKey = `${key}-${pharm.name}`;
+                          const isExpanded = expandedPharma.has(pharmKey);
+                          return (
+                            <div key={pharmKey} style={{ borderBottom: '1px solid #f0f9ff' }}>
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: 10,
+                                padding: '10px 18px', direction: 'rtl',
+                              }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: '#0ea5e9' }} />
+                                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{pharm.name}</div>
+                                {pharm.visits.length > 0 ? (
+                                  <button onClick={() => setExpandedPharma(prev => {
+                                    const next = new Set(prev);
+                                    next.has(pharmKey) ? next.delete(pharmKey) : next.add(pharmKey);
+                                    return next;
+                                  })} style={{
+                                    fontSize: 12, color: '#0369a1', fontWeight: 600,
+                                    background: isExpanded ? '#bae6fd' : '#e0f2fe',
+                                    padding: '3px 8px', borderRadius: 10, flexShrink: 0,
+                                    border: 'none', cursor: 'pointer',
+                                  }}>
+                                    {pharm.visits.length} زيارة
+                                    <span style={{ fontSize: 10, marginRight: 3, display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+                                  </button>
+                                ) : (
+                                  <span style={{ fontSize: 12, color: '#d1d5db', minWidth: 58 }}>—</span>
+                                )}
+                                <span style={{ fontSize: 12, color: '#64748b', minWidth: 72, textAlign: 'center' }}>
+                                  {pharm.visits[0] ? fmt(pharm.visits[0].visitDate) : '—'}
+                                </span>
+                              </div>
+                              {isExpanded && pharm.visits.length > 0 && (
+                                <div style={{ background: '#f0f9ff', borderTop: '1px solid #e0f2fe', padding: '8px 18px' }}>
+                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
+                                    <thead>
+                                      <tr style={{ color: '#94a3b8', fontWeight: 600 }}>
+                                        <th style={{ textAlign: 'right', padding: '4px 8px' }}>#</th>
+                                        <th style={{ textAlign: 'right', padding: '4px 8px' }}>التاريخ</th>
+                                        <th style={{ textAlign: 'right', padding: '4px 8px' }}>الايتمات</th>
+                                        <th style={{ textAlign: 'right', padding: '4px 8px' }}>ملاحظات</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {pharm.visits.map((v, idx) => (
+                                        <tr key={v.id} style={{ borderTop: '1px solid #e0f2fe' }}>
+                                          <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{idx + 1}</td>
+                                          <td style={{ padding: '5px 8px', color: '#374151', whiteSpace: 'nowrap' }}>{fmt(v.visitDate)}</td>
+                                          <td style={{ padding: '5px 8px' }}>
+                                            {v.items.length > 0
+                                              ? v.items.map(it => (
+                                                  <span key={it.id} style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '2px 7px', marginLeft: 4, fontWeight: 600 }}>💊 {it.name}</span>
+                                                ))
+                                              : <span style={{ color: '#d1d5db' }}>—</span>
+                                            }
+                                          </td>
+                                          <td style={{ padding: '5px 8px', color: '#64748b' }}>{v.notes ?? '—'}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── PHARMACIES TAB ───────────────────────────────── */}
+      {activeTab === 'pharmacies' && (
+        <div>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <button onClick={openAddPharm} style={btnStyle('#10b981')}>＋ إضافة صيدلية</button>
+            <button onClick={() => { setShowPharmImport(v => !v); setPharmImportResult(null); }} style={btnStyle('#6366f1')}>📊 استيراد Excel</button>
+          </div>
+
+          {/* Import panel */}
+          {showPharmImport && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: 18, marginBottom: 18 }}>
+              <h3 style={{ margin: '0 0 8px', fontSize: 14, color: '#166534' }}>📊 استيراد قائمة الصيدليات من Excel</h3>
+              <p style={{ margin: '0 0 12px', fontSize: 12, color: '#15803d', lineHeight: 1.7 }}>
+                الأعمدة المدعومة: <strong>الاسم *</strong> · المالك · الهاتف · العنوان · المنطقة · ملاحظات
+              </p>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input ref={pharmFileRef} type="file" accept=".xlsx,.xls,.csv" disabled={pharmImporting}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) importPharmExcel(f); }}
+                  style={{ fontSize: 13 }} />
+                {pharmImporting && <span style={{ fontSize: 13, color: '#15803d' }}>⏳ جاري الاستيراد...</span>}
+              </div>
+              {pharmImportResult && (
+                <div style={{ marginTop: 12, fontSize: 13 }}>
+                  <div style={{ color: '#166534', fontWeight: 700 }}>
+                    ✅ تم استيراد {pharmImportResult.imported} صيدلية
+                    {pharmImportResult.skipped > 0 && <span style={{ color: '#92400e', marginRight: 8 }}>· تم تخطي {pharmImportResult.skipped} موجود مسبقاً</span>}
+                  </div>
+                  {pharmImportResult.detectedCols && (
+                    <div style={{ marginTop: 6, color: '#64748b' }}>
+                      الأعمدة المكتشفة: {Object.entries(pharmImportResult.detectedCols).map(([k, v]) => `${k} → "${v}"`).join(' · ')}
+                    </div>
+                  )}
+                  {pharmImportResult.errors.length > 0 && (
+                    <div style={{ marginTop: 6, color: '#dc2626' }}>
+                      أخطاء: {pharmImportResult.errors.map(e => e.name).join('، ')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Search + area filter */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input value={surveyPharmSearch} onChange={e => setSurveyPharmSearch(e.target.value)}
+              placeholder="بحث باسم الصيدلية أو المالك..."
+              style={{ ...inputStyle, maxWidth: 280 }} />
+            {(() => {
+              const areas = [...new Set(surveyPharmacies.map(p => p.areaName ?? '').filter(Boolean))].sort();
+              return (
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button onClick={() => setSurveyPharmArea('all')} style={{
+                    fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+                    border: `1.5px solid ${surveyPharmArea === 'all' ? '#0ea5e9' : '#e2e8f0'}`,
+                    background: surveyPharmArea === 'all' ? '#e0f2fe' : '#f8fafc',
+                    color: surveyPharmArea === 'all' ? '#0369a1' : '#64748b',
+                  }}>الكل</button>
+                  {areas.map(a => (
+                    <button key={a} onClick={() => setSurveyPharmArea(prev => prev === a ? 'all' : a)} style={{
+                      fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+                      border: `1.5px solid ${surveyPharmArea === a ? '#0ea5e9' : '#e2e8f0'}`,
+                      background: surveyPharmArea === a ? '#e0f2fe' : '#f8fafc',
+                      color: surveyPharmArea === a ? '#0369a1' : '#64748b',
+                    }}>{a}</button>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Loading */}
+          {surveyPharmLoading && (
+            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+              جاري التحميل...
+            </div>
+          )}
+
+          {/* Cards grid */}
+          {!surveyPharmLoading && (() => {
+            const q = surveyPharmSearch.trim().toLowerCase();
+            const filtered = surveyPharmacies.filter(p => {
+              if (surveyPharmArea !== 'all' && p.areaName !== surveyPharmArea) return false;
+              if (q && !p.name.toLowerCase().includes(q) && !(p.ownerName ?? '').toLowerCase().includes(q)) return false;
+              return true;
+            });
+            if (filtered.length === 0) return (
+              <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+                <div style={{ fontSize: 44, marginBottom: 12 }}>🏪</div>
+                {surveyPharmacies.length === 0 ? 'لا توجد صيدليات — أضف أو استورد من Excel' : 'لا توجد نتائج للبحث'}
+              </div>
+            );
+            return (
+              <>
+                <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+                  {filtered.length} صيدلية{surveyPharmArea !== 'all' && ` في ${surveyPharmArea}`}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                  {filtered.map(p => (
+                    <div key={p.id} style={{
+                      background: '#fff', borderRadius: 14, padding: '14px 16px',
+                      border: '1.5px solid #e0f2fe', boxShadow: '0 1px 6px rgba(14,165,233,0.07)',
+                      direction: 'rtl', position: 'relative',
+                    }}>
+                      {/* Edit / Delete buttons */}
+                      <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4 }}>
+                        <button onClick={() => openEditPharm(p)} title="تعديل"
+                          style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: '#0369a1' }}>✏️</button>
+                        <button onClick={() => deletePharm(p.id)} title="حذف"
+                          style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: '#dc2626' }}>🗑</button>
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 8, paddingLeft: 56 }}>🏪 {p.name}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        {p.ownerName && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151' }}>
+                            <span style={{ color: '#94a3b8' }}>👤</span><span>{p.ownerName}</span>
+                          </div>
+                        )}
+                        {p.phone && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151' }}>
+                            <span style={{ color: '#94a3b8' }}>📞</span><span dir="ltr">{p.phone}</span>
+                          </div>
+                        )}
+                        {p.address && (
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 13, color: '#374151' }}>
+                            <span style={{ color: '#94a3b8', marginTop: 1 }}>📍</span><span>{p.address}</span>
+                          </div>
+                        )}
+                        {p.areaName && (
+                          <div style={{ marginTop: 4 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, background: '#e0f2fe', color: '#0369a1', borderRadius: 20, padding: '2px 10px' }}>
+                              {p.areaName}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ── MY VISITS TAB (زياراتي - for commercial rep) ─── */}
+      {activeTab === 'myvisits' && (
+        <div style={{ background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 8px rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+            <span style={{ fontSize: 24 }}>📝</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b' }}>زياراتي الميدانية</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>سجل زياراتك للأطباء والصيدليات</div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0', fontSize: 14 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🚀</div>
+            قريباً — سيتم إضافة سجل الزيارات الميدانية
+          </div>
+        </div>
+      )}
+
+      {/* ── Add/Edit Pharmacy Modal ───────────────────────── */}
+      {pharmModal && (
+        <div style={overlayStyle} onClick={() => setPharmModal(null)}>
+          <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 18px', fontSize: 17 }}>
+              {pharmModal === 'add' ? '＋ إضافة صيدلية' : '✏️ تعديل الصيدلية'}
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <label style={labelStyle}>
+                اسم الصيدلية *
+                <input value={pharmFName} onChange={e => setPharmFName(e.target.value)} style={inputStyle} placeholder="اسم الصيدلية" />
+              </label>
+              <label style={labelStyle}>
+                اسم المالك
+                <input value={pharmFOwner} onChange={e => setPharmFOwner(e.target.value)} style={inputStyle} placeholder="اسم صاحب الصيدلية" />
+              </label>
+              <label style={labelStyle}>
+                رقم الهاتف
+                <input value={pharmFPhone} onChange={e => setPharmFPhone(e.target.value)} style={inputStyle} placeholder="07xx xxx xxxx" dir="ltr" />
+              </label>
+              <label style={labelStyle}>
+                العنوان / الموقع
+                <input value={pharmFAddress} onChange={e => setPharmFAddress(e.target.value)} style={inputStyle} placeholder="الشارع / المنطقة التفصيلية" />
+              </label>
+              <label style={labelStyle}>
+                المنطقة
+                <input value={pharmFAreaName} onChange={e => setPharmFAreaName(e.target.value)} style={inputStyle} placeholder="اسم المنطقة" />
+              </label>
+            </div>
+            {pharmSaveErr && (
+              <div style={{ marginTop: 10, padding: '8px 12px', background: '#fee2e2', borderRadius: 8, color: '#dc2626', fontSize: 13 }}>
+                ⚠️ {pharmSaveErr}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
+              <button onClick={() => setPharmModal(null)} style={{ ...btnStyle('#94a3b8'), background: '#f1f5f9', color: '#475569' }}>إلغاء</button>
+              <button onClick={savePharm} disabled={pharmSaving} style={{ ...btnStyle('#10b981'), opacity: pharmSaving ? 0.7 : 1 }}>
+                {pharmSaving ? '⏳ جاري الحفظ...' : '💾 حفظ'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

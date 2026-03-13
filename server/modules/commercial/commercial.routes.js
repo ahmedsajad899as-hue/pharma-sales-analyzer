@@ -6,8 +6,10 @@ const router = Router();
 const upload = multer({ dest: 'uploads/' });
 
 // ── Stats & helpers ───────────────────────────────────────────
-router.get('/stats',            ctrl.getStats);
-router.get('/reps',             ctrl.listCommercialReps);
+router.get('/stats',              ctrl.getStats);
+router.get('/rep-dashboard',      ctrl.getRepDashboard);
+router.get('/reps',               ctrl.listCommercialReps);
+router.get('/survey-pharmacies',  ctrl.getSurveyPharmacies);
 
 // ── Invoices ──────────────────────────────────────────────────
 router.get   ('/invoices',              ctrl.listInvoices);
@@ -28,9 +30,11 @@ router.get ('/api-key',           ctrl.generateApiKey);   // GET returns current
 router.post('/api-key/generate',  ctrl.generateApiKey);   // POST creates new key
 
 // ── Pharmacies ────────────────────────────────────────────────
-router.get   ('/pharmacies',      ctrl.listPharmacies);
-router.post  ('/pharmacies',      ctrl.createPharmacy);
-router.patch ('/pharmacies/:id',  ctrl.updatePharmacy);
+router.get   ('/pharmacies',             ctrl.listPharmacies);
+router.post  ('/pharmacies',             ctrl.createPharmacy);
+router.post  ('/pharmacies/import',      upload.single('file'), ctrl.importPharmacies);
+router.patch ('/pharmacies/:id',         ctrl.updatePharmacy);
+router.delete('/pharmacies/:id',         ctrl.deletePharmacy);
 
 // ── Visits ────────────────────────────────────────────────────
 router.get  ('/visits',   ctrl.listVisits);

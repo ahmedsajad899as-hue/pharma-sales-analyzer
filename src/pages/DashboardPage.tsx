@@ -122,6 +122,25 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const voiceStartRef  = useRef<number>(0);
   const voiceAutoStop  = useRef<any>(null);
 
+  // ── Commercial Rep dashboard state ─────────────────────────
+  const isCommercialRep = user?.role === 'commercial_rep';
+  interface CommRepDash {
+    monthlySales: number; monthlyReturns: number; netSales: number;
+    myAreas: { id: number; name: string }[];
+    sciReps: { id: number; name: string; company: string; phone: string; areas: string[] }[];
+    salesByCompany: { name: string; total: number }[];
+  }
+  const [commDash, setCommDash]               = useState<CommRepDash | null>(null);
+  const [commDashLoading, setCommDashLoading] = useState(false);
+  const [commDashError, setCommDashError]     = useState<string | null>(null);
+  const [showSciRepsPanel, setShowSciRepsPanel] = useState(false);
+  const [showMyAreasPanel, setShowMyAreasPanel] = useState(false);
+  const [showSalesBreakdown, setShowSalesBreakdown] = useState<'sales' | 'returns' | 'net' | null>(null);
+  const now0 = new Date();
+  const [commDashMonth, setCommDashMonth] = useState<{ month: number; year: number } | null>(() => ({
+    month: now0.getMonth() + 1, year: now0.getFullYear(),
+  }));
+
   const loadDailyCalls = (dateFrom: string, dateTo: string, repId: number | '') => {
     setCallsLoading(true);
     const params = new URLSearchParams({ dateFrom, dateTo });
@@ -132,6 +151,20 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       .catch(() => {})
       .finally(() => setCallsLoading(false));
   };
+
+  // Load commercial rep dashboard data
+  useEffect(() => {
+    if (!isCommercialRep) return;
+    setCommDashLoading(true);
+    setCommDashError(null);
+    const params = commDashMonth ? `?month=${commDashMonth.month}&year=${commDashMonth.year}` : '';
+    fetch(`/api/commercial/rep-dashboard${params}`, { headers: authH() })
+      .then(r => { if (!r.ok) throw new Error(`خطأ ${r.status}`); return r.json(); })
+      .then(data => setCommDash(data))
+      .catch(e => setCommDashError(e.message))
+      .finally(() => setCommDashLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCommercialRep, token, commDashMonth]);
 
   const toggleDashLike = async (visitId: number) => {
     if (likingVisit === visitId) return;
@@ -929,6 +962,262 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
     return true;
   });
+
+  // ── Commercial Rep dashboard: monthly invoices stats ──────
+  if (isCommercialRep) {
+    const fmtNum = (n: number) => n.toLocaleString('ar-IQ-u-nu-latn', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+    const selectedMonthName = commDashMonth
+      ? `${MONTHS_AR[commDashMonth.month - 1]} ${commDashMonth.year}`
+      : 'كل الفترات';
+    // Build last 6 month options
+    const nowRef = new Date();
+    const monthOptions: { month: number; year: number; label: string }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(nowRef.getFullYear(), nowRef.getMonth() - i, 1);
+      monthOptions.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS_AR[d.getMonth()]} ${d.getFullYear()}` });
+    }
+
+    const commCards = [
+      {
+        label: 'مبيعات إجمالية',
+        value: commDashLoading ? '...' : fmtNum(commDash?.monthlySales ?? 0),
+        icon: '📦', color: '#10b981', bg: '#d1fae5',
+        desc: 'إجمالي فواتير الشهر (د.ع)',
+        onClick: () => setShowSalesBreakdown('sales'),
+      },
+      {
+        label: 'ارجاعات',
+        value: commDashLoading ? '...' : fmtNum(commDash?.monthlyReturns ?? 0),
+        icon: '↩', color: '#ef4444', bg: '#fee2e2',
+        desc: 'استرجاع البضاعة هذا الشهر (د.ع)',
+        onClick: () => setShowSalesBreakdown('returns'),
+      },
+      {
+        label: 'صافي (نت)',
+        value: commDashLoading ? '...' : fmtNum(commDash?.netSales ?? 0),
+        icon: '🏆', color: '#6366f1', bg: '#eef2ff',
+        desc: 'المبيع الصافي = إجمالي − ارجاع',
+        onClick: () => setShowSalesBreakdown('net'),
+      },
+      {
+        label: 'المندوبون العلميون',
+        value: commDashLoading ? '...' : (commDash?.sciReps.length ?? 0),
+        icon: '🔬', color: '#8b5cf6', bg: '#ede9fe',
+        desc: 'مندوبون علميون على نفس مناطقك',
+        onClick: () => setShowSciRepsPanel(true),
+      },
+      {
+        label: 'المناطق',
+        value: commDashLoading ? '...' : (commDash?.myAreas.length ?? 0),
+        icon: '📍', color: '#0ea5e9', bg: '#e0f2fe',
+        desc: 'مناطق عملك',
+        onClick: () => setShowMyAreasPanel(true),
+      },
+    ];
+
+    return (
+      <div className="page">
+        <div className="page-header">
+          <h1 className="page-title">{t.dashboard.title}</h1>
+          <p className="page-subtitle">لوحة متابعة المندوب التجاري · {selectedMonthName}</p>
+        </div>
+
+        {/* Month selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20, flexWrap: 'wrap', direction: 'rtl' }}>
+          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>📅 الشهر:</span>
+          {monthOptions.map(o => {
+            const active = commDashMonth?.month === o.month && commDashMonth?.year === o.year;
+            return (
+              <button key={`${o.month}-${o.year}`}
+                onClick={() => setCommDashMonth({ month: o.month, year: o.year })}
+                style={{
+                  fontSize: 11, fontWeight: active ? 700 : 400, padding: '4px 10px', borderRadius: 14,
+                  border: `1px solid ${active ? '#10b981' : '#e2e8f0'}`,
+                  background: active ? '#d1fae5' : 'transparent',
+                  color: active ? '#065f46' : '#94a3b8', cursor: 'pointer',
+                }}>{o.label}</button>
+            );
+          })}
+        </div>
+
+        {commDashError && (
+          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, color: '#dc2626', fontSize: 13 }}>
+            ⚠️ {commDashError}
+          </div>
+        )}
+
+        {/* Stat Cards */}
+        <div className="stats-grid">
+          {commCards.map(card => (
+            <div
+              key={card.label}
+              className="stat-card"
+              style={{ borderTop: `4px solid ${card.color}`, cursor: card.onClick ? 'pointer' : 'default' }}
+              onClick={card.onClick}
+            >
+              <div className="stat-card-icon" style={{ background: card.bg, color: card.color }}>{card.icon}</div>
+              <div className="stat-card-body">
+                <div className="stat-card-value" style={{ color: card.color }}>{card.value}</div>
+                <div className="stat-card-label">{card.label}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{card.desc}</div>
+              </div>
+              {card.onClick && <span style={{ color: card.color, fontSize: '1.1rem' }}>←</span>}
+            </div>
+          ))}
+        </div>
+
+        {/* Sci-Reps Panel */}
+        {showSciRepsPanel && (
+          <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setShowSciRepsPanel(false)}>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 480, width: '90%', maxHeight: '75vh', overflowY: 'auto', direction: 'rtl' }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🔬 المندوبون العلميون في مناطقك</h2>
+                <button onClick={() => setShowSciRepsPanel(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#64748b' }}>✕</button>
+              </div>
+              {(commDash?.sciReps.length ?? 0) === 0 ? (
+                <p style={{ color: '#94a3b8', textAlign: 'center', padding: '24px 0' }}>لا يوجد مندوبون علميون على مناطقك حالياً</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {commDash!.sciReps.map(rep => (
+                    <div key={rep.id} style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#ede9fe', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 18, flexShrink: 0 }}>
+                        {rep.name[0]?.toUpperCase() ?? '?'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{rep.name}</div>
+                        {rep.company && <div style={{ fontSize: 12, color: '#6366f1' }}>🏢 {rep.company}</div>}
+                        {rep.phone && <div style={{ fontSize: 12, color: '#64748b' }}>📞 {rep.phone}</div>}
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>📍 {rep.areas.join('، ')}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* My Areas Panel */}
+        {showMyAreasPanel && (
+          <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setShowMyAreasPanel(false)}>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 400, width: '90%', maxHeight: '70vh', overflowY: 'auto', direction: 'rtl' }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>📍 مناطق عملك</h2>
+                <button onClick={() => setShowMyAreasPanel(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#64748b' }}>✕</button>
+              </div>
+              {(commDash?.myAreas.length ?? 0) === 0 ? (
+                <p style={{ color: '#94a3b8', textAlign: 'center', padding: '24px 0' }}>لم يتم تعيين مناطق لك بعد</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {commDash!.myAreas.map(area => (
+                    <div key={area.id} style={{ background: '#f0f9ff', borderRadius: 10, padding: '10px 14px', color: '#0369a1', fontWeight: 600, fontSize: 14 }}>
+                      📍 {area.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Sales Breakdown Panel */}
+        {showSalesBreakdown && (() => {
+          const byCompany = commDash?.salesByCompany ?? [];
+          const totalSales = commDash?.monthlySales ?? 0;
+          const totalReturns = commDash?.monthlyReturns ?? 0;
+          const totalNet = commDash?.netSales ?? 0;
+          const maxVal = byCompany[0]?.total ?? 1;
+          const titleMap = {
+            sales:   { icon: '📦', label: 'المبيعات الإجمالية حسب الشركة', color: '#10b981', totalLabel: 'إجمالي المبيعات', total: totalSales },
+            returns: { icon: '↩',  label: 'الارجاعات',                       color: '#ef4444', totalLabel: 'إجمالي الارجاعات', total: totalReturns },
+            net:     { icon: '🏆', label: 'صافي المبيع حسب الشركة',          color: '#6366f1', totalLabel: 'صافي المبيع',      total: totalNet },
+          } as const;
+          const t2 = titleMap[showSalesBreakdown];
+          return (
+            <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onClick={() => setShowSalesBreakdown(null)}>
+              <div style={{ background: '#fff', borderRadius: 18, padding: 24, maxWidth: 500, width: '92%', maxHeight: '80vh', overflowY: 'auto', direction: 'rtl', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+                onClick={e => e.stopPropagation()}>
+
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: t2.color }}>{t2.icon} {t2.label}</h2>
+                  <button onClick={() => setShowSalesBreakdown(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+                </div>
+
+                {/* Total badge */}
+                <div style={{ background: `${t2.color}18`, borderRadius: 12, padding: '10px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>{t2.totalLabel}</span>
+                  <span style={{ fontSize: 20, fontWeight: 900, color: t2.color }}>{fmtNum(t2.total)} د.ع</span>
+                </div>
+
+                {/* Company breakdown (shown for sales and net) */}
+                {showSalesBreakdown !== 'returns' && (
+                  <>
+                    {byCompany.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 0', fontSize: 14 }}>لا توجد بيانات تفصيلية للشركات هذا الشهر</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {byCompany.map((co, idx) => {
+                          const barPct = maxVal > 0 ? (co.total / maxVal) * 100 : 0;
+                          const rowColor = [t2.color, '#f59e0b', '#0ea5e9', '#8b5cf6', '#ec4899', '#14b8a6'][idx % 6];
+                          const displayTotal = showSalesBreakdown === 'net'
+                            ? co.total - (totalReturns * (totalSales > 0 ? co.total / totalSales : 0))
+                            : co.total;
+                          return (
+                            <div key={co.name} style={{ background: '#f8fafc', borderRadius: 12, padding: '10px 14px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>🏢 {co.name}</span>
+                                <span style={{ fontWeight: 800, fontSize: 15, color: rowColor }}>{fmtNum(Math.round(displayTotal))} د.ع</span>
+                              </div>
+                              <div style={{ height: 7, background: '#e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${barPct}%`, background: rowColor, borderRadius: 8, transition: 'width 0.5s ease' }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Returns: show note */}
+                {showSalesBreakdown === 'returns' && (
+                  <div style={{ textAlign: 'center', padding: '16px 0', color: '#64748b', fontSize: 13 }}>
+                    <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
+                    <p style={{ margin: 0 }}>الارجاعات مسجلة على مستوى الفاتورة الإجمالية</p>
+                    <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: 12 }}>لا يتوفر تفصيل حسب الشركة للارجاعات حالياً</p>
+                  </div>
+                )}
+
+                {showSalesBreakdown === 'net' && byCompany.length > 0 && (
+                  <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 12, textAlign: 'center' }}>* صافي الشركة = مبيعات الشركة − حصتها من الارجاعات الإجمالية</p>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Quick Actions */}
+        <h2 className="section-title">{t.dashboard.quickActions}</h2>
+        <div className="quick-actions-grid">
+          <button className="quick-action-card" onClick={() => onNavigate('commercial' as PageId)} style={{ borderColor: '#6366f1' }}>
+            <div className="quick-action-icon" style={{ background: '#6366f1' }}>💵</div>
+            <div className="quick-action-body">
+              <div className="quick-action-label">الاستحصالات والفواتير</div>
+              <div className="quick-action-desc">متابعة فواتير الصيدليات</div>
+            </div>
+            <span className="quick-action-arrow" style={{ color: '#6366f1' }}>←</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Scientific Rep dashboard: daily calls only ─────────────
   if (isScientificRep) {

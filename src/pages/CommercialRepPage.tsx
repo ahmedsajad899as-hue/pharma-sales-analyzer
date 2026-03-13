@@ -146,9 +146,8 @@ export default function CommercialRepPage() {
   // ── Tabs ─────────────────────────────────────────────────────
   const tabs: { id: TabId; label: string; icon: string }[] = isRep
     ? [
-        { id: 'home',     label: 'رئيسيتي',    icon: '🏠' },
+        { id: 'home',     label: 'الاستحصال',  icon: '🏠' },
         { id: 'invoices', label: 'فواتيري',    icon: '📄' },
-        { id: 'visits',   label: 'زياراتي',   icon: '🏥' },
         ...(ENABLE_REP_UPLOAD ? [{ id: 'upload' as TabId, label: 'رفع فاتورة', icon: '📤' }] : []),
       ]
     : isLead
@@ -191,7 +190,18 @@ export default function CommercialRepPage() {
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo]     = useState('');
 
-  // ── Selected invoice detail ───────────────────────────────────
+  // Refs always hold the latest filter values — used by fetchInvoices to avoid stale closures
+  const filterStatusRef   = useRef('open');
+  const filterPharmacyRef = useRef('');
+  const filterRepRef      = useRef('');
+  const filterDateFromRef = useRef('');
+  const filterDateToRef   = useRef('');
+  // Keep refs in sync on every render
+  filterStatusRef.current   = filterStatus;
+  filterPharmacyRef.current = filterPharmacy;
+  filterRepRef.current      = filterRep;
+  filterDateFromRef.current = filterDateFrom;
+  filterDateToRef.current   = filterDateTo;
   const [selectedInv, setSelectedInv]       = useState<Invoice | null>(null);
   const [invLoading, setInvLoading]         = useState(false);
 
@@ -205,6 +215,9 @@ export default function CommercialRepPage() {
   const [collectGpsLoading, setCollectGpsLoading] = useState(false);
   const [collectSaving, setCollectSaving]   = useState(false);
   const [lastReceipt, setLastReceipt]       = useState<CollectionRecord | null>(null);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [pharmVoiceOverlay, setPharmVoiceOverlay] = useState(false);
+  const pharmRecognitionRef = useRef<any>(null);
 
   // ── Return goods state ────────────────────────────────────────
   const [withReturn, setWithReturn]         = useState(false);
@@ -225,6 +238,9 @@ export default function CommercialRepPage() {
   // ── Pick-pharmacy modal (إنشاء استحصال) ──────────────────────
   const [pickModal, setPickModal]           = useState(false);
   const [pickQuery, setPickQuery]           = useState('');
+  const [pickPharmName, setPickPharmName]   = useState<string | null>(null);
+  const [pickPharmInvs, setPickPharmInvs]   = useState<Invoice[]>([]);
+  const [pickPharmLoading, setPickPharmLoading] = useState(false);
 
   // ── View mode (list / grouped by area→pharmacy) ───────────────
   const [viewMode, setViewMode]             = useState<'list' | 'grouped'>('grouped');
@@ -247,6 +263,12 @@ export default function CommercialRepPage() {
   const [pharmaModal, setPharmaModal]       = useState(false);
   const [newPharma, setNewPharma]           = useState({ name: '', ownerName: '', phone: '', address: '', areaName: '' });
   const [pharmaSaving, setPharmaSaving]     = useState(false);
+
+  // ── Pharmacy search debounce ───────────────────────────────────
+  const pharmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── AbortController for fetchInvoices – cancels prev in-flight request ──
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   // ── Upload (Excel) ────────────────────────────────────────────
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -300,34 +322,45 @@ export default function CommercialRepPage() {
     } catch {}
   }, [H]);
 
-  // ── Fetch invoices ────────────────────────────────────────────
-  const fetchInvoices = useCallback(async (overridePharmacy?: string) => {
+  // ── Fetch invoices — reads from refs, never stale ────────────
+  const fetchInvoices = useCallback(async (overridePharmacy?: string, overrideStatus?: string) => {
+    // Cancel any previous in-flight request
+    if (fetchAbortRef.current) fetchAbortRef.current.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
     setLoading(true); setError(null);
     try {
       const params = new URLSearchParams();
-      if (filterStatus)   params.set('status', filterStatus);
-      const pName = overridePharmacy !== undefined ? overridePharmacy : filterPharmacy;
-      if (pName)          params.set('pharmacyName', pName);
-      if (filterRep)      params.set('repId',        filterRep);
-      if (filterDateFrom) params.set('dateFrom',     filterDateFrom);
-      if (filterDateTo)   params.set('dateTo',       filterDateTo);
+      const st    = overrideStatus   !== undefined ? overrideStatus   : filterStatusRef.current;
+      const pName = overridePharmacy !== undefined ? overridePharmacy : filterPharmacyRef.current;
+      if (st)                        params.set('status',       st);
+      if (pName)                     params.set('pharmacyName', pName);
+      if (filterRepRef.current)      params.set('repId',        filterRepRef.current);
+      if (filterDateFromRef.current) params.set('dateFrom',     filterDateFromRef.current);
+      if (filterDateToRef.current)   params.set('dateTo',       filterDateToRef.current);
       params.set('take', '500');
-      const r = await fetch(`/api/commercial/invoices?${params}`, { headers: H() });
+      const r = await fetch(`/api/commercial/invoices?${params}`, { headers: H(), signal: controller.signal });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? 'فشل التحميل');
       setInvoices(d.data);
       setTotalInvoices(d.total);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) {
+      if ((e as any)?.name === 'AbortError') return; // request was superseded — ignore
+      setError(e.message);
+    }
     finally { setLoading(false); }
-  }, [H, filterStatus, filterPharmacy, filterRep, filterDateFrom, filterDateTo]);
+  }, [H]);
 
-  // ── Fetch all pharmacy names (no status filter, for search autocomplete) ──
+  // ── Fetch pharmacy names that have pending/partial invoices only ──
   const fetchPharmNames = useCallback(async () => {
     try {
-      const r = await fetch('/api/commercial/invoices?take=1000', { headers: H() });
+      const r = await fetch('/api/commercial/invoices?status=open&take=1000', { headers: H() });
       if (!r.ok) return;
       const d = await r.json();
-      const names = [...new Set<string>((d.data as Invoice[]).map((i: Invoice) => i.pharmacyName))].sort();
+      const names = [...new Set<string>((d.data as Invoice[])
+        .filter(i => i.status !== 'collected')
+        .map((i: Invoice) => i.pharmacyName))].sort();
       setPharmNames(names);
     } catch {}
   }, [H]);
@@ -378,20 +411,30 @@ export default function CommercialRepPage() {
     fetchNotifs();
     fetchInvoices();
     fetchPharmNames();
-    if (isMgr || isLead) { fetchReps(); fetchPharmacies(); }
+    fetchPharmacies();
+    if (isMgr || isLead) { fetchReps(); }
   }, [fetchStats, fetchNotifs, fetchReps, fetchPharmacies, isMgr, isLead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (activeTab === 'invoices' || activeTab === 'team') fetchInvoices();
+    if (activeTab === 'invoices' || activeTab === 'team') {
+      fetchInvoices();
+      // Collapse all areas when switching to invoices tab
+      setExpandedAreas(new Set());
+      setExpandedPharmacies(new Set());
+    }
     if (activeTab === 'pharmacies') fetchPharmacies();
     if (activeTab === 'notifs') fetchNotifs();
   }, [activeTab, fetchInvoices, fetchPharmacies, fetchNotifs]);
 
-  // Auto-refetch invoices when filters change (except pharmacyName — handled via suggestions)
+  // Auto-refetch invoices when any filter changes (debounced 300ms)
+  const filtersDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (activeTab === 'invoices' || activeTab === 'team') fetchInvoices();
+    if (activeTab !== 'invoices' && activeTab !== 'team') return;
+    if (filtersDebounceRef.current) clearTimeout(filtersDebounceRef.current);
+    filtersDebounceRef.current = setTimeout(() => { fetchInvoices(); }, 300);
+    return () => { if (filtersDebounceRef.current) clearTimeout(filtersDebounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus, filterRep, filterDateFrom, filterDateTo]);
+  }, [filterStatus, filterPharmacy, filterRep, filterDateFrom, filterDateTo, activeTab]);
 
   // Poll notifications every 30 seconds
   useEffect(() => {
@@ -463,6 +506,107 @@ export default function CommercialRepPage() {
       fetchStats();
     } catch (e: any) { showToast(`❌ ${e.message}`); }
     finally { setCollectSaving(false); }
+  };
+
+  // ── Voice helpers ────────────────────────────────────────────────
+  const startVoiceInput = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { showToast('❌ المتصفح لا يدعم الإدخال الصوتي'); return; }
+    const recognition = new SR();
+    recognition.lang = 'ar-IQ';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 3;
+    setVoiceListening(true);
+    recognition.onresult = (e: any) => {
+      let found = false;
+      for (let i = 0; i < e.results[0].length; i++) {
+        const t: string = e.results[0][i].transcript;
+        const norm = t
+          .replace(/[٠-٩]/g, (d: string) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+          .replace(/[,،\s]/g, '');
+        const match = norm.match(/\d+/);
+        if (match) {
+          const v = parseInt(match[0], 10);
+          setCollectAmt(String(v));
+          found = true;
+          break;
+        }
+      }
+      if (!found) showToast('🎙️ لم يُتعرف على رقم، حاول مجدداً');
+      setVoiceListening(false);
+    };
+    recognition.onerror = () => { showToast('❌ خطأ في التعرف الصوتي'); setVoiceListening(false); };
+    recognition.onend   = () => setVoiceListening(false);
+    recognition.start();
+  };
+
+  // Voice: listen for pharmacy name, match against pending pharmacies, open their invoices
+  const startVoicePickPharmacy = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { showToast('❌ المتصفح لا يدعم الإدخال الصوتي'); return; }
+    const recognition = new SR();
+    recognition.lang = 'ar-IQ';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 5;
+    pharmRecognitionRef.current = recognition;
+    setVoiceListening(true);
+    setPharmVoiceOverlay(true);
+    recognition.onresult = async (e: any) => {
+      setVoiceListening(false);
+      setPharmVoiceOverlay(false);
+      // Collect all transcript alternatives
+      const transcripts: string[] = [];
+      for (let i = 0; i < e.results[0].length; i++) {
+        transcripts.push((e.results[0][i].transcript as string).trim());
+      }
+      const spoken = transcripts[0] ?? '';
+      // Fuzzy match against known pending pharmacy names
+      const normalize = (s: string) => s.replace(/ٱ/g, 'ا').replace(/ة/g, 'ه').replace(/ي/g, 'ى').toLowerCase().trim();
+      const normSpoken = normalize(spoken);
+      let bestMatch: string | null = null;
+      let bestScore = 0;
+      for (const name of pharmNames) {
+        const normName = normalize(name);
+        if (normName.includes(normSpoken) || normSpoken.includes(normName)) {
+          const score = Math.min(normSpoken.length, normName.length) / Math.max(normSpoken.length, normName.length);
+          if (score > bestScore) { bestScore = score; bestMatch = name; }
+        }
+      }
+      if (!bestMatch || bestScore < 0.3) {
+        showToast(`🎙️ جاري البحث عن: “${spoken}”`);
+        // Open modal with the spoken text pre-filled
+        setPickQuery(spoken);
+        setPickPharmName(null);
+        setPickPharmInvs([]);
+        setPickModal(true);
+        return;
+      }
+      // Found a match — load its invoices directly
+      showToast(`🏥 تم التعرف: ${bestMatch}`);
+      setPickQuery(bestMatch);
+      setPickPharmName(bestMatch);
+      setPickPharmInvs([]);
+      setPickPharmLoading(true);
+      setPickModal(true);
+      try {
+        const params = new URLSearchParams({ pharmacyName: bestMatch, take: '100' });
+        const r = await fetch(`/api/commercial/invoices?${params}`, { headers: H() });
+        const d = await r.json();
+        const open = ((d.data ?? []) as Invoice[]).filter(i => i.status !== 'collected');
+        open.sort((a, b) => new Date(a.dueDate ?? a.invoiceDate).getTime() - new Date(b.dueDate ?? b.invoiceDate).getTime());
+        setPickPharmInvs(open);
+      } catch {}
+      finally { setPickPharmLoading(false); }
+    };
+    recognition.onerror = () => { showToast('❌ خطأ في التعرف الصوتي'); setVoiceListening(false); setPharmVoiceOverlay(false); };
+    recognition.onend   = () => { setVoiceListening(false); setPharmVoiceOverlay(false); };
+    recognition.start();
+  };
+
+  const stopPharmVoice = () => {
+    try { pharmRecognitionRef.current?.stop(); } catch {}
+    setVoiceListening(false);
+    setPharmVoiceOverlay(false);
   };
 
   // ── Create invoice submit ──────────────────────────────────────
@@ -779,6 +923,11 @@ export default function CommercialRepPage() {
     const barColor     = st === 'collected' ? '#16a34a' : st === 'partial' ? '#f59e0b' : st === 'overdue' ? '#ef4444' : '#3b82f6';
     const daysLeft     = daysDiff(inv.maxCollectionDate);
 
+    // Days since invoice was created
+    const daysSince = inv.invoiceDate
+      ? Math.floor((Date.now() - new Date(inv.invoiceDate).getTime()) / 86400000)
+      : null;
+
     return (
       <div
         className={`comm-inv-card comm-inv-${st} ${compact ? 'comm-inv-compact' : ''}`}
@@ -796,6 +945,16 @@ export default function CommercialRepPage() {
           </div>
           <div className="comm-inv-header-right">
             <StatusBadge status={st} />
+            {/* Age badge */}
+            {daysSince !== null && (
+              <span style={{
+                background: daysSince > 60 ? '#fee2e2' : daysSince > 30 ? '#fef3c7' : '#f0fdf4',
+                color:      daysSince > 60 ? '#b91c1c' : daysSince > 30 ? '#b45309' : '#15803d',
+                padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+              }}>
+                🗓 منذ {daysSince} يوم
+              </span>
+            )}
             {daysLeft !== null && daysLeft <= 7 && (
               <DaysBadge maxDate={inv.maxCollectionDate} />
             )}
@@ -1007,7 +1166,25 @@ export default function CommercialRepPage() {
 
   // ── COLLECT MODAL ──────────────────────────────────────────────
   const renderCollectModal = () => {
-    if (!collectModal || !selectedInv) return null;
+    if (!collectModal) return null;
+
+    // Show spinner while invoice detail is loading
+    if (!selectedInv) {
+      return (
+        <div className="comm-modal-overlay" onClick={() => setCollectModal(false)}>
+          <div className="comm-modal" onClick={e => e.stopPropagation()}>
+            <div className="comm-modal-header">
+              <button className="comm-close-btn" onClick={() => setCollectModal(false)}>✕</button>
+              <h3>💰 تسجيل استحصال</h3>
+            </div>
+            <div className="comm-modal-body" style={{ textAlign: 'center', padding: '48px 0', color: '#64748b', fontSize: 15 }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
+              جاري تحميل بيانات الفاتورة...
+            </div>
+          </div>
+        </div>
+      );
+    }
     const returned    = selectedInv.returnedAmount ?? 0;
     const effective   = selectedInv.totalAmount - returned;
     // New return being entered right now
@@ -1027,7 +1204,7 @@ export default function CommercialRepPage() {
             <button className="comm-close-btn" onClick={() => setCollectModal(false)}>✕</button>
             <h3>💰 تسجيل استحصال</h3>
           </div>
-          <div className="comm-modal-body">
+          <div className="comm-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
             {/* Summary */}
             <div className="comm-collect-summary">
               <div className="comm-collect-summary-row">
@@ -1117,18 +1294,40 @@ export default function CommercialRepPage() {
 
             {/* Amount to collect */}
             <label className="comm-label" style={{ marginTop: 12 }}>المبلغ المستحصل (د.ع) *</label>
-            <input
-              className="comm-input"
-              type="number"
-              value={collectAmt}
-              placeholder={`الحد الأقصى: ${fmt(remaining)}`}
-              onChange={e => {
-                setCollectAmt(e.target.value);
-                const v = parseFloat(e.target.value);
-                if (v >= remaining) setCollectFull(true);
-                else setCollectFull(false);
-              }}
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                className="comm-input"
+                type="number"
+                value={collectAmt}
+                placeholder={`الحد الأقصى: ${fmt(remaining)}`}
+                style={{ flex: 1 }}
+                onChange={e => {
+                  setCollectAmt(e.target.value);
+                  const v = parseFloat(e.target.value);
+                  if (v >= remaining) setCollectFull(true);
+                  else setCollectFull(false);
+                }}
+              />
+              <button
+                type="button"
+                onClick={startVoiceInput}
+                disabled={voiceListening}
+                title="إدخال صوتي"
+                style={{
+                  padding: '9px 13px',
+                  borderRadius: 8,
+                  border: voiceListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                  background: voiceListening ? '#fee2e2' : '#f0fdf4',
+                  cursor: voiceListening ? 'not-allowed' : 'pointer',
+                  fontSize: 20,
+                  flexShrink: 0,
+                  transition: 'all 0.2s',
+                  boxShadow: voiceListening ? '0 0 0 3px rgba(239,68,68,0.2)' : '0 1px 3px rgba(0,0,0,0.08)',
+                }}
+              >
+                {voiceListening ? '🔴' : '🎙️'}
+              </button>
+            </div>
 
             <label className="comm-label">الحسم (اختياري)</label>
             <input
@@ -1283,57 +1482,258 @@ export default function CommercialRepPage() {
         <div>
           {/* إنشاء استحصال */}
           {(isRep || canCollect) && (
-            <button
-              className="comm-btn-collect-start"
-              onClick={() => { setPickQuery(''); setPickModal(true); }}
-            >
-              💵 إنشاء استحصال
-            </button>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 0 }}>
+              <button
+                className="comm-btn-collect-start"
+                style={{ flex: 1, margin: 0 }}
+                onClick={() => { setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }}
+              >
+                💵 إنشاء استحصال
+              </button>
+              <button
+                type="button"
+                onClick={startVoicePickPharmacy}
+                disabled={voiceListening}
+                title="بحث صوتي عن صيدلية"
+                style={{
+                  padding: '0 20px',
+                  borderRadius: 14,
+                  border: voiceListening ? '2px solid #ef4444' : '2px solid rgba(255,255,255,0.4)',
+                  background: voiceListening
+                    ? 'linear-gradient(135deg,#fca5a5,#f87171)'
+                    : 'linear-gradient(135deg,#38bdf8,#0ea5e9)',
+                  cursor: voiceListening ? 'not-allowed' : 'pointer',
+                  fontSize: 24,
+                  color: '#fff',
+                  flexShrink: 0,
+                  boxShadow: voiceListening
+                    ? '0 0 0 4px rgba(239,68,68,0.25)'
+                    : '0 4px 14px rgba(14,165,233,0.4)',
+                  transition: 'all 0.2s',
+                  animation: voiceListening ? 'pulse 1s infinite' : 'none',
+                }}
+              >
+                {voiceListening ? '🔴' : '🎙️'}
+              </button>
+            </div>
           )}
 
           {/* Pick-pharmacy modal */}
           {pickModal && (() => {
-            const allNames = [...new Set([
-              ...pharmNames,
-              ...pharmacies.map(p => p.name),
-            ])].sort();
-            const filtered = pickQuery.trim()
-              ? allNames.filter(n => n.toLowerCase().includes(pickQuery.toLowerCase()))
-              : allNames;
+            const allNames = [...new Set([...pharmNames, ...pharmacies.map(p => p.name)])].sort();
+            // Map: pharmacy name → area name
+            const areaByName: Record<string, string> = {};
+            pharmacies.forEach(p => { if (p.areaName) areaByName[p.name] = p.areaName; });
+            // Step-1 suggestions: only show when typing, sorted by best match first
+            const q = pickQuery.trim().toLowerCase();
+            const suggestions = q.length === 0 ? [] : allNames
+              .filter(n => n.toLowerCase().includes(q))
+              .sort((a, b) => {
+                const ai = a.toLowerCase().indexOf(q), bi = b.toLowerCase().indexOf(q);
+                if (ai !== bi) return ai - bi; // earlier match first
+                return a.length - b.length;    // shorter name first
+              })
+              .slice(0, 8);
+
+            const selectPharm = async (name: string) => {
+              setPickPharmName(name);
+              setPickPharmInvs([]);
+              setPickPharmLoading(true);
+              try {
+                const params = new URLSearchParams({ pharmacyName: name, take: '100' });
+                const r = await fetch(`/api/commercial/invoices?${params}`, { headers: H() });
+                const d = await r.json();
+                const open = ((d.data ?? []) as Invoice[]).filter(i => i.status !== 'collected');
+                open.sort((a, b) => new Date(a.dueDate ?? a.invoiceDate).getTime() - new Date(b.dueDate ?? b.invoiceDate).getTime());
+                setPickPharmInvs(open);
+              } catch {}
+              finally { setPickPharmLoading(false); }
+            };
+
+            const highlightMatch = (name: string) => {
+              if (!q) return <span>{name}</span>;
+              const idx = name.toLowerCase().indexOf(q);
+              if (idx === -1) return <span>{name}</span>;
+              return <span>{name.slice(0, idx)}<mark style={{ background: '#fef08a', borderRadius: 3, padding: '0 1px' }}>{name.slice(idx, idx + q.length)}</mark>{name.slice(idx + q.length)}</span>;
+            };
+
             return (
-              <div className="comm-modal-overlay" onClick={() => setPickModal(false)}>
-                <div className="comm-modal comm-pick-modal" onClick={e => e.stopPropagation()}>
-                  <div className="comm-modal-header">
-                    <span>اختر الصيدلية</span>
-                    <button className="comm-modal-close" onClick={() => setPickModal(false)}>✕</button>
-                  </div>
-                  <input
-                    autoFocus
-                    className="comm-input"
-                    placeholder="🔍 بحث سريع..."
-                    value={pickQuery}
-                    onChange={e => setPickQuery(e.target.value)}
-                    style={{ margin: '12px 0 8px' }}
-                  />
-                  <div className="comm-pick-list">
-                    {filtered.length === 0 && (
-                      <div style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 0', fontSize: 13 }}>لا توجد نتائج</div>
-                    )}
-                    {filtered.map(name => (
-                      <div
-                        key={name}
-                        className="comm-pick-item"
-                        onClick={() => {
-                          setPickModal(false);
-                          setFilterPharmacy(name);
-                          setFilterStatus('open');
-                          setActiveTab('invoices');
-                          fetchInvoices(name);
-                        }}
-                      >
-                        🏥 {name}
+              <div
+                style={{
+                  position: 'fixed', inset: 0, zIndex: 9999,
+                  background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+                }}
+                onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
+              >
+                <div
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    background: '#fff', borderRadius: 20, width: '100%', maxWidth: 420,
+                    boxShadow: '0 24px 60px rgba(0,0,0,0.25)', overflow: 'hidden',
+                    display: 'flex', flexDirection: 'column', maxHeight: '85vh',
+                  }}
+                >
+                  {/* ── Header ── */}
+                  {!pickPharmName ? (
+                    <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                        <div style={{ fontWeight: 800, fontSize: 16, color: '#1e293b' }}>💊 اختر الصيدلية</div>
+                        <button
+                          onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
+                          style={{ background: '#f1f5f9', border: 'none', borderRadius: 50, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >✕</button>
                       </div>
-                    ))}
+                      {/* Search box */}
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: '#94a3b8' }}>🔍</span>
+                        <input
+                          autoFocus
+                          value={pickQuery}
+                          onChange={e => setPickQuery(e.target.value)}
+                          placeholder="ابدأ بكتابة اسم الصيدلية..."
+                          style={{
+                            width: '100%', boxSizing: 'border-box',
+                            padding: '11px 40px 11px 14px',
+                            borderRadius: 12, border: '2px solid #e2e8f0',
+                            fontSize: 14, outline: 'none', direction: 'rtl',
+                            background: '#f8fafc', transition: 'border-color 0.2s',
+                          }}
+                          onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                          onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                        />
+                        {pickQuery && (
+                          <button
+                            onClick={() => setPickQuery('')}
+                            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8' }}
+                          >✕</button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <button
+                        onClick={() => { setPickPharmName(null); setPickPharmInvs([]); setPickQuery(''); }}
+                        style={{ background: '#f1f5f9', border: 'none', borderRadius: 50, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                      >←</button>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🏥 {pickPharmName}</div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>اختر الفاتورة للاستحصال</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Body ── */}
+                  <div style={{ overflowY: 'auto', flex: 1, padding: '8px 16px 16px' }}>
+
+                    {/* Step 1: suggestions */}
+                    {!pickPharmName && (<>
+                      {q.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '32px 0 24px', color: '#94a3b8' }}>
+                          <div style={{ fontSize: 36, marginBottom: 8 }}>🏪</div>
+                          <div style={{ fontSize: 13 }}>ابدأ بكتابة اسم الصيدلية للبحث</div>
+                          <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>{allNames.length} صيدلية متاحة</div>
+                        </div>
+                      )}
+                      {q.length > 0 && suggestions.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
+                          <div style={{ fontSize: 32, marginBottom: 8 }}>🔎</div>
+                          <div style={{ fontSize: 13 }}>لا توجد نتائج لـ "{pickQuery}"</div>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: q ? 8 : 0 }}>
+                        {suggestions.map((name, idx) => (
+                          <button
+                            key={name}
+                            onClick={() => selectPharm(name)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 12,
+                              padding: '12px 14px', borderRadius: 12,
+                              border: '1.5px solid #e2e8f0', background: idx === 0 ? '#f0f9ff' : '#fafafa',
+                              cursor: 'pointer', textAlign: 'right', width: '100%',
+                              transition: 'all 0.15s',
+                              borderColor: idx === 0 ? '#bae6fd' : '#e2e8f0',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#a5b4fc'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = idx === 0 ? '#f0f9ff' : '#fafafa'; e.currentTarget.style.borderColor = idx === 0 ? '#bae6fd' : '#e2e8f0'; }}
+                          >
+                            <span style={{ fontSize: 22, flexShrink: 0 }}>🏥</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{highlightMatch(name)}</div>
+                              {areaByName[name] && (
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>📍 {areaByName[name]}</div>
+                              )}
+                            </div>
+                            {idx === 0 && <span style={{ fontSize: 10, background: '#0ea5e9', color: '#fff', borderRadius: 20, padding: '2px 8px', flexShrink: 0 }}>الأقرب</span>}
+                            <span style={{ color: '#cbd5e1', fontSize: 16, flexShrink: 0 }}>‹</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>)}
+
+                    {/* Step 2: invoices list */}
+                    {pickPharmName && (<>
+                      {pickPharmLoading && (
+                        <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
+                          <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+                          <div style={{ fontSize: 13 }}>جاري تحميل الفواتير...</div>
+                        </div>
+                      )}
+                      {!pickPharmLoading && pickPharmInvs.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '32px 0', color: '#16a34a' }}>
+                          <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>لا توجد فواتير مستحقة</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>جميع مستحقات هذه الصيدلية مسددة</div>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                        {!pickPharmLoading && pickPharmInvs.map((inv, idx) => {
+                          const refDate = inv.dueDate ?? inv.invoiceDate;
+                          const days = Math.floor((Date.now() - new Date(refDate).getTime()) / 86_400_000);
+                          const remaining = inv.totalAmount - inv.collectedAmount - (inv.returnedAmount ?? 0);
+                          const daysColor = days > 30 ? '#dc2626' : days > 14 ? '#d97706' : days > 0 ? '#0369a1' : '#16a34a';
+                          const urgency = days > 30 ? { bg: '#fff1f2', border: '#fecdd3' } : days > 14 ? { bg: '#fffbeb', border: '#fde68a' } : { bg: '#f0f9ff', border: '#bae6fd' };
+                          return (
+                            <button
+                              key={inv.id}
+                              onClick={() => {
+                                setPickModal(false); setPickPharmName(null); setPickPharmInvs([]);
+                                fetchInvoiceDetail(inv.id);
+                                setCollectModal(true); setCollectAmt(''); setCollectDiscount('0');
+                                setCollectFull(false); setCollectNotes(''); setCollectGps(null);
+                                setWithReturn(false); setReturnQtys({});
+                              }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 12,
+                                padding: '14px', borderRadius: 14,
+                                border: `1.5px solid ${urgency.border}`, background: urgency.bg,
+                                cursor: 'pointer', textAlign: 'right', width: '100%',
+                                transition: 'transform 0.12s, box-shadow 0.12s',
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.01)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+                            >
+                              {/* rank badge */}
+                              <div style={{ width: 32, height: 32, borderRadius: 10, background: daysColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                                {idx + 1}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>#{inv.invoiceNumber}</div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                  {inv.dueDate ? `📅 استحقاق: ${inv.dueDate}` : `📄 فاتورة: ${inv.invoiceDate}`}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'left', flexShrink: 0 }}>
+                                <div style={{ fontWeight: 800, fontSize: 14, color: '#dc2626', direction: 'ltr' }}>{remaining.toLocaleString()}<span style={{ fontSize: 10, fontWeight: 500 }}> د.ع</span></div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: daysColor, background: `${daysColor}18`, borderRadius: 20, padding: '2px 8px', marginTop: 3, textAlign: 'center' }}>
+                                  {days > 0 ? `${days} يوم` : days === 0 ? 'اليوم' : `${Math.abs(days)}ي متبقي`}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>)}
                   </div>
                 </div>
               </div>
@@ -1347,7 +1747,10 @@ export default function CommercialRepPage() {
             <div className="comm-card" style={{ marginTop: 16 }}>
               <div className="comm-card-title">🕐 آخر الاستحصالات (7 أيام)</div>
               {stats.recentCollections.map((c: any, i: number) => (
-                <div key={i} className={`comm-recent-row ${c.isFullCollection ? 'full' : 'partial'}`}>
+                <div key={i} className={`comm-recent-row ${c.isFullCollection ? 'full' : 'partial'}`}
+                  style={{ cursor: c.invoice?.id ? 'pointer' : undefined }}
+                  onClick={() => { if (c.invoice?.id) fetchInvoiceDetail(c.invoice.id); }}
+                >
                   <div className={`comm-recent-badge ${c.isFullCollection ? 'full' : 'partial'}`}>
                     {c.isFullCollection ? '✅ كامل' : '🔄 جزئي'}
                   </div>
@@ -1417,6 +1820,8 @@ export default function CommercialRepPage() {
             if (!pharmaMap.has(inv.pharmacyName)) pharmaMap.set(inv.pharmacyName, []);
             pharmaMap.get(inv.pharmacyName)!.push(inv);
           }
+          // When searching by pharmacy name, auto-expand all areas and pharmacies
+          const isSearching = filterPharmacy.trim().length > 0;
           return (
             <div className="comm-grouped-view comm-theme-cordine">
               {[...areaMap.entries()].map(([area, pharmaMap], areaIdx) => {
@@ -1430,15 +1835,31 @@ export default function CommercialRepPage() {
                 const areaEffective = areaTotal - areaReturned;
                 const areaRemaining = areaEffective - areaCollected;
                 const areaPct = areaEffective > 0 ? Math.round((areaCollected / areaEffective) * 100) : 0;
-                const areaOpen = expandedAreas.has(area) || expandedAreas.has('__all__');
-                const anyOpen = expandedAreas.size > 0 && !expandedAreas.has('__all__');
+                const areaOpen = isSearching || expandedAreas.has(area);
+                const anyOpen = !isSearching && expandedAreas.size > 0;
                 const totalInvCount = [...pharmaMap.values()].reduce((s, a) => s + a.length, 0);
-                const toggleArea = () => setExpandedAreas(prev => {
-                  const next = new Set(prev); next.delete('__all__');
-                  if (next.has(area)) { next.delete(area); } else { next.clear(); next.add(area); }
-                  return next;
-                });
-                // hide this section if another area is open
+                const toggleArea = () => {
+                  if (isSearching) return; // don't collapse while searching
+                  setExpandedAreas(prev => {
+                    const next = new Set(prev);
+                    if (next.has(area)) {
+                      next.delete(area);
+                      // also collapse all pharmacies in this area
+                      setExpandedPharmacies(pp => {
+                        const npp = new Set(pp);
+                        [...pharmaMap.keys()].forEach(pn => npp.delete(`${area}::${pn}`));
+                        return npp;
+                      });
+                    } else {
+                      next.clear();
+                      next.add(area);
+                      // collapse pharmacies of any previously open area
+                      setExpandedPharmacies(new Set());
+                    }
+                    return next;
+                  });
+                };
+                // hide this section if another area is open (only when not searching)
                 if (anyOpen && !areaOpen) return null;
                 return (
                   <div key={area} className="comm-area-section" data-idx={areaIdx % 5}>
@@ -1457,9 +1878,9 @@ export default function CommercialRepPage() {
                       <div className="comm-area-body">
                         {[...pharmaMap.entries()].map(([pharmaName, invs]) => {
                           const pharmaKey  = `${area}::${pharmaName}`;
-                          const pharmaOpen = expandedPharmacies.has(pharmaKey);
-                          // any pharmacy in this area is open?
-                          const anyPharmaOpen = [...pharmaMap.keys()].some(pn => expandedPharmacies.has(`${area}::${pn}`));
+                          const pharmaOpen = isSearching || expandedPharmacies.has(pharmaKey);
+                          // any pharmacy in this area is open? (only when not searching)
+                          const anyPharmaOpen = !isSearching && [...pharmaMap.keys()].some(pn => expandedPharmacies.has(`${area}::${pn}`));
                           if (anyPharmaOpen && !pharmaOpen) return null;
                           const pTotal  = invs.reduce((s, i) => s + i.totalAmount, 0);
                           const pColl   = invs.reduce((s, i) => s + i.collectedAmount, 0);
@@ -1475,15 +1896,18 @@ export default function CommercialRepPage() {
                             <div key={pharmaName} className="comm-pharma-section">
                               <div
                                 className={`comm-pharma-row ${allDone ? 'done' : hasOver ? 'overdue' : ''}`}
-                                onClick={() => setExpandedPharmacies(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(pharmaKey)) { next.delete(pharmaKey); }
-                                  else { // close all pharmacies in same area first
-                                    [...pharmaMap.keys()].forEach(pn => next.delete(`${area}::${pn}`));
-                                    next.add(pharmaKey);
-                                  }
-                                  return next;
-                                })}
+                                onClick={() => {
+                                  if (isSearching) return; // don't collapse while searching
+                                  setExpandedPharmacies(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(pharmaKey)) { next.delete(pharmaKey); }
+                                    else { // close all pharmacies in same area first
+                                      [...pharmaMap.keys()].forEach(pn => next.delete(`${area}::${pn}`));
+                                      next.add(pharmaKey);
+                                    }
+                                    return next;
+                                  });
+                                }}
                               >
                                 <div className="comm-pharma-avatar">{initials}</div>
                                 <div className="comm-pharma-row-left">
@@ -1537,23 +1961,63 @@ export default function CommercialRepPage() {
           );
         };
 
+        const STATUS_TABS = [
+          { value: 'open',      label: 'غير مسدد', icon: '⏳' },
+          { value: '',          label: 'الكل',     icon: '📋' },
+          { value: 'pending',   label: 'معلق',     icon: '🕐' },
+          { value: 'partial',   label: 'جزئي',     icon: '🔄' },
+          { value: 'collected', label: 'مكتمل',    icon: '✅' },
+        ];
+
         return (
         <div>
+          {/* Status filter icon tabs */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 0 4px' }}>
+            {STATUS_TABS.map(tab => {
+              const active = filterStatus === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => {
+                    setFilterStatus(tab.value);
+                    setFilterPharmacy('');
+                    setShowSuggestions(false);
+                    // Collapse all areas so user picks an area to drill into
+                    setExpandedAreas(new Set());
+                    setExpandedPharmacies(new Set());
+                    // Update refs immediately before calling fetch
+                    filterStatusRef.current   = tab.value;
+                    filterPharmacyRef.current = '';
+                    fetchInvoices('', tab.value);
+                  }}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    gap: 3, padding: '6px 12px', borderRadius: 12,
+                    border: active ? '2px solid #6366f1' : '1.5px solid #e2e8f0',
+                    background: active ? '#eef2ff' : '#fff',
+                    color: active ? '#4338ca' : '#64748b',
+                    fontWeight: active ? 700 : 500,
+                    fontSize: 11, cursor: 'pointer',
+                    boxShadow: active ? '0 2px 8px rgba(99,102,241,0.18)' : '0 1px 3px rgba(0,0,0,0.06)',
+                    transition: 'all 0.15s',
+                    minWidth: 52,
+                  }}
+                >
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Filters */}
           <div className="comm-filters">
-            <select className="comm-input" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="open">غير مسدد</option>
-              <option value="">كل الحالات</option>
-              <option value="pending">معلق</option>
-              <option value="partial">جزئي</option>
-              <option value="collected">مكتمل</option>
-            </select>
             <div style={{ position: 'relative', flex: 1 }}>
               <input
                 className="comm-input"
                 placeholder="🔍 بحث بالصيدلية..."
                 value={filterPharmacy}
-                onChange={e => { setFilterPharmacy(e.target.value); setShowSuggestions(true); }}
+                onChange={e => { setFilterPharmacy(e.target.value); setShowSuggestions(true); if (viewMode !== 'grouped') setViewMode('grouped'); }}
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
               />
@@ -1567,7 +2031,7 @@ export default function CommercialRepPage() {
                     <div
                       key={name}
                       style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}
-                      onMouseDown={() => { setFilterPharmacy(name); setShowSuggestions(false); setViewMode('list'); fetchInvoices(name); }}
+                      onMouseDown={() => { setFilterPharmacy(name); setShowSuggestions(false); setViewMode('grouped'); }}
                     >{name}</div>
                   ))}
                 </div>
@@ -1609,17 +2073,21 @@ export default function CommercialRepPage() {
           </div>
 
           {/* Content */}
-          {loading ? (
+          {loading && invoices.length === 0 ? (
             <div className="comm-loading">جاري التحميل...</div>
           ) : error ? (
             <div className="comm-error">{error}</div>
-          ) : invoices.length === 0 ? (
+          ) : !loading && invoices.length === 0 ? (
             <div className="comm-empty">لا توجد فواتير بهذه المعايير</div>
-          ) : viewMode === 'grouped' ? (
-            renderGroupedView()
           ) : (
-            <div className="comm-inv-grid">
-              {invoices.map(inv => <InvoiceCard key={inv.id} inv={inv} />)}
+            <div style={{ opacity: loading ? 0.45 : 1, transition: 'opacity 0.18s', pointerEvents: loading ? 'none' : 'auto' }}>
+              {viewMode === 'grouped' ? renderGroupedView() : (
+                <div className="comm-inv-grid">
+                  {[...invoices]
+                    .sort((a, b) => new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime())
+                    .map(inv => <InvoiceCard key={inv.id} inv={inv} />)}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2079,6 +2547,79 @@ export default function CommercialRepPage() {
       {renderInvoiceDetail()}
       {renderCollectModal()}
       {renderCreateModal()}
+
+      {/* Pharmacy voice recording overlay */}
+      {pharmVoiceOverlay && (
+        <div
+          dir="rtl"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(15, 10, 40, 0.72)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div style={{
+            background: '#fff', borderRadius: 24, padding: '40px 48px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            gap: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+            minWidth: 280, textAlign: 'center',
+          }}>
+            {/* Animated mic */}
+            <div style={{ position: 'relative', width: 80, height: 80 }}>
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: '50%',
+                background: 'rgba(239,68,68,0.18)',
+                animation: 'commRecRipple 1.4s ease-out infinite',
+              }} />
+              <div style={{
+                position: 'absolute', inset: 8, borderRadius: '50%',
+                background: 'rgba(239,68,68,0.25)',
+                animation: 'commRecRipple 1.4s ease-out 0.3s infinite',
+              }} />
+              <div style={{
+                position: 'absolute', inset: 16, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 26, boxShadow: '0 4px 16px rgba(239,68,68,0.5)',
+              }}>🎙️</div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>جاري البحث الصوتي...</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>قل اسم الصيدلية، ثم اضغط إنهاء عند الانتهاء</div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%',
+                background: '#ef4444', display: 'inline-block',
+                animation: 'commRecPulse 1s ease-in-out infinite',
+              }} />
+              <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>تسجيل نشط</span>
+            </div>
+
+            <button
+              onClick={stopPharmVoice}
+              style={{
+                marginTop: 4, padding: '12px 36px', borderRadius: 12,
+                border: 'none',
+                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(239,68,68,0.4)',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}
+            >
+              ⏹ إنهاء التسجيل
+            </button>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes commRecPulse  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
+        @keyframes commRecRipple { 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(1.8);opacity:0} }
+      `}</style>
     </div>
   );
 }

@@ -86,16 +86,23 @@ function AppInner() {
   const { user, hasFeature } = useAuth();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
   // On mobile (< 768px) start with sidebar closed
-  const [activePage, setActivePage]       = useState<PageId>(() => (localStorage.getItem('lastPage') as PageId) || 'dashboard');
+  const [activePage, setActivePage]       = useState<PageId>(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      if (u?.role === 'commercial_rep') return 'commercial';
+    } catch {}
+    const saved = localStorage.getItem('lastPage') as PageId | null;
+    return saved ?? 'dashboard';
+  });
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
 
-  // Redirect to first accessible page if user doesn't have permission for current page
+  // Redirect commercial_rep to the commercial page on every load
   useEffect(() => {
     if (!user) return;
-    // All pages are accessible to every role
-    void activePage;
-    void user.role;
+    if (user.role === 'commercial_rep') {
+      navigateTo('commercial');
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 

@@ -84,7 +84,7 @@ export async function getStats(req, res, next) {
         collectedAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
       },
       include: {
-        invoice: { select: { pharmacyName: true, invoiceNumber: true } },
+        invoice: { select: { id: true, pharmacyName: true, invoiceNumber: true } },
         collectedBy: { select: { username: true, displayName: true } },
       },
       orderBy: { collectedAt: 'desc' },
@@ -573,14 +573,16 @@ export async function listPharmacies(req, res, next) {
 export async function createPharmacy(req, res, next) {
   try {
     const { id: userId, role } = req.user;
-    if (!isMgr(role)) return res.status(403).json({ error: 'Managers only' });
+    if (!isMgr(role) && !isRep(role)) return res.status(403).json({ error: 'Forbidden' });
     const { name, ownerName, phone, address, areaId, areaName, notes } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'اسم الصيدلية مطلوب' });
     const p = await prisma.pharmacy.create({
       data: {
-        name: String(name), ownerName: ownerName ?? null, phone: phone ?? null,
-        address: address ?? null, areaId: areaId ? parseInt(areaId) : null,
-        areaName: areaName ?? null, notes: notes ?? null, userId,
+        name: String(name).trim(), ownerName: ownerName?.trim() || null, phone: phone?.trim() || null,
+        address: address?.trim() || null, areaId: areaId ? parseInt(areaId) : null,
+        areaName: areaName?.trim() || null, notes: notes?.trim() || null, userId,
       },
+      include: { area: { select: { id: true, name: true } } },
     });
     res.status(201).json(p);
   } catch (e) {
@@ -592,7 +594,7 @@ export async function createPharmacy(req, res, next) {
 export async function updatePharmacy(req, res, next) {
   try {
     const { id: userId, role } = req.user;
-    if (!isMgr(role)) return res.status(403).json({ error: 'Managers only' });
+    if (!isMgr(role) && !isRep(role)) return res.status(403).json({ error: 'Forbidden' });
     const id = parseInt(req.params.id);
     const { name, ownerName, phone, address, areaId, areaName, notes, isActive } = req.body;
     const p = await prisma.pharmacy.findFirst({ where: { id, userId } });
@@ -600,17 +602,98 @@ export async function updatePharmacy(req, res, next) {
     const updated = await prisma.pharmacy.update({
       where: { id },
       data: {
-        ...(name && { name }),
-        ...(ownerName != null && { ownerName }),
-        ...(phone != null && { phone }),
-        ...(address != null && { address }),
+        ...(name && { name: String(name).trim() }),
+        ...(ownerName != null && { ownerName: ownerName?.trim() || null }),
+        ...(phone != null && { phone: phone?.trim() || null }),
+        ...(address != null && { address: address?.trim() || null }),
         ...(areaId != null && { areaId: parseInt(areaId) }),
-        ...(areaName != null && { areaName }),
+        ...(areaName != null && { areaName: areaName?.trim() || null }),
         ...(notes != null && { notes }),
         ...(isActive != null && { isActive }),
       },
+      include: { area: { select: { id: true, name: true } } },
     });
     res.json(updated);
+  } catch (e) { next(e); }
+}
+
+export async function deletePharmacy(req, res, next) {
+  try {
+    const { id: userId, role } = req.user;
+    if (!isMgr(role) && !isRep(role)) return res.status(403).json({ error: 'Forbidden' });
+    const id = parseInt(req.params.id);
+    const p = await prisma.pharmacy.findFirst({ where: { id, userId } });
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    await prisma.pharmacy.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+export async function importPharmacies(req, res, next) {
+  try {
+    const { id: userId, role } = req.user;
+    if (!isMgr(role) && !isRep(role)) return res.status(403).json({ error: 'Forbidden' });
+    if (!req.file) return res.status(400).json({ error: 'لم يتم رفع ملف' });
+
+    const wb = XLSX.readFile(req.file.path);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    fs.unlink(req.file.path, () => {});
+    if (!rows.length) return res.json({ imported: 0, skipped: 0, errors: [] });
+
+    const headers = Object.keys(rows[0]);
+    const ALIASES = {
+      name:      ['الاسم','اسم','name','pharmacyname','اسمالصيدلية','اسمالصيدليه','صيدلية','صيدليه'],
+      ownerName: ['المالك','مالك','ownername','owner','صاحب'],
+      phone:     ['هاتف','تلفون','phone','mobile','موبايل','رقم'],
+      address:   ['عنوان','address','location','موقع'],
+      areaName:  ['المنطقه','المنطقة','منطقه','منطقة','area','areaname'],
+      notes:     ['ملاحظات','notes'],
+    };
+    const colMap = {};
+    for (const h of headers) {
+      const n = normHeader(h);
+      for (const [field, aliases] of Object.entries(ALIASES)) {
+        if (!colMap[field] && aliases.some(a => a === n || n.includes(a) || a.includes(n))) {
+          colMap[field] = h; break;
+        }
+      }
+    }
+    const g = (row, f) => colMap[f] != null ? String(row[colMap[f]] ?? '').trim() : '';
+
+    // Get areas for matching
+    const areas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const normName = s => String(s ?? '').replace(/\s+/g, '').toLowerCase();
+    const findArea = n => areas.find(a => normName(a.name) === normName(n)) ??
+                         areas.find(a => normName(a.name).includes(normName(n)) || normName(n).includes(normName(a.name)));
+
+    let imported = 0, skipped = 0;
+    const errors = [];
+    for (const row of rows) {
+      const name = g(row, 'name');
+      if (!name) { skipped++; continue; }
+      const areaNameRaw = g(row, 'areaName');
+      const area = areaNameRaw ? findArea(areaNameRaw) : null;
+      try {
+        const exists = await prisma.pharmacy.findFirst({ where: { name, userId } });
+        if (exists) { skipped++; continue; }
+        await prisma.pharmacy.create({
+          data: {
+            name, userId,
+            ownerName: g(row, 'ownerName') || null,
+            phone:     g(row, 'phone')     || null,
+            address:   g(row, 'address')   || null,
+            areaId:    area?.id ?? null,
+            areaName:  area?.name ?? (areaNameRaw || null),
+            notes:     g(row, 'notes')     || null,
+          },
+        });
+        imported++;
+      } catch (e) {
+        errors.push({ name, error: e.message });
+      }
+    }
+    res.json({ imported, skipped, errors, detectedCols: colMap });
   } catch (e) { next(e); }
 }
 
@@ -694,6 +777,136 @@ export async function markReadNotification(req, res, next) {
 }
 
 // ─── LIST REPS (for manager to assign) ───────────────────────
+// ─── SURVEY PHARMACIES (filtered by rep's assigned areas) ───────
+export async function getSurveyPharmacies(req, res, next) {
+  try {
+    const { id: userId, role } = req.user;
+    if (!isRep(role)) return res.status(403).json({ error: 'Commercial reps only' });
+
+    // Get rep's area assignments
+    const areaAssignments = await prisma.userAreaAssignment.findMany({
+      where: { userId },
+      select: { areaId: true },
+    });
+    const areaIds = areaAssignments.map(a => a.areaId);
+
+    // Return pharmacies that belong to rep's areas OR were added by this rep directly
+    const pharmacies = await prisma.pharmacy.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          ...(areaIds.length > 0 ? [{ areaId: { in: areaIds } }] : []),
+          { userId },
+        ],
+      },
+      include: { area: { select: { id: true, name: true } } },
+      orderBy: [{ areaId: 'asc' }, { name: 'asc' }],
+    });
+    res.json(pharmacies);
+  } catch (e) { next(e); }
+}
+
+// ─── REP DASHBOARD (monthly stats + sci-reps in same areas) ───
+export async function getRepDashboard(req, res, next) {
+  try {
+    const { id: userId, role } = req.user;
+    if (!isRep(role)) return res.status(403).json({ error: 'Commercial reps only' });
+
+    // Month range — use query params if provided, else current month
+    const now = new Date();
+    const reqMonth = parseInt(req.query.month);
+    const reqYear  = parseInt(req.query.year);
+    const month = (!isNaN(reqMonth) && reqMonth >= 1 && reqMonth <= 12) ? reqMonth - 1 : now.getMonth();
+    const year  = (!isNaN(reqYear)  && reqYear  >= 2000)                ? reqYear      : now.getFullYear();
+    const monthStart = new Date(year, month, 1);
+    const monthEnd   = new Date(year, month + 1, 0, 23, 59, 59, 999);
+
+    // Monthly invoice totals — uses invoiceDate (order date), no status filter
+    const [invAgg, returnAgg, myAreaAssignments, invoiceItems] = await Promise.all([
+      prisma.commercialInvoice.aggregate({
+        where: {
+          assignedRepId: userId,
+          invoiceDate: { gte: monthStart, lte: monthEnd },
+        },
+        _sum: { totalAmount: true },
+      }),
+      // Returns = sum of returnedAmount from collection records this month
+      prisma.collectionRecord.aggregate({
+        where: {
+          collectedById: userId,
+          collectedAt: { gte: monthStart, lte: monthEnd },
+        },
+        _sum: { returnedAmount: true },
+      }),
+      // User's assigned areas
+      prisma.userAreaAssignment.findMany({
+        where: { userId },
+        include: { area: { select: { id: true, name: true } } },
+      }),
+      // Invoice items for company breakdown
+      prisma.commercialInvoiceItem.findMany({
+        where: {
+          invoice: {
+            assignedRepId: userId,
+            invoiceDate: { gte: monthStart, lte: monthEnd },
+          },
+        },
+        select: {
+          totalPrice: true,
+          item: { select: { company: { select: { name: true } } } },
+        },
+      }),
+    ]);
+
+    const monthlySales   = invAgg._sum.totalAmount ?? 0;
+    const monthlyReturns = returnAgg._sum.returnedAmount ?? 0;
+    const netSales       = monthlySales - monthlyReturns;
+
+    // Build sales-by-company breakdown
+    const compMap = {};
+    for (const it of invoiceItems) {
+      const name = it.item?.company?.name ?? 'غير محدد';
+      compMap[name] = (compMap[name] ?? 0) + (it.totalPrice ?? 0);
+    }
+    const salesByCompany = Object.entries(compMap)
+      .map(([name, total]) => ({ name, total }))
+      .sort((a, b) => b.total - a.total);
+    const myAreas        = myAreaAssignments.map(a => ({ id: a.area.id, name: a.area.name }));
+    const myAreaIds      = myAreas.map(a => a.id);
+
+    // Scientific reps who work in any of the same areas
+    let sciReps = [];
+    if (myAreaIds.length > 0) {
+      const sciRepRecords = await prisma.scientificRepresentative.findMany({
+        where: {
+          isActive: true,
+          areas: { some: { areaId: { in: myAreaIds } } },
+        },
+        select: {
+          id: true,
+          name: true,
+          company: true,
+          phone: true,
+          areas: {
+            where: { areaId: { in: myAreaIds } },
+            include: { area: { select: { id: true, name: true } } },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
+      sciReps = sciRepRecords.map(r => ({
+        id: r.id,
+        name: r.name,
+        company: r.company ?? '',
+        phone: r.phone ?? '',
+        areas: r.areas.map(a => a.area.name),
+      }));
+    }
+
+    res.json({ monthlySales, monthlyReturns, netSales, myAreas, sciReps, salesByCompany });
+  } catch (e) { next(e); }
+}
+
 export async function listCommercialReps(req, res, next) {
   try {
     const { role } = req.user;

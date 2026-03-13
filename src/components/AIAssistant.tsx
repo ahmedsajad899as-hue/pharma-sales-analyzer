@@ -45,15 +45,28 @@ interface DoctorListRow {
 interface QueryResult {
   found: boolean;
   message?: string;
-  type?: 'visits_list' | 'grouped_visits' | 'doctor_list' | 'unvisited_doctors';
+  type?: 'visits_list' | 'grouped_visits' | 'doctor_list' | 'unvisited_doctors'
+       | 'invoices_list' | 'invoices_grouped'
+       | 'sales_list' | 'sales_grouped'
+       | 'returns_list'
+       | 'survey_list' | 'survey_grouped';
   visitType?: 'doctor' | 'pharmacy';
   groupBy?: string;
   totalVisits?: number;
   totalDoctors?: number;
   allVisited?: boolean;
-  groups?: (GroupRow | { areaName: string; doctors: DoctorListRow[] })[];
+  groups?: any[];
   visits?: (VisitRow | PharmacyVisitRow)[];
   doctors?: DoctorListRow[];
+  // invoices
+  summary?: any;
+  invoices?: any[];
+  // sales
+  items?: any[];
+  // returns
+  records?: any[];
+  // survey
+  pharmacies?: any[];
 }
 
 interface AssistantResult {
@@ -92,7 +105,7 @@ interface HistoryEntry {
 }
 
 export default function AIAssistant({ activePage, navigateTo }: Props) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const [isOpen,       setIsOpen]       = useState(false);
   const [isRecording,  setIsRecording]  = useState(false);
@@ -115,6 +128,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: MouseEvent) => {
+      if (isRecording || isProcessing) return; // don't close while recording or processing
       const target = e.target as Node;
       if (
         panelRef.current && !panelRef.current.contains(target) &&
@@ -123,7 +137,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [isOpen]);
+  }, [isOpen, isRecording, isProcessing]);
 
   const reset = () => {
     setResult(null); setError(''); setTranscript(''); setTextInput(''); setClarInput('');
@@ -133,7 +147,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     setIsProcessing(true);
     setError('');
     try {
-      fd.append('context', JSON.stringify({ currentPage: activePage, userRole: 'user' }));
+      fd.append('context', JSON.stringify({ currentPage: activePage, userRole: user?.role ?? 'user' }));
       const r = await fetch(`${API}/api/ai-assistant/command`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -143,10 +157,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       if (!json.success) throw new Error(json.error || 'خطأ غير معروف');
       const data: AssistantResult = json.data;
       setResult(data);
-      // Save to history (keep last 20 entries)
-      const inputText = fd.get('text') as string | null;
-      if (inputText?.trim()) {
-        setHistory(prev => [{ text: inputText.trim(), result: data }, ...prev].slice(0, 20));
+      // Save to history — works for both text and voice
+      // For voice: transcript is "🎤 رسالة صوتية", upgrade to responseText after we get the reply
+      const typedText = (fd.get('text') as string | null)?.trim();
+      const historyLabel = typedText || (fd.get('audio') ? `🎤 ${data.responseText}` : '') || transcript.trim();
+      if (historyLabel) {
+        setHistory(prev => [{ text: historyLabel, result: data }, ...prev].slice(0, 20));
       }
       // Auto-navigate only when no deep results to show
       if (data.navigatePage && !data.needsClarification && !data.queryResult) {
@@ -202,9 +218,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   const startRecording = async () => {
     reset();
     setError('');
+    setIsRecording(true); // show overlay immediately on button click
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('الميكروفون غير متاح — يجب فتح التطبيق عبر HTTPS أو من localhost');
+      setIsRecording(false);
       return;
     }
 
@@ -217,6 +235,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           ? 'لم يُسمح بالوصول للميكروفون'
           : `خطأ في الميكروفون: ${err?.message ?? err}`,
       );
+      setIsRecording(false);
       return;
     }
 
@@ -238,6 +257,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       try { rec = new MediaRecorder(stream); } catch (e2: any) {
         stream.getTracks().forEach(t => t.stop());
         setError(`لا يدعم هذا الجهاز التسجيل: ${e2?.message ?? ''}`);
+        setIsRecording(false);
         return;
       }
     }
@@ -271,11 +291,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       const ext = finalMime.split('/')[1]?.split(';')[0]?.replace('mpeg', 'mp3') ?? 'webm';
       const fd = new FormData();
       fd.append('audio', blob, `assistant-voice.${ext}`);
+      setTranscript('🎤 رسالة صوتية');
       await sendToBackend(fd);
     };
 
     rec.start();
-    setIsRecording(true);
   };
 
   const stopRecording = () => {
@@ -300,6 +320,95 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
   return (
     <>
+      {/* Recording overlay */}
+      {isRecording && (
+        <div
+          dir="rtl"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(15, 10, 40, 0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div style={{
+            background: '#fff',
+            borderRadius: 24,
+            padding: '40px 48px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 20,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+            minWidth: 280,
+            textAlign: 'center',
+          }}>
+            {/* Animated mic */}
+            <div style={{ position: 'relative', width: 80, height: 80 }}>
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: '50%',
+                background: 'rgba(239,68,68,0.18)',
+                animation: 'recRipple 1.4s ease-out infinite',
+              }} />
+              <div style={{
+                position: 'absolute', inset: 8, borderRadius: '50%',
+                background: 'rgba(239,68,68,0.25)',
+                animation: 'recRipple 1.4s ease-out 0.3s infinite',
+              }} />
+              <div style={{
+                position: 'absolute', inset: 16, borderRadius: '50%',
+                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 26,
+                boxShadow: '0 4px 16px rgba(239,68,68,0.5)',
+              }}>🎤</div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>جاري التسجيل...</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>تكلم الآن، ثم اضغط إنهاء عند الانتهاء</div>
+            </div>
+
+            {/* Live dot indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%',
+                background: '#ef4444',
+                display: 'inline-block',
+                animation: 'recPulse 1s ease-in-out infinite',
+              }} />
+              <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>تسجيل نشط</span>
+            </div>
+
+            {/* Stop button */}
+            <button
+              onClick={stopRecording}
+              style={{
+                marginTop: 4,
+                padding: '12px 36px',
+                borderRadius: 12,
+                border: 'none',
+                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 15,
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(239,68,68,0.4)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              ⏹ إنهاء التسجيل
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Floating button */}
       <button
         ref={btnRef}
@@ -731,7 +840,278 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 );
               }
 
-              // ── Navigate / simple response ───────────────────
+              // ── invoices_list ─────────────────────────────────────────────
+              if (qr?.type === 'invoices_list') {
+                const invList = qr.invoices ?? [];
+                const sm = qr.summary;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
+                      📊 {result.responseText}
+                    </div>
+                    {sm && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {[{l:'الفواتير',v:String(sm.totalInvoices),c:'#6366f1'},{l:'الإجمالي',v:sm.totalAmount,c:'#0ea5e9'},{l:'محصّل',v:sm.collected,c:'#10b981'},{l:'متبقي',v:sm.remaining,c:'#ef4444'}].map(s => (
+                          <div key={s.l} style={{ background: '#f8fafc', borderRadius: 8, padding: '6px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: s.c }}>{s.v}</div>
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {invList.map((inv: any, i: number) => (
+                        <div key={i} style={{ background: '#f8fafc', borderRadius: 10, padding: '8px 12px', fontSize: 12, borderRight: `3px solid ${inv.status?.includes('✅') ? '#10b981' : inv.status?.includes('🔄') ? '#f59e0b' : '#6366f1'}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                            <span>🏥 {inv.pharmacyName}</span>
+                            <span style={{ color: '#6366f1' }}>{inv.totalAmount} د.ع</span>
+                          </div>
+                          <div style={{ color: '#64748b', marginTop: 3 }}>
+                            <span>{inv.areaName} · </span><span>{inv.status} · </span>
+                            <span style={{ color: '#ef4444' }}>متبقي: {inv.remaining} د.ع</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── invoices_grouped ─────────────────────────────────────────
+              if (qr?.type === 'invoices_grouped') {
+                const grps = qr.groups ?? [];
+                const sm2  = qr.summary;
+                const groupColors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6'];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
+                      📊 {result.responseText}
+                    </div>
+                    {sm2 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {[{l:'الفواتير',v:String(sm2.totalInvoices),c:'#6366f1'},{l:'الإجمالي',v:sm2.totalAmount,c:'#0ea5e9'},{l:'محصّل',v:sm2.collected,c:'#10b981'},{l:'متبقي',v:sm2.remaining,c:'#ef4444'}].map(s => (
+                          <div key={s.l} style={{ background: '#f8fafc', borderRadius: 8, padding: '6px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: s.c }}>{s.v}</div>
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {grps.map((g: any, idx: number) => (
+                        <div key={g.groupKey} style={{ background: '#f8fafc', borderRadius: 12, padding: '10px 12px', borderRight: `3px solid ${groupColors[idx % groupColors.length]}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: groupColors[idx % groupColors.length] }}>{g.groupKey}</span>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>{g.count} فاتورة</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
+                            <span>💰 إجمالي: <b>{g.totalAmount}</b></span>
+                            <span style={{ color: '#10b981' }}>✔ محصّل: <b>{g.collected}</b></span>
+                            <span style={{ color: '#ef4444' }}>⏳ متبقي: <b>{g.remaining}</b></span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── sales_list ────────────────────────────────────────────
+              if (qr?.type === 'sales_list') {
+                const sm = qr.summary;
+                const salesItems = qr.items ?? [];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
+                      🛒 {result.responseText}
+                    </div>
+                    {sm && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                        {[
+                          { l: 'السطور', v: String(sm.totalLines), c: '#6366f1' },
+                          { l: 'الكميات', v: String(sm.totalQty), c: '#0ea5e9' },
+                          { l: 'الإجمالي', v: sm.totalValue, c: '#10b981' },
+                        ].map(s => (
+                          <div key={s.l} style={{ background: '#f8fafc', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: s.c }}>{s.v}</div>
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {salesItems.map((it: any, i: number) => (
+                        <div key={i} style={{ background: '#f0fdf4', borderRadius: 10, padding: '8px 11px', fontSize: 12, borderRight: '3px solid #10b981' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                            <span>💊 {it.brandName}</span>
+                            <span style={{ color: '#10b981' }}>{it.totalPrice} د.ع</span>
+                          </div>
+                          <div style={{ color: '#64748b', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {it.company && it.company !== '—' && <span>🏭 {it.company}</span>}
+                            <span>📦 كمية: {it.quantity}{it.bonusQty > 0 ? ` + بونص ${it.bonusQty}` : ''}</span>
+                            <span>🏪 {it.pharmacyName}</span>
+                            {it.areaName && it.areaName !== '—' && <span>📍 {it.areaName}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── sales_grouped ─────────────────────────────────────────
+              if (qr?.type === 'sales_grouped') {
+                const sm = qr.summary;
+                const grps = qr.groups ?? [];
+                const gColors = ['#10b981','#6366f1','#0ea5e9','#f59e0b','#ef4444','#8b5cf6'];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
+                      🛒 {result.responseText}
+                    </div>
+                    {sm && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                        {[
+                          { l: 'السطور', v: String(sm.totalLines), c: '#6366f1' },
+                          { l: 'الكميات', v: String(sm.totalQty), c: '#0ea5e9' },
+                          { l: 'الإجمالي', v: sm.totalValue, c: '#10b981' },
+                        ].map(s => (
+                          <div key={s.l} style={{ background: '#f8fafc', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 13, fontWeight: 800, color: s.c }}>{s.v}</div>
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {grps.map((g: any, idx: number) => (
+                        <div key={g.groupKey} style={{ background: '#f8fafc', borderRadius: 11, padding: '9px 12px', borderRight: `3px solid ${gColors[idx % gColors.length]}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13 }}>
+                            <span style={{ color: gColors[idx % gColors.length] }}>💊 {g.groupKey}</span>
+                            <span style={{ color: '#64748b', fontSize: 11 }}>{g.totalQty} وحدة</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                            💰 إجمالي: <b style={{ color: '#10b981' }}>{g.totalValue} د.ع</b>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── returns_list ──────────────────────────────────────────
+              if (qr?.type === 'returns_list') {
+                const sm = qr.summary;
+                const recs = qr.records ?? [];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
+                      🔄 {result.responseText}
+                    </div>
+                    {sm && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                        {[
+                          { l: 'السجلات', v: String(sm.totalRecords), c: '#6366f1' },
+                          { l: 'إجمالي الاسترجاع', v: sm.totalReturned, c: '#ef4444' },
+                        ].map(s => (
+                          <div key={s.l} style={{ background: '#f8fafc', borderRadius: 8, padding: '6px 10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: s.c }}>{s.v}</div>
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {recs.map((r: any, i: number) => (
+                        <div key={i} style={{ background: '#fef2f2', borderRadius: 10, padding: '8px 11px', fontSize: 12, borderRight: '3px solid #ef4444' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                            <span>🏥 {r.pharmacyName}</span>
+                            <span style={{ color: '#ef4444' }}>🔄 {r.returnedAmount} د.ع</span>
+                          </div>
+                          <div style={{ color: '#64748b', marginTop: 3 }}>
+                            {r.areaName && r.areaName !== '—' && <span>📍 {r.areaName} · </span>}
+                            <span>فاتورة: {r.invoiceNumber}</span>
+                          </div>
+                          {r.returnedItems?.length > 0 && (
+                            <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              {r.returnedItems.map((it: any, ii: number) => (
+                                <span key={ii} style={{ background: '#fee2e2', color: '#9f1239', borderRadius: 20, padding: '1px 8px', fontSize: 10 }}>
+                                  {it.name || it.itemName}: {it.returnQty} وحدة
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── survey_list ───────────────────────────────────────────
+              if (qr?.type === 'survey_list') {
+                const sm = qr.summary;
+                const pharms = qr.pharmacies ?? [];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ background: '#ecfdf5', borderRadius: 10, padding: '9px 12px', border: '1px solid #a7f3d0' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>🗺️ صيدليات السيرفي</div>
+                      <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>إجمالي: <strong>{sm?.totalPharmacies}</strong> صيدلية</div>
+                    </div>
+                    <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {pharms.map((p: any, i: number) => (
+                        <div key={i} style={{ background: '#f0fdf4', borderRadius: 10, padding: '8px 11px', fontSize: 12, borderRight: '3px solid #34d399' }}>
+                          <div style={{ fontWeight: 700, color: '#065f46' }}>🏥 {p.name}</div>
+                          <div style={{ color: '#64748b', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {p.areaName && p.areaName !== '—' && <span>📍 {p.areaName}</span>}
+                            {p.ownerName && <span>👤 {p.ownerName}</span>}
+                            {p.phone && <span>📞 {p.phone}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── survey_grouped ────────────────────────────────────────
+              if (qr?.type === 'survey_grouped') {
+                const sm = qr.summary;
+                const grps = qr.groups ?? [];
+                const gColors = ['#10b981','#6366f1','#0ea5e9','#f59e0b','#8b5cf6','#ef4444'];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ background: '#ecfdf5', borderRadius: 10, padding: '9px 12px', border: '1px solid #a7f3d0' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>🗺️ صيدليات السيرفي حسب المنطقة</div>
+                      <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>إجمالي: <strong>{sm?.totalPharmacies}</strong> صيدلية</div>
+                    </div>
+                    <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {grps.map((g: any, idx: number) => (
+                        <div key={g.areaName} style={{ background: '#f8fafc', borderRadius: 12, padding: '10px 12px', borderRight: `3px solid ${gColors[idx % gColors.length]}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: gColors[idx % gColors.length] }}>📍 {g.areaName}</span>
+                            <span style={{ fontSize: 11, background: gColors[idx % gColors.length], color: '#fff', borderRadius: 20, padding: '1px 9px' }}>{g.count}</span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {g.pharmacies.slice(0, 5).map((p: any, pi: number) => (
+                              <div key={pi} style={{ fontSize: 11, color: '#374151', display: 'flex', gap: 6 }}>
+                                <span>🏥 {p.name}</span>
+                                {p.phone && <span style={{ color: '#6b7280' }}>📞 {p.phone}</span>}
+                              </div>
+                            ))}
+                            {g.pharmacies.length > 5 && (
+                              <div style={{ fontSize: 10, color: '#94a3b8' }}>+ {g.pharmacies.length - 5} صيدليات أخرى</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── Navigate / simple response ──────────────────────────────
               return (
                 <div style={{
                   background: result.action === 'navigate' ? '#f0fdf4' : '#f8faff',
@@ -766,8 +1146,10 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           </div>
 
           <style>{`
-            @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-            @keyframes spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+            @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:0.4} }
+            @keyframes spin     { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+            @keyframes recPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
+            @keyframes recRipple{ 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(1.8);opacity:0} }
           `}</style>
         </div>
       )}

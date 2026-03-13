@@ -611,7 +611,401 @@ async function executeDoctorListQuery(spec, userId) {
   };
 }
 
-// ── Dispatch ─────────────────────────────────────────────────
+// ── Commercial Rep: System Prompt ────────────────────────────
+function buildCommercialSystemPrompt({ currentPage, pharmNames, areaNames }) {
+  const now = new Date();
+  const curDay = now.getDate(), curMonth = now.getMonth() + 1, curYear = now.getFullYear();
+  const pharmsText = pharmNames.length ? pharmNames.join('، ') : 'لا يوجد';
+  const areasText  = areaNames.length  ? areaNames.join('، ')  : 'لا يوجد';
+  return `أنت مساعد ذكي لمندوب تجاري في تطبيق مبيعات صيدلانية. مهمتك: تحليل سؤال المندوب وإرجاع JSON دقيق.
+
+الصفحة الحالية: ${currentPage}
+التاريخ الآن: ${curDay}/${curMonth}/${curYear}
+
+═══ البيانات المتاحة ═══
+الصيدليات: ${pharmsText}
+المناطق: ${areasText}
+
+═══ مخطط قاعدة البيانات ═══
+جدول CommercialInvoice (الفواتير):
+  • invoiceDate, pharmacyName, areaName, status, totalAmount, collectedAmount, returnedAmount, paymentType
+
+جدول CommercialInvoiceItem (أيتمات المبيعات):
+  • brandName — الاسم التجاري للدواء
+  • quantity — الكمية
+  • bonusQty — كمية مجانية (بونص)
+  • unitPrice, totalPrice
+  • مرتبط بـ CommercialInvoice → pharmacyName, areaName, invoiceDate
+  • مرتبط بـ Item → company.name (الشركة)
+
+جدول CollectionRecord (الاسترجاعات والتحصيلات):
+  • collectedAt — تاريخ الاسترجاع
+  • returnedAmount — قيمة المسترجع
+  • returnedItemsJson — تفاصيل الأيتمات المسترجعة
+  • مرتبط بـ CommercialInvoice → pharmacyName, areaName, invoiceNumber
+
+جدول Pharmacy (صيدليات السيرفي):
+  • name, areaName, ownerName, phone, address, isActive
+  • صيدليات المنطقة المخصصة للمندوب
+
+═══ الإجراءات المتاحة ═══
+1. query_invoices → استعلام الفواتير (حالة، مبالغ، تحصيل)
+2. query_sales    → استعلام مبيعات الأيتمات (كميات، أسعار، شركات)
+3. query_returns  → استعلام الاسترجاعات
+4. query_survey   → استعلام صيدليات السيرفي في المناطق المخصصة
+5. unknown        → طلب غير مفهوم
+
+═══ فلاتر query_invoices ═══
+pharmacyName, areaName, status(pending|partial|collected|open), paymentType(cash|deferred), month, year, day
+groupBy: "pharmacy"|"area"|"status"|"date"|null
+
+═══ فلاتر query_sales ═══
+pharmacyName, areaName, brandName, month, year, day
+groupBy: "brand"|"company"|"pharmacy"|"area"|"date"|null
+
+═══ فلاتر query_returns ═══
+pharmacyName, month, year, day
+
+═══ فلاتر query_survey ═══
+areaName, pharmacyName
+groupBy: "area"|null
+
+═══ قواعد ═══
+• "مبيعات"/"مبيع"/"ايتمات"/"أدوية مباعة"/"كميات" → action:"query_sales"
+• "ارجاع"/"استرجاع"/"مرتجع"/"مردود" → action:"query_returns"
+• "سيرفي"/"صيدليات منطقتي"/"قائمة الصيدليات" → action:"query_survey"
+• "فواتير"/"فاتورة"/"مديونية"/"استحصال"/"تحصيل" → action:"query_invoices"
+• "غير مسددة"/"مديونية"/"مو مكتملة" → status:"open"
+• "معلقة" → status:"pending" | "جزئية" → status:"partial" | "مكتملة"/"محصّلة" → status:"collected"
+• "هذا الشهر" → month:${curMonth}, year:${curYear}
+• "الشهر الماضي" → month:${curMonth === 1 ? 12 : curMonth - 1}, year:${curMonth === 1 ? curYear - 1 : curYear}
+• "اليوم" → day:${curDay}, month:${curMonth}, year:${curYear}
+• "حسب الصيدلية" → groupBy:"pharmacy" | "حسب المنطقة" → groupBy:"area"
+• "حسب الشركة"/"حسب الدواء"/"حسب الإيتم" → groupBy:"company"|"brand"
+
+═══ صيغة الرد (JSON فقط) ═══
+{
+  "action": "query_invoices" | "query_sales" | "query_returns" | "query_survey" | "unknown",
+  "filters": {
+    "pharmacyName": null,
+    "areaName": null,
+    "brandName": null,
+    "status": null,
+    "paymentType": null,
+    "month": null,
+    "year": null,
+    "day": null
+  },
+  "groupBy": null,
+  "limit": 100,
+  "responseText": "جملة عربية تصف ما ستعرضه",
+  "needsClarification": false,
+  "question": ""
+}`;
+}
+
+// ── Commercial Rep: Execute Invoice Query ─────────────────────
+async function executeInvoiceQuery(spec, repId) {
+  const { filters = {}, groupBy, limit } = spec;
+  const where = { assignedRepId: repId };
+
+  if (filters.pharmacyName) {
+    where.pharmacyName = { contains: filters.pharmacyName };
+  }
+  if (filters.areaName) {
+    where.areaName = { contains: filters.areaName };
+  }
+  if (filters.status) {
+    if (filters.status === 'open') {
+      where.status = { in: ['pending', 'partial'] };
+    } else {
+      where.status = filters.status;
+    }
+  }
+  if (filters.paymentType) {
+    where.paymentType = filters.paymentType;
+  }
+
+  // Date filter
+  const now = new Date();
+  const yr = filters.year || now.getFullYear();
+  const mo = filters.month ?? null;
+  const dy = filters.day   ?? null;
+  if (dy !== null) {
+    const m = mo !== null ? mo : now.getMonth() + 1;
+    where.invoiceDate = { gte: new Date(yr, m - 1, dy, 0, 0, 0), lte: new Date(yr, m - 1, dy, 23, 59, 59) };
+  } else if (mo !== null) {
+    where.invoiceDate = { gte: new Date(yr, mo - 1, 1), lt: new Date(yr, mo, 1) };
+  }
+
+  const invoices = await prisma.commercialInvoice.findMany({
+    where,
+    orderBy: { invoiceDate: 'desc' },
+    take: Math.min(Number(limit) || 100, 300),
+    select: {
+      id: true, invoiceNumber: true, invoiceDate: true,
+      pharmacyName: true, areaName: true,
+      status: true, paymentType: true,
+      totalAmount: true, collectedAmount: true, returnedAmount: true, notes: true,
+    },
+  });
+
+  if (!invoices.length) {
+    return { found: false, message: 'لا توجد فواتير تطابق البحث' };
+  }
+
+  const STATUS_AR = { pending: 'معلق ⏳', partial: 'جزئي 🔄', collected: 'مكتمل ✅', open: 'غير مسدد' };
+  const fmt = n => Number(n || 0).toLocaleString('ar-IQ-u-nu-latn', { maximumFractionDigits: 0 });
+
+  const mapInv = inv => ({
+    invoiceNumber:    inv.invoiceNumber,
+    date:             inv.invoiceDate,
+    pharmacyName:     inv.pharmacyName,
+    areaName:         inv.areaName   || '—',
+    status:           STATUS_AR[inv.status] || inv.status,
+    paymentType:      inv.paymentType === 'cash' ? 'نقد' : 'آجل',
+    totalAmount:      fmt(inv.totalAmount),
+    collectedAmount:  fmt(inv.collectedAmount),
+    remaining:        fmt((inv.totalAmount - inv.returnedAmount - inv.collectedAmount)),
+    returnedAmount:   fmt(inv.returnedAmount || 0),
+  });
+
+  const totalVal      = invoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
+  const collectedVal  = invoices.reduce((s, i) => s + (i.collectedAmount || 0), 0);
+  const remainingVal  = invoices.reduce((s, i) => s + (i.totalAmount - (i.returnedAmount || 0) - i.collectedAmount), 0);
+
+  const summary = {
+    totalInvoices: invoices.length,
+    totalAmount:   fmt(totalVal),
+    collected:     fmt(collectedVal),
+    remaining:     fmt(remainingVal),
+  };
+
+  if (groupBy) {
+    const grouped = new Map();
+    for (const inv of invoices) {
+      let key;
+      if      (groupBy === 'pharmacy') key = inv.pharmacyName;
+      else if (groupBy === 'area')     key = inv.areaName || 'بدون منطقة';
+      else if (groupBy === 'status')   key = STATUS_AR[inv.status] || inv.status;
+      else if (groupBy === 'date') {
+        const d = new Date(inv.invoiceDate);
+        key = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+      } else key = inv.pharmacyName;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(inv);
+    }
+    const groups = Array.from(grouped.entries()).map(([groupKey, invs]) => ({
+      groupKey,
+      count: invs.length,
+      totalAmount:  fmt(invs.reduce((s, i) => s + (i.totalAmount || 0), 0)),
+      collected:    fmt(invs.reduce((s, i) => s + (i.collectedAmount || 0), 0)),
+      remaining:    fmt(invs.reduce((s, i) => s + (i.totalAmount - (i.returnedAmount || 0) - i.collectedAmount), 0)),
+      invoices: invs.map(mapInv),
+    })).sort((a, b) => b.count - a.count);
+    return { found: true, type: 'invoices_grouped', groupBy, summary, groups };
+  }
+
+  return { found: true, type: 'invoices_list', summary, invoices: invoices.map(mapInv) };
+}
+
+// ── Commercial Rep: Execute Sales (Invoice Items) Query ───────
+async function executeSalesQuery(spec, repId) {
+  const { filters = {}, groupBy, limit } = spec;
+
+  const invoiceWhere = { assignedRepId: repId };
+  if (filters.areaName)     invoiceWhere.areaName     = { contains: filters.areaName };
+  if (filters.pharmacyName) invoiceWhere.pharmacyName = { contains: filters.pharmacyName };
+
+  const now = new Date();
+  const yr = filters.year || now.getFullYear();
+  const mo = filters.month ?? null;
+  const dy = filters.day   ?? null;
+  if (dy !== null) {
+    const m = mo !== null ? mo : now.getMonth() + 1;
+    invoiceWhere.invoiceDate = { gte: new Date(yr, m - 1, dy, 0, 0, 0), lte: new Date(yr, m - 1, dy, 23, 59, 59) };
+  } else if (mo !== null) {
+    invoiceWhere.invoiceDate = { gte: new Date(yr, mo - 1, 1), lt: new Date(yr, mo, 1) };
+  }
+
+  const itemWhere = { invoice: invoiceWhere };
+  if (filters.brandName) itemWhere.brandName = { contains: filters.brandName };
+
+  const items = await prisma.commercialInvoiceItem.findMany({
+    where: itemWhere,
+    take: Math.min(Number(limit) || 150, 300),
+    orderBy: { totalPrice: 'desc' },
+    include: {
+      invoice: { select: { pharmacyName: true, areaName: true, invoiceDate: true } },
+      item:    { select: { company: { select: { name: true } } } },
+    },
+  });
+
+  if (!items.length) return { found: false, message: 'لا توجد مبيعات تطابق البحث' };
+
+  const fmt = n => Number(n || 0).toLocaleString('ar-IQ-u-nu-latn', { maximumFractionDigits: 0 });
+  const mapItem = it => ({
+    brandName:    it.brandName,
+    company:      it.item?.company?.name || '—',
+    quantity:     it.quantity || 0,
+    bonusQty:     it.bonusQty || 0,
+    unitPrice:    fmt(it.unitPrice),
+    totalPrice:   fmt(it.totalPrice),
+    pharmacyName: it.invoice?.pharmacyName || '—',
+    areaName:     it.invoice?.areaName || '—',
+    date:         it.invoice?.invoiceDate,
+  });
+
+  const totalQty   = items.reduce((s, i) => s + (i.quantity || 0), 0);
+  const totalValue = items.reduce((s, i) => s + (i.totalPrice || 0), 0);
+  const summary = { totalLines: items.length, totalQty, totalValue: fmt(totalValue) };
+
+  if (groupBy) {
+    const grouped = new Map();
+    for (const it of items) {
+      let key;
+      if      (groupBy === 'brand')    key = it.brandName;
+      else if (groupBy === 'company')  key = it.item?.company?.name || 'غير محدد';
+      else if (groupBy === 'pharmacy') key = it.invoice?.pharmacyName || '—';
+      else if (groupBy === 'area')     key = it.invoice?.areaName || 'بدون منطقة';
+      else if (groupBy === 'date') {
+        const d = new Date(it.invoice?.invoiceDate);
+        key = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+      } else key = it.brandName;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(it);
+    }
+    const groups = Array.from(grouped.entries()).map(([groupKey, its]) => ({
+      groupKey,
+      totalQty:   its.reduce((s, i) => s + (i.quantity || 0), 0),
+      totalValue: fmt(its.reduce((s, i) => s + (i.totalPrice || 0), 0)),
+      items: its.map(mapItem),
+    })).sort((a, b) => b.totalQty - a.totalQty);
+    return { found: true, type: 'sales_grouped', groupBy, summary, groups };
+  }
+
+  return { found: true, type: 'sales_list', summary, items: items.map(mapItem) };
+}
+
+// ── Commercial Rep: Execute Returns Query ─────────────────────
+async function executeReturnsQuery(spec, repId) {
+  const { filters = {}, limit } = spec;
+  const where = { collectedById: repId, returnedAmount: { gt: 0 } };
+
+  const now = new Date();
+  const yr = filters.year || now.getFullYear();
+  const mo = filters.month ?? null;
+  const dy = filters.day   ?? null;
+  if (dy !== null) {
+    const m = mo !== null ? mo : now.getMonth() + 1;
+    where.collectedAt = { gte: new Date(yr, m - 1, dy, 0, 0, 0), lte: new Date(yr, m - 1, dy, 23, 59, 59) };
+  } else if (mo !== null) {
+    where.collectedAt = { gte: new Date(yr, mo - 1, 1), lt: new Date(yr, mo, 1) };
+  }
+
+  const records = await prisma.collectionRecord.findMany({
+    where,
+    take: Math.min(Number(limit) || 100, 300),
+    orderBy: { collectedAt: 'desc' },
+    include: { invoice: { select: { pharmacyName: true, areaName: true, invoiceNumber: true } } },
+  });
+
+  if (!records.length) return { found: false, message: 'لا توجد استرجاعات تطابق البحث' };
+
+  let filtered = records;
+  if (filters.pharmacyName) {
+    const q = filters.pharmacyName.toLowerCase();
+    filtered = records.filter(r => r.invoice?.pharmacyName?.toLowerCase().includes(q));
+    if (!filtered.length) return { found: false, message: `لا توجد استرجاعات لصيدلية "${filters.pharmacyName}"` };
+  }
+
+  const fmt = n => Number(n || 0).toLocaleString('ar-IQ-u-nu-latn', { maximumFractionDigits: 0 });
+  const totalReturned = filtered.reduce((s, r) => s + (r.returnedAmount || 0), 0);
+  const summary = { totalRecords: filtered.length, totalReturned: fmt(totalReturned) };
+
+  const mapRecord = r => {
+    let returnedItems = [];
+    try { returnedItems = JSON.parse(r.returnedItemsJson || '[]'); } catch { /* ignore */ }
+    return {
+      date:           r.collectedAt,
+      pharmacyName:   r.invoice?.pharmacyName || '—',
+      areaName:       r.invoice?.areaName || '—',
+      invoiceNumber:  r.invoice?.invoiceNumber || '—',
+      returnedAmount: fmt(r.returnedAmount),
+      notes:          r.notes || '',
+      returnedItems,
+    };
+  };
+
+  return { found: true, type: 'returns_list', summary, records: filtered.map(mapRecord) };
+}
+
+// ── Commercial Rep: Execute Survey Pharmacies Query ───────────
+async function executeSurveyQuery(spec, repId) {
+  const { filters = {}, groupBy, limit } = spec;
+
+  const areaAssignments = await prisma.userAreaAssignment.findMany({
+    where: { userId: repId },
+    include: { area: { select: { id: true, name: true } } },
+  });
+  const allAreaIds = areaAssignments.map(a => a.areaId);
+
+  // Area name filter
+  let filteredAreaIds = null;
+  if (filters.areaName) {
+    const q = filters.areaName.toLowerCase();
+    const matched = areaAssignments.filter(a => a.area?.name?.toLowerCase().includes(q));
+    if (!matched.length) return { found: false, message: `لا توجد منطقة "${filters.areaName}" في تعيينات المندوب` };
+    filteredAreaIds = matched.map(a => a.areaId);
+  }
+
+  const areaIds = filteredAreaIds ?? allAreaIds;
+  const where = {
+    isActive: true,
+    OR: [
+      ...(areaIds.length > 0 ? [{ areaId: { in: areaIds } }] : []),
+      { userId: repId },
+    ],
+  };
+  if (filters.pharmacyName) where.name = { contains: filters.pharmacyName };
+
+  const pharmacies = await prisma.pharmacy.findMany({
+    where,
+    take: Math.min(Number(limit) || 200, 500),
+    include: { area: { select: { name: true } } },
+    orderBy: [{ areaId: 'asc' }, { name: 'asc' }],
+  });
+
+  if (!pharmacies.length) return { found: false, message: 'لا توجد صيدليات سيرفي مطابقة' };
+
+  const mapPharm = p => ({
+    name:      p.name,
+    areaName:  p.area?.name || p.areaName || '—',
+    ownerName: p.ownerName || '',
+    phone:     p.phone || '',
+    address:   p.address || '',
+    notes:     p.notes || '',
+  });
+
+  const summary = { totalPharmacies: pharmacies.length };
+
+  if (groupBy === 'area') {
+    const grouped = new Map();
+    for (const p of pharmacies) {
+      const key = p.area?.name || p.areaName || 'بدون منطقة';
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(p);
+    }
+    const groups = Array.from(grouped.entries()).map(([areaName, ps]) => ({
+      areaName, count: ps.length, pharmacies: ps.map(mapPharm),
+    }));
+    return { found: true, type: 'survey_grouped', summary, groups };
+  }
+
+  return { found: true, type: 'survey_list', summary, pharmacies: pharmacies.map(mapPharm) };
+}
+
+// ── Execute: Dispatch ─────────────────────────────────────────
 async function executeQuery(spec, userId) {
   const areasList = await prisma.area.findMany({
     where: userId ? { userId } : {},
@@ -661,6 +1055,79 @@ export async function handleCommand(req, res) {
     }
 
     const userId = req.user?.id;
+    const userRole = context.userRole || req.user?.role || 'user';
+    const isCommercialRep = userRole === 'commercial_rep';
+
+    // ── Commercial Rep branch ────────────────────────────────
+    if (isCommercialRep) {
+      const [pharmsRaw, areasRaw] = await Promise.all([
+        prisma.commercialInvoice.findMany({
+          where: { assignedRepId: userId },
+          select: { pharmacyName: true },
+          distinct: ['pharmacyName'],
+          take: 80,
+        }).catch(() => []),
+        prisma.userAreaAssignment.findMany({
+          where: { userId },
+          include: { area: { select: { name: true } } },
+          take: 40,
+        }).catch(() => []),
+      ]);
+
+      const pharmNames = pharmsRaw.map(p => p.pharmacyName);
+      const areaNames  = areasRaw.map(a => a.area?.name).filter(Boolean);
+
+      const systemPrompt = buildCommercialSystemPrompt({
+        currentPage: context.currentPage || 'الفواتير',
+        pharmNames, areaNames,
+      });
+
+      const genAI = new GoogleGenerativeAI(getNextApiKey());
+      async function callGeminiComm(parts, retries = 3, delayMs = 2000) {
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        for (let attempt = 1; attempt <= retries; attempt++) {
+          try {
+            const result = await model.generateContent(parts);
+            return result.response.text();
+          } catch (err) {
+            const is429 = String(err?.message || '').includes('429') || err?.status === 429;
+            if (is429 && attempt < retries) await new Promise(r => setTimeout(r, delayMs * attempt));
+            else throw err;
+          }
+        }
+      }
+
+      let geminiText;
+      if (hasAudio) {
+        const audioData = fs.readFileSync(req.file.path);
+        try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+        geminiText = await callGeminiComm([
+          systemPrompt,
+          { inlineData: { mimeType: req.file.mimetype || 'audio/webm', data: audioData.toString('base64') } },
+          'استمع للتسجيل وأرجع JSON فقط.',
+        ]);
+      } else {
+        geminiText = await callGeminiComm([
+          systemPrompt,
+          `أمر المستخدم: "${textInput}"\nأرجع JSON فقط.`,
+        ]);
+      }
+
+      const jsonMatch = geminiText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.status(422).json({ success: false, error: 'تعذر تحليل رد Gemini', raw: geminiText });
+      let parsed;
+      try { parsed = JSON.parse(jsonMatch[0]); }
+      catch { return res.status(422).json({ success: false, error: 'JSON غير صالح', raw: geminiText }); }
+
+      let queryResult = null;
+      if      (parsed.action === 'query_invoices') queryResult = await executeInvoiceQuery(parsed, userId);
+      else if (parsed.action === 'query_sales')    queryResult = await executeSalesQuery(parsed, userId);
+      else if (parsed.action === 'query_returns')  queryResult = await executeReturnsQuery(parsed, userId);
+      else if (parsed.action === 'query_survey')   queryResult = await executeSurveyQuery(parsed, userId);
+
+      return res.json({ success: true, data: { ...parsed, navigatePage: null, pageAction: null, pageActionParam: null, queryResult } });
+    }
+    // ── End Commercial Rep branch ────────────────────────────
 
     const [repsRaw, docsRaw, itemsRaw, areasRaw, plansRaw] = await Promise.all([
       prisma.scientificRepresentative.findMany({

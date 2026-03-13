@@ -23,7 +23,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   // roles: [] means "all roles"; roles with entries means restricted to those roles only
   const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
-    { id: 'dashboard',       label: t.nav.dashboard,       icon: '📊', roles: [] },
+    { id: 'dashboard', label: role === 'commercial_rep' ? '💹 المبيع والارجاع' : t.nav.dashboard, icon: '📊', roles: [] },
     // Merged page — shown only to rep roles
     { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor'] },
     // Individual pages — hidden for rep roles
@@ -33,7 +33,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'users',           label: t.nav.users,           icon: '👥', roles: [] },
+    { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
     { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager','company_manager'] },
   ];
 
@@ -45,12 +45,24 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   };
 
   // empty roles array = visible to all; otherwise check role inclusion
-  const visibleItems = navItems.filter(item => {
+  const filteredItems = navItems.filter(item => {
     if (item.roles.length > 0 && !item.roles.includes(role)) return false;
     const featureKey = Object.entries(featurePageMap).find(([, pageId]) => pageId === item.id)?.[0];
     if (featureKey && !hasFeature(featureKey)) return false;
     return true;
   });
+
+  // For commercial_rep: show التجاري first, then الرئيسية, then السيرفي
+  const COMM_REP_ORDER: PageId[] = ['commercial', 'dashboard', 'doctors'];
+  const visibleItems = role === 'commercial_rep'
+    ? [...filteredItems].sort((a, b) => {
+        const ai = COMM_REP_ORDER.indexOf(a.id as PageId);
+        const bi = COMM_REP_ORDER.indexOf(b.id as PageId);
+        const av = ai === -1 ? 999 : ai;
+        const bv = bi === -1 ? 999 : bi;
+        return av - bv;
+      })
+    : filteredItems;
 
   const ROLE_LABELS: Record<string, string> = {
     admin:                    t.sidebar.admin,

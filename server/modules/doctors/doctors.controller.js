@@ -132,6 +132,74 @@ export async function visitsByArea(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ─── Pharmacy Visits by Area (for visits analysis toggle) ──────
+export async function pharmacyVisitsByArea(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const role   = req.user.role;
+
+    const filterMonth = req.query.month ? parseInt(req.query.month) : null;
+    const filterYear  = req.query.year  ? parseInt(req.query.year)  : null;
+    const dateFilter  = (filterMonth && filterYear) ? {
+      gte: new Date(filterYear, filterMonth - 1, 1),
+      lt:  new Date(filterYear, filterMonth, 1),
+    } : undefined;
+
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const isFieldRep  = FIELD_ROLES.includes(role);
+
+    let linkedRepId = null;
+    if (isFieldRep) {
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      linkedRepId = userRow?.linkedRepId;
+    }
+
+    const visitWhere = isFieldRep
+      ? { scientificRepId: linkedRepId ?? -1, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+      : { userId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
+
+    const visits = await prisma.pharmacyVisit.findMany({
+      where: visitWhere,
+      include: {
+        area:  { select: { id: true, name: true } },
+        items: { include: { item: { select: { id: true, name: true } } } },
+      },
+      orderBy: { visitDate: 'desc' },
+    });
+
+    // Group by area
+    const areaMap = new Map();
+    const noAreaVisits = [];
+
+    for (const v of visits) {
+      const areaKey = v.areaId ?? v.areaName ?? '__none__';
+      const areaLabel = v.area?.name ?? v.areaName ?? 'بدون منطقة';
+      const areaId    = v.area?.id ?? null;
+      if (!areaMap.has(areaKey))
+        areaMap.set(areaKey, { id: areaId, name: areaLabel, pharmacies: new Map() });
+      const areaEntry = areaMap.get(areaKey);
+      if (!areaEntry.pharmacies.has(v.pharmacyName))
+        areaEntry.pharmacies.set(v.pharmacyName, { name: v.pharmacyName, visits: [] });
+      areaEntry.pharmacies.get(v.pharmacyName).visits.push({
+        id: v.id,
+        visitDate: v.visitDate,
+        notes: v.notes,
+        items: v.items.map(i => ({ id: i.id, name: i.item?.name ?? i.itemName ?? '—' })),
+      });
+    }
+
+    const areas = [...areaMap.values()].map(a => ({
+      id: a.id,
+      name: a.name,
+      pharmacies: [...a.pharmacies.values()],
+      totalPharmacies: a.pharmacies.size,
+      totalVisits: [...a.pharmacies.values()].reduce((s, p) => s + p.visits.length, 0),
+    })).sort((a, b) => b.totalVisits - a.totalVisits);
+
+    res.json({ areas });
+  } catch (e) { next(e); }
+}
+
 export async function list(req, res, next) {
   try {
     const userId = req.user.id;

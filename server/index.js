@@ -1431,8 +1431,9 @@ if (process.env.VERCEL) {
   seedAdminIfNeeded().catch(console.error);
 } else {
   const PORT = process.env.PORT || 8080;
-  app.listen(PORT, async () => {
+  app.listen(PORT, '0.0.0.0', async () => {
     console.log(`✓ الخادم يعمل على http://localhost:${PORT}`);
+    console.log(`✓ الشبكة المحلية: http://0.0.0.0:${PORT}`);
     await seedAdminIfNeeded();
   });
 }
