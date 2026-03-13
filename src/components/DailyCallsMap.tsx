@@ -254,20 +254,21 @@ export default function DailyCallsMap({ visits, repName, onClose }: Props) {
             <div style={{ fontSize: 15, fontWeight: 600 }}>لا توجد زيارات مسجّلة بموقع GPS</div>
           </div>
         ) : (
-          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
             {/* ── Map ── */}
-            <div ref={mapRef} style={{ flex: 1, minHeight: 0 }} />
+            <div ref={mapRef} style={{ flex: '1 1 auto', minHeight: '55vw', maxHeight: '60vh' }} />
 
-            {/* ── Sidebar ── */}
+            {/* ── Sidebar (scrollable list below map on mobile) ── */}
             <div style={{
-              width: 282,
               flexShrink: 0,
+              maxHeight: '35vh',
               display: 'flex',
               flexDirection: 'column',
-              borderRight: '1px solid #e2e8f0',
+              borderTop: '1px solid #e2e8f0',
               background: '#f8fafc',
               direction: 'rtl',
+              overflowY: 'auto',
             }}>
               {/* Sidebar header */}
               <div style={{
