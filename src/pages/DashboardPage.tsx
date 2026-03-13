@@ -1233,20 +1233,20 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         {/* Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
           {/* Row 1: Date range pickers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#f8fafc', borderRadius: '8px', padding: '3px 8px', border: '1px solid #e2e8f0', alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
             <input
               type="date"
               className="form-input"
-              style={{ padding: '4px 8px', fontSize: '13px', minWidth: 130, border: 'none', background: 'transparent', outline: 'none' }}
+              style={{ padding: '2px 4px', fontSize: '11px', minWidth: 100, border: 'none', background: 'transparent', outline: 'none' }}
               value={callsDateFrom}
               onChange={e => handleCallsDateFromChange(e.target.value)}
             />
-            <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
+            <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
             <input
               type="date"
               className="form-input"
-              style={{ padding: '4px 8px', fontSize: '13px', minWidth: 130, border: 'none', background: 'transparent', outline: 'none' }}
+              style={{ padding: '2px 4px', fontSize: '11px', minWidth: 100, border: 'none', background: 'transparent', outline: 'none' }}
               value={callsDateTo}
               min={callsDateFrom}
               onChange={e => handleCallsDateToChange(e.target.value)}
@@ -1255,7 +1255,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               <button
                 onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
                 title="العودة لليوم الحالي"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6366f1', fontWeight: 700, padding: '2px 4px', whiteSpace: 'nowrap' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6366f1', fontWeight: 700, padding: '1px 4px', whiteSpace: 'nowrap' }}
               >اليوم</button>
             )}
           </div>
