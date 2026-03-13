@@ -107,6 +107,8 @@ export default function DoctorsPage() {
   const [visitSearch, setVisitSearch]       = useState('');
   const [showOnlyVisited, setShowOnlyVisited] = useState(false);  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
   const coverageCardRef = useRef<HTMLDivElement>(null);
+  const [showTotalPopup, setShowTotalPopup] = useState(false);
+  const totalCardRef = useRef<HTMLDivElement>(null);
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set());
   const [openItemDropdowns, setOpenItemDropdowns] = useState<Set<number>>(new Set());
   const toggleItemDrop = (id: number, force?: boolean) => setOpenItemDropdowns(prev => {
@@ -364,6 +366,15 @@ export default function DoctorsPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showCoveragePopup]);
+  useEffect(() => {
+    if (!showTotalPopup) return;
+    const handler = (e: MouseEvent) => {
+      if (totalCardRef.current && !totalCardRef.current.contains(e.target as Node))
+        setShowTotalPopup(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showTotalPopup]);
   useEffect(() => {
     if (!showWritingPopup) return;
     const handler = (e: MouseEvent) => {
@@ -772,20 +783,21 @@ export default function DoctorsPage() {
             return (
               <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'إجمالي الأطباء', value: total,   icon: '👥', accent: '#6366f1', clickable: false },
+                  { label: 'إجمالي الأطباء', value: total,   icon: '👥', accent: '#6366f1', clickable: 'total' },
                   { label: 'تمت زيارتهم',    value: visited, icon: '✅', accent: '#10b981', clickable: 'visited' },
                   { label: 'يكتبون الايتم',  value: writing, icon: '✍️', accent: '#f59e0b', clickable: 'writing' },
                   { label: 'نسبة التغطية',   value: `${pct}%`, icon: '📊', accent: '#3b82f6', clickable: 'coverage' },
                 ].map(s => {
-                  const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : false;
+                  const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : s.clickable === 'total' ? showTotalPopup : false;
                   const borderColor  = isActiveCard ? s.accent : '#e2e8f0';
                   const handleClick  = s.clickable === 'coverage' ? () => setShowCoveragePopup(v => !v)
                                      : s.clickable === 'writing'  ? () => setShowWritingPopup(v => !v)
                                      : s.clickable === 'visited'  ? () => setShowVisitedPopup(v => !v)
+                                     : s.clickable === 'total'    ? () => setShowTotalPopup(v => !v)
                                      : undefined;
                   return (
                   <div key={s.label}
-                    ref={s.clickable === 'coverage' ? coverageCardRef : s.clickable === 'writing' ? writingCardRef : s.clickable === 'visited' ? visitedCardRef : undefined}
+                    ref={s.clickable === 'coverage' ? coverageCardRef : s.clickable === 'writing' ? writingCardRef : s.clickable === 'visited' ? visitedCardRef : s.clickable === 'total' ? totalCardRef : undefined}
                     onClick={handleClick}
                     style={{
                       flex: '1 1 120px', background: '#fff', borderRadius: 12, padding: '14px 18px',
@@ -798,6 +810,56 @@ export default function DoctorsPage() {
                     <div style={{ fontSize: 22, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
                     <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
                     {s.clickable && <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 3 }}>اضغط للتفاصيل ▾</div>}
+
+                    {/* Visited doctors popup */}
+                    {s.clickable === 'total' && showTotalPopup && (() => {
+                      const sorted = [...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors);
+                      return (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
+                            minWidth: 270, maxWidth: 360, padding: '14px 0 8px',
+                            direction: 'rtl',
+                          }}>
+                          <div style={{ position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)', width: 14, height: 14, background: '#fff', border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none', rotate: '45deg' }} />
+                          <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#4338ca' }}>👥 توزيع الأطباء بالمناطق</span>
+                            <button onClick={() => setShowTotalPopup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                          </div>
+                          <div style={{ maxHeight: 300, overflowY: 'auto', padding: '8px 0' }}>
+                            {sorted.map((area, idx) => {
+                              const pctArea = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
+                              const barColor = pctArea >= 80 ? '#10b981' : pctArea >= 50 ? '#6366f1' : pctArea > 0 ? '#f59e0b' : '#d1d5db';
+                              return (
+                                <div key={String(area.id)} style={{ padding: '7px 16px', borderBottom: idx < sorted.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <span style={{ fontSize: 12, color: '#94a3b8' }}>📍</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{area.name}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', background: '#eef2ff', padding: '1px 9px', borderRadius: 10 }}>{area.totalDoctors}</span>
+                                      <span style={{ fontSize: 11, color: barColor, fontWeight: 600 }}>{pctArea}%</span>
+                                    </div>
+                                  </div>
+                                  <div style={{ height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+                                    <div style={{ width: `${pctArea}%`, height: '100%', background: barColor, borderRadius: 4, transition: 'width 0.3s' }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ padding: '8px 16px 2px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>الإجمالي</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#4338ca' }}>{total} طبيب في {sorted.length} منطقة</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Visited doctors popup */}
                     {s.clickable === 'visited' && showVisitedPopup && (() => {
