@@ -35,11 +35,19 @@ router.delete('/visits/:visitId',                            ctrl.deleteVisit);
 // Import visits from Excel — linked to specific plan
 router.post('/:id/import-visits', upload.single('file'), ctrl.importPlanVisits);
 
+// Import plan entries (doctors list) from JSON
+router.post('/:id/import-entries', ctrl.importPlanEntries);
+
 // Upload visits Excel
 router.post('/visits/upload', upload.single('file'), ctrl.uploadVisits);
 
 // Update visit item
 router.patch('/visits/:visitId/item', ctrl.patchVisitItem);
+
+// Visit likes & comments
+router.post('/visits/:visitId/like',                     ctrl.toggleVisitLike);
+router.post('/visits/:visitId/comments',                 ctrl.addVisitComment);
+router.delete('/visits/:visitId/comments/:commentId',    ctrl.deleteVisitComment);
 
 // Voice-to-visits: parse spoken text
 router.post('/:id/voice-parse', ctrl.parseVoice);

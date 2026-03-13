@@ -2,12 +2,171 @@ import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 
+export async function visitsByArea(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const role   = req.user.role;
+
+    // Optional month/year filter
+    const filterMonth = req.query.month ? parseInt(req.query.month) : null;
+    const filterYear  = req.query.year  ? parseInt(req.query.year)  : null;
+    const dateFilter  = (filterMonth && filterYear) ? {
+      gte: new Date(filterYear, filterMonth - 1, 1),
+      lt:  new Date(filterYear, filterMonth, 1),
+    } : undefined;
+
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const isFieldRep  = FIELD_ROLES.includes(role);
+
+    let doctors;
+
+    if (isFieldRep) {
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      const linkedRepId = userRow?.linkedRepId;
+      console.log('[visitsByArea] fieldRep userId:', userId, 'linkedRepId:', linkedRepId);
+
+      // جلب كل الزيارات بدون فلتر شهر — لتحديد قائمة الأطباء الكاملة
+      const allVisitsEver = await prisma.doctorVisit.findMany({
+        where: { scientificRepId: linkedRepId ?? -1 },
+        select: { doctorId: true },
+      });
+      const everVisitedIds = new Set(allVisitsEver.map(v => v.doctorId));
+
+      // جلب الزيارات المفلترة بالشهر (للإحصاءات فقط)
+      const allVisits = await prisma.doctorVisit.findMany({
+        where: {
+          scientificRepId: linkedRepId ?? -1,
+          ...(dateFilter ? { visitDate: dateFilter } : {}),
+        },
+        select: {
+          id: true, visitDate: true, feedback: true, notes: true,
+          doctorId: true,
+          item: { select: { id: true, name: true } },
+        },
+        orderBy: { visitDate: 'desc' },
+      });
+
+      // تجميع الزيارات المفلترة حسب doctorId
+      const visitsByDoc = new Map();
+      for (const v of allVisits) {
+        if (!visitsByDoc.has(v.doctorId)) visitsByDoc.set(v.doctorId, []);
+        visitsByDoc.get(v.doctorId).push(v);
+      }
+
+      // جلب كل أطباء المندوب (مسجّلون بحسابه) + كل من زاره في أي وقت
+      const extraIds = [...everVisitedIds];
+      const allDoctors = await prisma.doctor.findMany({
+        where: {
+          OR: [
+            { userId },
+            ...(extraIds.length > 0 ? [{ id: { in: extraIds } }] : []),
+          ],
+        },
+        include: {
+          area:       { select: { id: true, name: true } },
+          targetItem: { select: { id: true, name: true } },
+        },
+        orderBy: { name: 'asc' },
+      });
+
+      // دمج: الزيارات المفلترة للشهر المحدد فقط
+      doctors = allDoctors.map(d => ({ ...d, visits: visitsByDoc.get(d.id) ?? [] }));
+      console.log('[visitsByArea] total doctors:', allDoctors.length);
+
+    } else {
+      // للمدير: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
+      doctors = await prisma.doctor.findMany({
+        where: { userId },
+        include: {
+          area:       { select: { id: true, name: true } },
+          targetItem: { select: { id: true, name: true } },
+          visits: {
+            where: dateFilter ? { visitDate: dateFilter } : undefined,
+            orderBy: { visitDate: 'desc' },
+            select: {
+              id: true, visitDate: true, feedback: true, notes: true,
+              item: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
+    }
+
+    const areaMap = new Map();
+    const noAreaDocs = [];
+
+    for (const d of doctors) {
+      const visited   = d.visits.length > 0;
+      const isWriting = d.visits.some(v => v.feedback === 'writing');
+      const doc = {
+        id: d.id, name: d.name, specialty: d.specialty,
+        pharmacyName: d.pharmacyName ?? null,
+        area: d.area ?? null,
+        targetItem: d.targetItem, isActive: d.isActive,
+        visited, isWriting, visits: d.visits,
+      };
+      if (d.area) {
+        if (!areaMap.has(d.area.id))
+          areaMap.set(d.area.id, { id: d.area.id, name: d.area.name, doctors: [] });
+        areaMap.get(d.area.id).doctors.push(doc);
+      } else {
+        noAreaDocs.push(doc);
+      }
+    }
+
+    const toStats = g => ({
+      ...g,
+      totalDoctors: g.doctors.length,
+      visitedCount: g.doctors.filter(d => d.visited).length,
+      writingCount: g.doctors.filter(d => d.isWriting).length,
+    });
+
+    const areas = [...areaMap.values()].map(toStats)
+      .sort((a, b) => b.visitedCount - a.visitedCount);
+
+    if (noAreaDocs.length > 0)
+      areas.push(toStats({ id: null, name: 'بدون منطقة', doctors: noAreaDocs }));
+
+    res.json({ areas });
+  } catch (e) { next(e); }
+}
+
 export async function list(req, res, next) {
   try {
     const userId = req.user.id;
+    const role   = req.user.role;
     const { areaId, isActive } = req.query;
 
-    const where = { userId };
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const isFieldRep  = FIELD_ROLES.includes(role);
+
+    let doctorIds = null; // null = no extra filter needed
+
+    if (isFieldRep) {
+      // جلب linkedRepId
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      const linkedRepId = userRow?.linkedRepId;
+
+      if (linkedRepId) {
+        // أطباء تمت زيارتهم من قِبل هذا المندوب
+        const visits = await prisma.doctorVisit.findMany({
+          where: { scientificRepId: linkedRepId },
+          select: { doctorId: true },
+          distinct: ['doctorId'],
+        });
+        const visitedIds = visits.map(v => v.doctorId);
+        // دمج مع أطباء مسجّلين بحسابه مباشرة
+        const ownDocs = await prisma.doctor.findMany({ where: { userId }, select: { id: true } });
+        const ownIds  = ownDocs.map(d => d.id);
+        doctorIds = [...new Set([...ownIds, ...visitedIds])];
+      }
+    }
+
+    const where = doctorIds !== null
+      ? { id: { in: doctorIds } }
+      : { userId };
+
     if (areaId)    where.areaId   = parseInt(areaId);
     if (isActive !== undefined) where.isActive = isActive === 'true';
 
@@ -66,11 +225,24 @@ export async function create(req, res, next) {
 export async function update(req, res, next) {
   try {
     const userId = req.user.id;
+    const role   = req.user.role;
     const id = parseInt(req.params.id);
     const { name, specialty, areaId, pharmacyName, targetItemId, notes, isActive } = req.body;
 
-    const doctor = await prisma.doctor.updateMany({
-      where: { id, userId },
+    // التحقق من وجود الطبيب أولاً (يمكن أن يكون مسجّلاً بحساب آخر لكن زاره المندوب)
+    const existing = await prisma.doctor.findUnique({ where: { id }, select: { id: true, userId: true } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const isFieldRep  = FIELD_ROLES.includes(role);
+
+    // المندوب يمكنه تعديل أي طبيب زاره؛ المدير يعدّل أطباءه فقط
+    if (!isFieldRep && existing.userId !== userId) {
+      return res.status(403).json({ error: 'غير مصرح' });
+    }
+
+    await prisma.doctor.update({
+      where: { id },
       data: {
         ...(name         !== undefined && { name }),
         ...(specialty    !== undefined && { specialty }),
@@ -81,17 +253,26 @@ export async function update(req, res, next) {
         ...(targetItemId !== undefined && { targetItemId: targetItemId ? parseInt(targetItemId) : null }),
       },
     });
-    if (doctor.count === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ success: true });
   } catch (e) { next(e); }
 }
 
 export async function remove(req, res, next) {
   try {
-    const result = await prisma.doctor.deleteMany({
-      where: { id: parseInt(req.params.id), userId: req.user.id },
-    });
-    if (result.count === 0) return res.status(404).json({ error: 'Not found' });
+    const userId = req.user.id;
+    const role   = req.user.role;
+    const id = parseInt(req.params.id);
+
+    const existing = await prisma.doctor.findUnique({ where: { id }, select: { id: true, userId: true } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    // المندوب يحذف فقط أطباءه المسجّلين بحسابه؛ الأطباء من حسابات أخرى لا يحذفها
+    if (!['admin', 'manager', 'company_manager'].includes(role) && existing.userId !== userId) {
+      return res.status(403).json({ error: 'لا يمكنك حذف هذا الطبيب' });
+    }
+
+    await prisma.doctor.delete({ where: { id } });
     res.json({ success: true });
   } catch (e) { next(e); }
 }

@@ -12,7 +12,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, activeFileIds = [] }: SidebarProps) {
-  const { user, logout, isAdmin, isManager, isManagerOrAdmin } = useAuth();
+  const { user, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature } = useAuth();
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -34,10 +34,23 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: [] },
+    { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager','company_manager'] },
   ];
 
+  // Feature-to-page mapping — pages hidden when feature is disabled
+  const featurePageMap: Record<string, PageId> = {
+    monthly_plans: 'monthly-plans',
+    reports:       'reports',
+    rep_analysis:  'rep-analysis',
+  };
+
   // empty roles array = visible to all; otherwise check role inclusion
-  const visibleItems = navItems.filter(item => item.roles.length === 0 || item.roles.includes(role));
+  const visibleItems = navItems.filter(item => {
+    if (item.roles.length > 0 && !item.roles.includes(role)) return false;
+    const featureKey = Object.entries(featurePageMap).find(([, pageId]) => pageId === item.id)?.[0];
+    if (featureKey && !hasFeature(featureKey)) return false;
+    return true;
+  });
 
   const ROLE_LABELS: Record<string, string> = {
     admin:                    t.sidebar.admin,

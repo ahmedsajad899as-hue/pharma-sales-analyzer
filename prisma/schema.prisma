@@ -7,7 +7,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -27,6 +27,7 @@ model User {
   linkedRepId  Int?
   officeId     Int? // المكتب العلمي المرتبط به
   permissions  String? // JSON: { pages:[], hiddenFields:[], features:[] }
+  apiKey       String?  @unique // للتكامل مع أنظمة خارجية
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -48,6 +49,8 @@ model User {
   assignedPlans  MonthlyPlan[]              @relation("AssignedPlans")
   doctorVisits   DoctorVisit[]
   pharmacyVisits PharmacyVisit[]
+  visitLikes     VisitLike[]
+  visitComments  VisitComment[]
 
   // Multi-tenant assignments
   companyAssignments  UserCompanyAssignment[]
@@ -59,6 +62,15 @@ model User {
   interactionAsActor  UserInteractionPermission[] @relation("InteractionActor")
   interactionAsTarget UserInteractionPermission[] @relation("InteractionTarget")
   invoiceSheets       InvoiceSheet[]
+
+  // Commercial module relations
+  pharmacies          Pharmacy[]              @relation("PharmacyOwner")
+  assignedInvoices    CommercialInvoice[]     @relation("AssignedInvoices")
+  createdInvoices     CommercialInvoice[]     @relation("CreatedInvoices")
+  ownedInvoices       CommercialInvoice[]     @relation("InvoiceOwner")
+  collections         CollectionRecord[]      @relation("CollectionByUser")
+  notifications       AppNotification[]       @relation("NotificationRecipient")
+  sentNotifications   AppNotification[]       @relation("NotificationSender")
 
   @@index([officeId])
   @@map("users")
@@ -106,6 +118,7 @@ model Area {
   doctors             Doctor[]
   userAreaAssignments UserAreaAssignment[]
   pharmacyVisits      PharmacyVisit[]
+  pharmacies          Pharmacy[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -159,6 +172,7 @@ model Item {
   lineItems           ProductLineItem[]
   userItemAssignments UserItemAssignment[]
   pharmacyVisitItems  PharmacyVisitItem[]
+  commercialItems     CommercialInvoiceItem[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -459,12 +473,44 @@ model DoctorVisit {
   scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
   item          Item?                    @relation(fields: [itemId], references: [id])
   planEntry     PlanEntry?               @relation(fields: [planEntryId], references: [id])
+  likes         VisitLike[]
+  comments      VisitComment[]
 
   @@index([doctorId])
   @@index([scientificRepId])
   @@index([visitDate])
   @@index([userId])
   @@map("doctor_visits")
+}
+
+// ─── Visit Like (إعجاب بزيارة من مدير) ──────────────────────
+model VisitLike {
+  id        Int         @id @default(autoincrement())
+  visitId   Int
+  userId    Int
+  createdAt DateTime    @default(now())
+
+  visit DoctorVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id])
+
+  @@unique([visitId, userId])
+  @@index([visitId])
+  @@map("visit_likes")
+}
+
+// ─── Visit Comment (تعليق مدير على زيارة) ───────────────────
+model VisitComment {
+  id        Int         @id @default(autoincrement())
+  visitId   Int
+  userId    Int
+  content   String
+  createdAt DateTime    @default(now())
+
+  visit DoctorVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id])
+
+  @@index([visitId])
+  @@map("visit_comments")
 }
 
 // ─── Pharmacy Visit (زيارة صيدلية) ──────────────────────────
@@ -718,4 +764,148 @@ model InvoiceEntry {
   @@index([sheetId])
   @@index([isCollected])
   @@map("invoice_entries")
+}
+
+// ════════════════════════════════════════════════════════════
+// COMMERCIAL MODULE — المندوب التجاري
+// ════════════════════════════════════════════════════════════
+
+// ─── Pharmacy Directory (دليل الصيدليات) ────────────────────
+model Pharmacy {
+  id              Int      @id @default(autoincrement())
+  name            String
+  ownerName       String?
+  phone           String?
+  address         String?
+  areaId          Int?
+  areaName        String?  // fallback free-text
+  notes           String?
+  isActive        Boolean  @default(true)
+  // Phase 2: link to pharmacy user account
+  pharmacyUserId  Int?     @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userId Int?
+  user   User? @relation("PharmacyOwner", fields: [userId], references: [id])
+  area   Area? @relation(fields: [areaId], references: [id])
+
+  invoices CommercialInvoice[]
+
+  @@unique([name, userId])
+  @@index([userId])
+  @@index([areaId])
+  @@map("pharmacies")
+}
+
+// ─── Commercial Invoice (الفاتورة التجارية) ─────────────────
+model CommercialInvoice {
+  id                Int      @id @default(autoincrement())
+  invoiceNumber     String   // رقم الفاتورة
+  invoiceDate       DateTime
+  dueDate           DateTime?  // تاريخ الاستحقاق
+  maxCollectionDate DateTime?  // أقصى موعد للاستحصال
+  deferredDays      Int?       // عدد أيام التأجيل
+  paymentType       String   @default("cash") // "cash" | "deferred"
+
+  pharmacyId    Int?
+  pharmacyName  String   // اسم الصيدلية (fallback إذا pharmacyId = null)
+  areaName      String?  // المنطقة
+
+  assignedRepId   Int      // المندوب التجاري المكلف
+  createdByUserId Int      // المدير الذي رفع الفاتورة
+
+  status          String  @default("pending") // "pending" | "partial" | "collected"
+  totalAmount     Float   @default(0)
+  collectedAmount Float   @default(0)
+  returnedAmount  Float   @default(0)  // قيمة البضاعة المسترجعة
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userId Int?
+  user   User? @relation("InvoiceOwner", fields: [userId], references: [id])
+
+  pharmacy    Pharmacy?           @relation(fields: [pharmacyId], references: [id])
+  assignedRep User                @relation("AssignedInvoices", fields: [assignedRepId], references: [id])
+  createdBy   User                @relation("CreatedInvoices", fields: [createdByUserId], references: [id])
+  items       CommercialInvoiceItem[]
+  collections CollectionRecord[]
+
+  @@index([assignedRepId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([invoiceDate])
+  @@index([userId])
+  @@map("commercial_invoices")
+}
+
+// ─── Commercial Invoice Item (ايتمات الفاتورة) ──────────────
+model CommercialInvoiceItem {
+  id             Int    @id @default(autoincrement())
+  invoiceId      Int
+  itemId         Int?   // nullable — link to Item if exists
+  brandName      String // الاسم التجاري
+  scientificName String? // الاسم العلمي
+  dosage         String? // الجرعة
+  form           String? // الشكل الدوائي
+  unitPrice      Float   @default(0)
+  quantity       Int     @default(1)
+  bonusQty       Int     @default(0) // كمية مجانية / بونص
+  totalPrice     Float   @default(0)
+  notes          String?
+
+  invoice CommercialInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item    Item?              @relation(fields: [itemId], references: [id])
+
+  @@index([invoiceId])
+  @@map("commercial_invoice_items")
+}
+
+// ─── Collection Record (سجل الاستحصال) ─────────────────────
+model CollectionRecord {
+  id               Int      @id @default(autoincrement())
+  invoiceId        Int
+  collectedById    Int      // المندوب الذي استحصل
+  amount           Float    // المبلغ المستحصل
+  discount         Float    @default(0)
+  finalAmount      Float    // بعد الخصم
+  returnedAmount   Float    @default(0)   // قيمة البضاعة المسترجعة في هذا السجل
+  returnedItemsJson String?               // JSON: [{itemId, name, returnQty, unitPrice, returnValue}]
+  isFullCollection Boolean  @default(false)
+  notes            String?
+  latitude         Float?
+  longitude        Float?
+  receiptNumber    String?  // رقم الوصل التسلسلي
+  collectedAt      DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  invoice     CommercialInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  collectedBy User              @relation("CollectionByUser", fields: [collectedById], references: [id])
+
+  @@index([invoiceId])
+  @@index([collectedById])
+  @@index([collectedAt])
+  @@map("collection_records")
+}
+
+// ─── App Notification (إشعارات داخلية) ─────────────────────
+model AppNotification {
+  id           Int      @id @default(autoincrement())
+  userId       Int      // المستلم
+  fromUserId   Int?     // المرسل (null = نظام)
+  type         String   // "collection_done"|"collection_partial"|"invoice_added"|"invoice_overdue"
+  title        String
+  body         String
+  isRead       Boolean  @default(false)
+  data         String?  // JSON payload (invoiceId, amount, pharmacyName, ...)
+  createdAt    DateTime @default(now())
+
+  user     User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  fromUser User? @relation("NotificationSender", fields: [fromUserId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("app_notifications")
 }

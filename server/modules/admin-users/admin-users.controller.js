@@ -164,6 +164,26 @@ export async function setUserManagers(req, res) {
   res.json({ success: true });
 }
 
+// ── Set user features (enable/disable per-user features) ────────────────────
+export async function setUserFeatures(req, res) {
+  const id = parseInt(req.params.id);
+  const { disabledFeatures = [] } = req.body;
+
+  const existing = await prisma.user.findUnique({ where: { id }, select: { permissions: true } });
+  if (!existing) return res.status(404).json({ error: 'User not found' });
+
+  let perms = {};
+  try { perms = JSON.parse(existing.permissions || '{}'); } catch {}
+  perms.disabledFeatures = disabledFeatures;
+
+  const user = await prisma.user.update({
+    where: { id },
+    data: { permissions: JSON.stringify(perms) },
+    select: { id: true, permissions: true },
+  });
+  res.json({ success: true, data: user });
+}
+
 // ── Set interaction permissions ───────────────────────────────────────────
 // actorId = req.params.id, targetIds = who they can interact with
 export async function setUserInteractions(req, res) {

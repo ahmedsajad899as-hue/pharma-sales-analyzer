@@ -61,6 +61,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
 
+  // AI assistant page-action listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action } = (e as CustomEvent).detail || {};
+      if (action === 'open-export-report') setShowExportModal(true);
+    };
+    window.addEventListener('ai-page-action', handler);
+    const pending = (window as any).__aiPendingAction;
+    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  }, []);
+
   useEffect(() => {
     if (activeFileIds.length === 0) {
       setCommReps([]);

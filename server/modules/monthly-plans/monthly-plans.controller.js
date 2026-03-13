@@ -24,10 +24,10 @@ export async function list(req, res, next) {
     const role   = req.user.role;
     const { scientificRepId, month, year } = req.query;
 
-    // rep roles see plans assigned to them; managers/admins see plans they created
+    // rep roles see plans they created OR assigned to them; managers/admins see plans they created
     const REP_ROLES = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
     const baseFilter = REP_ROLES.has(role)
-      ? { assignedUserId: userId }
+      ? { OR: [{ userId }, { assignedUserId: userId }] }
       : { userId };
 
     const where = { ...baseFilter };
@@ -39,11 +39,12 @@ export async function list(req, res, next) {
       where,
       include: {
         scientificRep:  { select: { id: true, name: true } },
+        user:           { select: { id: true, username: true } },
         assignedUser:   { select: { id: true, username: true } },
         entries: {
           include: {
             doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } }, targetItem: { select: { id: true, name: true } } } },
-            visits: { select: { id: true, feedback: true, visitDate: true, notes: true, latitude: true, longitude: true, item: { select: { id: true, name: true } } } },
+            visits: { select: { id: true, feedback: true, visitDate: true, notes: true, latitude: true, longitude: true, item: { select: { id: true, name: true } }, likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } }, comments: { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } } } },
             targetItems: { include: { item: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } },
           },
         },
@@ -60,10 +61,10 @@ export async function getOne(req, res, next) {
     const uid  = req.user.id;
     const role = req.user.role;
     const planId = parseInt(req.params.id);
-    // owner sees by userId, assigned rep sees by assignedUserId
+    // owner sees by userId, assigned rep sees by assignedUserId OR own created plan
     const REP_ROLES_ONE = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
     const accessWhere = REP_ROLES_ONE.has(role)
-      ? { id: planId, assignedUserId: uid }
+      ? { id: planId, OR: [{ assignedUserId: uid }, { userId: uid }] }
       : { id: planId, userId: uid };
     const plan = await prisma.monthlyPlan.findFirst({
       where: accessWhere,
@@ -77,7 +78,7 @@ export async function getOne(req, res, next) {
                 targetItem: { select: { id: true, name: true } },
               },
             },
-            visits: { orderBy: { visitDate: 'asc' }, include: { item: { select: { id: true, name: true } } } },
+            visits: { orderBy: { visitDate: 'asc' }, include: { item: { select: { id: true, name: true } }, likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } }, comments: { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } } } },
             targetItems: { include: { item: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } },
           },
         },
@@ -142,10 +143,18 @@ export async function suggest(req, res, next) {
     const {
       scientificRepId, month, year,
       targetDoctors = 75,
-      keepFeedback,          // comma-separated e.g. 'writing,stocked,interested'
+      keepFeedback,
       restrictToAreas = 'true',
-      sortBy = 'oldest',     // 'oldest' | 'newest' | 'random'
-      useNoteAnalysis = 'true',  // analyze visit notes for positive signals
+      sortBy = 'oldest',
+      useNoteAnalysis = 'true',
+      userNote = '',
+      lookbackMonths = '1',
+      lookbackList = '',     // comma-separated YYYY-MM, overrides lookbackMonths if set
+      newRatio = '0',        // 0 = auto, 1-100 = force % of target to be new doctors
+      focusItemId = '',      // filter new doctors by item
+      focusSpecialty = '',   // filter new doctors by specialty
+      focusAreaId = '',      // override area filter for new doctors
+      wishedDoctorIds = '',  // comma-separated doctor IDs from rep wishlist (قائمة الطلبات)
     } = req.query;
     if (!scientificRepId || !month || !year)
       return res.status(400).json({ error: 'scientificRepId, month, year required' });
@@ -162,21 +171,42 @@ export async function suggest(req, res, next) {
     const analyzeNotes    = String(useNoteAnalysis) !== 'false';
     const useAreaRestriction = String(restrictToAreas) !== 'false';
 
-    // Previous month
-    const prevMonth = m === 1 ? 12 : m - 1;
-    const prevYear  = m === 1 ? y - 1 : y;
+    // Build list of previous months to scan
+    // If lookbackList is provided (comma-separated YYYY-MM), use it; otherwise fall back to lookbackMonths count
+    let prevMonthsList;
+    if (String(lookbackList).trim()) {
+      prevMonthsList = String(lookbackList).split(',')
+        .map(s => s.trim()).filter(Boolean)
+        .map(ym => { const [yr, mo] = ym.split('-').map(Number); return { month: mo, year: yr }; })
+        .filter(p => p.month >= 1 && p.month <= 12 && p.year > 2000);
+    } else {
+      const lookback = Math.max(1, Math.min(6, parseInt(lookbackMonths) || 1));
+      prevMonthsList = [];
+      for (let i = 1; i <= lookback; i++) {
+        let pm = m - i; let py = y;
+        if (pm <= 0) { pm += 12; py -= 1; }
+        prevMonthsList.push({ month: pm, year: py });
+      }
+    }
+    if (prevMonthsList.length === 0) {
+      prevMonthsList = [{ month: m === 1 ? 12 : m - 1, year: m === 1 ? y - 1 : y }];
+    }
 
-    // Get previous plan visits (all visits so we can scan all notes)
-    const prevPlan = await prisma.monthlyPlan.findFirst({
-      where: { scientificRepId: repId, month: prevMonth, year: prevYear, userId },
+    // Get previous plans for all lookback months
+    const prevPlans = await prisma.monthlyPlan.findMany({
+      where: {
+        scientificRepId: repId, userId,
+        OR: prevMonthsList.map(p => ({ month: p.month, year: p.year })),
+      },
       include: {
         entries: {
           include: {
-            doctor:  true,
-            visits:  { orderBy: { visitDate: 'desc' } },  // all visits for note analysis
+            doctor: true,
+            visits: { orderBy: { visitDate: 'desc' } },
           },
         },
       },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
     });
 
     let keepDoctors    = [];
@@ -192,30 +222,29 @@ export async function suggest(req, res, next) {
       currentPlan.entries.forEach(e => usedDoctorIds.add(e.doctorId));
     }
 
-    if (prevPlan) {
-      for (const entry of prevPlan.entries) {
-        // Skip if doctor already in current plan
-        if (usedDoctorIds.has(entry.doctor.id)) continue;
-        const lastFeedback = entry.visits[0]?.feedback ?? 'pending';
-
-        if (KEEP_FEEDBACK.includes(lastFeedback)) {
-          keepDoctors.push({ doctor: entry.doctor, reason: lastFeedback });
-          usedDoctorIds.add(entry.doctor.id);
-        } else if (analyzeNotes) {
-          // Scan ALL visit notes for positive engagement signals
-          const allNotes = normalizeAr(
-            entry.visits.map(v => v.notes ?? '').join(' ')
-          );
-          if (allNotes.trim() && POSITIVE_NOTE_RE.test(allNotes)) {
-            keepDoctors.push({ doctor: entry.doctor, reason: 'positive_notes' });
-            usedDoctorIds.add(entry.doctor.id);
-          } else {
-            replacedCount++;
-          }
-        } else {
-          replacedCount++;
+    // Merge entries from all lookback plans (newest first → most recent feedback wins)
+    const seenDoctorInPrev = new Map(); // doctorId → { doctor, visits[] }
+    for (const plan of prevPlans) {
+      for (const entry of plan.entries) {
+        if (!seenDoctorInPrev.has(entry.doctor.id)) {
+          seenDoctorInPrev.set(entry.doctor.id, { doctor: entry.doctor, visits: entry.visits });
         }
       }
+    }
+
+    for (const { doctor, visits } of seenDoctorInPrev.values()) {
+      if (usedDoctorIds.has(doctor.id)) continue;
+      const lastFeedback = visits[0]?.feedback ?? 'pending';
+      if (KEEP_FEEDBACK.includes(lastFeedback)) {
+        keepDoctors.push({ doctor, reason: lastFeedback });
+        usedDoctorIds.add(doctor.id);
+      } else if (analyzeNotes) {
+        const allNotes = normalizeAr(visits.map(v => v.notes ?? '').join(' '));
+        if (allNotes.trim() && POSITIVE_NOTE_RE.test(allNotes)) {
+          keepDoctors.push({ doctor, reason: 'positive_notes' });
+          usedDoctorIds.add(doctor.id);
+        } else { replacedCount++; }
+      } else { replacedCount++; }
     }
 
     // Get scientific rep areas to find matching doctors
@@ -225,8 +254,161 @@ export async function suggest(req, res, next) {
     });
     const areaIds = repAreas.map(a => a.areaId);
 
-    // Fill remaining slots with new doctors from survey (same areas)
-    const needed = target - keepDoctors.length;
+    // ── Process userNote with Gemini AI ──────────────────────
+    let priorityDoctors = [];
+    let aiAreaOverride  = null; // null = use rep areas, [] = no restriction, [ids] = AI-specified
+    let aiParsed        = null;
+    const noteText      = String(userNote).trim();
+
+    if (noteText) {
+      try {
+        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (apiKey) {
+          const { GoogleGenerativeAI } = await import('@google/generative-ai');
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+          const prompt = `أنت مساعد لبناء خطة زيارات شهرية لمندوب طبي.
+المستخدم كتب التعليمات التالية:
+"${noteText}"
+
+حلل هذه التعليمات فقط واستخرج JSON (بدون markdown) بهذا الشكل الدقيق:
+{
+  "includeDoctorNames": [],
+  "excludeDoctorNames": [],
+  "includeAreaNames": [],
+  "excludeAreaNames": [],
+  "specialties": [],
+  "summary": "ملخص قصير لما فهمته بالعربي"
+}
+- includeDoctorNames: أسماء أطباء يريد إضافتهم أو تضمينهم
+- excludeDoctorNames: أسماء أطباء يريد استبعادهم
+- includeAreaNames: مناطق يريد التركيز عليها
+- excludeAreaNames: مناطق يريد تجنبها
+- specialties: تخصصات طبية يريد التركيز عليها
+أخرج JSON فقط بدون أي نص إضافي.`;
+          const result = await model.generateContent(prompt);
+          const raw = result.response.text().trim()
+            .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+          aiParsed = JSON.parse(raw);
+        }
+      } catch (e) {
+        console.error('[suggest] AI note parsing failed:', e.message);
+      }
+
+      if (aiParsed) {
+        // 1. Find doctors to include by name
+        if (aiParsed.includeDoctorNames?.length) {
+          const nameFilters = aiParsed.includeDoctorNames
+            .map(n => String(n).replace(/^[دد]\.\s*/u, '').trim())
+            .filter(Boolean)
+            .map(n => ({ name: { contains: n } }));
+          if (nameFilters.length) {
+            const found = await prisma.doctor.findMany({
+              where: { userId, isActive: true, OR: nameFilters },
+              include: { area: { select: { id: true, name: true } }, targetItem: { select: { id: true, name: true } } },
+            });
+            found.forEach(d => {
+              if (!usedDoctorIds.has(d.id)) {
+                priorityDoctors.push(d);
+                usedDoctorIds.add(d.id);
+              }
+            });
+          }
+        }
+
+        // 2. Find doctors to exclude by name
+        if (aiParsed.excludeDoctorNames?.length) {
+          const exFilters = aiParsed.excludeDoctorNames
+            .map(n => String(n).replace(/^[دد]\.\s*/u, '').trim())
+            .filter(Boolean)
+            .map(n => ({ name: { contains: n } }));
+          if (exFilters.length) {
+            const toExclude = await prisma.doctor.findMany({
+              where: { userId, OR: exFilters }, select: { id: true },
+            });
+            toExclude.forEach(d => usedDoctorIds.add(d.id));
+          }
+        }
+
+        // 3. Resolve AI-specified include areas
+        if (aiParsed.includeAreaNames?.length) {
+          const areaMatches = await prisma.area.findMany({
+            where: { userId, name: { in: aiParsed.includeAreaNames } }, select: { id: true },
+          });
+          aiAreaOverride = areaMatches.map(a => a.id);
+        }
+
+        // 4. Resolve AI-specified exclude areas
+        if (aiParsed.excludeAreaNames?.length) {
+          const exAreas = await prisma.area.findMany({
+            where: { userId, name: { in: aiParsed.excludeAreaNames } }, select: { id: true },
+          });
+          const exAreaIds = new Set(exAreas.map(a => a.id));
+          // Exclude already-kept doctors from those areas
+          keepDoctors = keepDoctors.filter(k => !exAreaIds.has(k.doctor.areaId));
+          if (aiAreaOverride === null) {
+            // Build area list = rep areas minus excluded
+            aiAreaOverride = areaIds.filter(id => !exAreaIds.has(id));
+          } else {
+            aiAreaOverride = aiAreaOverride.filter(id => !exAreaIds.has(id));
+          }
+        }
+      }
+    }
+
+    // ── Wished doctors (قائمة الطلبات) — always included regardless of area restriction ──
+    const wishedIds = String(wishedDoctorIds).trim()
+      ? String(wishedDoctorIds).split(',').map(s => parseInt(s.trim())).filter(n => Number.isInteger(n) && n > 0)
+      : [];
+    if (wishedIds.length > 0) {
+      const toFind = wishedIds.filter(id => !usedDoctorIds.has(id));
+      if (toFind.length > 0) {
+        const wishedDocs = await prisma.doctor.findMany({
+          where: { userId, isActive: true, id: { in: toFind } },
+          include: {
+            area:       { select: { id: true, name: true } },
+            targetItem: { select: { id: true, name: true } },
+          },
+        });
+        // Put wished doctors at the front of priorityDoctors
+        priorityDoctors = [
+          ...wishedDocs.map(d => ({ ...d, fromWishList: true })),
+          ...priorityDoctors,
+        ];
+        wishedDocs.forEach(d => usedDoctorIds.add(d.id));
+      }
+    }
+
+    // Determine the area filter for newDoctors
+    // focusAreaId may be comma-separated (multiple area IDs)
+    const focusAreaIds = String(focusAreaId).trim()
+      ? String(focusAreaId).split(',').map(s => parseInt(s.trim())).filter(n => Number.isInteger(n) && n > 0)
+      : [];
+    const effectiveAreaIds = focusAreaIds.length > 0
+      ? focusAreaIds
+      : aiAreaOverride !== null
+        ? aiAreaOverride
+        : (useAreaRestriction && areaIds.length > 0 ? areaIds : []);
+
+    // forcedNewRatio: 0 = auto, >0 = force % of total target as new doctors
+    const forcedNewRatio = Math.max(0, Math.min(100, parseInt(newRatio) || 0));
+    const forcedNewCount = forcedNewRatio > 0 ? Math.round(target * forcedNewRatio / 100) : null;
+    const needed = forcedNewCount !== null
+      ? Math.max(0, forcedNewCount - priorityDoctors.length)
+      : Math.max(0, target - keepDoctors.length - priorityDoctors.length);
+
+    // specialty & item filters (both may be comma-separated for multi-select)
+    const focusSpecialtyList = String(focusSpecialty).trim()
+      ? String(focusSpecialty).split(',').map(s => s.trim()).filter(Boolean)
+      : null;
+    const specialtyFilter = focusSpecialtyList?.length
+      ? focusSpecialtyList
+      : (aiParsed?.specialties?.length ? aiParsed.specialties : null);
+    const focusItemIds = String(focusItemId).trim()
+      ? String(focusItemId).split(',').map(s => parseInt(s.trim())).filter(n => Number.isInteger(n) && n > 0)
+      : [];
+    const itemFilter = focusItemIds.length > 0 ? { targetItemId: { in: focusItemIds } } : {};
+
     let newDoctors = [];
     if (needed > 0) {
       const fetchCount = sortBy === 'random' ? Math.min(needed * 4, 500) : needed;
@@ -235,7 +417,9 @@ export async function suggest(req, res, next) {
           userId,
           isActive: true,
           id: { notIn: [...usedDoctorIds] },
-          ...(useAreaRestriction && areaIds.length > 0 && { areaId: { in: areaIds } }),
+          ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
+          ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+          ...itemFilter,
         },
         include: {
           area:       { select: { id: true, name: true } },
@@ -251,12 +435,15 @@ export async function suggest(req, res, next) {
 
     res.json({
       keepDoctors,
-      newDoctors,
+      newDoctors: [...priorityDoctors, ...newDoctors],
+      aiNote: noteText
+        ? { raw: noteText, parsed: aiParsed ?? undefined }
+        : null,
       summary: {
         keep:    keepDoctors.length,
         replace: replacedCount,
-        new:     newDoctors.length,
-        total:   keepDoctors.length + newDoctors.length,
+        new:     priorityDoctors.length + newDoctors.length,
+        total:   keepDoctors.length + priorityDoctors.length + newDoctors.length,
       },
     });
   } catch (e) { next(e); }
@@ -266,7 +453,18 @@ export async function suggest(req, res, next) {
 export async function create(req, res, next) {
   try {
     const userId = req.user.id;
-    const { scientificRepId, month, year, targetCalls, targetDoctors, notes, doctorIds } = req.body;
+    const role   = req.user.role;
+    const REP_ROLES_C = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
+    let { scientificRepId, month, year, targetCalls, targetDoctors, notes, doctorIds } = req.body;
+
+    // Reps can only create plans for themselves (their linkedRepId)
+    if (REP_ROLES_C.has(role)) {
+      const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      if (!dbUser?.linkedRepId)
+        return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب علمي. تواصل مع المدير.' });
+      scientificRepId = dbUser.linkedRepId;
+    }
+
     if (!scientificRepId || !month || !year)
       return res.status(400).json({ error: 'scientificRepId, month, year required' });
 
@@ -540,6 +738,111 @@ export async function patchVisitItem(req, res, next) {
       include: { item: { select: { id: true, name: true } } },
     });
     res.json(updated);
+  } catch (e) { next(e); }
+}
+
+// ── Toggle like on a visit (managers/admins only) ────────────
+export async function toggleVisitLike(req, res, next) {
+  try {
+    const userId  = req.user.id;
+    const visitId = parseInt(req.params.visitId);
+    const existing = await prisma.visitLike.findUnique({ where: { visitId_userId: { visitId, userId } } });
+    if (existing) {
+      await prisma.visitLike.delete({ where: { visitId_userId: { visitId, userId } } });
+      const likes = await prisma.visitLike.findMany({ where: { visitId }, select: { id: true, userId: true, user: { select: { id: true, username: true } } } });
+      return res.json({ liked: false, likes });
+    }
+    await prisma.visitLike.create({ data: { visitId, userId } });
+    const likes = await prisma.visitLike.findMany({ where: { visitId }, select: { id: true, userId: true, user: { select: { id: true, username: true } } } });
+    res.json({ liked: true, likes });
+  } catch (e) { next(e); }
+}
+
+// ── Add manager comment on a visit ───────────────────────────
+export async function addVisitComment(req, res, next) {
+  try {
+    const userId  = req.user.id;
+    const visitId = parseInt(req.params.visitId);
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
+
+    const comment = await prisma.visitComment.create({
+      data: { visitId, userId, content: content.trim() },
+      select: { id: true, visitId: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } },
+    });
+    res.json(comment);
+  } catch (e) { next(e); }
+}
+
+// ── Delete manager comment ────────────────────────────────────
+export async function deleteVisitComment(req, res, next) {
+  try {
+    const userId    = req.user.id;
+    const commentId = parseInt(req.params.commentId);
+    const comment   = await prisma.visitComment.findUnique({ where: { id: commentId } });
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+    if (comment.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+    await prisma.visitComment.delete({ where: { id: commentId } });
+    res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+// ── Import plan entries (doctors list) from JSON sent by frontend ──────────
+export async function importPlanEntries(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const { entries } = req.body; // [{ name: string, targetVisits?: number }]
+    if (!Array.isArray(entries) || entries.length === 0)
+      return res.status(400).json({ error: 'entries array is required' });
+
+    const { id: userId, role } = req.user;
+    const plan = await findAccessiblePlan(planId, userId, role);
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    // Get already-added entry doctor IDs to skip duplicates
+    const existing = await prisma.planEntry.findMany({
+      where: { planId },
+      select: { doctorId: true },
+    });
+    const existingIds = new Set(existing.map(e => e.doctorId));
+
+    // Fetch accessible doctors
+    const FIELD_ROLES = ['user','scientific_rep','supervisor','team_leader','commercial_rep'];
+    let doctors;
+    if (FIELD_ROLES.includes(role)) {
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      doctors = await prisma.doctor.findMany({
+        where: { OR: [{ userId }, { scientificRepId: userRow?.linkedRepId ?? -1 }] },
+        select: { id: true, name: true },
+      });
+    } else {
+      // Admin / manager — search all doctors
+      doctors = await prisma.doctor.findMany({ select: { id: true, name: true } });
+    }
+
+    const normalize = s => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+    const imported = [];
+    const unmatched = [];
+
+    for (const row of entries) {
+      if (!row.name?.trim()) continue;
+      const n = normalize(row.name);
+      // Exact match first, then partial
+      let matched = doctors.find(d => normalize(d.name) === n);
+      if (!matched) matched = doctors.find(d => normalize(d.name).includes(n) || n.includes(normalize(d.name)));
+      if (!matched || existingIds.has(matched.id)) {
+        if (!matched) unmatched.push(row.name.trim());
+        continue;
+      }
+      await prisma.planEntry.create({
+        data: { planId, doctorId: matched.id, targetVisits: Number(row.targetVisits) || 2 },
+      });
+      existingIds.add(matched.id);
+      imported.push(matched.name);
+    }
+
+    res.json({ imported: imported.length, total: entries.length, unmatched, importedNames: imported });
   } catch (e) { next(e); }
 }
 

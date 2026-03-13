@@ -18,6 +18,20 @@ const ROLES = [
   { value: 'manager',                 label: 'مدير (manager)' },
 ];
 
+const FEATURES = [
+  // ── الصفحات ──
+  { key: 'ai_assistant',  label: 'مساعد الذكاء الاصطناعي', icon: '🤖', desc: 'زر مساعد AI والأوامر الصوتية والنصية الذكية', group: 'pages' },
+  { key: 'monthly_plans', label: 'البلانات الشهرية',        icon: '📅', desc: 'صفحة إنشاء وإدارة البلانات الشهرية',          group: 'pages' },
+  { key: 'reports',       label: 'التقارير',                icon: '📊', desc: 'صفحة عرض التقارير والإحصائيات',               group: 'pages' },
+  { key: 'rep_analysis',  label: 'تحليل زيارات المندوب',    icon: '📈', desc: 'تحليل أداء المندوب التفصيلي',                 group: 'pages' },
+  { key: 'wish_list',     label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'صفحة قائمة الأطباء المستهدفين',               group: 'pages' },
+  { key: 'export_report', label: 'تصدير التقارير',          icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير',               group: 'pages' },
+  // ── ميزات داخل التطبيق ──
+  { key: 'call_log',      label: 'سجل إضافة الزيارات',      icon: '📝', desc: 'نموذج تسجيل الزيارة اليومية وإدخال البيانات', group: 'features' },
+  { key: 'voice_visit',   label: 'الزيارة الصوتية',          icon: '🎤', desc: 'زر تسجيل الزيارة عبر الصوت (الميكروفون)',     group: 'features' },
+  { key: 'daily_map',     label: 'خريطة الزيارات اليومية',   icon: '🗺️', desc: 'عرض مواقع الزيارات على الخريطة التفاعلية',   group: 'features' },
+];
+
 interface Office   { id: number; name: string; }
 interface Company  { id: number; name: string; officeId: number; }
 interface Line     { id: number; name?: string; companyId: number; }
@@ -26,6 +40,7 @@ interface Area     { id: number; name: string; }
 interface UserRow  {
   id: number; username: string; displayName?: string; role: string; phone?: string;
   isActive: boolean; officeId?: number; office?: { name: string };
+  permissions?: string | null;
   _count?: { companyAssignments: number; areas: number; };
 }
 interface UserDetail extends UserRow {
@@ -60,15 +75,16 @@ export default function UsersPage() {
   const [form,      setForm]      = useState<any | null>(null);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
-  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'>('info');
+  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'features'>('info');
   const [search,    setSearch]    = useState('');
 
   // ── Draft assignment states (must be at top level — Rules of Hooks) ──────
-  const [draftCompanyIds, setDraftCompanyIds] = useState<number[]>([]);
-  const [draftLineIds,    setDraftLineIds]    = useState<number[]>([]);
-  const [draftItemIds,    setDraftItemIds]    = useState<number[]>([]);
-  const [draftAreaIds,    setDraftAreaIds]    = useState<number[]>([]);
-  const [draftMgrIds,     setDraftMgrIds]     = useState<number[]>([]);
+  const [draftCompanyIds,    setDraftCompanyIds]    = useState<number[]>([]);
+  const [draftLineIds,       setDraftLineIds]       = useState<number[]>([]);
+  const [draftItemIds,       setDraftItemIds]       = useState<number[]>([]);
+  const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
+  const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
+  const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
 
   const load = () => {
     setLoading(true);
@@ -104,6 +120,10 @@ export default function UsersPage() {
     setDraftItemIds(detail.itemAssignments.map(a => a.itemId));
     setDraftAreaIds(detail.areaAssignments.map(a => a.areaId));
     setDraftMgrIds(detail.managersOfUser.map(a => a.managerId));
+    try {
+      const p = JSON.parse(detail.permissions || '{}');
+      setDraftDisabledFeats(p.disabledFeatures ?? []);
+    } catch { setDraftDisabledFeats([]); }
   }, [detail?.id]);
 
   const loadDetail = (id: number) => {
@@ -142,6 +162,19 @@ export default function UsersPage() {
       loadDetail(detail.id);
     } catch (e) {
       console.error('saveAssignment error:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveFeatures = async () => {
+    if (!detail) return;
+    setSaving(true);
+    try {
+      await fetch(`/api/sa/users/${detail.id}/features`, {
+        method: 'PUT', headers: H(), body: JSON.stringify({ disabledFeatures: draftDisabledFeats }),
+      });
+      loadDetail(detail.id);
     } finally {
       setSaving(false);
     }
@@ -211,6 +244,7 @@ export default function UsersPage() {
           <TabBtn id="items"     label={`الايتمات (${selItemIds.length})`} />
           <TabBtn id="areas"     label={`المناطق (${selAreaIds.length})`} />
           <TabBtn id="managers"  label={`المدراء (${selMgrIds.length})`} />
+          <TabBtn id="features"  label="🎛️ المميزات" />
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
@@ -265,6 +299,61 @@ export default function UsersPage() {
               <CheckList allItems={users.filter(u => u.id !== detail.id).map(u => ({ id: u.id, label: `${u.displayName || u.username} (${ROLES.find(r => r.value === u.role)?.label || u.role})` }))} selIds={draftMgrIds} onToggle={mkToggle(draftMgrIds, setDraftMgrIds)} />
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('managers', draftMgrIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
+              </div>
+            </div>
+          )}
+          {tab === 'features' && (
+            <div>
+              <p style={{ fontSize: 13, color: '#64748b', marginTop: 0, marginBottom: 16 }}>
+                تحكم في الميزات المتاحة لهذا المستخدم. أي ميزة مُعطَّلة لن تظهر عند تسجيل دخوله.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(['pages', 'features'] as const).map(group => (
+                  <div key={group}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, marginTop: group === 'features' ? 14 : 0 }}>
+                      {group === 'pages' ? '📄 الصفحات والأقسام' : '⚙️ ميزات داخل التطبيق'}
+                    </div>
+                    {FEATURES.filter(f => f.group === group).map(f => {
+                      const isDisabled = draftDisabledFeats.includes(f.key);
+                      return (
+                        <div key={f.key} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '12px 16px', borderRadius: 10, border: `1.5px solid ${isDisabled ? '#fee2e2' : '#dcfce7'}`,
+                          background: isDisabled ? '#fff7f7' : '#f0fdf4', marginBottom: 8,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 22 }}>{f.icon}</span>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{f.label}</div>
+                              <div style={{ fontSize: 12, color: '#94a3b8' }}>{f.desc}</div>
+                            </div>
+                          </div>
+                          <label style={{ position: 'relative', display: 'inline-block', width: 48, height: 26, cursor: 'pointer', flexShrink: 0 }}>
+                            <input type="checkbox" checked={!isDisabled}
+                              onChange={e => {
+                                if (e.target.checked) setDraftDisabledFeats(prev => prev.filter(k => k !== f.key));
+                                else setDraftDisabledFeats(prev => [...prev, f.key]);
+                              }}
+                              style={{ opacity: 0, width: 0, height: 0 }} />
+                            <span style={{
+                              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                              background: isDisabled ? '#e2e8f0' : '#22c55e',
+                              borderRadius: 26, transition: 'background 0.2s',
+                            }} />
+                            <span style={{
+                              position: 'absolute', top: 3, left: isDisabled ? 3 : 25, width: 20, height: 20,
+                              background: '#fff', borderRadius: '50%', transition: 'left 0.2s',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                            }} />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={saveFeatures} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ المميزات'}</button>
               </div>
             </div>
           )}

@@ -63,6 +63,21 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
 
   useEffect(() => { loadReps(); }, [activeFileIds.join(','), token]);
 
+  // AI assistant page-action listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action } = (e as CustomEvent).detail || {};
+      if (action === 'open-add-rep') {
+        setFormName(''); setFormPhone(''); setFormEmail('');
+        setModal('add');
+      }
+    };
+    window.addEventListener('ai-page-action', handler);
+    const pending = (window as any).__aiPendingAction;
+    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  }, []);
+
   const openAdd = () => {
     setFormName(''); setFormPhone(''); setFormEmail('');
     setModal('add');

@@ -13,7 +13,7 @@ interface DailyRep { id: number; name: string; }
 interface DailyCallsData { visits: VisitPoint[]; reps: DailyRep[]; total: number; }
 
 export default function DashboardPage({ onNavigate, activeFileIds, onFileActivated }: { onNavigate: (p: PageId) => void; activeFileIds: number[]; onFileActivated: (id: number) => void }) {
-  const { token, user } = useAuth();
+  const { token, user, hasFeature } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [stats, setStats]         = useState<Stats>({ sciRepsCount: 0, filesCount: 0, areasCount: 0, totalSales: 0, totalReturns: 0 });
@@ -43,14 +43,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
 
   // ── Daily Calls ───────────────────────────────────────────
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const [callsDate, setCallsDate]       = useState<string>(todayStr);
-  const [callsRepId, setCallsRepId]     = useState<number | ''>('');
+  const _todayLocal = new Date();
+  const todayStr = `${_todayLocal.getFullYear()}-${String(_todayLocal.getMonth() + 1).padStart(2, '0')}-${String(_todayLocal.getDate()).padStart(2, '0')}`;
+  const [callsDateFrom, setCallsDateFrom] = useState<string>(todayStr);
+  const [callsDateTo,   setCallsDateTo]   = useState<string>(todayStr);
+  const [callsRepId, setCallsRepId]       = useState<number | ''>('');
   const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
   const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
+  const [likingVisit, setLikingVisit]   = useState<number | null>(null);
+  const [showLikersId, setShowLikersId] = useState<number | null>(null);
+  const likeTimer = useRef<any>(null);
 
   // ── Quick Call Log ──────────────────────────────────────────
   const [showCallLog, setShowCallLog]         = useState(false);
@@ -117,9 +122,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const voiceStartRef  = useRef<number>(0);
   const voiceAutoStop  = useRef<any>(null);
 
-  const loadDailyCalls = (date: string, repId: number | '') => {
+  const loadDailyCalls = (dateFrom: string, dateTo: string, repId: number | '') => {
     setCallsLoading(true);
-    const params = new URLSearchParams({ date });
+    const params = new URLSearchParams({ dateFrom, dateTo });
     if (repId) params.set('repId', String(repId));
     fetch(`/api/doctor-visits/daily?${params}`, { headers: authH() })
       .then(r => r.json())
@@ -128,7 +133,35 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       .finally(() => setCallsLoading(false));
   };
 
-  useEffect(() => { loadDailyCalls(todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleDashLike = async (visitId: number) => {
+    if (likingVisit === visitId) return;
+    setLikingVisit(visitId);
+    try {
+      const res = await fetch(`/api/monthly-plans/visits/${visitId}/like`, { method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' } });
+      if (res.ok) {
+        const { likes } = await res.json();
+        setCallsData(prev => prev ? { ...prev, visits: prev.visits.map(v => v.id === visitId ? { ...v, likes } : v) } : prev);
+      }
+    } finally { setLikingVisit(null); }
+  };
+
+  useEffect(() => { loadDailyCalls(todayStr, todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // AI assistant page-action listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action } = (e as CustomEvent).detail || {};
+      switch (action) {
+        case 'open-call-log':   setShowCallLog(true); break;
+        case 'open-voice-call': setShowCallLog(true); setVoiceOverlay(true); setVoiceReady(true); break;
+        case 'open-map':        setShowMap(true); break;
+      }
+    };
+    window.addEventListener('ai-page-action', handler);
+    const pending = (window as any).__aiPendingAction;
+    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  }, []);
 
   // Load active plan for scientific rep (used by Quick Call Log)
   useEffect(() => {
@@ -144,14 +177,25 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       .catch(() => {});
   }, [isScientificRep]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleCallsDateChange = (d: string) => {
-    setCallsDate(d);
-    loadDailyCalls(d, callsRepId);
+  const handleCallsDateFromChange = (d: string) => {
+    setCallsDateFrom(d);
+    // if from > to, snap to to = from
+    const to = d > callsDateTo ? d : callsDateTo;
+    setCallsDateTo(to);
+    loadDailyCalls(d, to, callsRepId);
+  };
+
+  const handleCallsDateToChange = (d: string) => {
+    setCallsDateTo(d);
+    // if to < from, snap from = to
+    const from = d < callsDateFrom ? d : callsDateFrom;
+    setCallsDateFrom(from);
+    loadDailyCalls(from, d, callsRepId);
   };
 
   const handleCallsRepChange = (rid: number | '') => {
     setCallsRepId(rid);
-    loadDailyCalls(callsDate, rid);
+    loadDailyCalls(callsDateFrom, callsDateTo, rid);
   };
 
   // Feedback words that must NOT be treated as item/drug names
@@ -586,7 +630,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       setClSaving(true); setClError('');
       try {
         const now       = new Date();
-        const visitDate = `${callsDate}T${now.toTimeString().slice(0, 8)}`;
+        const [vy, vm, vd] = callsDateFrom.split('-').map(Number);
+        const visitDate = new Date(vy, vm - 1, vd, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
         const res = await fetch('/api/pharmacy-visits', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authH() },
@@ -605,7 +650,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         clearInterval(clTimerRef.current);
         setShowCallLog(false);
         setIsDoubleVisit(false);
-        loadDailyCalls(callsDate, callsRepId);
+        loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
       } catch (err: any) {
         setClError(err.message || 'حدث خطأ أثناء الحفظ');
       } finally {
@@ -658,7 +703,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         entryId = newEntry.id;
       }
       const now      = new Date();
-      const visitDate = `${callsDate}T${now.toTimeString().slice(0, 8)}`;
+      const [vy2, vm2, vd2] = callsDateFrom.split('-').map(Number);
+      const visitDate = new Date(vy2, vm2 - 1, vd2, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
       // Resolve itemId locally if possible; also send itemName so server can resolve as fallback
       let resolvedItemId = clItemId;
       if (!resolvedItemId && clItemName.trim()) {
@@ -675,7 +721,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       clearInterval(clTimerRef.current);
       setShowCallLog(false);
       setIsDoubleVisit(false);
-      loadDailyCalls(callsDate, callsRepId);
+      loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
       // Refresh plan entries
       fetch(`/api/monthly-plans`, { headers: authH() })
         .then(r => r.json())
@@ -778,8 +824,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
   };
 
-  const fmtDate = (d: string) => new Date(d).toLocaleDateString('ar-IQ-u-nu-latn');
-  const fmtTime = (d: string) => new Date(d).toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
+  const TZ = 'Asia/Baghdad';
+  const fmtDate    = (d: string) => new Date(d).toLocaleDateString('ar-IQ-u-nu-latn', { timeZone: TZ });
+  const fmtTime    = (d: string) => new Date(d).toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+  const fmtDateTime = (d: string) => {
+    const dt = new Date(d);
+    const dateStr = dt.toLocaleDateString('ar-IQ-u-nu-latn', { weekday: 'short', month: 'numeric', day: 'numeric', timeZone: TZ });
+    const timeStr = dt.toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    return `${dateStr} — ${timeStr}`;
+  };
+  const fmtDateAndTime = (d: string) => {
+    const dt = new Date(d);
+    const dateStr = dt.toLocaleDateString('ar-IQ-u-nu-latn', { day: 'numeric', month: 'numeric', timeZone: TZ });
+    const timeStr = dt.toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    return { date: dateStr, time: timeStr };
+  };
+  const isMultiDay  = callsDateFrom !== callsDateTo;
 
   const feedbackLabel = (fb: string) => {
     const td = t.dashboard as any;
@@ -876,24 +936,41 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       <div className="page">
         <div className="page-header">
           <h1 className="page-title">📞 {(t.dashboard as any).dailyCalls}</h1>
-          <p className="page-subtitle">{callsDate}</p>
+          <p className="page-subtitle">
+            {callsDateFrom === callsDateTo ? callsDateFrom : `${callsDateFrom} — ${callsDateTo}`}
+          </p>
         </div>
 
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-              📅 {(t.dashboard as any).dailyCallsDate}:
-            </label>
+          {/* Date range pickers */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
             <input
               type="date"
               className="form-input"
-              style={{ padding: '5px 10px', fontSize: '13px', minWidth: 140 }}
-              value={callsDate}
-              onChange={e => handleCallsDateChange(e.target.value)}
+              style={{ padding: '4px 8px', fontSize: '13px', minWidth: 130, border: 'none', background: 'transparent', outline: 'none' }}
+              value={callsDateFrom}
+              onChange={e => handleCallsDateFromChange(e.target.value)}
             />
+            <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
+            <input
+              type="date"
+              className="form-input"
+              style={{ padding: '4px 8px', fontSize: '13px', minWidth: 130, border: 'none', background: 'transparent', outline: 'none' }}
+              value={callsDateTo}
+              min={callsDateFrom}
+              onChange={e => handleCallsDateToChange(e.target.value)}
+            />
+            {callsDateFrom !== callsDateTo && (
+              <button
+                onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
+                title="العودة لليوم الحالي"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6366f1', fontWeight: 700, padding: '2px 4px', whiteSpace: 'nowrap' }}
+              >اليوم</button>
+            )}
           </div>
-          {callsData && callsData.visits.length > 0 && (
+          {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
             <button
               className="btn btn--primary"
               style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -902,13 +979,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {(t.dashboard as any).dailyCallsMapBtn}
             </button>
           )}
-          <button
-            className="btn btn--primary"
-            style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: '#059669', borderColor: '#059669', marginRight: 'auto' }}
-            onClick={openCallLog}
-          >
-            ✏️ تسجيل زيارة
-          </button>
+          {hasFeature('call_log') && (
+            <button
+              className="btn btn--primary"
+              style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: '#059669', borderColor: '#059669', marginRight: 'auto' }}
+              onClick={openCallLog}
+            >
+              ✏️ تسجيل زيارة
+            </button>
+          )}
           <button
             title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
             onClick={() => setIsDoubleVisit(p => !p)}
@@ -923,19 +1002,21 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             {isDoubleVisit ? '👥' : '👤'}
             <span style={{ fontSize: '11px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
           </button>
-          <button
-            style={{
-              padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
-              background: voiceListening ? '#ef4444' : '#f97316',
-              border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer',
-              animation: voiceListening ? 'clGpsPulse 1.2s ease-in-out infinite' : 'none',
-            }}
-            onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
-            disabled={voiceParsing}
-            title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
-          >
-            {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
-          </button>
+          {hasFeature('voice_visit') && (
+            <button
+              style={{
+                padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
+                background: voiceListening ? '#ef4444' : '#f97316',
+                border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer',
+                animation: voiceListening ? 'clGpsPulse 1.2s ease-in-out infinite' : 'none',
+              }}
+              onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
+              disabled={voiceParsing}
+              title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
+            >
+              {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
+            </button>
+          )}
         </div>
 
         {/* Table card */}
@@ -990,25 +1071,54 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <th style={{ width: 36 }}>#</th>
                       <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
                       <th>الصيدلية / المنطقة</th>
-                      <th>{(t.dashboard as any).dailyCallsColTime}</th>
+                      <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
                       <th>{(t.dashboard as any).dailyCallsColItem}</th>
                       <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
                       <th>الملاحظات</th>
                       <th>{(t.dashboard as any).dailyCallsColLocation}</th>
+                      <th style={{ width: 44 }}>❤️</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredVisits
                       .slice()
                       .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime())
-                      .map((v, idx) => (
-                        <tr key={(v as any)._visitType === 'pharmacy' ? `ph-${v.id}` : v.id}
-                          style={
-                            (v as any)._isDoubleVisit
-                              ? { background: '#f5f3ff' }
-                              : (v as any)._visitType === 'pharmacy' ? { background: '#f0fdf4' }
-                              : (v as any)._outOfPlan ? { background: '#fff7ed' } : undefined
-                          }>
+                      .reduce<React.ReactNode[]>((rows, v, idx, arr) => {
+                        // Date separator between days (only in multi-day view)
+                        if (isMultiDay) {
+                          const curDay  = new Date(v.visitDate).toLocaleDateString('ar-IQ');
+                          const prevDay = idx > 0 ? new Date(arr[idx - 1].visitDate).toLocaleDateString('ar-IQ') : null;
+                          if (curDay !== prevDay) {
+                            const colCount = isManagerOrAdmin ? 9 : 8;
+                            rows.push(
+                              <tr key={`sep-${curDay}`} style={{ background: 'transparent' }}>
+                                <td colSpan={colCount} style={{ padding: idx === 0 ? '4px 0 0' : '12px 0 0', border: 'none' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                                    <div style={{ flex: 1, height: 2, background: '#e2e8f0' }} />
+                                    <span style={{
+                                      fontSize: 12, fontWeight: 800, color: '#fff',
+                                      background: '#475569',
+                                      borderRadius: 6, padding: '4px 16px',
+                                      whiteSpace: 'nowrap', letterSpacing: '0.3px',
+                                      boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                    }}>
+                                      📅 {curDay}
+                                    </span>
+                                    <div style={{ flex: 1, height: 2, background: '#e2e8f0' }} />
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+                        }
+                        rows.push(
+                          <tr key={(v as any)._visitType === 'pharmacy' ? `ph-${v.id}` : v.id}
+                            style={
+                              (v as any)._isDoubleVisit
+                                ? { background: '#f5f3ff' }
+                                : (v as any)._visitType === 'pharmacy' ? { background: '#f0fdf4' }
+                                : (v as any)._outOfPlan ? { background: '#fff7ed' } : undefined
+                            }>
                           <td style={{ textAlign: 'center', color: '#94a3b8' }}>{idx + 1}</td>
                           <td>
                             {(v as any)._visitType === 'pharmacy' ? (
@@ -1048,7 +1158,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               ) : '—'
                             )}
                           </td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>{fmtTime(v.visitDate)}</td>
+                          <td style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
+                            {isMultiDay ? (() => { const { date, time } = fmtDateAndTime(v.visitDate); return <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></>; })() : (() => { const { date, time } = fmtDateAndTime(v.visitDate); return <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
+                          </td>
                           <td style={{ fontSize: '13px' }}>
                             {(v as any)._visitType === 'pharmacy' ? (
                               (v as any).pharmItems?.length > 0 ? (
@@ -1087,11 +1199,137 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', padding: '2px', lineHeight: 1 }}>📍</button>
                               : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
                           </td>
+                          {/* Like cell — only for doctor visits */}
+                          <td style={{ textAlign: 'center', position: 'relative' }}>
+                            {(v as any)._visitType !== 'pharmacy' && (() => {
+                              const likes = (v as any).likes ?? [];
+                              const likeCount = likes.length;
+                              const liked = !!(likes.find((l: any) => l.userId === user?.id));
+                              return (
+                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                  <button
+                                    title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
+                                    disabled={!isManagerOrAdmin || likingVisit === v.id}
+                                    onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
+                                    onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                    onMouseUp={() => clearTimeout(likeTimer.current)}
+                                    onMouseLeave={() => clearTimeout(likeTimer.current)}
+                                    onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                    onTouchEnd={() => clearTimeout(likeTimer.current)}
+                                    style={{
+                                      position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                      width: 28, height: 28, borderRadius: '50%', padding: 0,
+                                      border: 'none', background: 'transparent',
+                                      cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
+                                      transition: 'opacity 0.15s',
+                                    }}>
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                    {likeCount > 0 && (
+                                      <span style={{
+                                        position: 'absolute', top: -5, right: -5,
+                                        background: '#ef4444', color: '#fff', borderRadius: '50%',
+                                        fontSize: 9, fontWeight: 800, width: 15, height: 15,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        lineHeight: 1, border: '1.5px solid #fff',
+                                      }}>{likeCount}</span>
+                                    )}
+                                  </button>
+                                  {showLikersId === v.id && (
+                                    <div style={{
+                                      position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+                                      background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
+                                      fontSize: 11, whiteSpace: 'nowrap', zIndex: 999,
+                                      boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110,
+                                    }} onClick={() => setShowLikersId(null)}>
+                                      <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                                      {likeCount === 0
+                                        ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
+                                        : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)
+                                      }
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
                         </tr>
-                      ))}
+                        );
+                        return rows;
+                      }, [])}
                   </tbody>
                 </table>
               </div>
+
+              {/* ── Statistics summary ── */}
+              {(() => {
+                const doctorCalls   = filteredVisits.filter(v => (v as any)._visitType !== 'pharmacy');
+                const pharmacyCalls = filteredVisits.filter(v => (v as any)._visitType === 'pharmacy');
+
+                // Count calls per item
+                const itemCounts: Record<string, number> = {};
+                filteredVisits.forEach(v => {
+                  if ((v as any)._visitType === 'pharmacy') {
+                    const items: any[] = (v as any).pharmItems ?? [];
+                    if (items.length === 0) {
+                      const k = '—';
+                      itemCounts[k] = (itemCounts[k] ?? 0) + 1;
+                    } else {
+                      items.forEach((pi: any) => {
+                        const k = pi.item?.name ?? pi.itemName ?? '—';
+                        itemCounts[k] = (itemCounts[k] ?? 0) + 1;
+                      });
+                    }
+                  } else {
+                    const k = (v as any).item?.name ?? '—';
+                    itemCounts[k] = (itemCounts[k] ?? 0) + 1;
+                  }
+                });
+                const itemEntries = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+
+                return (
+                  <div style={{ margin: '14px 0 4px', padding: '16px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', direction: 'rtl' }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 12 }}>📊 إحصائيات الكولات</div>
+                    {/* Totals row */}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 16px', minWidth: 110 }}>
+                        <span style={{ fontSize: 20 }}>👨‍⚕️</span>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1 }}>كولات الأطباء</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: '#4f46e5', lineHeight: 1.2 }}>{doctorCalls.length}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 16px', minWidth: 110 }}>
+                        <span style={{ fontSize: 20 }}>🏪</span>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1 }}>كولات الصيدليات</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 16px', minWidth: 110 }}>
+                        <span style={{ fontSize: 20 }}>📋</span>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1 }}>إجمالي</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>{filteredVisits.length}</div>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Per-item counts */}
+                    {itemEntries.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8 }}>📦 الكولات حسب الايتم</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {itemEntries.map(([name, count]) => (
+                            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 12px', fontSize: 13 }}>
+                              <span style={{ fontWeight: 600, color: '#1e293b' }}>{name}</span>
+                              <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '1px 8px', fontWeight: 800, fontSize: 13 }}>{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
@@ -1801,8 +2039,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   placeholder="أكتب ملاحظات الزيارة..."
                   value={clNotes}
                   onChange={e => setClNotes(e.target.value)}
-                  rows={3}
-                  style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                  rows={2}
+                  style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', fontSize: '13px', padding: '6px 10px' }}
                 />
               </div>
               )}
@@ -2001,18 +2239,32 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             📞 {(t.dashboard as any).dailyCalls}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            {/* Date picker */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                📅 {(t.dashboard as any).dailyCallsDate}:
-              </label>
+            {/* Date range pickers */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0' }}>
+              <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
               <input
                 type="date"
                 className="form-input"
-                style={{ padding: '5px 10px', fontSize: '13px', minWidth: 140 }}
-                value={callsDate}
-                onChange={e => handleCallsDateChange(e.target.value)}
+                style={{ padding: '4px 8px', fontSize: '13px', minWidth: 130, border: 'none', background: 'transparent', outline: 'none' }}
+                value={callsDateFrom}
+                onChange={e => handleCallsDateFromChange(e.target.value)}
               />
+              <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
+              <input
+                type="date"
+                className="form-input"
+                style={{ padding: '4px 8px', fontSize: '13px', minWidth: 130, border: 'none', background: 'transparent', outline: 'none' }}
+                value={callsDateTo}
+                min={callsDateFrom}
+                onChange={e => handleCallsDateToChange(e.target.value)}
+              />
+              {callsDateFrom !== callsDateTo && (
+                <button
+                  onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
+                  title="العودة لليوم الحالي"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6366f1', fontWeight: 700, padding: '2px 4px', whiteSpace: 'nowrap' }}
+                >اليوم</button>
+              )}
             </div>
             {/* Rep filter — only for admin/manager */}
             {isManagerOrAdmin && callsData && callsData.reps.length > 0 && (
@@ -2111,10 +2363,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <th>{(t.dashboard as any).dailyCallsColNum}</th>
                       <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
                       {isManagerOrAdmin && <th>{(t.dashboard as any).dailyCallsColRep}</th>}
-                      <th>{(t.dashboard as any).dailyCallsColTime}</th>
+                      <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
                       <th>{(t.dashboard as any).dailyCallsColItem}</th>
                       <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
                       <th>{(t.dashboard as any).dailyCallsColLocation}</th>
+                      <th style={{ width: 44 }}>❤️</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2133,7 +2386,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           )}
                         </td>
                         {isManagerOrAdmin && <td>{v.scientificRep.name}</td>}
-                        <td style={{ whiteSpace: 'nowrap' }}>{fmtTime(v.visitDate)}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {(() => { const { date, time } = fmtDateAndTime(v.visitDate); return isMultiDay ? <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></> : <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
+                        </td>
                         <td>{v.item?.name ?? '—'}</td>
                         <td>
                           <span style={{
@@ -2152,6 +2407,58 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           {v.latitude != null
                             ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', padding: '2px', lineHeight: 1 }}>📍</button>
                             : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
+                        </td>
+                        <td style={{ textAlign: 'center', position: 'relative' }}>
+                          {(() => {
+                            const likes = (v as any).likes ?? [];
+                            const likeCount = likes.length;
+                            const liked = !!(likes.find((l: any) => l.userId === user?.id));
+                            return (
+                              <div style={{ position: 'relative', display: 'inline-block' }}>
+                                <button
+                                  title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
+                                  disabled={!isManagerOrAdmin || likingVisit === v.id}
+                                  onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
+                                  onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                  onMouseUp={() => clearTimeout(likeTimer.current)}
+                                  onMouseLeave={() => clearTimeout(likeTimer.current)}
+                                  onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                  onTouchEnd={() => clearTimeout(likeTimer.current)}
+                                  style={{
+                                    position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    width: 28, height: 28, borderRadius: '50%', padding: 0,
+                                    border: 'none', background: 'transparent',
+                                    cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
+                                    transition: 'opacity 0.15s',
+                                  }}>
+                                  <svg viewBox="0 0 24 24" width="16" height="16" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                  {likeCount > 0 && (
+                                    <span style={{
+                                      position: 'absolute', top: -5, right: -5,
+                                      background: '#ef4444', color: '#fff', borderRadius: '50%',
+                                      fontSize: 9, fontWeight: 800, width: 15, height: 15,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      lineHeight: 1, border: '1.5px solid #fff',
+                                    }}>{likeCount}</span>
+                                  )}
+                                </button>
+                                {showLikersId === v.id && (
+                                  <div style={{
+                                    position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+                                    background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
+                                    fontSize: 11, whiteSpace: 'nowrap', zIndex: 999,
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110,
+                                  }} onClick={() => setShowLikersId(null)}>
+                                    <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                                    {likeCount === 0
+                                      ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
+                                      : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)
+                                    }
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}

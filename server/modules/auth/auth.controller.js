@@ -32,7 +32,7 @@ export async function login(req, res) {
     res.json({
       success: true,
       token,
-      user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null, displayName: user.displayName ?? null },
+      user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null, displayName: user.displayName ?? null, permissions: user.permissions ?? null },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

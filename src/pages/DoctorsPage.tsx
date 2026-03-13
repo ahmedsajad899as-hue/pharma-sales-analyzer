@@ -16,10 +16,49 @@ interface Doctor {
   targetItem?: Item;
 }
 
+interface VisitRecord {
+  id: number;
+  visitDate: string;
+  feedback: string;
+  notes?: string;
+  item?: Item;
+}
+interface VisitDoctor {
+  id: number; name: string; specialty?: string;
+  pharmacyName?: string;
+  area?: { id: number; name: string };
+  targetItem?: Item; isActive: boolean;
+  visited: boolean; isWriting: boolean;
+  visits: VisitRecord[];
+}
+interface VisitArea {
+  id: number | null; name: string;
+  totalDoctors: number; visitedCount: number; writingCount: number;
+  doctors: VisitDoctor[];
+}
+
+const FEEDBACK_LABEL: Record<string, { label: string; color: string; bg: string }> = {
+  writing:       { label: 'يكتب ✓',        color: '#065f46', bg: '#d1fae5' },
+  interested:    { label: 'مهتم',           color: '#1d4ed8', bg: '#dbeafe' },
+  stocked:       { label: 'مخزن',           color: '#7c3aed', bg: '#ede9fe' },
+  not_interested:{ label: 'غير مهتم',       color: '#b45309', bg: '#fef3c7' },
+  unavailable:   { label: 'غير متواجد',     color: '#6b7280', bg: '#f3f4f6' },
+  pending:       { label: 'لم يُقرر',       color: '#6b7280', bg: '#f3f4f6' },
+};
+
+function fmt(dateStr: string) {
+  const d = new Date(dateStr);
+  return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`;
+}
+
 export default function DoctorsPage() {
   const { token } = useAuth();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
+  // ── Tab ──────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'list' | 'visits'>('visits');
+
+  // ── Doctors list ─────────────────────────────────────────────
   const [doctors, setDoctors]   = useState<Doctor[]>([]);
   const [areas, setAreas]       = useState<Area[]>([]);
   const [items, setItems]       = useState<Item[]>([]);
@@ -59,6 +98,67 @@ export default function DoctorsPage() {
   } | null>(null);
   const [showImportPanel, setShowImportPanel] = useState(false);
 
+  // ── Visits analysis ─────────────────────────────────────────
+  const [visitAreas, setVisitAreas]         = useState<VisitArea[]>([]);
+  const [visitLoading, setVisitLoading]     = useState(false);
+  const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
+  const [expandedAreas, setExpandedAreas]   = useState<Set<string>>(new Set());
+  const [visitSearch, setVisitSearch]       = useState('');
+  const [showOnlyVisited, setShowOnlyVisited] = useState(false);  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
+  const coverageCardRef = useRef<HTMLDivElement>(null);
+  const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set());
+  const [openItemDropdowns, setOpenItemDropdowns] = useState<Set<number>>(new Set());
+  const toggleItemDrop = (id: number, force?: boolean) => setOpenItemDropdowns(prev => {
+    const next = new Set(prev);
+    const open = force !== undefined ? force : !next.has(id);
+    open ? next.add(id) : next.delete(id);
+    return next;
+  });
+  const [wishedDoctors, setWishedDoctors] = useState<Set<number>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('wishedDoctors') || '[]')); }
+    catch { return new Set(); }
+  });
+  const [wishedItems, setWishedItems] = useState<Record<number, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('wishedItems') || '{}'); }
+    catch { return {}; }
+  });
+  // Doctor id→name cache stored so MonthlyPlansPage can display names
+  const [wishedNames, setWishedNames] = useState<Record<number, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('wishedDoctorNames') || '{}'); }
+    catch { return {}; }
+  });
+  const [showWishPanel, setShowWishPanel] = useState(false);
+  const [showWritingPopup, setShowWritingPopup] = useState(false);
+  const [writingItemFilter, setWritingItemFilter] = useState<string | null>(null);
+  const [showVisitedPopup, setShowVisitedPopup] = useState(false);
+  const writingCardRef = useRef<HTMLDivElement>(null);
+  const visitedCardRef = useRef<HTMLDivElement>(null);
+
+  const toggleWish = (id: number, name?: string) => {
+    setWishedDoctors(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem('wishedDoctors', JSON.stringify([...next]));
+      return next;
+    });
+    if (name) {
+      setWishedNames(prev => {
+        const next = { ...prev, [id]: name };
+        localStorage.setItem('wishedDoctorNames', JSON.stringify(next));
+        return next;
+      });
+    }
+  };
+  const setWishedItem = (docId: number, itemName: string) => {
+    setWishedItems(prev => {
+      const next = { ...prev, [docId]: itemName };
+      localStorage.setItem('wishedItems', JSON.stringify(next));
+      return next;
+    });
+  };
+  const toggleVisitExpand = (id: number) => setExpandedVisits(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
+  });
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -81,7 +181,84 @@ export default function DoctorsPage() {
     finally { setLoading(false); }
   }, [token]);
 
+  const loadVisits = useCallback(async () => {
+    setVisitLoading(true);
+    try {
+      const params = visitMonthFilter ? `?month=${visitMonthFilter.month}&year=${visitMonthFilter.year}` : '';
+      const r = await fetch(`${API}/api/doctors/visits-by-area${params}`, { headers: H() });
+      const j = await r.json();
+      console.log('[visitsByArea] status:', r.status, 'response:', j);
+      setVisitAreas(Array.isArray(j.areas) ? j.areas : []);
+    } catch (e) { console.error('[visitsByArea] fetch error:', e); }
+    finally { setVisitLoading(false); }
+  }, [token, visitMonthFilter]);
+
   useEffect(() => { load(); }, [load]);
+
+  // AI assistant page-action listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action } = (e as CustomEvent).detail || {};
+      switch (action) {
+        case 'open-add-doctor':     openAdd(); break;
+        case 'open-import-doctors': setShowImportPanel(true); break;
+        case 'open-coverage':       setShowCoveragePopup(true); break;
+        case 'open-wish-list':      setShowWishPanel(true); break;
+      }
+    };
+    window.addEventListener('ai-page-action', handler);
+    const pending = (window as any).__aiPendingAction;
+    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync wished doctor names to localStorage whenever doctors list loads
+  useEffect(() => {
+    if (doctors.length === 0) return;
+    const stored = wishedDoctors;
+    if (stored.size === 0) return;
+    setWishedNames(prev => {
+      const next = { ...prev };
+      let changed = false;
+      doctors.forEach(d => {
+        if (stored.has(d.id) && !next[d.id]) {
+          next[d.id] = d.name;
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem('wishedDoctorNames', JSON.stringify(next));
+      return changed ? next : prev;
+    });
+  }, [doctors]);
+  useEffect(() => { if (activeTab === 'visits') loadVisits(); }, [activeTab, loadVisits]);
+  useEffect(() => {
+    if (!showCoveragePopup) return;
+    const handler = (e: MouseEvent) => {
+      if (coverageCardRef.current && !coverageCardRef.current.contains(e.target as Node))
+        setShowCoveragePopup(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCoveragePopup]);
+  useEffect(() => {
+    if (!showWritingPopup) return;
+    const handler = (e: MouseEvent) => {
+      if (writingCardRef.current && !writingCardRef.current.contains(e.target as Node))
+        { setShowWritingPopup(false); setWritingItemFilter(null); }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showWritingPopup]);
+  useEffect(() => {
+    if (!showVisitedPopup) return;
+    const handler = (e: MouseEvent) => {
+      if (visitedCardRef.current && !visitedCardRef.current.contains(e.target as Node))
+        setShowVisitedPopup(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showVisitedPopup]);
 
   const openAdd = () => {
     setSelected(null);
@@ -169,6 +346,12 @@ export default function DoctorsPage() {
     return matchSearch && matchArea;
   });
 
+  const toggleArea = (key: string) => setExpandedAreas(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
   const fieldLabels: Record<string, string> = {
     name: 'الاسم', specialty: 'التخصص', area: 'المنطقة',
     pharmacy: 'الصيدلية', item: 'الايتم', notes: 'ملاحظات',
@@ -177,26 +360,44 @@ export default function DoctorsPage() {
   return (
     <div className="page-container" dir="rtl">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>🏥 قائمة السيرفي</h1>
           <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 14 }}>إدارة قاعدة بيانات الأطباء</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => { setShowImportPanel(v => !v); setImportResult(null); }}
-            style={btnStyle('#10b981')}>
-            📊 استيراد Excel
+        {activeTab === 'list' && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => { setShowImportPanel(v => !v); setImportResult(null); }}
+              style={btnStyle('#10b981')}>📊 استيراد Excel</button>
+            <button onClick={openAdd} style={btnStyle('#3b82f6')}>+ إضافة طبيب</button>
+            {doctors.length > 0 && (
+              <button onClick={deleteAll} style={btnStyle('#ef4444')} title="مسح جميع الأطباء">🗑 مسح الكل</button>
+            )}
+          </div>
+        )}
+        {activeTab === 'visits' && (
+          <button onClick={loadVisits} disabled={visitLoading}
+            style={{ ...btnStyle('#6366f1'), opacity: visitLoading ? 0.7 : 1 }}>
+            {visitLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
-          <button onClick={openAdd} style={btnStyle('#3b82f6')}>+ إضافة طبيب</button>
-          {doctors.length > 0 && (
-            <button onClick={deleteAll} style={btnStyle('#ef4444')}
-              title="مسح جميع الأطباء">
-              🗑 مسح الكل
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
+        {([['visits', '📍 تحليل الزيارات'], ['list', '📋 قائمة الأطباء']] as const).map(([tab, label]) => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            padding: '8px 18px', fontSize: 14, fontWeight: 600,
+            color: activeTab === tab ? '#6366f1' : '#64748b',
+            borderBottom: activeTab === tab ? '2px solid #6366f1' : '2px solid transparent',
+            marginBottom: -2, transition: 'all 0.15s',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── LIST TAB ─────────────────────────────────────── */}
+      {activeTab === 'list' && (<>
       {/* Excel import panel */}
       {showImportPanel && (
         <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: 20, marginBottom: 20 }}>
@@ -225,26 +426,18 @@ export default function DoctorsPage() {
               </div>
             )}
           </div>
-
-          {/* Column mapping result */}
           {importResult?.colMap && (
             <div style={{ marginTop: 12, background: '#fff', borderRadius: 8, padding: 12, border: '1px solid #d1fae5' }}>
               <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>🔍 الأعمدة المكتشفة في ملفك:</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {Object.entries(importResult.colMap).map(([field, col]) => (
-                  <span key={field} style={{
-                    padding: '3px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                    background: col ? '#dcfce7' : '#fee2e2',
-                    color: col ? '#166534' : '#991b1b'
-                  }}>
+                  <span key={field} style={{ padding: '3px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: col ? '#dcfce7' : '#fee2e2', color: col ? '#166534' : '#991b1b' }}>
                     {fieldLabels[field] ?? field}: {col ? `"${col}"` : '❌ غير موجود'}
                   </span>
                 ))}
               </div>
             </div>
           )}
-
-          {/* Error: column not found */}
           {importResult?.error && (
             <div style={{ marginTop: 10, background: '#fee2e2', borderRadius: 8, padding: 12, fontSize: 13 }}>
               <p style={{ margin: '0 0 6px', fontWeight: 700, color: '#991b1b' }}>❌ {importResult.error}</p>
@@ -263,9 +456,7 @@ export default function DoctorsPage() {
           )}
           {(importResult?.errors?.length ?? 0) > 0 && (
             <div style={{ marginTop: 10, background: '#fee2e2', borderRadius: 8, padding: 10, fontSize: 12, color: '#991b1b', maxHeight: 120, overflowY: 'auto' }}>
-              {importResult!.errors.map((e, i) => (
-                <div key={i}>صف {e.row}: {e.name} — {e.error}</div>
-              ))}
+              {importResult!.errors.map((e, i) => (<div key={i}>صف {e.row}: {e.name} — {e.error}</div>))}
             </div>
           )}
         </div>
@@ -273,64 +464,793 @@ export default function DoctorsPage() {
 
       {error && <div style={alertStyle}>{error}</div>}
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <input
-          value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="بحث بالاسم أو التخصص..."
-          style={inputStyle}
-        />
-        <select value={filterArea} onChange={e => setFilterArea(e.target.value)} style={inputStyle}>
-          <option value="all">كل المناطق</option>
+      {/* Search & filter bar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 بحث بالاسم أو التخصص..."
+          style={{ ...inputStyle, maxWidth: 260 }} />
+        <select value={filterArea} onChange={e => setFilterArea(e.target.value)} style={{ ...inputStyle, maxWidth: 180 }}>
+          <option value="all">📍 كل المناطق</option>
           {areas.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
         </select>
+        <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
+          {filtered.length} طبيب
+        </span>
       </div>
 
-      {/* Table */}
-      {loading ? <p style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>جاري التحميل...</p> : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={tableStyle}>
-            <thead>
-              <tr style={{ background: '#f8fafc' }}>
-                {['الاسم', 'التخصص', 'المنطقة', 'الصيدلية', 'الايتم المستهدف', 'الحالة', 'إجراءات'].map(h => (
-                  <th key={h} style={thStyle}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد بيانات</td></tr>
-              ) : filtered.map(d => (
-                <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={tdStyle}>{d.name}</td>
-                  <td style={tdStyle}>{d.specialty ?? '-'}</td>
-                  <td style={tdStyle}>{d.area?.name ?? '-'}</td>
-                  <td style={tdStyle}>{d.pharmacyName ?? '-'}</td>
-                  <td style={tdStyle}>{d.targetItem?.name ?? '-'}</td>
-                  <td style={tdStyle}>
-                    <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-                      background: d.isActive ? '#dcfce7' : '#fee2e2', color: d.isActive ? '#166534' : '#991b1b' }}>
-                      {d.isActive ? 'نشط' : 'غير نشط'}
+      {/* Cards list */}
+      {loading ? (
+        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40, fontSize: 15 }}>جاري التحميل...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40, fontSize: 14 }}>لا توجد بيانات</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map((d, idx) => (
+            <div key={d.id} style={{
+              background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
+              padding: '12px 18px', direction: 'rtl',
+              display: 'flex', alignItems: 'center', gap: 14,
+            }}>
+              {/* Number badge */}
+              <span style={{
+                width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                background: '#eef2ff', color: '#6366f1', fontSize: 12, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{idx + 1}</span>
+
+              {/* Main info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{d.name}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
+                    background: d.isActive ? '#d1fae5' : '#fee2e2',
+                    color: d.isActive ? '#065f46' : '#991b1b',
+                  }}>{d.isActive ? 'نشط' : 'غير نشط'}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 5, flexWrap: 'wrap' }}>
+                  {d.specialty && (
+                    <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      🩺 {d.specialty}
                     </span>
-                  </td>
-                  <td style={tdStyle}>
-                    <button onClick={() => openEdit(d)} style={{ ...btnSmall('#6366f1'), marginLeft: 6 }}>تعديل</button>
-                    <button onClick={() => remove(d.id)} style={btnSmall('#ef4444')}>حذف</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p style={{ color: '#64748b', fontSize: 13, marginTop: 8 }}>
-            إجمالي: {filtered.length} طبيب
-          </p>
+                  )}
+                  {d.area && (
+                    <span style={{ fontSize: 11, color: '#6366f1', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      📍 {d.area.name}
+                    </span>
+                  )}
+                  {d.pharmacyName && (
+                    <span style={{ fontSize: 11, color: '#0891b2', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      🏪 {d.pharmacyName}
+                    </span>
+                  )}
+                  {d.targetItem && (
+                    <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '1px 8px', fontWeight: 600 }}>
+                      💊 {d.targetItem.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button onClick={() => openEdit(d)} style={{
+                  fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8,
+                  border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca',
+                  cursor: 'pointer',
+                }}>تعديل</button>
+                <button onClick={() => remove(d.id)} style={{
+                  fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8,
+                  border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c',
+                  cursor: 'pointer',
+                }}>حذف</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      </>)}
+
+      {/* ── VISITS TAB ───────────────────────────────────── */}
+      {activeTab === 'visits' && (
+        <div>
+          {/* Month filter bar */}
+          {(() => {
+            const now = new Date();
+            const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+            const options: { month: number; year: number; label: string }[] = [];
+            for (let i = 0; i < 12; i++) {
+              const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+              options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
+            }
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, flexWrap: 'wrap', direction: 'rtl' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
+                <button
+                  onClick={() => setVisitMonthFilter(null)}
+                  style={{
+                    fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14,
+                    border: `1px solid ${visitMonthFilter === null ? '#6366f1' : '#e2e8f0'}`,
+                    background: visitMonthFilter === null ? '#eef2ff' : 'transparent',
+                    color: visitMonthFilter === null ? '#4338ca' : '#94a3b8',
+                    cursor: 'pointer',
+                  }}>الكل</button>
+                {options.map(o => {
+                  const active = visitMonthFilter?.month === o.month && visitMonthFilter?.year === o.year;
+                  return (
+                    <button key={`${o.month}-${o.year}`}
+                      onClick={() => setVisitMonthFilter({ month: o.month, year: o.year })}
+                      style={{
+                        fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14,
+                        border: `1px solid ${active ? '#6366f1' : '#e2e8f0'}`,
+                        background: active ? '#eef2ff' : 'transparent',
+                        color: active ? '#4338ca' : '#94a3b8',
+                        cursor: 'pointer',
+                      }}>{o.label}</button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* Summary strip */}
+          {!visitLoading && visitAreas.length > 0 && (() => {
+            const total   = visitAreas.reduce((s, a) => s + a.totalDoctors, 0);
+            const visited = visitAreas.reduce((s, a) => s + a.visitedCount, 0);
+            const writing = visitAreas.reduce((s, a) => s + a.writingCount, 0);
+            const pct = total > 0 ? Math.round(visited / total * 100) : 0;
+            const sortedAreas = [...visitAreas].sort((a, b) => {
+              const pa = a.totalDoctors > 0 ? a.visitedCount / a.totalDoctors : 0;
+              const pb = b.totalDoctors > 0 ? b.visitedCount / b.totalDoctors : 0;
+              return pb - pa;
+            });
+            return (
+              <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'إجمالي الأطباء', value: total,   icon: '👥', accent: '#6366f1', clickable: false },
+                  { label: 'تمت زيارتهم',    value: visited, icon: '✅', accent: '#10b981', clickable: 'visited' },
+                  { label: 'يكتبون الايتم',  value: writing, icon: '✍️', accent: '#f59e0b', clickable: 'writing' },
+                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: '📊', accent: '#3b82f6', clickable: 'coverage' },
+                ].map(s => {
+                  const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : false;
+                  const borderColor  = isActiveCard ? s.accent : '#e2e8f0';
+                  const handleClick  = s.clickable === 'coverage' ? () => setShowCoveragePopup(v => !v)
+                                     : s.clickable === 'writing'  ? () => setShowWritingPopup(v => !v)
+                                     : s.clickable === 'visited'  ? () => setShowVisitedPopup(v => !v)
+                                     : undefined;
+                  return (
+                  <div key={s.label}
+                    ref={s.clickable === 'coverage' ? coverageCardRef : s.clickable === 'writing' ? writingCardRef : s.clickable === 'visited' ? visitedCardRef : undefined}
+                    onClick={handleClick}
+                    style={{
+                      flex: '1 1 120px', background: '#fff', borderRadius: 12, padding: '14px 18px',
+                      border: `1.5px solid ${borderColor}`,
+                      textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                      cursor: s.clickable ? 'pointer' : 'default',
+                      position: 'relative', transition: 'border-color 0.15s',
+                    }}>
+                    <div style={{ fontSize: 22 }}>{s.icon}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
+                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+                    {s.clickable && <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 3 }}>اضغط للتفاصيل ▾</div>}
+
+                    {/* Visited doctors popup */}
+                    {s.clickable === 'visited' && showVisitedPopup && (() => {
+                      const visitedDocs = visitAreas.flatMap(a => a.doctors.filter(d => d.visited));
+                      return (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
+                            minWidth: 320, maxWidth: 420, padding: '16px 0 8px',
+                            direction: 'rtl',
+                          }}>
+                          <div style={{
+                            position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)',
+                            width: 14, height: 14, background: '#fff',
+                            border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none',
+                            rotate: '45deg',
+                          }} />
+                          <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>✅ الأطباء المُزارون ({visitedDocs.length})</span>
+                            <button onClick={() => setShowVisitedPopup(false)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                          </div>
+                          {visitedDocs.length === 0 ? (
+                            <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13 }}>لا توجد زيارات</div>
+                          ) : (
+                            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                              {visitedDocs.map((doc, idx) => {
+                                const lastVisit = doc.visits[0];
+                                const item = lastVisit?.item ?? doc.targetItem;
+                                return (
+                                  <div key={doc.id} style={{
+                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+                                    gap: 10, padding: '9px 16px',
+                                    borderBottom: idx < visitedDocs.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                    background: idx % 2 === 0 ? '#fff' : '#f0fdf4',
+                                    direction: 'rtl',
+                                  }}>
+                                    {/* RIGHT: number + name + specialty + area + pharmacy */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                                        <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#d1fae5', color: '#065f46', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{doc.name}</span>
+                                      </div>
+                                      <div style={{ paddingRight: 26, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        {doc.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>{doc.specialty}</span>}
+                                        {doc.area && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {doc.area.name}</span>}
+                                        {(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {(doc as any).pharmacyName}</span>}
+                                        {!doc.specialty && !doc.area && !(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>}
+                                      </div>
+                                    </div>
+                                    {/* LEFT: item badge */}
+                                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
+                                      {item && <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>💊 {item.name}</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Coverage popup */}
+                    {s.clickable === 'coverage' && showCoveragePopup && (
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
+                          transform: 'translateX(-50%)',
+                          background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
+                          minWidth: 280, maxWidth: 340, padding: '16px 0 8px',
+                          direction: 'rtl',
+                        }}>
+                        {/* Arrow */}
+                        <div style={{
+                          position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)',
+                          width: 14, height: 14, background: '#fff',
+                          border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none',
+                          rotate: '45deg',
+                        }} />
+                        <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', marginBottom: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>📊 التغطية بالمناطق</span>
+                          <button onClick={() => setShowCoveragePopup(false)}
+                            style={{ float: 'left', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                        </div>
+                        <div style={{ maxHeight: 280, overflowY: 'auto', padding: '0 16px' }}>
+                          {sortedAreas.map(area => {
+                            const ap = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
+                            const barColor = ap >= 80 ? '#10b981' : ap >= 50 ? '#6366f1' : ap > 0 ? '#f59e0b' : '#e2e8f0';
+                            return (
+                              <div key={String(area.id)} style={{ marginBottom: 11 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{area.name}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontSize: 11, color: '#94a3b8' }}>{area.visitedCount}/{area.totalDoctors}</span>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: barColor, minWidth: 34, textAlign: 'left' }}>{ap}%</span>
+                                  </div>
+                                </div>
+                                <div style={{ height: 6, borderRadius: 99, background: '#f1f5f9', overflow: 'hidden' }}>
+                                  <div style={{
+                                    height: '100%', borderRadius: 99,
+                                    width: `${ap}%`, background: barColor,
+                                    transition: 'width 0.4s ease',
+                                  }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Writing doctors popup */}
+                    {s.clickable === 'writing' && showWritingPopup && (() => {
+                      const allWritingDocs = visitAreas.flatMap(a => a.doctors.filter(d => d.isWriting))
+                        .map(doc => ({ ...doc, _item: doc.visits.find(v => v.feedback === 'writing')?.item ?? doc.targetItem }));
+                      // collect unique item names sorted alphabetically
+                      const itemNames = [...new Set(
+                        allWritingDocs.map(d => d._item?.name).filter(Boolean) as string[]
+                      )].sort((a, b) => a.localeCompare(b));
+                      const filtered = writingItemFilter
+                        ? allWritingDocs.filter(d => d._item?.name === writingItemFilter)
+                        : allWritingDocs;
+                      return (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: 'calc(100% + 8px)', left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.13)', zIndex: 500,
+                            minWidth: 340, maxWidth: 440, padding: '16px 0 8px',
+                            direction: 'rtl',
+                          }}>
+                          <div style={{
+                            position: 'absolute', top: -7, left: '50%', transform: 'translateX(-50%)',
+                            width: 14, height: 14, background: '#fff',
+                            border: '1px solid #e2e8f0', borderRight: 'none', borderBottom: 'none',
+                            rotate: '45deg',
+                          }} />
+                          {/* Header */}
+                          <div style={{ padding: '0 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>
+                              ✏️ الأطباء الكاتبون ({filtered.length}{writingItemFilter ? `/${allWritingDocs.length}` : ''})
+                            </span>
+                            <button onClick={() => { setShowWritingPopup(false); setWritingItemFilter(null); }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                          </div>
+                          {/* Item filter pills */}
+                          {itemNames.length > 0 && (
+                            <div style={{ padding: '8px 16px 8px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              <button
+                                onClick={() => setWritingItemFilter(null)}
+                                style={{
+                                  fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                                  border: `1.5px solid ${writingItemFilter === null ? '#10b981' : '#e2e8f0'}`,
+                                  background: writingItemFilter === null ? '#d1fae5' : '#f8fafc',
+                                  color: writingItemFilter === null ? '#065f46' : '#64748b',
+                                  cursor: 'pointer',
+                                }}>الكل</button>
+                              {itemNames.map(name => (
+                                <button key={name}
+                                  onClick={() => setWritingItemFilter(prev => prev === name ? null : name)}
+                                  style={{
+                                    fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                                    border: `1.5px solid ${writingItemFilter === name ? '#6d28d9' : '#e2e8f0'}`,
+                                    background: writingItemFilter === name ? '#ede9fe' : '#f8fafc',
+                                    color: writingItemFilter === name ? '#6d28d9' : '#64748b',
+                                    cursor: 'pointer',
+                                  }}>💊 {name}</button>
+                              ))}
+                            </div>
+                          )}
+                          {/* Doctors list */}
+                          {filtered.length === 0 ? (
+                            <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13 }}>لا يوجد أطباء لهذا الايتم</div>
+                          ) : (
+                            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                              {filtered.map((doc, idx) => (
+                                <div key={doc.id} style={{
+                                  display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+                                  gap: 10, padding: '9px 16px',
+                                  borderBottom: idx < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                  background: idx % 2 === 0 ? '#fff' : '#f8fffe',
+                                  direction: 'rtl',
+                                }}>
+                                  {/* RIGHT: number + name + specialty + area + pharmacy */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                                      <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#d1fae5', color: '#065f46', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{doc.name}</span>
+                                    </div>
+                                    <div style={{ paddingRight: 26, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      {doc.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>{doc.specialty}</span>}
+                                      {doc.area && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {doc.area.name}</span>}
+                                      {(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {(doc as any).pharmacyName}</span>}
+                                      {!doc.specialty && !doc.area && !(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>}
+                                    </div>
+                                  </div>
+                                  {/* LEFT: item badge */}
+                                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
+                                    {doc._item && !writingItemFilter && <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>💊 {doc._item.name}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* Search + filter */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input value={visitSearch} onChange={e => setVisitSearch(e.target.value)}
+              placeholder="بحث باسم الطبيب أو التخصص..."
+              style={{ ...inputStyle, maxWidth: 260 }} />
+            <button onClick={() => setShowOnlyVisited(v => !v)} style={{
+              padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${showOnlyVisited ? '#10b981' : '#e2e8f0'}`,
+              background: showOnlyVisited ? '#f0fdf4' : '#fff', color: showOnlyVisited ? '#065f46' : '#64748b',
+              cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'all 0.15s',
+            }}>
+              {showOnlyVisited ? '✅ المُزارون فقط' : '👥 جميع الأطباء'}
+            </button>
+            <button onClick={() => setExpandedAreas(
+              expandedAreas.size > 0 ? new Set() : new Set(visitAreas.map(a => String(a.id)))
+            )} style={{
+              padding: '7px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0',
+              background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            }}>
+              {expandedAreas.size > 0 ? '▲ طي الكل' : '▼ فتح الكل'}
+            </button>
+            {wishedDoctors.size > 0 && (
+              <button onClick={() => setShowWishPanel(v => !v)} style={{
+                padding: '7px 14px', borderRadius: 8,
+                border: `1.5px solid ${showWishPanel ? '#38bdf8' : '#bae6fd'}`,
+                background: showWishPanel ? '#e0f2fe' : '#f0f9ff',
+                color: '#0369a1', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              }}>
+                ⭐ قائمة الطلبات ({wishedDoctors.size})
+              </button>
+            )}
+          </div>
+
+          {/* Wished doctors panel */}
+          {showWishPanel && wishedDoctors.size > 0 && (() => {
+            const allDocs = visitAreas.flatMap(a => a.doctors);
+            const wished  = allDocs.filter(d => wishedDoctors.has(d.id));
+            return (
+              <div style={{
+                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                border: '1.5px solid #bae6fd', borderRadius: 16,
+                padding: '16px 18px', marginBottom: 18,
+                boxShadow: '0 2px 12px rgba(14,165,233,0.08)',
+              }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>📋</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0369a1' }}>أطباء مطلوبون في البلان</span>
+                    <span style={{
+                      background: '#0ea5e9', color: '#fff', borderRadius: 99,
+                      fontSize: 11, fontWeight: 700, padding: '1px 8px', minWidth: 22, textAlign: 'center',
+                    }}>{wished.length}</span>
+                  </div>
+                  <button onClick={() => {
+                    setWishedDoctors(new Set());
+                    setWishedItems({});
+                    setWishedNames({});
+                    localStorage.removeItem('wishedDoctors');
+                    localStorage.removeItem('wishedItems');
+                    localStorage.removeItem('wishedDoctorNames');
+                  }} style={{
+                    background: 'none', border: '1px solid #bae6fd', borderRadius: 7,
+                    padding: '3px 10px', fontSize: 11, color: '#0369a1', cursor: 'pointer', fontWeight: 600,
+                  }}>مسح الكل</button>
+                </div>
+
+                {/* Cards grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
+                  {wished.map((d, idx) => {
+                    const currentItem = wishedItems[d.id] ?? d.targetItem?.name ?? '';
+                    const showDrop = openItemDropdowns.has(d.id);
+                    const filteredItems = currentItem.trim()
+                      ? items.filter(it => it.name.toLowerCase().includes(currentItem.toLowerCase()))
+                      : items;
+                    return (
+                      <div key={d.id} style={{
+                        background: '#fff', borderRadius: 12, padding: '12px 12px 10px',
+                        border: '1.5px solid #e0f2fe', direction: 'rtl',
+                        boxShadow: '0 1px 4px rgba(14,165,233,0.07)',
+                        position: 'relative',
+                      }}>
+                        {/* Remove button */}
+                        <button onClick={() => toggleWish(d.id, d.name)} style={{
+                          position: 'absolute', top: 8, left: 8,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: 15, color: '#94a3b8', lineHeight: 1, padding: 2,
+                        }}>×</button>
+
+                        {/* Number badge */}
+                        <span style={{
+                          position: 'absolute', top: 8, right: 10,
+                          background: '#e0f2fe', color: '#0369a1',
+                          borderRadius: 99, fontSize: 10, fontWeight: 700,
+                          padding: '1px 6px',
+                        }}>{idx + 1}</span>
+
+                        <div style={{ marginTop: 14, marginBottom: 8 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{d.name}</div>
+                          {d.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{d.specialty}</div>}
+                        </div>
+
+                        {/* Item dropdown */}
+                        <div style={{ position: 'relative' }}>
+                          <div style={{
+                            display: 'flex', alignItems: 'center',
+                            border: '1.5px solid #bae6fd', borderRadius: 8,
+                            background: '#f0f9ff', overflow: 'hidden',
+                          }}>
+                            <input
+                              value={currentItem}
+                              onChange={e => { setWishedItem(d.id, e.target.value); toggleItemDrop(d.id, true); }}
+                              onFocus={() => toggleItemDrop(d.id, true)}
+                              onBlur={() => setTimeout(() => toggleItemDrop(d.id, false), 160)}
+                              placeholder="اختر الايتم..."
+                              style={{
+                                flex: 1, padding: '5px 8px', fontSize: 12, border: 'none',
+                                background: 'transparent', color: '#0369a1', fontWeight: 600,
+                                outline: 'none', direction: 'rtl', minWidth: 0,
+                              }}
+                            />
+                            <button
+                              onMouseDown={e => { e.preventDefault(); toggleItemDrop(d.id); }}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                padding: '0 8px', color: '#7dd3fc', fontSize: 12, flexShrink: 0,
+                              }}>▾</button>
+                          </div>
+                          {showDrop && filteredItems.length > 0 && (
+                            <div style={{
+                              position: 'absolute', top: 'calc(100% + 3px)', right: 0, left: 0, zIndex: 200,
+                              background: '#fff', border: '1px solid #bae6fd', borderRadius: 9,
+                              boxShadow: '0 4px 16px rgba(14,165,233,0.13)',
+                              maxHeight: 160, overflowY: 'auto',
+                            }}>
+                              {filteredItems.map(it => (
+                                <div key={it.id}
+                                  onMouseDown={() => { setWishedItem(d.id, it.name); toggleItemDrop(d.id, false); }}
+                                  style={{
+                                    padding: '7px 12px', fontSize: 12, cursor: 'pointer',
+                                    color: '#0369a1', fontWeight: 600,
+                                    borderBottom: '1px solid #f0f9ff',
+                                    background: currentItem === it.name ? '#e0f2fe' : '#fff',
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = currentItem === it.name ? '#e0f2fe' : '#fff')}
+                                >{it.name}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{
+                  marginTop: 12, fontSize: 12, color: '#0369a1',
+                  padding: '7px 12px', background: '#e0f2fe', borderRadius: 9,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span>💡</span>
+                  <span>هؤلاء الأطباء محفوظون لتذكير المدير بتضمينهم في البلان القادم</span>
+                </div>
+              </div>
+            );
+          })()}
+          {visitLoading && (
+            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+              جاري التحميل...
+            </div>
+          )}
+
+          {!visitLoading && visitAreas.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
+              <div style={{ fontSize: 44, marginBottom: 12 }}>📭</div>
+              لا توجد بيانات زيارات
+            </div>
+          )}
+
+          {!visitLoading && visitAreas.map(area => {
+            const key     = String(area.id);
+            const isOpen  = expandedAreas.has(key);
+            const pct     = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
+            const searchQ = visitSearch.trim().toLowerCase();
+
+            const filtered = area.doctors.filter(d => {
+              if (showOnlyVisited && !d.visited) return false;
+              if (searchQ && !d.name.toLowerCase().includes(searchQ) && !(d.specialty ?? '').toLowerCase().includes(searchQ)) return false;
+              return true;
+            });
+            if (filtered.length === 0 && searchQ) return null;
+            const sorted = [...filtered].sort((a, b) => {
+              if (a.visited !== b.visited) return a.visited ? -1 : 1;
+              return (a.name ?? '').localeCompare(b.name ?? '');
+            });
+
+            return (
+              <div key={key} style={{
+                background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                marginBottom: 12, overflow: 'hidden',
+                boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
+                transition: 'box-shadow 0.15s',
+              }}>
+                {/* Area header */}
+                <button onClick={() => toggleArea(key)} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                  textAlign: 'right', direction: 'rtl',
+                }}>
+                  {/* Progress ring placeholder — use bar */}
+                  <div style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
+                    <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="22" cy="22" r="18" fill="none" stroke="#e2e8f0" strokeWidth="4" />
+                      <circle cx="22" cy="22" r="18" fill="none"
+                        stroke={pct >= 80 ? '#10b981' : pct >= 50 ? '#6366f1' : '#f59e0b'}
+                        strokeWidth="4"
+                        strokeDasharray={`${2 * Math.PI * 18}`}
+                        strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
+                        strokeLinecap="round" />
+                    </svg>
+                    <span style={{
+                      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', fontSize: 10, fontWeight: 700,
+                      color: pct >= 80 ? '#065f46' : pct >= 50 ? '#4338ca' : '#92400e',
+                    }}>{pct}%</span>
+                  </div>
+
+                  <div style={{ flex: 1, textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{area.name}</div>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* total */}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#64748b', background: '#f1f5f9', borderRadius: 20, padding: '2px 9px' }}>
+                        👥 {area.totalDoctors} طبيب
+                      </span>
+                      {/* visited → writing pill */}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 20, overflow: 'hidden', fontSize: 12 }}>
+                        <span style={{ padding: '2px 9px', color: '#065f46', fontWeight: 700 }}>✅ {area.visitedCount} مُزار</span>
+                        {area.writingCount > 0 && (
+                          <>
+                            <span style={{ color: '#34d399', fontSize: 11, padding: '0 2px' }}>←</span>
+                            <span style={{ padding: '2px 9px', color: '#0d9488', fontWeight: 700, borderRight: '1px solid #6ee7b7' }}>✏️ {area.writingCount} يكتب</span>
+                          </>
+                        )}
+                      </span>
+                      {/* not visited */}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px' }}>
+                        🔲 {area.totalDoctors - area.visitedCount} لم يُزار
+                      </span>
+                    </div>
+                  </div>
+
+                  <span style={{ fontSize: 18, color: '#94a3b8', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                    ▾
+                  </span>
+                </button>
+
+                {/* Doctors list */}
+                {isOpen && (
+                  <div style={{ borderTop: '1px solid #f1f5f9', padding: '4px 0 8px' }}>
+                    {sorted.length === 0 && (
+                      <div style={{ padding: '16px 20px', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج</div>
+                    )}
+                    {sorted.map(doc => {
+                      const lastVisit = doc.visits[0];
+                      const fb = lastVisit ? (FEEDBACK_LABEL[lastVisit.feedback] ?? FEEDBACK_LABEL.pending) : null;
+                      const isVisitOpen = expandedVisits.has(doc.id);
+                      const isWished    = wishedDoctors.has(doc.id);
+                      return (
+                        <div key={doc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          {/* Main row */}
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '10px 18px', direction: 'rtl',
+                            opacity: doc.visited ? 1 : 0.5,
+                          }}>
+                            {/* Status dot */}
+                            <span style={{
+                              width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
+                              background: doc.isWriting ? '#10b981' : doc.visited ? '#6366f1' : '#d1d5db',
+                            }} />
+
+                            {/* Name + specialty */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {doc.name}
+                                </span>
+                                {doc.isWriting && (
+                                  <span style={{
+                                    fontSize: 13, padding: '1px 4px', borderRadius: 8,
+                                    background: '#d1fae5', border: '1px solid #6ee7b7',
+                                    flexShrink: 0, lineHeight: 1,
+                                  }}>✏️</span>
+                                )}
+                              </div>
+                              {doc.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{doc.specialty}</div>}
+                            </div>
+
+                            {/* Wish button */}
+                            <button onClick={() => toggleWish(doc.id, doc.name)} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
+                              background: isWished ? '#e0f2fe' : 'transparent', border: `1.5px solid ${isWished ? '#38bdf8' : '#cbd5e1'}`,
+                              borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                              opacity: isWished ? 1 : 0.45,
+                              transition: 'all 0.15s',
+                            }}>{'⭐'}</button>
+
+                            {/* Visit count with expand toggle */}
+                            {doc.visits.length > 0 ? (
+                              <button onClick={() => toggleVisitExpand(doc.id)} style={{
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                fontSize: 12, color: '#6366f1', fontWeight: 600,
+                                background: isVisitOpen ? '#e0e7ff' : '#eef2ff',
+                                padding: '3px 8px', borderRadius: 10, flexShrink: 0,
+                                border: 'none', cursor: 'pointer', transition: 'background 0.12s',
+                              }}>
+                                {doc.visits.length} زيارة
+                                <span style={{ fontSize: 10, transition: 'transform 0.2s', display: 'inline-block', transform: isVisitOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 12, color: '#d1d5db', flexShrink: 0, minWidth: 58 }}>—</span>
+                            )}
+
+                            {/* Last visit date */}
+                            <span style={{ fontSize: 12, color: '#64748b', flexShrink: 0, minWidth: 72, textAlign: 'center' }}>
+                              {lastVisit ? fmt(lastVisit.visitDate) : '—'}
+                            </span>
+
+                            {/* Item */}
+                            <span style={{ fontSize: 12, color: '#475569', flexShrink: 0, minWidth: 70, textAlign: 'center' }}>
+                              {lastVisit?.item?.name ?? doc.targetItem?.name ?? '—'}
+                            </span>
+
+                            {/* Feedback chip */}
+                            {fb ? (
+                              <span style={{
+                                fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10,
+                                background: fb.bg, color: fb.color, flexShrink: 0, minWidth: 58, textAlign: 'center',
+                              }}>{fb.label}</span>
+                            ) : (
+                              <span style={{ fontSize: 11, color: '#d1d5db', flexShrink: 0, minWidth: 58, textAlign: 'center' }}>لم يُزر</span>
+                            )}
+                          </div>
+
+                          {/* Expanded visits */}
+                          {isVisitOpen && doc.visits.length > 0 && (
+                            <div style={{ background: '#f8fafc', borderTop: '1px solid #f1f5f9', padding: '8px 18px 8px 18px' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
+                                <thead>
+                                  <tr style={{ color: '#94a3b8', fontWeight: 600 }}>
+                                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>#</th>
+                                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>التاريخ</th>
+                                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>الايتم</th>
+                                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>الفيدباك</th>
+                                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>ملاحظات</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {doc.visits.map((v, idx) => {
+                                    const vfb = FEEDBACK_LABEL[v.feedback] ?? FEEDBACK_LABEL.pending;
+                                    return (
+                                      <tr key={v.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{idx + 1}</td>
+                                        <td style={{ padding: '5px 8px', color: '#374151', whiteSpace: 'nowrap' }}>{fmt(v.visitDate)}</td>
+                                        <td style={{ padding: '5px 8px', color: '#475569' }}>{v.item?.name ?? '—'}</td>
+                                        <td style={{ padding: '5px 8px' }}>
+                                          <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color }}>{vfb.label}</span>
+                                        </td>
+                                        <td style={{ padding: '5px 8px', color: '#64748b', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {v.notes ?? '—'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Modal */}
       {modal && (
-        <div style={overlayStyle}>
-          <div style={modalStyle}>
+        <div style={overlayStyle} onClick={() => setModal(null)}>
+          <div style={modalStyle} onClick={e => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 20px', fontSize: 18 }}>{modal === 'add' ? '+ إضافة طبيب' : 'تعديل بيانات الطبيب'}</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <label style={labelStyle}>

@@ -3,6 +3,9 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useLanguage } from '../context/LanguageContext';
 
+export interface VisitLikeUser { id: number; username: string; }
+export interface VisitLikePt { id: number; userId: number; user: VisitLikeUser; }
+export interface VisitCommentPt { id: number; userId: number; content: string; createdAt: string; user: VisitLikeUser; }
 export interface VisitPoint {
   id: number;
   visitDate: string;
@@ -13,6 +16,8 @@ export interface VisitPoint {
   doctor: { id: number; name: string; specialty?: string | null; pharmacyName?: string | null; area?: { name: string } | null };
   scientificRep: { id: number; name: string };
   item?: { id: number; name: string } | null;
+  likes?: VisitLikePt[];
+  comments?: VisitCommentPt[];
 }
 
 interface Props {

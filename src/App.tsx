@@ -13,6 +13,8 @@ import DoctorsPage from './pages/DoctorsPage';
 import MonthlyPlansPage from './pages/MonthlyPlansPage';
 import ReportsPage from './pages/ReportsPage';
 import UsersPage from './pages/UsersPage';
+import CommercialRepPage from './pages/CommercialRepPage';
+import AIAssistant from './components/AIAssistant';
 import './App.css';
 
 export type PageId =
@@ -24,7 +26,8 @@ export type PageId =
   | 'monthly-plans'
   | 'reports'
   | 'users'
-  | 'rep-analysis';
+  | 'rep-analysis'
+  | 'commercial';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -80,7 +83,7 @@ function ImpersonationBanner() {
 }
 
 function AppInner() {
-  const { user } = useAuth();
+  const { user, hasFeature } = useAuth();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
   // On mobile (< 768px) start with sidebar closed
   const [activePage, setActivePage]       = useState<PageId>(() => (localStorage.getItem('lastPage') as PageId) || 'dashboard');
@@ -145,6 +148,8 @@ function AppInner() {
         return <UsersPage />;
       case 'rep-analysis':
         return <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
+      case 'commercial':
+        return <CommercialRepPage />;
       default:
         return <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
     }
@@ -164,6 +169,9 @@ function AppInner() {
         style={isImpersonating ? { paddingTop: 40 } : undefined}>
         {renderPage()}
       </main>
+      {hasFeature('ai_assistant') && (
+        <AIAssistant activePage={activePage} navigateTo={navigateTo} />
+      )}
     </div>
   );
 }

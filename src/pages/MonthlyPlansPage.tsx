@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import * as XLSX from 'xlsx';
 import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
 
@@ -62,9 +63,11 @@ interface NamedItem { id: number; name: string; }
 interface ScientificRep { id: number; name: string; }
 interface Doctor {
   id: number; name: string; specialty?: string; pharmacyName?: string;
-  area?: NamedItem; targetItem?: NamedItem;
+  area?: NamedItem; targetItem?: NamedItem; fromWishList?: boolean;
 }
-interface DoctorVisit { id: number; feedback: string; visitDate: string; notes?: string | null; item?: { id: number; name: string } | null; latitude?: number | null; longitude?: number | null; }
+interface VisitLike { id: number; userId: number; user: { id: number; username: string }; }
+interface VisitComment { id: number; visitId: number; userId: number; content: string; createdAt: string; user: { id: number; username: string }; }
+interface DoctorVisit { id: number; feedback: string; visitDate: string; notes?: string | null; item?: { id: number; name: string } | null; latitude?: number | null; longitude?: number | null; likes?: VisitLike[]; comments?: VisitComment[]; }
 interface PlanEntry {
   id: number; doctorId: number; targetVisits: number;
   doctor: Doctor; visits: DoctorVisit[];
@@ -74,6 +77,8 @@ interface Plan {
   id: number; scientificRepId: number; month: number; year: number;
   targetCalls: number; targetDoctors: number; status: string; notes?: string;
   allowExtraVisits: boolean;
+  userId?: number | null;
+  user?: { id: number; username: string } | null;
   assignedUserId?: number | null;
   assignedUser?: { id: number; username: string } | null;
   scientificRep: NamedItem; entries: PlanEntry[];
@@ -82,6 +87,7 @@ interface SuggestResult {
   keepDoctors: { doctor: Doctor; reason: string }[];
   newDoctors:  Doctor[];
   summary: { keep: number; replace: number; new: number; total: number };
+  aiNote?: { raw: string; parsed?: { summary?: string; includeDoctorNames?: string[]; excludeDoctorNames?: string[]; includeAreaNames?: string[]; excludeAreaNames?: string[]; specialties?: string[] } } | null;
 }
 
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
@@ -107,7 +113,8 @@ const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
   });
 
 export default function MonthlyPlansPage() {
-  const { token, isManagerOrAdmin } = useAuth();
+  const { token, isManagerOrAdmin, user: authUser } = useAuth();
+  const isFieldRep = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'].includes(authUser?.role ?? '');
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [plans, setPlans]         = useState<Plan[]>([]);
@@ -121,7 +128,7 @@ export default function MonthlyPlansPage() {
 
   // Create plan
   const [showCreate, setShowCreate] = useState(false);
-  const [cRepId, setCRepId]     = useState('');
+  const [cRepId, setCRepId]     = useState(() => String(authUser?.linkedRepId ?? ''));
   const [cMonth, setCMonth]     = useState(new Date().getMonth() + 1);
   const [cYear,  setCYear]      = useState(new Date().getFullYear());
   const [creating, setCreating] = useState(false);
@@ -131,14 +138,46 @@ export default function MonthlyPlansPage() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [selectedDoctors, setSelectedDoctors] = useState<Set<number>>(new Set());
 
-  // Suggest settings
+  // Suggest settings — persisted to localStorage
+  const _ss = (() => { try { return JSON.parse(localStorage.getItem('suggestSettings') || '{}'); } catch { return {}; } })();
   const [showSuggestSettings, setShowSuggestSettings] = useState(false);
-  const [sTargetDoctors, setSTargetDoctors] = useState(75);
-  const [sTargetVisits,  setSTargetVisits]  = useState(2);
-  const [sKeepFeedback, setSKeepFeedback]   = useState<string[]>(['writing', 'stocked', 'interested']);
-  const [sRestrictAreas, setSRestrictAreas] = useState(true);
-  const [sSortBy, setSSortBy]               = useState<'oldest' | 'newest' | 'random'>('oldest');
-  const [sUseNoteAnalysis, setSUseNoteAnalysis] = useState(true);
+  const [sTargetDoctors, setSTargetDoctors] = useState<number>(_ss.targetDoctors ?? 75);
+  const [sTargetVisits,  setSTargetVisits]  = useState<number>(_ss.targetVisits  ?? 2);
+  const [sKeepFeedback, setSKeepFeedback]   = useState<string[]>(_ss.keepFeedback ?? ['writing', 'stocked', 'interested']);
+  const [sRestrictAreas, setSRestrictAreas] = useState<boolean>(_ss.restrictAreas ?? true);
+  const [sSortBy, setSSortBy]               = useState<'oldest' | 'newest' | 'random'>(_ss.sortBy ?? 'oldest');
+  const [sUseNoteAnalysis, setSUseNoteAnalysis] = useState<boolean>(_ss.useNoteAnalysis ?? true);
+  const [sUserNote, setSUserNote]           = useState<string>(_ss.userNote ?? '');
+  const [sLookbackList, setSLookbackList]   = useState<string[]>(_ss.lookbackList ?? []);
+  const [sNewRatio, setSNewRatio]           = useState<number>(_ss.newRatio ?? 0);
+  const [sFocusItemIds, setSFocusItemIds]     = useState<{id: string; name: string}[]>(_ss.focusItemIds ?? []);
+  const [sFocusItemText, setSFocusItemText]   = useState('');
+  const [sFocusItemDD, setSFocusItemDD]       = useState(false);
+  const [sFocusSpecialties, setSFocusSpecialties] = useState<string[]>(_ss.focusSpecialties ?? []);
+  const [sFocusSpecText, setSFocusSpecText]   = useState('');
+  const [sFocusSpecDD, setSFocusSpecDD]       = useState(false);
+  const [sFocusAreaIds, setSFocusAreaIds]     = useState<{id: string; name: string}[]>(_ss.focusAreaIds ?? []);
+  const [sFocusAreaText, setSFocusAreaText]   = useState('');
+  const [sFocusAreaDD, setSFocusAreaDD]       = useState(false);
+  const [sUseWishList, setSUseWishList]       = useState<boolean>(_ss.useWishList ?? false);
+
+  // Save suggest settings to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('suggestSettings', JSON.stringify({
+      targetDoctors: sTargetDoctors, targetVisits: sTargetVisits,
+      keepFeedback: sKeepFeedback, restrictAreas: sRestrictAreas,
+      sortBy: sSortBy, useNoteAnalysis: sUseNoteAnalysis,
+      userNote: sUserNote, lookbackList: sLookbackList, newRatio: sNewRatio,
+      focusItemIds: sFocusItemIds, focusSpecialties: sFocusSpecialties,
+      focusAreaIds: sFocusAreaIds, useWishList: sUseWishList,
+    }));
+  }, [sTargetDoctors, sTargetVisits, sKeepFeedback, sRestrictAreas, sSortBy,
+      sUseNoteAnalysis, sUserNote, sLookbackList, sNewRatio,
+      sFocusItemIds, sFocusSpecialties, sFocusAreaIds, sUseWishList]);
+
+  const [sWishDropdownOpen, setSWishDropdownOpen] = useState(false);
+  const [sWishExcluded, setSWishExcluded]     = useState<Set<number>>(new Set());
+  const [showToolsMenu, setShowToolsMenu]   = useState(false);
 
   // Upload visits
   const fileRef = useRef<HTMLInputElement>(null);
@@ -150,7 +189,13 @@ export default function MonthlyPlansPage() {
   const [editingVisitItem, setEditingVisitItem] = useState<number | null>(null); // visitId
   const [editVisitItemVal, setEditVisitItemVal] = useState<string>('');
 
-  // Manage entry target items (ايتمات البلان لكل طبيب)
+  // Like & Comment on visits
+  const [likingVisit, setLikingVisit]           = useState<number | null>(null); // visitId being liked
+  const [showLikers, setShowLikers]             = useState<number | null>(null); // visitId whose likers panel is open
+  const [commentingVisit, setCommentingVisit]   = useState<number | null>(null); // visitId comment box open
+  const [newCommentText, setNewCommentText]      = useState('');
+  const [savingComment, setSavingComment]        = useState(false);
+  const longPressTimer                           = useRef<any>(null);
   const [entryItemMenuOpen, setEntryItemMenuOpen] = useState<number | null>(null); // entryId
   const [showEntryItems, setShowEntryItems] = useState<Set<number>>(new Set()); // entryIds with items visible
   const [addingEntryItem, setAddingEntryItem]     = useState(false);
@@ -191,6 +236,7 @@ export default function MonthlyPlansPage() {
   const voicePanelRef       = useRef<HTMLDivElement | null>(null);
   const recordingStartRef   = useRef<number>(0); // timestamp when recording started
   const activePlanRef       = useRef<typeof activePlan>(null); // for popstate closure
+  const plansRef            = useRef<Plan[]>([]);  // for AI action handler closure
   // keep legacy refs so voice-result UI still works
   const wantListeningRef = useRef(false);
   const recognitionRef   = useRef<any>(null);
@@ -200,6 +246,18 @@ export default function MonthlyPlansPage() {
   const [showImportModal, setShowImportModal]   = useState(false);
   const [importing, setImporting]               = useState(false);
   const [importResult, setImportResult]         = useState<{ imported: number; total: number; errors: { row: number; error: string }[]; unmatched: string[] } | null>(null);
+
+  // Import plan entries (doctors) from Excel
+  const planImportFileRef = useRef<HTMLInputElement>(null);
+  const [showPlanImportModal, setShowPlanImportModal] = useState(false);
+  const [planImporting, setPlanImporting]             = useState(false);
+  const [planImportResult, setPlanImportResult]       = useState<{ imported: number; total: number; unmatched: string[] } | null>(null);
+
+  // Excel dropdown in plan header
+  const [showExcelMenu, setShowExcelMenu] = useState(false);
+
+  // Item calls breakdown dropdown
+  const [openItemKey, setOpenItemKey] = useState<string | null>(null);
 
   // Feedback doctors popup
   const [fbPopup, setFbPopup] = useState<{ fb: string; label: string; meta: { color: string; bg: string }; doctors: { name: string; entryId: number }[] } | null>(null);
@@ -284,6 +342,38 @@ export default function MonthlyPlansPage() {
   }, [H]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Listen for AI assistant page actions
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const { action, param } = detail || {};
+      switch (action) {
+        case 'open-suggest-settings': setShowSuggestSettings(true); break;
+        case 'open-new-plan':         setShowCreate(true); break;
+        case 'open-import-visits':    setShowImportModal(true); break;
+        case 'open-plan': {
+          if (param) {
+            const q = String(param).trim().toLowerCase().replace(/\s+/g, ' ');
+            const found = plansRef.current.find(p => {
+              const n = (p.scientificRep?.name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+              return n === q || n.includes(q) || q.includes(n);
+            });
+            if (found) setActivePlan(found);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener('ai-page-action', handler);
+    // Pick up any action stored before this page mounted
+    const pending = (window as any).__aiPendingAction;
+    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  }, []);
+
+  // Keep plansRef in sync for AI handler closure
+  useEffect(() => { plansRef.current = plans; }, [plans]);
 
   // Keep ref in sync for popstate handler
   useEffect(() => { activePlanRef.current = activePlan; }, [activePlan]);
@@ -372,12 +462,16 @@ export default function MonthlyPlansPage() {
 
   // Create new plan
   const createPlan = async () => {
-    if (!cRepId) { alert('اختر المندوب العلمي'); return; }
+    if (!isManagerOrAdmin && !authUser?.linkedRepId) {
+      alert('حسابك غير مرتبط بمندوب علمي. تواصل مع المدير.');
+      return;
+    }
+    if (isManagerOrAdmin && !cRepId) { alert('اختر المندوب العلمي'); return; }
     setCreating(true);
     try {
       const r = await fetch(`${API}/api/monthly-plans`, {
         method: 'POST', headers: H(),
-        body: JSON.stringify({ scientificRepId: cRepId, month: cMonth, year: cYear }),
+        body: JSON.stringify({ scientificRepId: isManagerOrAdmin ? cRepId : authUser?.linkedRepId, month: cMonth, year: cYear }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'فشل الإنشاء');
@@ -392,6 +486,15 @@ export default function MonthlyPlansPage() {
     if (!activePlan) return;
     setSuggestLoading(true); setSuggest(null); setShowSuggestSettings(false);
     try {
+      // Read wished doctors from localStorage if feature is enabled
+      let wishedDoctorIds = '';
+      if (sUseWishList) {
+        try {
+          const stored = localStorage.getItem('wishedDoctors');
+          const ids: number[] = stored ? JSON.parse(stored) : [];
+          wishedDoctorIds = ids.filter(id => !sWishExcluded.has(id)).join(',');
+        } catch { /* ignore */ }
+      }
       const p = new URLSearchParams({
         scientificRepId:  String(activePlan.scientificRepId),
         month:            String(activePlan.month),
@@ -401,6 +504,13 @@ export default function MonthlyPlansPage() {
         restrictToAreas:  String(sRestrictAreas),
         sortBy:           sSortBy,
         useNoteAnalysis:  String(sUseNoteAnalysis),
+        lookbackList:     sLookbackList.length > 0 ? sLookbackList.join(',') : '',
+        newRatio:         String(sNewRatio),
+        ...(sFocusItemIds.length > 0     && { focusItemId:     sFocusItemIds.map(x => x.id).join(',') }),
+        ...(sFocusSpecialties.length > 0 && { focusSpecialty:  sFocusSpecialties.join(',') }),
+        ...(sFocusAreaIds.length > 0     && { focusAreaId:     sFocusAreaIds.map(x => x.id).join(',') }),
+        ...(sUserNote.trim() && { userNote:        sUserNote.trim() }),
+        ...(wishedDoctorIds  && { wishedDoctorIds }),
       });
       const r = await fetch(`${API}/api/monthly-plans/suggest?${p}`, { headers: H() });
       const j: SuggestResult = await r.json();
@@ -491,7 +601,7 @@ export default function MonthlyPlansPage() {
       const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${visitFormEntry}/visits`, {
         method: 'POST', headers: H(),
         body: JSON.stringify({
-          visitDate: vDate ? `${vDate}T${new Date().toTimeString().slice(0,8)}` : new Date().toISOString(),
+          visitDate: (() => { if (!vDate) return new Date().toISOString(); const [y,m,d] = vDate.split('-').map(Number); const n = new Date(); return new Date(y, m-1, d, n.getHours(), n.getMinutes(), n.getSeconds()).toISOString(); })(),
           itemId:    resolvedItemId || null,
           feedback:  vFeedback,
           notes:     vNotes,
@@ -522,6 +632,61 @@ export default function MonthlyPlansPage() {
     if (!confirm('حذف هذه الزيارة؟')) return;
     await fetch(`${API}/api/monthly-plans/visits/${visitId}`, { method: 'DELETE', headers: H() });
     await reloadPlan(activePlan.id);
+  };
+
+  // Toggle like on a visit
+  const toggleLike = async (visitId: number) => {
+    if (likingVisit === visitId) return;
+    setLikingVisit(visitId);
+    const res = await fetch(`${API}/api/monthly-plans/visits/${visitId}/like`, { method: 'POST', headers: H() });
+    if (res.ok) {
+      const { likes } = await res.json();
+      setActivePlan(prev => prev ? {
+        ...prev,
+        entries: prev.entries.map(e => ({
+          ...e,
+          visits: e.visits.map(v => v.id === visitId ? { ...v, likes } : v),
+        })),
+      } : prev);
+    }
+    setLikingVisit(null);
+  };
+
+  // Add comment on a visit
+  const submitComment = async (visitId: number) => {
+    if (!newCommentText.trim() || savingComment) return;
+    setSavingComment(true);
+    const res = await fetch(`${API}/api/monthly-plans/visits/${visitId}/comments`, {
+      method: 'POST', headers: H(),
+      body: JSON.stringify({ content: newCommentText.trim() }),
+    });
+    if (res.ok) {
+      const comment: VisitComment = await res.json();
+      setActivePlan(prev => prev ? {
+        ...prev,
+        entries: prev.entries.map(e => ({
+          ...e,
+          visits: e.visits.map(v => v.id === visitId ? { ...v, comments: [...(v.comments || []), comment] } : v),
+        })),
+      } : prev);
+      setNewCommentText('');
+      setCommentingVisit(null);
+    }
+    setSavingComment(false);
+  };
+
+  // Delete comment
+  const deleteComment = async (visitId: number, commentId: number) => {
+    const res = await fetch(`${API}/api/monthly-plans/visits/${visitId}/comments/${commentId}`, { method: 'DELETE', headers: H() });
+    if (res.ok) {
+      setActivePlan(prev => prev ? {
+        ...prev,
+        entries: prev.entries.map(e => ({
+          ...e,
+          visits: e.visits.map(v => v.id === visitId ? { ...v, comments: (v.comments || []).filter(c => c.id !== commentId) } : v),
+        })),
+      } : prev);
+    }
   };
 
   // Save visit item
@@ -627,6 +792,54 @@ export default function MonthlyPlansPage() {
     setUploadResult(null);
     setUploadedFileName(null);
     if (fileRef.current) fileRef.current.value = '';
+  };
+
+  // Export plan entries to Excel
+  const exportPlanExcel = () => {
+    if (!activePlan) return;
+    const rows = activePlan.entries.map(e => ({
+      'الطبيب':               e.doctor.name,
+      'التخصص':               e.doctor.specialty ?? '',
+      'المنطقة':              e.doctor.area?.name ?? '',
+      'الايتمات':             (e.targetItems ?? []).map(ti => ti.item.name).join(', '),
+      'الزيارات المستهدفة':   e.targetVisits,
+      'الزيارات الفعلية':     e.visits.length,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'البلان');
+    XLSX.writeFile(wb, `plan_${activePlan.scientificRep.name}_${MONTHS_AR[activePlan.month - 1]}_${activePlan.year}.xlsx`);
+  };
+
+  // Import plan entries (doctors list) from Excel
+  const importPlanEntries = async (file: File) => {
+    if (!activePlan) return;
+    setPlanImporting(true); setPlanImportResult(null);
+    try {
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(ab), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (rows.length === 0) { setPlanImportResult({ imported: 0, total: 0, unmatched: [] }); return; }
+      const headers = Object.keys(rows[0]);
+      const norm = (s: string) => String(s).toLowerCase().replace(/[\u064B-\u065F]/g, '').replace(/[\s_\-.]+/g, '').trim();
+      const docCol = headers.find(h => ['اسمالطبيب','الطبيب','طبيب','اسم','doctor','doctorname','name'].some(a => a === norm(h) || norm(h).includes(a)));
+      const visCol = headers.find(h => ['زيارات','عددزيارات','targetvisits','visits'].some(a => a === norm(h) || norm(h).includes(a)));
+      if (!docCol) { alert('لم يتم العثور على عمود اسم الطبيب في الملف'); return; }
+      const entries = rows
+        .map(r => ({ name: String(r[docCol] ?? '').trim(), targetVisits: visCol ? (parseInt(r[visCol]) || 2) : 2 }))
+        .filter(r => r.name);
+      const resp = await fetch(`${API}/api/monthly-plans/${activePlan.id}/import-entries`, {
+        method: 'POST',
+        headers: H(),
+        body: JSON.stringify({ entries }),
+      });
+      const j = await resp.json();
+      if (!resp.ok) throw new Error(j.error ?? 'فشل الاستيراد');
+      setPlanImportResult(j);
+      await reloadPlan(activePlan.id);
+    } catch (e: any) { alert(e.message); }
+    finally { setPlanImporting(false); if (planImportFileRef.current) planImportFileRef.current.value = ''; }
   };
 
   // Import visits Excel for the active plan
@@ -831,7 +1044,7 @@ export default function MonthlyPlansPage() {
 
       if (!entryId) continue;
 
-      const visitDate = v.date ? `${v.date}T${new Date().toTimeString().slice(0,8)}` : new Date().toISOString();
+      const visitDate = (() => { if (!v.date) return new Date().toISOString(); const [y,m,d] = v.date.split('-').map(Number); const n = new Date(); return new Date(y, m-1, d, n.getHours(), n.getMinutes(), n.getSeconds()).toISOString(); })();
       const entry = activePlan.entries.find(e => e.id === entryId);
       if (entry) {
         const dup = entry.visits.some((ev: any) =>
@@ -949,13 +1162,20 @@ export default function MonthlyPlansPage() {
     const visitedOnce  = activePlan.entries.filter(e => e.visits.length > 0).length;
     const feedbackCount: Record<string, number> = {};
     const feedbackDoctors: Record<string, { name: string; entryId: number }[]> = {};
+    const itemCallMap: Record<string, { name: string; count: number; doctors: { name: string; entryId: number }[] }> = {};
     activePlan.entries.forEach(e => e.visits.forEach(v => {
       feedbackCount[v.feedback] = (feedbackCount[v.feedback] ?? 0) + 1;
       if (!feedbackDoctors[v.feedback]) feedbackDoctors[v.feedback] = [];
       if (!feedbackDoctors[v.feedback].some(d => d.entryId === e.id))
         feedbackDoctors[v.feedback].push({ name: e.doctor.name, entryId: e.id });
+      const itemKey = v.item?.name ?? '(بدون ايتم)';
+      if (!itemCallMap[itemKey]) itemCallMap[itemKey] = { name: itemKey, count: 0, doctors: [] };
+      itemCallMap[itemKey].count++;
+      if (!itemCallMap[itemKey].doctors.some(d => d.entryId === e.id))
+        itemCallMap[itemKey].doctors.push({ name: e.doctor.name, entryId: e.id });
     }));
-    return { totalVisits, visitedOnce, feedbackCount, feedbackDoctors };
+    const itemCallStats = Object.values(itemCallMap).sort((a, b) => b.count - a.count);
+    return { totalVisits, visitedOnce, feedbackCount, feedbackDoctors, itemCallStats };
   })() : null;
 
   const filteredPlans = filterRep === 'all' ? plans : plans.filter(p => String(p.scientificRepId) === filterRep);
@@ -1073,14 +1293,18 @@ export default function MonthlyPlansPage() {
       )}
 
       {/* ── Top bar: plan selector ── */}
-      <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+      {/* Field reps: hide top bar entirely once a plan is open */}
+      <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: isFieldRep && activePlan ? 'none' : 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>📅 البلانات الشهرية</h2>
 
-        <select value={filterRep} onChange={e => setFilterRep(e.target.value)}
-          style={{ ...inputStyle, width: 'auto', minWidth: 140 }}>
-          <option value="all">كل المندوبين</option>
-          {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
+        {/* Rep filter: managers only */}
+        {!isFieldRep && (
+          <select value={filterRep} onChange={e => setFilterRep(e.target.value)}
+            style={{ ...inputStyle, width: 'auto', minWidth: 140 }}>
+            <option value="all">كل المندوبين</option>
+            {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
 
         <select
           value={activePlan?.id ?? ''}
@@ -1155,9 +1379,16 @@ export default function MonthlyPlansPage() {
                       style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: 12, padding: 16, cursor: 'pointer', transition: 'all 0.15s' }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.15)'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}>
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
-                        {p.scientificRep.name}
-                      </p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                          {p.scientificRep.name}
+                        </p>
+                        {p.user && (
+                          <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '2px 7px', fontWeight: 600, whiteSpace: 'nowrap', marginRight: 4 }}>
+                            👤 {p.user.username}
+                          </span>
+                        )}
+                      </div>
                       <p style={{ margin: '2px 0 8px', fontSize: 13, color: '#64748b' }}>
                         {MONTHS_AR[p.month - 1]} {p.year}
                       </p>
@@ -1200,85 +1431,121 @@ export default function MonthlyPlansPage() {
         ) : (
           <>
             {/* Plan header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                  <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set()); }}
-                    style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}>
-                    ← الرجوع
-                  </button>
-                  <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
-                    {activePlan.scientificRep.name} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
-                  </h1>
-                </div>
-                <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 14 }}>
-                  {activePlan.entries.length} طبيب · الهدف: {activePlan.targetDoctors} طبيب × {activePlan.targetCalls / (activePlan.targetDoctors || 1) | 0} زيارات
-                </p>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
               <div style={{ position: 'relative', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                {/* Import visits button */}
-                <button onClick={() => { setShowImportModal(true); setImportResult(null); }}
-                  style={btnStyle('#10b981')}>
-                  📥 استيراد تقارير Excel
+
+                {/* Back button */}
+                <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set()); }}
+                  title="الرجوع للقائمة"
+                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#475569' }}>
+                  ← {isFieldRep ? '' : 'الرجوع'}
                 </button>
 
-                {/* Voice input button */}
+                {/* ── Excel: export + import plan ── */}
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => setShowExcelMenu(v => !v)}
+                    style={{ ...btnStyle('#16a34a'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                    📊 Excel
+                  </button>
+                  {showExcelMenu && (
+                    <div style={{
+                      position: 'absolute', top: '110%', right: 0, zIndex: 300,
+                      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+                      padding: 6, minWidth: 210, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                      direction: 'rtl',
+                    }} onClick={() => setShowExcelMenu(false)}>
+                      <button onClick={exportPlanExcel} style={menuItemStyle}>
+                        📤 تصدير البلان إلى Excel
+                      </button>
+                      <hr style={{ margin: '4px 6px', border: 'none', borderTop: '1px solid #f1f5f9' }} />
+                      <button onClick={() => { setShowPlanImportModal(true); setPlanImportResult(null); }} style={menuItemStyle}>
+                        📥 استيراد البلان من Excel
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Suggest + settings (combined group) ── */}
+                <div style={{ display: 'flex', gap: 0 }}>
+                  <button onClick={loadSuggest} disabled={suggestLoading}
+                    style={{ ...btnStyle('#8b5cf6'), borderRadius: '8px 0 0 8px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
+                    {suggestLoading ? '⏳' : '✨'} اقتراح ذكي
+                  </button>
+                  <button onClick={() => setShowSuggestSettings(v => !v)}
+                    title="إعدادات الاقتراح"
+                    style={{ ...btnStyle('#8b5cf6'), borderRadius: '0 8px 8px 0', padding: '8px 9px', fontSize: 14 }}>
+                    ⚙️
+                  </button>
+                </div>
+
+                {/* ── Voice: icon-only button ── */}
                 <button
-                  onClick={() => {
-                    if (voiceListening) { stopVoice(); }
-                    else { startVoice(); }
-                  }}
+                  onClick={() => { if (voiceListening) { stopVoice(); } else { startVoice(); } }}
+                  title={voiceListening ? 'إيقاف التسجيل' : 'إدخال صوتي'}
                   style={{
                     ...btnStyle(voiceListening ? '#ef4444' : '#f97316'),
+                    padding: '8px 11px', fontSize: 16,
                     animation: voiceListening ? 'pulse-mic 1.5s infinite' : 'none',
                   }}>
-                  {voiceListening ? '⏹ إيقاف التسجيل' : '🎤 إدخال صوتي'}
+                  {voiceListening ? '⏹' : '🎤'}
                 </button>
 
-                <button onClick={loadSuggest} disabled={suggestLoading} style={btnStyle('#8b5cf6')}>
-                  {suggestLoading ? '⏳ جاري...' : '✨ اقتراح ذكي'}
-                </button>
-                <button onClick={() => setShowSuggestSettings(v => !v)}
-                  title="إعدادات الاقتراح الذكي"
-                  style={{ ...btnStyle('#8b5cf6'), padding: '8px 10px', borderRight: '1px solid rgba(255,255,255,0.3)' }}>
-                  ⚙️
-                </button>
-
-                {/* Allow extra visits toggle */}
-                <button
-                  onClick={toggleAllowExtraVisits}
-                  title="السماح بإدخال كولات أطباء خارج البلان وحساب تقاريرهم"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '7px 14px',
-                    background: activePlan.allowExtraVisits ? '#f0fdf4' : '#f8fafc',
-                    border: `2px solid ${activePlan.allowExtraVisits ? '#22c55e' : '#e2e8f0'}`,
-                    borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700,
-                    color: activePlan.allowExtraVisits ? '#166534' : '#64748b',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  <div style={{
-                    width: 36, height: 20, borderRadius: 10, position: 'relative', flexShrink: 0,
-                    background: activePlan.allowExtraVisits ? '#22c55e' : '#cbd5e1',
-                    transition: 'background 0.2s',
-                  }}>
-                    <div style={{
-                      position: 'absolute', top: 3, width: 14, height: 14, borderRadius: '50%',
-                      background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                      left: activePlan.allowExtraVisits ? 18 : 3, transition: 'left 0.2s',
-                    }} />
+                {/* ── Tools overflow menu: managers only ── */}
+                {!isFieldRep && (
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      onClick={() => setShowToolsMenu(v => !v)}
+                      style={{ ...btnStyle('#475569'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                      ⋯ أدوات
+                    </button>
+                    {showToolsMenu && (
+                      <div style={{
+                        position: 'absolute', top: '110%', left: 0, zIndex: 300,
+                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+                        padding: 6, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                        direction: 'rtl',
+                      }} onClick={() => setShowToolsMenu(false)}>
+                        {/* Import */}
+                        <button
+                          onClick={() => { setShowImportModal(true); setImportResult(null); }}
+                          style={menuItemStyle}>
+                          📥 استيراد تقارير Excel
+                        </button>
+                        <hr style={{ margin: '4px 6px', border: 'none', borderTop: '1px solid #f1f5f9' }} />
+                        {/* Extra visits toggle */}
+                        <button
+                          onClick={toggleAllowExtraVisits}
+                          style={{ ...menuItemStyle, justifyContent: 'space-between' }}>
+                          <span>كولات خارج البلان</span>
+                          <div style={{
+                            width: 34, height: 19, borderRadius: 10, position: 'relative', flexShrink: 0,
+                            background: activePlan.allowExtraVisits ? '#22c55e' : '#cbd5e1',
+                            transition: 'background 0.2s',
+                          }}>
+                            <div style={{
+                              position: 'absolute', top: 2.5, width: 14, height: 14, borderRadius: '50%',
+                              background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                              left: activePlan.allowExtraVisits ? 17 : 3, transition: 'left 0.2s',
+                            }} />
+                          </div>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  كولات خارج البلان
-                </button>
+                )}
 
-                {/* Settings dropdown */}
+                {/* Settings modal — fixed overlay for mobile compatibility */}
                 {showSuggestSettings && (
+                  <div
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 500, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+                    onClick={() => setShowSuggestSettings(false)}
+                  >
                   <div style={{
-                    position: 'absolute', top: '110%', left: 0, zIndex: 200,
-                    background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
-                    padding: 20, width: 340, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', direction: 'rtl',
-                  }}>
+                    background: '#fff', borderRadius: '16px 16px 0 0',
+                    padding: 20, width: '100%', maxWidth: 460,
+                    maxHeight: '92vh', overflowY: 'auto',
+                    boxShadow: '0 -4px 24px rgba(0,0,0,0.18)', direction: 'rtl',
+                  }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                       <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>⚙️ إعدادات الاقتراح الذكي</p>
                       <button onClick={() => setShowSuggestSettings(false)}
@@ -1379,10 +1646,355 @@ export default function MonthlyPlansPage() {
                       </div>
                     </label>
 
+                    {/* ── Lookback months ── */}
+                    {(() => {
+                      // Build list of last 6 months before this plan's month
+                      const opts: { label: string; val: string }[] = [];
+                      for (let i = 1; i <= 6; i++) {
+                        let mo = activePlan.month - i; let yr = activePlan.year;
+                        if (mo <= 0) { mo += 12; yr -= 1; }
+                        const val = `${yr}-${String(mo).padStart(2,'0')}`;
+                        opts.push({ label: `${MONTHS_AR[mo-1]} ${yr}`, val });
+                      }
+                      return (
+                        <div style={{ marginBottom: 14 }}>
+                          <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📅 الأشهر السابقة للبحث</p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {opts.map(o => {
+                              const on = sLookbackList.includes(o.val);
+                              return (
+                                <span key={o.val} onClick={() => setSLookbackList(prev =>
+                                  on ? prev.filter(v => v !== o.val) : [...prev, o.val]
+                                )} style={{
+                                  padding: '4px 12px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                                  cursor: 'pointer', userSelect: 'none',
+                                  background: on ? '#dbeafe' : '#f8fafc',
+                                  color:      on ? '#1e40af' : '#94a3b8',
+                                  border: `2px solid ${on ? '#1e40af' : '#e2e8f0'}`,
+                                }}>{o.label}</span>
+                              );
+                            })}
+                          </div>
+                          <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                            {sLookbackList.length === 0 ? 'الشهر السابق فقط (افتراضي)' : `${sLookbackList.length} شهر محدد`}
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── New doctors ratio ── */}
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>🆕 نسبة الأطباء الجدد</p>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: '#8b5cf6' }}>
+                          {sNewRatio === 0 ? 'تلقائي' : `${sNewRatio}%`}
+                        </span>
+                      </div>
+                      <input type="range" min={0} max={100} step={5} value={sNewRatio}
+                        onChange={e => setSNewRatio(+e.target.value)}
+                        style={{ width: '100%', accentColor: '#8b5cf6' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                        <span>تلقائي</span><span>50%</span><span>100% جدد</span>
+                      </div>
+                      <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                        أطباء موجودون في السرفي لكن لم يُزاروا أو لم تنزل لهم طلبية
+                      </p>
+                    </div>
+
+                    {/* ── Focus filters ── */}
+                    {(() => {
+                      const repAreas: { id: number; name: string }[] = (activePlan as any).scientificRep?.areas ?? [];
+                      const extraAreas = plans.flatMap(p => p.entries.map(e => e.doctor.area).filter(Boolean)) as { id: number; name: string }[];
+                      const allAreaMap = new Map<number, string>();
+                      [...repAreas, ...extraAreas].forEach(a => allAreaMap.set(a.id, a.name));
+                      const allAreas = [...allAreaMap.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+                      const filteredItems = items.filter(it =>
+                        !sFocusItemIds.find(x => x.id === String(it.id)) &&
+                        (!sFocusItemText || it.name.toLowerCase().includes(sFocusItemText.toLowerCase()))
+                      );
+                      const filteredAreas = allAreas.filter(a =>
+                        !sFocusAreaIds.find(x => x.id === String(a.id)) &&
+                        (!sFocusAreaText || a.name.toLowerCase().includes(sFocusAreaText.toLowerCase()))
+                      );
+                      const allSpecialties = [...new Set(
+                        plans.flatMap(p => p.entries.map(e => e.doctor.specialty)).filter((s): s is string => Boolean(s))
+                      )].sort();
+                      const filteredSpecs = allSpecialties.filter(s =>
+                        !sFocusSpecialties.includes(s) &&
+                        (!sFocusSpecText || s.toLowerCase().includes(sFocusSpecText.toLowerCase()))
+                      );
+                      const ddBase: React.CSSProperties = {
+                        position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 600,
+                        background: '#fff', border: '1.5px solid #c4b5fd', borderRadius: 8,
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 150, overflowY: 'auto',
+                      };
+                      const ddItem: React.CSSProperties = { padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#374151' };
+                      const chipStyle = (color: string, bg: string): React.CSSProperties => ({
+                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
+                        fontSize: 11, fontWeight: 600, background: bg, color, border: `1px solid ${color}20`,
+                        cursor: 'pointer', flexShrink: 0,
+                      });
+                      const inputStyle: React.CSSProperties = {
+                        ...settingInputStyle, borderRadius: 7, marginTop: 4,
+                      };
+                      return (
+                        <div style={{ marginBottom: 14 }}>
+                          <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🎯 تركيز على</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {/* Focus items */}
+                            <div>
+                              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>💊 ايتمات معينة</p>
+                              {sFocusItemIds.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                  {sFocusItemIds.map(x => (
+                                    <span key={x.id} style={chipStyle('#7c3aed', '#ede9fe')}
+                                      onClick={() => setSFocusItemIds(prev => prev.filter(p => p.id !== x.id))}>
+                                      {x.name} ×
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{ position: 'relative' }}>
+                                <input type="text" value={sFocusItemText} autoComplete="off"
+                                  onChange={e => { setSFocusItemText(e.target.value); setSFocusItemDD(true); }}
+                                  onFocus={() => setSFocusItemDD(true)}
+                                  onBlur={() => setTimeout(() => setSFocusItemDD(false), 150)}
+                                  placeholder={sFocusItemIds.length === 0 ? 'ابحث وأضف ايتم...' : 'أضف ايتم آخر...'}
+                                  style={inputStyle} />
+                                {sFocusItemDD && filteredItems.length > 0 && (
+                                  <div style={ddBase}>
+                                    {filteredItems.slice(0, 40).map(it => (
+                                      <div key={it.id}
+                                        onMouseDown={() => { setSFocusItemIds(prev => [...prev, { id: String(it.id), name: it.name }]); setSFocusItemText(''); setSFocusItemDD(false); }}
+                                        style={ddItem}>{it.name}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Focus areas */}
+                            <div>
+                              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>📍 مناطق معينة</p>
+                              {sFocusAreaIds.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                  {sFocusAreaIds.map(x => (
+                                    <span key={x.id} style={chipStyle('#1e40af', '#dbeafe')}
+                                      onClick={() => setSFocusAreaIds(prev => prev.filter(p => p.id !== x.id))}>
+                                      {x.name} ×
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{ position: 'relative' }}>
+                                <input type="text" value={sFocusAreaText} autoComplete="off"
+                                  onChange={e => { setSFocusAreaText(e.target.value); setSFocusAreaDD(true); }}
+                                  onFocus={() => setSFocusAreaDD(true)}
+                                  onBlur={() => setTimeout(() => setSFocusAreaDD(false), 150)}
+                                  placeholder={sFocusAreaIds.length === 0 ? 'ابحث وأضف منطقة...' : 'أضف منطقة أخرى...'}
+                                  style={inputStyle} />
+                                {sFocusAreaDD && filteredAreas.length > 0 && (
+                                  <div style={ddBase}>
+                                    {filteredAreas.slice(0, 40).map(a => (
+                                      <div key={a.id}
+                                        onMouseDown={() => { setSFocusAreaIds(prev => [...prev, { id: String(a.id), name: a.name }]); setSFocusAreaText(''); setSFocusAreaDD(false); }}
+                                        style={ddItem}>{a.name}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Focus specialties */}
+                            <div>
+                              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>🔬 اختصاصات معينة</p>
+                              {sFocusSpecialties.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                  {sFocusSpecialties.map(s => (
+                                    <span key={s} style={chipStyle('#166534', '#dcfce7')}
+                                      onClick={() => setSFocusSpecialties(prev => prev.filter(p => p !== s))}>
+                                      {s} ×
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{ position: 'relative' }}>
+                                <input type="text" value={sFocusSpecText} autoComplete="off"
+                                  onChange={e => { setSFocusSpecText(e.target.value); setSFocusSpecDD(true); }}
+                                  onFocus={() => setSFocusSpecDD(true)}
+                                  onBlur={() => setTimeout(() => setSFocusSpecDD(false), 150)}
+                                  placeholder={sFocusSpecialties.length === 0 ? 'ابحث وأضف اختصاص...' : 'أضف اختصاص آخر...'}
+                                  style={inputStyle} />
+                                {sFocusSpecDD && (filteredSpecs.length > 0 || sFocusSpecText.trim()) && (
+                                  <div style={ddBase}>
+                                    {sFocusSpecText.trim() && !filteredSpecs.includes(sFocusSpecText.trim()) && !sFocusSpecialties.includes(sFocusSpecText.trim()) && (
+                                      <div onMouseDown={() => { setSFocusSpecialties(prev => [...prev, sFocusSpecText.trim()]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
+                                        style={{ ...ddItem, color: '#166534', fontWeight: 600 }}>➕ "{sFocusSpecText.trim()}"</div>
+                                    )}
+                                    {filteredSpecs.slice(0, 40).map(s => (
+                                      <div key={s}
+                                        onMouseDown={() => { setSFocusSpecialties(prev => [...prev, s]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
+                                        style={ddItem}>{s}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* User custom note */}
+                    <div style={{ marginBottom: 6 }}>
+                      <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#374151' }}>
+                        💬 تعليمات مخصصة <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 11 }}>(اختياري)</span>
+                      </p>
+                      <textarea
+                        value={sUserNote}
+                        onChange={e => setSUserNote(e.target.value)}
+                        rows={3}
+                        placeholder={'مثال: أضف دكتور أحمد من الكرادة، استبعد أطباء منطقة الدورة، ركز على تخصص باطنية...'}
+                        style={{
+                          width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                          border: '1.5px solid #e2e8f0', borderRadius: 8, padding: '8px 10px',
+                          fontSize: 12, lineHeight: 1.6, color: '#374151', outline: 'none',
+                          background: '#f8fafc', direction: 'rtl', fontFamily: 'inherit',
+                          transition: 'border-color 0.15s',
+                        }}
+                        onFocus={e => (e.target.style.borderColor = '#8b5cf6')}
+                        onBlur={e  => (e.target.style.borderColor = '#e2e8f0')}
+                      />
+                      <p style={{ margin: '4px 0 0', fontSize: 10, color: '#94a3b8', lineHeight: 1.4 }}>
+                        سيتم تحليل ملاحظاتك بالذكاء الاصطناعي وتطبيقها على الاقتراح
+                      </p>
+                    </div>
+
+                    {/* Wish list (قائمة الطلبات) */}
+                    {(() => {
+                      let wishIds: number[] = [];
+                      const wishItems: Record<number, string> = {};
+                      const wishNames: Record<number, string> = {};
+                      try {
+                        const stored = localStorage.getItem('wishedDoctors');
+                        wishIds = stored ? JSON.parse(stored) : [];
+                        const wi = localStorage.getItem('wishedItems');
+                        if (wi) Object.assign(wishItems, JSON.parse(wi));
+                        const wn = localStorage.getItem('wishedDoctorNames');
+                        if (wn) Object.assign(wishNames, JSON.parse(wn));
+                      } catch { /* ignore */ }
+                      // Fallback: look up names from plans data for any IDs missing a name
+                      if (wishIds.some(id => !wishNames[id])) {
+                        plans.forEach(p => p.entries.forEach(e => {
+                          if (!wishNames[e.doctorId] && e.doctor?.name) wishNames[e.doctorId] = e.doctor.name;
+                        }));
+                      }
+                      const wishCount = wishIds.length;
+                      const activeWishCount = wishIds.filter(id => !sWishExcluded.has(id)).length;
+                      return (
+                        <div style={{ marginBottom: 14, border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                          {/* Header row */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sUseWishList && wishCount > 0 ? '#fffbeb' : '#f8fafc' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                              <span style={{ fontSize: 16 }}>⭐</span>
+                              <div style={{ flex: 1 }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>قائمة الطلبات</span>
+                                {wishCount > 0 && (
+                                  <button
+                                    onClick={() => setSWishDropdownOpen(v => !v)}
+                                    style={{ marginRight: 8, padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                                      background: sUseWishList ? '#fef9c3' : '#f1f5f9',
+                                      color: sUseWishList ? '#854d0e' : '#64748b',
+                                      border: `1px solid ${sUseWishList ? '#fde047' : '#e2e8f0'}`,
+                                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                    {activeWishCount} طبيب
+                                    <span style={{ fontSize: 10, display: 'inline-block', transform: sWishDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {/* Toggle */}
+                            <div onClick={() => wishCount > 0 && setSUseWishList(v => !v)}
+                              style={{
+                                width: 44, height: 24, borderRadius: 12, transition: 'background 0.2s', flexShrink: 0,
+                                background: sUseWishList && wishCount > 0 ? '#f59e0b' : '#e2e8f0',
+                                position: 'relative', cursor: wishCount > 0 ? 'pointer' : 'not-allowed', opacity: wishCount === 0 ? 0.5 : 1,
+                              }}>
+                              <div style={{
+                                position: 'absolute', top: 3, transition: 'left 0.2s',
+                                left: sUseWishList && wishCount > 0 ? 23 : 3,
+                                width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                              }} />
+                            </div>
+                          </div>
+                          {/* Subtitle */}
+                          <div style={{ padding: '0 12px 8px', background: sUseWishList && wishCount > 0 ? '#fffbeb' : '#f8fafc' }}>
+                            <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                              {wishCount === 0
+                                ? 'لا يوجد أطباء في قائمة الطلبات حالياً — أضفهم من صفحة السرفي'
+                                : 'يضمن تضمين الأطباء الذين اخترتهم في السرفي بغض النظر عن المنطقة'}
+                            </p>
+                          </div>
+                          {/* Expandable doctor list */}
+                          {sWishDropdownOpen && wishCount > 0 && (
+                            <div style={{ borderTop: '1px solid #e2e8f0', padding: 10, background: '#fff' }}>
+                              {/* Select all / deselect all */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                <span style={{ fontSize: 11, color: '#64748b' }}>اختر من تريد تضمينه</span>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button onMouseDown={() => setSWishExcluded(new Set())}
+                                    style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #22c55e', background: '#dcfce7', color: '#166534', cursor: 'pointer' }}>
+                                    ✅ الكل
+                                  </button>
+                                  <button onMouseDown={() => setSWishExcluded(new Set(wishIds))}
+                                    style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #fca5a5', background: '#fee2e2', color: '#991b1b', cursor: 'pointer' }}>
+                                    ✗ لا شيء
+                                  </button>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+                                {wishIds.map(id => {
+                                  const excluded = sWishExcluded.has(id);
+                                  const itemName = wishItems[id];
+                                  return (
+                                    <div key={id}
+                                      onClick={() => setSWishExcluded(prev => {
+                                        const s = new Set(prev);
+                                        excluded ? s.delete(id) : s.add(id);
+                                        return s;
+                                      })}
+                                      style={{
+                                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 7,
+                                        background: excluded ? '#f8fafc' : '#fffbeb',
+                                        border: `1px solid ${excluded ? '#e2e8f0' : '#fde047'}`,
+                                        cursor: 'pointer', opacity: excluded ? 0.55 : 1,
+                                      }}>
+                                      <span style={{ fontSize: 14, color: excluded ? '#94a3b8' : '#f59e0b', flexShrink: 0 }}>{excluded ? '☆' : '⭐'}</span>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: excluded ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {wishNames[id] ?? `طبيب #${id}`}
+                                        </p>
+                                        {wishItems[id] && (
+                                          <p style={{ margin: 0, fontSize: 10, color: '#64748b' }}>💊 {wishItems[id]}</p>
+                                        )}
+                                      </div>
+                                      <span style={{ fontSize: 11, color: excluded ? '#94a3b8' : '#166534', fontWeight: 600 }}>{excluded ? 'غير مرشح' : 'مرشح'}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     <button onClick={loadSuggest} disabled={suggestLoading}
                       style={{ ...btnStyle('#8b5cf6'), width: '100%', marginTop: 10 }}>
                       ✨ تطبيق وعرض الاقتراح
                     </button>
+                  </div>
                   </div>
                 )}
               </div>
@@ -1669,6 +2281,57 @@ export default function MonthlyPlansPage() {
                 {/* Feedback breakdown */}
                 <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, gridColumn: 'span 2' }}>
                   <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#64748b' }}>توزيع الفيدباك</p>
+
+                {/* Item calls breakdown */}
+                {planStats.itemCallStats.length > 0 && (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, gridColumn: '1 / -1' }}>
+                    <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: '#64748b' }}>📦 الكولات حسب الايتم</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {planStats.itemCallStats.map(item => (
+                        <div key={item.name}>
+                          <div
+                            onClick={() => setOpenItemKey(k => k === item.name ? null : item.name)}
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              background: '#f8fafc', borderRadius: 8, padding: '8px 12px',
+                              cursor: 'pointer', border: '1px solid #e2e8f0',
+                              userSelect: 'none',
+                            }}
+                          >
+                            <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{item.name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{
+                                background: '#dbeafe', color: '#1e40af', fontWeight: 700, fontSize: 13,
+                                padding: '2px 10px', borderRadius: 20,
+                              }}>{item.count} كول</span>
+                              <span style={{ fontSize: 11, color: '#94a3b8' }}>{openItemKey === item.name ? '▲' : '▼'}</span>
+                            </div>
+                          </div>
+                          {openItemKey === item.name && (
+                            <div style={{
+                              background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '0 0 8px 8px',
+                              padding: '6px 12px', display: 'flex', flexWrap: 'wrap', gap: 6,
+                            }}>
+                              {item.doctors.map(d => (
+                                <span
+                                  key={d.entryId}
+                                  onClick={() => scrollToEntry(d.entryId)}
+                                  style={{
+                                    fontSize: 12, padding: '3px 10px', borderRadius: 12,
+                                    background: '#fff', border: '1px solid #7dd3fc',
+                                    color: '#0369a1', cursor: 'pointer', fontWeight: 600,
+                                  }}
+                                >
+                                  🩺 {d.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {Object.entries(planStats.feedbackCount).map(([fb, cnt]) => {
                       const meta = FEEDBACK_LABELS[fb] ?? FEEDBACK_LABELS.pending;
@@ -1708,6 +2371,35 @@ export default function MonthlyPlansPage() {
                   <h3 style={{ margin: '0 0 10px', fontSize: 16, color: '#166534' }}>
                     ✨ الاقتراح الذكي — {suggest.summary.total} طبيب
                   </h3>
+
+                  {/* AI Note summary */}
+                  {suggest.aiNote && (
+                    <div style={{
+                      background: '#faf5ff', border: '1px solid #c4b5fd', borderRadius: 8,
+                      padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#5b21b6',
+                    }}>
+                      <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 12 }}>🤖 تعليماتك المطبّقة:</p>
+                      <p style={{ margin: 0, color: '#6d28d9', lineHeight: 1.6 }}>
+                        {suggest.aiNote.parsed?.summary ?? suggest.aiNote.raw}
+                      </p>
+                      {suggest.aiNote.parsed && (() => {
+                        const p = suggest.aiNote.parsed!;
+                        const chips: { label: string; color: string; bg: string }[] = [];
+                        (p.includeDoctorNames ?? []).forEach(n => chips.push({ label: `+ ${n}`, color: '#166534', bg: '#dcfce7' }));
+                        (p.excludeDoctorNames ?? []).forEach(n => chips.push({ label: `− ${n}`, color: '#991b1b', bg: '#fee2e2' }));
+                        (p.includeAreaNames   ?? []).forEach(n => chips.push({ label: `📍 ${n}`, color: '#1e40af', bg: '#dbeafe' }));
+                        (p.specialties        ?? []).forEach(n => chips.push({ label: `🔬 ${n}`, color: '#7c3aed', bg: '#ede9fe' }));
+                        return chips.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                            {chips.map((c, i) => (
+                              <span key={i} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: c.bg, color: c.color }}>{c.label}</span>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+
                   <p style={{ margin: '0 0 12px', fontSize: 13, color: '#15803d' }}>
                     انقر على الطبيب لاختياره، انقر مرة ثانية لإلغاء الاختيار
                   </p>
@@ -1734,13 +2426,13 @@ export default function MonthlyPlansPage() {
                           const meta = FEEDBACK_LABELS[doc._reason] ?? FEEDBACK_LABELS.pending;
                           return (
                             <div key={doc.id} onClick={() => setSelectedDoctors(prev => { const s = new Set(prev); s.add(doc.id); return s; })}
-                              style={{ border: '2px solid #e2e8f0', borderRadius: 8, padding: 10, background: '#fff', cursor: 'pointer',
+                              style={{ border: `2px solid ${doc.fromWishList ? '#fde047' : '#e2e8f0'}`, borderRadius: 8, padding: 10, background: doc.fromWishList ? '#fffbeb' : '#fff', cursor: 'pointer',
                                 transition: 'all 0.15s', display: 'flex', flexDirection: 'column', gap: 4 }}>
                               <p style={{ margin: 0, fontWeight: 700, fontSize: 13 }}>{doc.name}</p>
                               <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>{doc.specialty ?? ''}{doc.area?.name ? ` · ${doc.area.name}` : ''}</p>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: meta.bg, color: meta.color, fontWeight: 600 }}>
-                                  {doc._type === 'new' ? '➕ جديد' : meta.label}
+                                  {doc.fromWishList ? '⭐ مطلوب' : doc._type === 'new' ? '➕ جديد' : meta.label}
                                 </span>
                                 <span style={{ fontSize: 11, color: '#94a3b8' }}>اضغط للاختيار</span>
                               </div>
@@ -1760,8 +2452,9 @@ export default function MonthlyPlansPage() {
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                         {chosen.map(doc => (
                           <div key={doc.id} onClick={() => setSelectedDoctors(prev => { const s = new Set(prev); s.delete(doc.id); return s; })}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#dcfce7', border: '2px solid #22c55e',
-                              borderRadius: 20, padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#166534' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, background: doc.fromWishList ? '#fffbeb' : '#dcfce7', border: `2px solid ${doc.fromWishList ? '#fde047' : '#22c55e'}`,
+                              borderRadius: 20, padding: '5px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: doc.fromWishList ? '#92400e' : '#166534' }}>
+                            {doc.fromWishList && <span style={{ fontSize: 12 }}>⭐</span>}
                             {doc.name}
                             <span style={{ fontSize: 15, lineHeight: 1, color: '#dc2626', fontWeight: 700 }}>×</span>
                           </div>
@@ -2286,7 +2979,7 @@ export default function MonthlyPlansPage() {
                               return (
                                 <div key={v.id} style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
                                   <div style={{
-                                    display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto auto',
+                                    display: 'grid', gridTemplateColumns: 'auto auto 1fr auto auto auto auto',
                                     alignItems: 'center', gap: 6,
                                     padding: '5px 10px',
                                   }}>
@@ -2347,15 +3040,112 @@ export default function MonthlyPlansPage() {
                                   ) : (
                                     <span title="لا يوجد موقع مسجل" style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#e2e8f0', flexShrink: 0 }}>📍</span>
                                   )}
+                                  {/* Like button — visible to all, clickable by managers only */}
+                                  {(() => {
+                                    const likeCount = (v.likes || []).length;
+                                    const liked = !!(v.likes || []).find(l => l.userId === authUser?.id);
+                                    return (
+                                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                                        <button
+                                          title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
+                                          disabled={!isManagerOrAdmin || likingVisit === v.id}
+                                          onClick={() => isManagerOrAdmin && toggleLike(v.id)}
+                                          onMouseDown={() => { longPressTimer.current = setTimeout(() => setShowLikers(v.id), 600); }}
+                                          onMouseUp={() => clearTimeout(longPressTimer.current)}
+                                          onMouseLeave={() => clearTimeout(longPressTimer.current)}
+                                          onTouchStart={() => { longPressTimer.current = setTimeout(() => setShowLikers(v.id), 600); }}
+                                          onTouchEnd={() => clearTimeout(longPressTimer.current)}
+                                          style={{
+                                            position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            width: 22, height: 22, borderRadius: '50%', padding: 0,
+                                            background: 'transparent', border: 'none',
+                                            cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
+                                            transition: 'opacity 0.15s',
+                                          }}>
+                                          <svg viewBox="0 0 24 24" width="14" height="14" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                          {likeCount > 0 && (
+                                            <span style={{
+                                              position: 'absolute', top: -5, right: -5,
+                                              background: '#ef4444', color: '#fff',
+                                              borderRadius: '50%', fontSize: 8, fontWeight: 800,
+                                              width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                              lineHeight: 1, border: '1px solid #fff',
+                                            }}>{likeCount}</span>
+                                          )}
+                                        </button>
+                                        {/* Likers popup on long-press */}
+                                        {showLikers === v.id && (
+                                          <div
+                                            style={{
+                                              position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+                                              background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
+                                              fontSize: 11, whiteSpace: 'nowrap', zIndex: 99,
+                                              boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+                                              minWidth: 100,
+                                            }}
+                                            onClick={e => { e.stopPropagation(); setShowLikers(null); }}
+                                          >
+                                            <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                                            {(v.likes || []).length === 0
+                                              ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
+                                              : (v.likes || []).map(l => <div key={l.id}>👤 {l.user.username}</div>)
+                                            }
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
                                   {/* Delete */}
                                   <button onClick={() => deleteVisit(v.id)} title="حذف"
                                     style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>🗑</button>
                                 </div>
-                                {/* Notes */}
-                                {v.notes && (
-                                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '3px 10px 6px', borderTop: '1px dashed #f1f5f9' }}>
-                                    <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, flexShrink: 0 }}>💬</span>
-                                    <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', lineHeight: 1.4 }}>{v.notes}</span>
+                                {/* Notes + Manager Comments */}
+                                {(v.notes || (v.comments && v.comments.length > 0) || isManagerOrAdmin) && (
+                                  <div style={{ borderTop: '1px dashed #f1f5f9' }}>
+                                    {/* Rep note */}
+                                    {v.notes && (
+                                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '4px 10px 3px' }}>
+                                        <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, flexShrink: 0 }}>💬</span>
+                                        <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', lineHeight: 1.4 }}>{v.notes}</span>
+                                      </div>
+                                    )}
+                                    {/* Manager comments */}
+                                    {(v.comments || []).map(c => (
+                                      <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '3px 10px', background: '#fffbeb', borderTop: '1px dotted #fef3c7' }}>
+                                        <span style={{ fontSize: 10, color: '#d97706', marginTop: 2, flexShrink: 0 }}>🔔</span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e' }}>{c.user.username}: </span>
+                                          <span style={{ fontSize: 11, color: '#78350f', lineHeight: 1.4 }}>{c.content}</span>
+                                        </div>
+                                        {c.userId === authUser?.id && (
+                                          <button onClick={() => deleteComment(v.id, c.id)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 11, padding: 0, flexShrink: 0 }}>✕</button>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {/* Add comment box for managers */}
+                                    {isManagerOrAdmin && commentingVisit === v.id ? (
+                                      <div style={{ display: 'flex', gap: 4, padding: '4px 10px 6px', alignItems: 'center' }}>
+                                        <input
+                                          autoFocus
+                                          value={newCommentText}
+                                          onChange={e => setNewCommentText(e.target.value)}
+                                          onKeyDown={e => { if (e.key === 'Enter') submitComment(v.id); if (e.key === 'Escape') { setCommentingVisit(null); setNewCommentText(''); } }}
+                                          placeholder="اكتب ملاحظتك..."
+                                          style={{ flex: 1, border: '1px solid #fcd34d', borderRadius: 6, padding: '3px 8px', fontSize: 11, outline: 'none', direction: 'rtl' }}
+                                        />
+                                        <button onClick={() => submitComment(v.id)} disabled={savingComment || !newCommentText.trim()}
+                                          style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', opacity: !newCommentText.trim() ? 0.5 : 1 }}>
+                                          {savingComment ? '...' : '✓'}
+                                        </button>
+                                        <button onClick={() => { setCommentingVisit(null); setNewCommentText(''); }}
+                                          style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                                      </div>
+                                    ) : isManagerOrAdmin ? (
+                                      <button onClick={() => { setCommentingVisit(v.id); setNewCommentText(''); }}
+                                        style={{ background: 'none', border: 'none', color: '#d97706', cursor: 'pointer', fontSize: 10, padding: '2px 10px 5px', fontWeight: 600 }}>
+                                        + إضافة ملاحظة مدير
+                                      </button>
+                                    ) : null}
                                   </div>
                                 )}
                                 </div>
@@ -2488,6 +3278,76 @@ export default function MonthlyPlansPage() {
                     ✓ تم
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Import plan entries (doctors) from Excel modal ── */}
+      {showPlanImportModal && activePlan && (
+        <div style={overlayStyle} onClick={() => !planImporting && setShowPlanImportModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 480, width: '94%', direction: 'rtl', maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b' }}>📥 استيراد البلان من Excel</h2>
+              <button onClick={() => !planImporting && setShowPlanImportModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+            </div>
+
+            {/* Format guide */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>📋 أعمدة الملف (يُقبل أي اسم مشابه):</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {[
+                  { name: 'اسم الطبيب *', hint: 'doctor / الطبيب / اسم', required: true },
+                  { name: 'عدد الزيارات', hint: 'visits / زيارات (افتراضي: 2)', required: false },
+                ].map(col => (
+                  <span key={col.name} title={col.hint} style={{
+                    padding: '3px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    background: col.required ? '#fef3c7' : '#f1f5f9',
+                    color: col.required ? '#92400e' : '#475569',
+                    border: `1px solid ${col.required ? '#fde68a' : '#e2e8f0'}`,
+                    cursor: 'help',
+                  }}>
+                    {col.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {!planImportResult ? (
+              <div>
+                <input ref={planImportFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) importPlanEntries(f); }} />
+                <button onClick={() => planImportFileRef.current?.click()} disabled={planImporting}
+                  style={{ ...btnStyle('#16a34a', true), width: '100%', justifyContent: 'center', gap: 8, opacity: planImporting ? 0.6 : 1 }}>
+                  {planImporting ? '⏳ جاري الاستيراد...' : '📂 اختيار ملف Excel'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                  <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#166534' }}>
+                    ✅ تم استيراد {planImportResult.imported} من أصل {planImportResult.total} طبيب
+                  </p>
+                </div>
+                {planImportResult.unmatched.length > 0 && (
+                  <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                    <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#9a3412', fontSize: 13 }}>
+                      ⚠️ لم يُعثر على {planImportResult.unmatched.length} طبيب:
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {planImportResult.unmatched.map((n, i) => (
+                        <span key={i} style={{ fontSize: 12, padding: '2px 8px', borderRadius: 8, background: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>{n}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button onClick={() => { setPlanImportResult(null); setShowPlanImportModal(false); }}
+                  style={{ ...btnStyle('#475569', true), width: '100%', justifyContent: 'center' }}>
+                  إغلاق
+                </button>
               </div>
             )}
           </div>
@@ -2653,17 +3513,26 @@ export default function MonthlyPlansPage() {
 
       {/* ── Create plan modal ── */}
       {showCreate && (
-        <div style={overlayStyle}>
-          <div style={modalStyle}>
+        <div style={overlayStyle} onClick={() => setShowCreate(false)}>
+          <div style={modalStyle} onClick={e => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 20px', fontSize: 18 }}>📅 إنشاء بلان شهري جديد</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-              <label style={{ ...labelStyle, gridColumn: 'span 3' }}>
-                المندوب العلمي *
-                <select value={cRepId} onChange={e => setCRepId(e.target.value)} style={inputStyle}>
-                  <option value="">-- اختر مندوب --</option>
-                  {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
-              </label>
+              {isManagerOrAdmin ? (
+                <label style={{ ...labelStyle, gridColumn: 'span 3' }}>
+                  المندوب العلمي *
+                  <select value={cRepId} onChange={e => setCRepId(e.target.value)} style={inputStyle}>
+                    <option value="">-- اختر مندوب --</option>
+                    {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <label style={{ ...labelStyle, gridColumn: 'span 3' }}>
+                  المندوب العلمي
+                  <div style={{ ...inputStyle, background: '#f1f5f9', color: '#374151', display: 'flex', alignItems: 'center', cursor: 'default' }}>
+                    {reps.find(r => r.id === authUser?.linkedRepId)?.name ?? `مندوب #${authUser?.linkedRepId}`}
+                  </div>
+                </label>
+              )}
               <label style={labelStyle}>
                 الشهر
                 <select value={cMonth} onChange={e => setCMonth(+e.target.value)} style={inputStyle}>
@@ -2803,5 +3672,12 @@ const labelStyle: React.CSSProperties = { display: 'flex', flexDirection: 'colum
 const settingLabelStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 14 };
 const settingInputStyle: React.CSSProperties = { padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, direction: 'rtl', width: '100%', boxSizing: 'border-box' as const };
 const alertStyle: React.CSSProperties = { background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 14px', marginBottom: 12 };
+const menuItemStyle: React.CSSProperties = {
+  width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+  padding: '8px 12px', border: 'none', background: 'none', borderRadius: 7,
+  fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#374151',
+  textAlign: 'right' as const, direction: 'rtl',
+  transition: 'background 0.12s',
+};
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
 const modalStyle: React.CSSProperties   = { background: '#fff', borderRadius: 12, padding: 28, width: '90%', maxWidth: 480, direction: 'rtl' };

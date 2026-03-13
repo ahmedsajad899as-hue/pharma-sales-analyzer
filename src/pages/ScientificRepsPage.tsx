@@ -66,6 +66,21 @@ export default function ScientificRepsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // AI assistant page-action listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action } = (e as CustomEvent).detail || {};
+      if (action === 'open-add-sci-rep') {
+        setFName(''); setFPhone(''); setFEmail(''); setFCompany(''); setFNotes('');
+        setModal('add');
+      }
+    };
+    window.addEventListener('ai-page-action', handler);
+    const pending = (window as any).__aiPendingAction;
+    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  }, []);
+
   const loadAllOptions = useCallback(async () => {
     const safe = (p: Promise<any>) => p.catch(() => ({ data: [] }));
     const [ar, it, cr, crAreas, co] = await Promise.all([

@@ -18,6 +18,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isManager: boolean;
   isManagerOrAdmin: boolean;
+  hasFeature: (key: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -94,8 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user?.role === 'office_manager'  || user?.role === 'commercial_supervisor' ||
     user?.role === 'commercial_team_leader';
 
+  const hasFeature = (key: string): boolean => {
+    try {
+      const p = JSON.parse(user?.permissions || '{}');
+      return !(p.disabledFeatures ?? []).includes(key);
+    } catch { return true; }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature }}>
       {children}
     </AuthContext.Provider>
   );

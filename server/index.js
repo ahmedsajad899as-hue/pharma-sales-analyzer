@@ -30,6 +30,8 @@ import superAdminRoutes         from './modules/super-admin/super-admin.routes.j
 import officesRoutes            from './modules/offices/offices.routes.js';
 import companiesRoutes          from './modules/companies/companies.routes.js';
 import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
+import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
+import commercialRoutes          from './modules/commercial/commercial.routes.js';
 
 dotenv.config();
 
@@ -99,7 +101,8 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
 // ── All /api routes below require a valid JWT ────────────────
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
-  if (req.path === '/health' || req.path.startsWith('/auth')) return next();
+  // Skip JWT for: health-check, auth, and commercial webhook (uses API key auth instead)
+  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook') return next();
   requireAuth(req, res, next);
 });
 
@@ -112,6 +115,8 @@ app.use('/api/scientific-reps',   scientificRepsRoutes);
 app.use('/api/reports',           reportsRoutes);
 app.use('/api/doctors',           doctorsRoutes);
 app.use('/api/monthly-plans',     monthlyPlansRoutes);
+app.use('/api/ai-assistant',      aiAssistantRoutes);
+app.use('/api/commercial',        commercialRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── Utility routes ───────────────────────────────────────────
@@ -234,15 +239,31 @@ app.get('/api/items', async (req, res) => {
 app.post('/api/items', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
-    const { name } = req.body;
+    const { name, scientificName, dosage, form, price, scientificMessage, companyId } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
     const trimmed = String(name).trim();
-    // Upsert: create if not exists, return existing if duplicate
+    const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } };
     const item = await prisma.item.upsert({
       where:  { name_userId: { name: trimmed, userId } },
-      update: {},
-      create: { name: trimmed, userId },
-      select: { id: true, name: true },
+      update: {
+        ...(scientificName    != null ? { scientificName:    scientificName?.trim()    || null } : {}),
+        ...(dosage            != null ? { dosage:            dosage?.trim()            || null } : {}),
+        ...(form              != null ? { form:              form?.trim()              || null } : {}),
+        ...(price             != null ? { price:             price !== '' ? parseFloat(price) : null } : {}),
+        ...(scientificMessage != null ? { scientificMessage: scientificMessage?.trim() || null } : {}),
+        ...(companyId         != null ? { companyId:         companyId ? parseInt(companyId) : null } : {}),
+      },
+      create: {
+        name: trimmed,
+        userId,
+        scientificName:    scientificName?.trim()    || null,
+        dosage:            dosage?.trim()            || null,
+        form:              form?.trim()              || null,
+        price:             price != null && price !== '' ? parseFloat(price) : null,
+        scientificMessage: scientificMessage?.trim() || null,
+        ...(companyId ? { companyId: parseInt(companyId) } : {}),
+      },
+      select: itemSelect,
     });
     res.status(201).json({ success: true, data: item });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1236,18 +1257,22 @@ ${areaNames}
 
 // ── Daily doctor visits for dashboard ────────────────────────
 // GET /api/doctor-visits/daily?date=YYYY-MM-DD&repId=5
+// Also supports: ?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD for multi-day range
 app.get('/api/doctor-visits/daily', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
     const role   = req.user?.role ?? 'user';
 
-    // Parse date (default today in local timezone)
-    const rawDate = req.query.date ? String(req.query.date) : null;
-    const targetDate = rawDate ? new Date(rawDate) : new Date();
-    const dayStart = new Date(targetDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(targetDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    // Support both single date and date range
+    const rawFrom = req.query.dateFrom ? String(req.query.dateFrom) : (req.query.date ? String(req.query.date) : null);
+    const rawTo   = req.query.dateTo   ? String(req.query.dateTo)   : rawFrom;
+    // Parse boundaries as Iraq time (UTC+3) so early-morning visits are not cut off.
+    // e.g. "2026-03-11T00:00:00+03:00" = 2026-03-10T21:00:00Z (correct start for March 11 Iraq)
+    const todayIQ = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; };
+    const safeFrom = rawFrom || todayIQ();
+    const safeTo   = rawTo   || safeFrom;
+    const dayStart = new Date(safeFrom + 'T00:00:00+03:00');
+    const dayEnd   = new Date(safeTo   + 'T23:59:59.999+03:00');
 
     const repId = req.query.repId ? parseInt(String(req.query.repId)) : null;
 
@@ -1275,6 +1300,8 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         doctor:        { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } } },
         scientificRep: { select: { id: true, name: true } },
         item:          { select: { id: true, name: true } },
+        likes:         { select: { id: true, userId: true, user: { select: { id: true, username: true } } } },
+        comments:      { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } },
       },
       orderBy: { visitDate: 'asc' },
     });
