@@ -1332,30 +1332,30 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </span>
               </div>
               {/* Filter bar */}
-              <div style={{ padding: '8px 10px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ padding: '5px 8px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'nowrap' }}>
                 <input
                   type="text"
-                  placeholder="🔍 بحث: طبيب، صيدلية، منطقة، ايتم..."
+                  placeholder="🔍 بحث..."
                   value={fSearch}
                   onChange={e => setFSearch(e.target.value)}
-                  style={{ flex: 1, minWidth: 150, padding: '5px 10px', fontSize: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff' }}
+                  style={{ flex: 1, minWidth: 80, padding: '3px 8px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff', height: '26px' }}
                 />
                 <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'doctor' ? '#6366f1' : '#d1d5db'}`, background: fType === 'doctor' ? '#eef2ff' : '#fff', color: fType === 'doctor' ? '#4338ca' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  👨‍⚕️ طبيب
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'doctor' ? '#6366f1' : '#d1d5db'}`, background: fType === 'doctor' ? '#eef2ff' : '#fff', color: fType === 'doctor' ? '#4338ca' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  👨‍⚕️ <span>طبيب</span>
                 </button>
                 <button onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'pharmacy' ? '#059669' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdf4' : '#fff', color: fType === 'pharmacy' ? '#065f46' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  🏪 صيدلية
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#059669' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdf4' : '#fff', color: fType === 'pharmacy' ? '#065f46' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  🏪 <span>صيدلية</span>
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? '#7c3aed' : '#d1d5db'}`, background: fDouble ? '#ede9fe' : '#fff', color: fDouble ? '#6d28d9' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  👥 مزدوجة
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#7c3aed' : '#d1d5db'}`, background: fDouble ? '#ede9fe' : '#fff', color: fDouble ? '#6d28d9' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  👥 <span>مزدوجة</span>
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
-                    style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: '1.5px solid #ef4444', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    ✕ مسح
+                    style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: '1.5px solid #ef4444', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px' }}>
+                    ✕
                   </button>
                 )}
               </div>
