@@ -1225,39 +1225,46 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       <div className="page">
         <div className="page-header">
           <h1 className="page-title">📞 {(t.dashboard as any).dailyCalls}</h1>
-          <p className="page-subtitle">
-            {callsDateFrom === callsDateTo ? callsDateFrom : `${callsDateFrom} — ${callsDateTo}`}
-          </p>
         </div>
 
         {/* Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-          {/* Row 1: Date range pickers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start', flexWrap: 'nowrap' }}>
-            <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
-            <input
-              type="date"
-              className="form-input"
-              style={{ padding: '2px 4px', fontSize: '11px', width: 120, border: 'none', background: 'transparent', outline: 'none', lineHeight: 1.5 }}
-              value={callsDateFrom}
-              onChange={e => handleCallsDateFromChange(e.target.value)}
-            />
-            <span style={{ fontSize: '11px', color: '#d1d5db', whiteSpace: 'nowrap' }}>|</span>
-            <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
-            <input
-              type="date"
-              className="form-input"
-              style={{ padding: '2px 4px', fontSize: '11px', width: 120, border: 'none', background: 'transparent', outline: 'none', lineHeight: 1.5 }}
-              value={callsDateTo}
-              min={callsDateFrom}
-              onChange={e => handleCallsDateToChange(e.target.value)}
-            />
-            {callsDateFrom !== callsDateTo && (
+          {/* Row 1: Date range pickers + map button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', flex: '1 1 auto', flexWrap: 'nowrap' }}>
+              <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
+              <input
+                type="date"
+                className="form-input"
+                style={{ padding: '2px 4px', fontSize: '11px', width: 110, border: 'none', background: 'transparent', outline: 'none', lineHeight: 1.5 }}
+                value={callsDateFrom}
+                onChange={e => handleCallsDateFromChange(e.target.value)}
+              />
+              <span style={{ fontSize: '11px', color: '#d1d5db', whiteSpace: 'nowrap' }}>|</span>
+              <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
+              <input
+                type="date"
+                className="form-input"
+                style={{ padding: '2px 4px', fontSize: '11px', width: 110, border: 'none', background: 'transparent', outline: 'none', lineHeight: 1.5 }}
+                value={callsDateTo}
+                min={callsDateFrom}
+                onChange={e => handleCallsDateToChange(e.target.value)}
+              />
+              {callsDateFrom !== callsDateTo && (
+                <button
+                  onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
+                  title="العودة لليوم الحالي"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6366f1', fontWeight: 700, padding: '1px 4px', whiteSpace: 'nowrap' }}
+                >اليوم</button>
+              )}
+            </div>
+            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
               <button
-                onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
-                title="العودة لليوم الحالي"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6366f1', fontWeight: 700, padding: '1px 4px', whiteSpace: 'nowrap' }}
-              >اليوم</button>
+                className="btn btn--primary"
+                style={{ flex: '0 0 auto', padding: '8px 12px', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', lineHeight: 1 }}
+                onClick={() => setShowMap(true)}
+                title="عرض على الخريطة"
+              >🗺️</button>
             )}
           </div>
           {/* Row 2: Action buttons — single row, RTL order: تسجيل زيارة | منفردة | زيارة صوتية */}
@@ -1301,15 +1308,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
               >
                 {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
-              </button>
-            )}
-            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
-              <button
-                className="btn btn--primary"
-                style={{ flex: '0 0 auto', padding: '11px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', borderRadius: '10px' }}
-                onClick={() => setShowMap(true)}
-              >
-                🗺️
               </button>
             )}
           </div>
@@ -1381,7 +1379,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime())
                       .reduce<React.ReactNode[]>((rows, v, idx, arr) => {
                         // Date separator between days (only in multi-day view)
-                        if (isMultiDay) {
+                        const _spansDays = new Set(filteredVisits.map(fv => new Date(fv.visitDate).toLocaleDateString('ar-IQ'))).size > 1;
+                        if (_spansDays) {
                           const curDay  = new Date(v.visitDate).toLocaleDateString('ar-IQ');
                           const prevDay = idx > 0 ? new Date(arr[idx - 1].visitDate).toLocaleDateString('ar-IQ') : null;
                           if (curDay !== prevDay) {
