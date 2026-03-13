@@ -1323,9 +1323,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             </div>
           ) : (
             <>
-              <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, fontSize: '14px', color: '#374151' }}>
-                  📞 {(t.dashboard as any).dailyCallsTotal}: {filteredVisits.length}{filteredVisits.length !== callsData.visits.length && <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: '12px' }}> / {callsData.visits.length}</span>}
+              <div style={{ padding: '6px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, fontSize: '11px', color: '#6b7280' }}>
+                  📞 {(t.dashboard as any).dailyCallsTotal}: <span style={{ fontSize: '13px', color: '#374151', fontWeight: 700 }}>{filteredVisits.length}</span>{filteredVisits.length !== callsData.visits.length && <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: '11px' }}> / {callsData.visits.length}</span>}
                 </span>
               </div>
               {/* Filter bar */}
