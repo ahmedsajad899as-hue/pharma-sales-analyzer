@@ -1584,26 +1584,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <div style={{ margin: '14px 0 4px', padding: '16px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', direction: 'rtl' }}>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 12 }}>📊 إحصائيات الكولات</div>
                     {/* Totals row */}
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 16px', minWidth: 110 }}>
-                        <span style={{ fontSize: 20 }}>👨‍⚕️</span>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '6px 12px', minWidth: 90 }}>
+                        <span style={{ fontSize: 15 }}>👨‍⚕️</span>
                         <div>
-                          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1 }}>كولات الأطباء</div>
-                          <div style={{ fontSize: 22, fontWeight: 800, color: '#4f46e5', lineHeight: 1.2 }}>{doctorCalls.length}</div>
+                          <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1 }}>كولات الأطباء</div>
+                          <div style={{ fontSize: 17, fontWeight: 800, color: '#4f46e5', lineHeight: 1.2 }}>{doctorCalls.length}</div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 16px', minWidth: 110 }}>
-                        <span style={{ fontSize: 20 }}>🏪</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '6px 12px', minWidth: 90 }}>
+                        <span style={{ fontSize: 15 }}>🏪</span>
                         <div>
-                          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1 }}>كولات الصيدليات</div>
-                          <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 16px', minWidth: 110 }}>
-                        <span style={{ fontSize: 20 }}>📋</span>
-                        <div>
-                          <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1 }}>إجمالي</div>
-                          <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>{filteredVisits.length}</div>
+                          <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1 }}>كولات الصيدليات</div>
+                          <div style={{ fontSize: 17, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
                         </div>
                       </div>
                     </div>
