@@ -2986,6 +2986,12 @@ select.comm-input { cursor: pointer; }
   .mp-shell > div:nth-child(2) {
     padding: 12px !important;
   }
+
+  /* Doctor row: hide date & item columns on mobile to show name */
+  .doc-row-date,
+  .doc-row-item {
+    display: none !important;
+  }
 }
 
 /* ── Upload badge pulse animation ── */

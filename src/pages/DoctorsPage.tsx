@@ -1346,12 +1346,12 @@ export default function DoctorsPage() {
                             )}
 
                             {/* Last visit date */}
-                            <span style={{ fontSize: 12, color: '#64748b', flexShrink: 0, minWidth: 72, textAlign: 'center' }}>
+                            <span className="doc-row-date" style={{ fontSize: 12, color: '#64748b', flexShrink: 0, minWidth: 72, textAlign: 'center' }}>
                               {lastVisit ? fmt(lastVisit.visitDate) : '—'}
                             </span>
 
                             {/* Item */}
-                            <span style={{ fontSize: 12, color: '#475569', flexShrink: 0, minWidth: 70, textAlign: 'center' }}>
+                            <span className="doc-row-item" style={{ fontSize: 12, color: '#475569', flexShrink: 0, minWidth: 70, textAlign: 'center' }}>
                               {lastVisit?.item?.name ?? doc.targetItem?.name ?? '—'}
                             </span>
 
