@@ -1321,20 +1321,12 @@ tr:hover {
     -webkit-overflow-scrolling: touch;
   }
 
-  .data-table { font-size: 13px; }
+  .data-table { font-size: 14px; min-width: 500px; }
 
   .data-table th,
   .data-table td {
-    padding: 10px 8px;
+    padding: 13px 10px;
     white-space: nowrap;
-  }
-
-  /* Hide low-priority columns on mobile */
-  .data-table .col-notes,
-  .data-table .col-location,
-  .data-table .col-like,
-  .data-table .col-area {
-    display: none;
   }
 
   .empty-row { padding: 24px; font-size: 13px; }

@@ -1362,15 +1362,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th style={{ width: 32 }}>#</th>
+                      <th style={{ width: 36 }}>#</th>
                       <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
-                      <th className="col-area">الصيدلية / المنطقة</th>
+                      <th>الصيدلية / المنطقة</th>
                       <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
                       <th>{(t.dashboard as any).dailyCallsColItem}</th>
                       <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
-                      <th className="col-notes">الملاحظات</th>
-                      <th className="col-location">{(t.dashboard as any).dailyCallsColLocation}</th>
-                      <th className="col-like" style={{ width: 44 }}>❤️</th>
+                      <th>الملاحظات</th>
+                      <th>{(t.dashboard as any).dailyCallsColLocation}</th>
+                      <th style={{ width: 44 }}>❤️</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1439,7 +1439,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               <div style={{ fontSize: '12px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                             )}
                           </td>
-                          <td className="col-area" style={{ fontSize: '13px', color: '#374151' }}>
+                          <td style={{ fontSize: '13px', color: '#374151' }}>
                             {(v as any)._visitType === 'pharmacy' ? (
                               v.doctor.area?.name ? <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.area.name}</div> : '—'
                             ) : (
@@ -1486,16 +1486,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </span>
                             )}
                           </td>
-                          <td className="col-notes" style={{ fontSize: '12px', color: '#6b7280', maxWidth: '200px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.5' }}>
+                          <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '200px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.5' }}>
                             {v.notes || '—'}
                           </td>
-                          <td className="col-location" style={{ textAlign: 'center' }}>
+                          <td style={{ textAlign: 'center' }}>
                             {v.latitude != null
                               ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', padding: '2px', lineHeight: 1 }}>📍</button>
                               : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
                           </td>
                           {/* Like cell — only for doctor visits */}
-                          <td className="col-like" style={{ textAlign: 'center', position: 'relative' }}>
+                          <td style={{ textAlign: 'center', position: 'relative' }}>
                             {(v as any)._visitType !== 'pharmacy' && (() => {
                               const likes = (v as any).likes ?? [];
                               const likeCount = likes.length;
