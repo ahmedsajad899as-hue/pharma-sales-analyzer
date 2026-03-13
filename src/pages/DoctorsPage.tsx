@@ -729,16 +729,16 @@ export default function DoctorsPage() {
               options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
             }
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, flexWrap: 'wrap', direction: 'rtl' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
                 <button
                   onClick={() => setVisitMonthFilter(null)}
                   style={{
-                    fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14,
+                    fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                     border: `1px solid ${visitMonthFilter === null ? '#6366f1' : '#e2e8f0'}`,
                     background: visitMonthFilter === null ? '#eef2ff' : 'transparent',
                     color: visitMonthFilter === null ? '#4338ca' : '#94a3b8',
-                    cursor: 'pointer',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
                   }}>الكل</button>
                 {options.map(o => {
                   const active = visitMonthFilter?.month === o.month && visitMonthFilter?.year === o.year;
@@ -746,11 +746,11 @@ export default function DoctorsPage() {
                     <button key={`${o.month}-${o.year}`}
                       onClick={() => setVisitMonthFilter({ month: o.month, year: o.year })}
                       style={{
-                        fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14,
+                        fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                         border: `1px solid ${active ? '#6366f1' : '#e2e8f0'}`,
                         background: active ? '#eef2ff' : 'transparent',
                         color: active ? '#4338ca' : '#94a3b8',
-                        cursor: 'pointer',
+                        cursor: 'pointer', whiteSpace: 'nowrap',
                       }}>{o.label}</button>
                   );
                 })}
@@ -1423,13 +1423,13 @@ export default function DoctorsPage() {
                   options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
                 }
                 return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, flexWrap: 'wrap', direction: 'rtl' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
                     <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
                     <button onClick={() => setPharmVisitMonthFilter(null)} style={{
-                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14,
+                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                       border: `1px solid ${pharmVisitMonthFilter === null ? '#0ea5e9' : '#e2e8f0'}`,
                       background: pharmVisitMonthFilter === null ? '#e0f2fe' : 'transparent',
-                      color: pharmVisitMonthFilter === null ? '#0369a1' : '#94a3b8', cursor: 'pointer',
+                      color: pharmVisitMonthFilter === null ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
                     }}>الكل</button>
                     {options.map(o => {
                       const active = pharmVisitMonthFilter?.month === o.month && pharmVisitMonthFilter?.year === o.year;
@@ -1437,10 +1437,10 @@ export default function DoctorsPage() {
                         <button key={`${o.month}-${o.year}`}
                           onClick={() => setPharmVisitMonthFilter({ month: o.month, year: o.year })}
                           style={{
-                            fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14,
+                            fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                             border: `1px solid ${active ? '#0ea5e9' : '#e2e8f0'}`,
                             background: active ? '#e0f2fe' : 'transparent',
-                            color: active ? '#0369a1' : '#94a3b8', cursor: 'pointer',
+                            color: active ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
                           }}>{o.label}</button>
                       );
                     })}
