@@ -1581,34 +1581,34 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 const itemEntries = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
 
                 return (
-                  <div style={{ margin: '14px 0 4px', padding: '16px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', direction: 'rtl' }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 12 }}>📊 إحصائيات الكولات</div>
+                  <div style={{ margin: '8px 0 4px', padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', direction: 'rtl' }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', marginBottom: 8 }}>📊 إحصائيات الكولات</div>
                     {/* Totals row */}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '6px 12px', minWidth: 90 }}>
-                        <span style={{ fontSize: 15 }}>👨‍⚕️</span>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
+                        <span style={{ fontSize: 12 }}>👨‍⚕️</span>
                         <div>
-                          <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1 }}>كولات الأطباء</div>
-                          <div style={{ fontSize: 17, fontWeight: 800, color: '#4f46e5', lineHeight: 1.2 }}>{doctorCalls.length}</div>
+                          <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1 }}>أطباء</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#4f46e5', lineHeight: 1.2 }}>{doctorCalls.length}</div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '6px 12px', minWidth: 90 }}>
-                        <span style={{ fontSize: 15 }}>🏪</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
+                        <span style={{ fontSize: 12 }}>🏪</span>
                         <div>
-                          <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1 }}>كولات الصيدليات</div>
-                          <div style={{ fontSize: 17, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
+                          <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1 }}>صيدليات</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
                         </div>
                       </div>
                     </div>
                     {/* Per-item counts */}
                     {itemEntries.length > 0 && (
                       <>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8 }}>📦 الكولات حسب الايتم</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', marginBottom: 5 }}>📦 حسب الايتم</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                           {itemEntries.map(([name, count]) => (
-                            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 12px', fontSize: 13 }}>
+                            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 8px', fontSize: 11 }}>
                               <span style={{ fontWeight: 600, color: '#1e293b' }}>{name}</span>
-                              <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '1px 8px', fontWeight: 800, fontSize: 13 }}>{count}</span>
+                              <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 4, padding: '1px 6px', fontWeight: 800, fontSize: 11 }}>{count}</span>
                             </div>
                           ))}
                         </div>
