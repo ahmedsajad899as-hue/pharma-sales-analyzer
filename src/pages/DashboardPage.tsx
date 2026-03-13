@@ -1231,9 +1231,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         </div>
 
         {/* Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
-          {/* Date range pickers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+          {/* Row 1: Date range pickers */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
             <input
               type="date"
@@ -1259,53 +1259,58 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               >اليوم</button>
             )}
           </div>
-          {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
+          {/* Row 2: Action buttons — all equal height, evenly arranged */}
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'wrap' }}>
+            {hasFeature('call_log') && (
+              <button
+                className="btn btn--primary"
+                style={{ flex: '1 1 auto', minWidth: '110px', padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: '#059669', borderColor: '#059669' }}
+                onClick={openCallLog}
+              >
+                ✏️ تسجيل زيارة
+              </button>
+            )}
+            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
+              <button
+                className="btn btn--primary"
+                style={{ flex: '1 1 auto', minWidth: '110px', padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                onClick={() => setShowMap(true)}
+              >
+                {(t.dashboard as any).dailyCallsMapBtn}
+              </button>
+            )}
             <button
-              className="btn btn--primary"
-              style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              onClick={() => setShowMap(true)}
-            >
-              {(t.dashboard as any).dailyCallsMapBtn}
-            </button>
-          )}
-          {hasFeature('call_log') && (
-            <button
-              className="btn btn--primary"
-              style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: '#059669', borderColor: '#059669', marginRight: 'auto' }}
-              onClick={openCallLog}
-            >
-              ✏️ تسجيل زيارة
-            </button>
-          )}
-          <button
-            title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
-            onClick={() => setIsDoubleVisit(p => !p)}
-            style={{
-              padding: '6px 12px', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '5px',
-              background: isDoubleVisit ? '#7c3aed' : '#f3f4f6',
-              border: `2px solid ${isDoubleVisit ? '#7c3aed' : '#d1d5db'}`,
-              borderRadius: '8px', color: isDoubleVisit ? '#fff' : '#6b7280',
-              fontWeight: 700, cursor: 'pointer', transition: 'all .2s',
-            }}
-          >
-            {isDoubleVisit ? '👥' : '👤'}
-            <span style={{ fontSize: '11px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
-          </button>
-          {hasFeature('voice_visit') && (
-            <button
+              title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
+              onClick={() => setIsDoubleVisit(p => !p)}
               style={{
-                padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
-                background: voiceListening ? '#ef4444' : '#f97316',
-                border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer',
-                animation: voiceListening ? 'clGpsPulse 1.2s ease-in-out infinite' : 'none',
+                flex: '0 0 auto',
+                padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                background: isDoubleVisit ? '#7c3aed' : '#f3f4f6',
+                border: `2px solid ${isDoubleVisit ? '#7c3aed' : '#d1d5db'}`,
+                borderRadius: '8px', color: isDoubleVisit ? '#fff' : '#6b7280',
+                fontWeight: 700, cursor: 'pointer', transition: 'all .2s',
               }}
-              onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
-              disabled={voiceParsing}
-              title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
             >
-              {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
+              {isDoubleVisit ? '👥' : '👤'}
+              <span style={{ fontSize: '12px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
             </button>
-          )}
+            {hasFeature('voice_visit') && (
+              <button
+                style={{
+                  flex: '1 1 auto', minWidth: '120px',
+                  padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  background: voiceListening ? '#ef4444' : '#f97316',
+                  border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer',
+                  animation: voiceListening ? 'clGpsPulse 1.2s ease-in-out infinite' : 'none',
+                }}
+                onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
+                disabled={voiceParsing}
+                title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
+              >
+                {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Table card */}
