@@ -1260,24 +1260,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               >اليوم</button>
             )}
           </div>
-          {/* Row 2: Action buttons — all equal height, evenly arranged */}
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Row 2: Action buttons — single row, RTL order: تسجيل زيارة | منفردة | زيارة صوتية */}
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'nowrap' }}>
             {hasFeature('call_log') && (
               <button
                 className="btn btn--primary"
-                style={{ flex: '1 1 auto', minWidth: '110px', padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: '#059669', borderColor: '#059669' }}
+                style={{ flex: '1 1 0', padding: '11px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', background: '#059669', borderColor: '#059669', borderRadius: '10px', fontWeight: 700 }}
                 onClick={openCallLog}
               >
                 ✏️ تسجيل زيارة
-              </button>
-            )}
-            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
-              <button
-                className="btn btn--primary"
-                style={{ flex: '1 1 auto', minWidth: '110px', padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                onClick={() => setShowMap(true)}
-              >
-                {(t.dashboard as any).dailyCallsMapBtn}
               </button>
             )}
             <button
@@ -1285,11 +1276,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               onClick={() => setIsDoubleVisit(p => !p)}
               style={{
                 flex: '0 0 auto',
-                padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                padding: '11px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
                 background: isDoubleVisit ? '#7c3aed' : '#f3f4f6',
                 border: `2px solid ${isDoubleVisit ? '#7c3aed' : '#d1d5db'}`,
-                borderRadius: '8px', color: isDoubleVisit ? '#fff' : '#6b7280',
-                fontWeight: 700, cursor: 'pointer', transition: 'all .2s',
+                borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#6b7280',
+                fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap',
               }}
             >
               {isDoubleVisit ? '👥' : '👤'}
@@ -1298,17 +1289,27 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             {hasFeature('voice_visit') && (
               <button
                 style={{
-                  flex: '1 1 auto', minWidth: '120px',
-                  padding: '9px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  flex: '1 1 0',
+                  padding: '11px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
                   background: voiceListening ? '#ef4444' : '#f97316',
-                  border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 700, cursor: 'pointer',
+                  border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, cursor: 'pointer',
                   animation: voiceListening ? 'clGpsPulse 1.2s ease-in-out infinite' : 'none',
+                  whiteSpace: 'nowrap',
                 }}
                 onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
                 disabled={voiceParsing}
                 title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
               >
                 {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
+              </button>
+            )}
+            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
+              <button
+                className="btn btn--primary"
+                style={{ flex: '0 0 auto', padding: '11px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', borderRadius: '10px' }}
+                onClick={() => setShowMap(true)}
+              >
+                🗺️
               </button>
             )}
           </div>
