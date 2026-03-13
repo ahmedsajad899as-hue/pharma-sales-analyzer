@@ -1223,15 +1223,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   if (isScientificRep) {
     return (
       <div className="page">
-        <div className="page-header">
-          <h1 className="page-title">📞 {(t.dashboard as any).dailyCalls}</h1>
+        <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: '10px' }}>
+          <h1 className="page-title" style={{ margin: 0 }}>📞 {(t.dashboard as any).dailyCalls}</h1>
+          {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
+            <button
+              className="btn btn--primary"
+              style={{ flexShrink: 0, padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+              onClick={() => setShowMap(true)}
+              title="عرض على الخريطة"
+            >🗺️ عرض الخريطة</button>
+          )}
         </div>
 
         {/* Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-          {/* Row 1: Date range pickers + map button */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', flex: '1 1 auto', flexWrap: 'nowrap' }}>
+          {/* Row 1: Date range pickers */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start', flexWrap: 'nowrap' }}>
               <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
               <input
                 type="date"
@@ -1257,15 +1264,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6366f1', fontWeight: 700, padding: '1px 4px', whiteSpace: 'nowrap' }}
                 >اليوم</button>
               )}
-            </div>
-            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
-              <button
-                className="btn btn--primary"
-                style={{ flex: '0 0 auto', padding: '8px 12px', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', lineHeight: 1 }}
-                onClick={() => setShowMap(true)}
-                title="عرض على الخريطة"
-              >🗺️</button>
-            )}
           </div>
           {/* Row 2: Action buttons — single row, RTL order: تسجيل زيارة | منفردة | زيارة صوتية */}
           <div style={{ display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'nowrap' }}>
