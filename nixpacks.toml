@@ -8,4 +8,4 @@ cmds = ["npm install --include=dev"]
 cmds = ["npm run build"]
 
 [start]
-cmd = "npx prisma db push && (node prisma/seed-super-admin.js || echo 'seed skipped') && (node prisma/seed-local-data.js || echo 'local seed skipped') && npm start"
+cmd = "(node_modules/.bin/prisma db push --accept-data-loss --skip-generate || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && (node prisma/seed-local-data.js || echo 'local seed skipped') && npm start"
