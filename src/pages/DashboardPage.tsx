@@ -1417,7 +1417,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <td>
                             {(v as any)._visitType === 'pharmacy' ? (
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                                <strong>🏪 {v.doctor.name}</strong>
+                                <strong style={{ fontSize: '15px' }}>🏪 {v.doctor.name}</strong>
                                 <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>صيدلية</span>
                                 {(v as any)._isDoubleVisit && (
                                   <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
@@ -1425,7 +1425,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </div>
                             ) : (
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                                <strong>{v.doctor.name}</strong>
+                                <strong style={{ fontSize: '15px' }}>{v.doctor.name}</strong>
                                 {(v as any)._outOfPlan && (
                                   <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
                                 )}
@@ -1435,7 +1435,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </div>
                             )}
                             {v.doctor.specialty && (
-                              <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
+                              <div style={{ fontSize: '12px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                             )}
                           </td>
                           <td style={{ fontSize: '13px', color: '#374151' }}>

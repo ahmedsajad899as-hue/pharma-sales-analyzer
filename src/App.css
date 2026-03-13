@@ -1321,11 +1321,11 @@ tr:hover {
     -webkit-overflow-scrolling: touch;
   }
 
-  .data-table { font-size: 12.5px; min-width: 500px; }
+  .data-table { font-size: 14px; min-width: 500px; }
 
   .data-table th,
   .data-table td {
-    padding: 10px 10px;
+    padding: 13px 10px;
     white-space: nowrap;
   }
 
