@@ -1228,10 +1228,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
             <button
               className="btn btn--primary"
-              style={{ flexShrink: 0, padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '10px' }}
+              style={{ flexShrink: 0, padding: '6px 10px', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', lineHeight: 1, minWidth: 40 }}
               onClick={() => setShowMap(true)}
               title="عرض على الخريطة"
-            >🗺️ عرض الخريطة</button>
+            >🗺️</button>
           )}
         </div>
 
