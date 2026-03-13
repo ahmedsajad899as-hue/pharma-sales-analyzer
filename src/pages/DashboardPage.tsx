@@ -1315,7 +1315,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         </div>
 
         {/* Table card */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+        <div style={{ background: '#fff', border: '2px solid #6366f1', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(99,102,241,0.12)' }}>
           {callsLoading ? (
             <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
               {(t.dashboard as any).dailyCallsLoading}
