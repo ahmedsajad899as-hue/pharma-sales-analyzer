@@ -724,7 +724,7 @@ export default function DoctorsPage() {
             const now = new Date();
             const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
             const options: { month: number; year: number; label: string }[] = [];
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < 4; i++) {
               const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
               options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
             }
@@ -1418,7 +1418,7 @@ export default function DoctorsPage() {
                 const now = new Date();
                 const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
                 const options: { month: number; year: number; label: string }[] = [];
-                for (let i = 0; i < 6; i++) {
+                for (let i = 0; i < 4; i++) {
                   const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                   options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
                 }
