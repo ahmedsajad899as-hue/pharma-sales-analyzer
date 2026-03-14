@@ -416,7 +416,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         title="مساعد AI الصوتي"
         style={{
           position: 'fixed',
-          bottom: 24,
+          bottom: 88,
           left: 24,
           zIndex: 9999,
           width: 52,
@@ -444,7 +444,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           dir="rtl"
           style={{
             position: 'fixed',
-            bottom: 88,
+            bottom: 152,
             left: 16,
             zIndex: 9998,
             width: 360,

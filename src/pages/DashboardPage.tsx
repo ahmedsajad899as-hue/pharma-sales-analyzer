@@ -51,6 +51,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
+  const [showCallsSection, setShowCallsSection] = useState(() => localStorage.getItem('dash_calls_open') === 'true');
+  const [showCallStats, setShowCallStats] = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
   const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
@@ -1581,7 +1583,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
                 return (
                   <div style={{ margin: '8px 0 4px', padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', direction: 'rtl' }}>
-                    <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', marginBottom: 8 }}>📊 إحصائيات الكولات</div>
+                    <button
+                      onClick={() => setShowCallStats(v => !v)}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: showCallStats ? 8 : 0 }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>📊 إحصائيات الكولات</div>
+                      <span style={{ fontSize: 16, color: '#6366f1', transition: 'transform 0.2s', transform: showCallStats ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>⌄</span>
+                    </button>
+                    {showCallStats && (
+                    <>
                     {/* Totals row */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
@@ -1612,6 +1622,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           ))}
                         </div>
                       </>
+                    )}
+                    </>
                     )}
                   </div>
                 );
@@ -2520,11 +2532,28 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
       {/* ─── Daily Calls Section ─── */}
       <div style={{ marginTop: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-          <h2 className="section-title" style={{ margin: 0 }}>
+        {/* Collapsible header */}
+        <button
+          onClick={() => setShowCallsSection(v => { const n = !v; localStorage.setItem('dash_calls_open', String(n)); return n; })}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#fff', border: '1px solid #e2e8f0', borderRadius: showCallsSection ? '12px 12px 0 0' : 12,
+            padding: '12px 18px', cursor: 'pointer', marginBottom: showCallsSection ? 0 : 0,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.05)', transition: 'border-radius 0.2s',
+          }}
+        >
+          <h2 className="section-title" style={{ margin: 0, fontSize: 16 }}>
             📞 {(t.dashboard as any).dailyCalls}
+            {callsData && callsData.total > 0 && (
+              <span style={{ marginRight: 8, fontSize: 12, fontWeight: 600, background: '#eef2ff', color: '#4338ca', borderRadius: 20, padding: '2px 10px' }}>{callsData.total}</span>
+            )}
           </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 20, color: '#6366f1', transition: 'transform 0.2s', transform: showCallsSection ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>⌄</span>
+        </button>
+
+        {showCallsSection && (
+        <div style={{ border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', overflow: 'hidden', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '10px', padding: '10px 16px 6px' }}>
             {/* Date range pickers */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0' }}>
               <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
@@ -2582,10 +2611,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               </button>
             )}
           </div>
-        </div>
 
-        {/* Table card */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          {/* Table card */}
+          <div style={{ background: '#fff', borderTop: '1px solid #e2e8f0' }}>
           {callsLoading ? (
             <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
               {(t.dashboard as any).dailyCallsLoading}
@@ -2753,7 +2781,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               </div>
             </>
           )}
+          </div>
         </div>
+        )}
       </div>
 
       {/* ─── Map Modal ─── */}

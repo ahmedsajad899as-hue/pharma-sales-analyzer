@@ -9,9 +9,11 @@ interface SidebarProps {
   isOpen: boolean;
   onToggle: () => void;
   activeFileIds?: number[];
+  showAI?: boolean;
+  onAIToggle?: () => void;
 }
 
-export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, activeFileIds = [] }: SidebarProps) {
+export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, activeFileIds = [], showAI, onAIToggle }: SidebarProps) {
   const { user, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature } = useAuth();
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -38,17 +40,22 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   ];
 
   // Feature-to-page mapping — pages hidden when feature is disabled
+  // Multiple keys can map to the same page; any disabled key will hide that page
   const featurePageMap: Record<string, PageId> = {
     monthly_plans: 'monthly-plans',
     reports:       'reports',
     rep_analysis:  'rep-analysis',
+    rep_files:     'rep-analysis',
+    users_list:    'users',
   };
 
   // empty roles array = visible to all; otherwise check role inclusion
   const filteredItems = navItems.filter(item => {
     if (item.roles.length > 0 && !item.roles.includes(role)) return false;
-    const featureKey = Object.entries(featurePageMap).find(([, pageId]) => pageId === item.id)?.[0];
-    if (featureKey && !hasFeature(featureKey)) return false;
+    const featureKeys = Object.entries(featurePageMap)
+      .filter(([, pageId]) => pageId === item.id)
+      .map(([key]) => key);
+    if (featureKeys.some(k => !hasFeature(k))) return false;
     return true;
   });
 
@@ -166,6 +173,22 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 </div>
               </div>
               <div style={{ marginBottom: 6 }}>
+                <button
+                  onClick={onAIToggle}
+                  title={showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
+                  style={{
+                    background: showAI ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.09)',
+                    border: `1px solid ${showAI ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                    borderRadius: 8, padding: '6px 14px', fontSize: 13,
+                    color: showAI ? '#c7d2fe' : '#94a3b8',
+                    cursor: 'pointer', fontWeight: 600, width: '100%',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  🤖 {showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
+                </button>
+              </div>
+              <div style={{ marginBottom: 6 }}>
                 <LangToggleBtn full />
               </div>
               <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
@@ -174,6 +197,17 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             </>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+              <button
+                onClick={onAIToggle}
+                title={showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
+                style={{
+                  background: showAI ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.09)',
+                  border: `1px solid ${showAI ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                  borderRadius: 8, padding: '6px', fontSize: 16,
+                  cursor: 'pointer', width: '100%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >🤖</button>
               <LangToggleBtn />
               <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%' }}>
                 <span className="sidebar-nav-icon">🚪</span>
@@ -259,6 +293,18 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               })}
             </nav>
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                onClick={() => { onAIToggle?.(); setMobileMenuOpen(false); }}
+                style={{
+                  background: showAI ? '#eef2ff' : '#f1f5f9',
+                  border: `1px solid ${showAI ? '#a5b4fc' : '#cbd5e1'}`,
+                  borderRadius: 8, padding: '8px 14px', fontSize: 13,
+                  fontWeight: 700, color: showAI ? '#4338ca' : '#334155',
+                  cursor: 'pointer', width: '100%', textAlign: 'center',
+                }}
+              >
+                🤖 {showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
+              </button>
               <button
                 onClick={() => { toggleLang(); setMobileMenuOpen(false); }}
                 style={{

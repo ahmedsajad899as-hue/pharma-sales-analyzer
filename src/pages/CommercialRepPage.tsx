@@ -84,10 +84,10 @@ const daysDiff = (d: string | null) => {
 
 // ── STATUS META ────────────────────────────────────────────────
 const STATUS_META = {
-  pending:   { label: 'معلق',    bg: '#dbeafe', color: '#1d4ed8', icon: '🔵' },
-  partial:   { label: 'جزئي',    bg: '#fef3c7', color: '#b45309', icon: '🟡' },
-  collected: { label: 'مكتمل',   bg: '#dcfce7', color: '#15803d', icon: '🟢' },
-  overdue:   { label: 'متأخر',   bg: '#fee2e2', color: '#b91c1c', icon: '🔴' },
+  pending:   { label: 'معلق',    bg: '#EBE8F5', color: '#7B6F9C', icon: '⏳' },
+  partial:   { label: 'جزئي',    bg: '#FFF8E7', color: '#B45309', icon: '🔄' },
+  collected: { label: 'مكتمل',   bg: '#E8F5E9', color: '#2E7D32', icon: '✅' },
+  overdue:   { label: 'متأخر',   bg: '#FCEAEA', color: '#8B1C1C', icon: '⚠️' },
 };
 
 const getInvStatus = (inv: Invoice) => {
@@ -167,7 +167,7 @@ export default function CommercialRepPage() {
   const defaultTab = tabs[0].id;
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const key = `comm-tab-${authUser?.id ?? 'x'}`;
-    const saved = sessionStorage.getItem(key) as TabId | null;
+    const saved = localStorage.getItem(key) as TabId | null;
     return saved && tabs.some(t => t.id === saved) ? saved : defaultTab;
   });
 
@@ -232,7 +232,7 @@ export default function CommercialRepPage() {
 
   // ── Save active tab to sessionStorage on change ─────────────
   useEffect(() => {
-    sessionStorage.setItem(`comm-tab-${authUser?.id ?? 'x'}`, activeTab);
+    localStorage.setItem(`comm-tab-${authUser?.id ?? 'x'}`, activeTab);
   }, [activeTab, authUser?.id]);
 
   // ── Pick-pharmacy modal (إنشاء استحصال) ──────────────────────
@@ -856,13 +856,13 @@ export default function CommercialRepPage() {
       setActiveTab('invoices');
     };
 
-    const kpis: { label: string; val: number; icon: string; grad: string; shadow: string; filter: string }[] = [
-      { label: 'إجمالي الفواتير', val: counts.total,     icon: '📋', grad: 'linear-gradient(135deg,#c7d2fe,#ddd6fe)', shadow: 'rgba(99,102,241,.15)',  filter: '' },
-      { label: 'معلقة',           val: counts.pending,   icon: '🕒', grad: 'linear-gradient(135deg,#fde68a,#fef3c7)', shadow: 'rgba(245,158,11,.18)', filter: 'pending' },
-      { label: 'جزئي مسدد',       val: counts.partial,   icon: '🔄', grad: 'linear-gradient(135deg,#fed7aa,#ffedd5)', shadow: 'rgba(249,115,22,.18)', filter: 'partial' },
-      { label: 'مكتملة',          val: counts.collected, icon: '✅', grad: 'linear-gradient(135deg,#bbf7d0,#dcfce7)', shadow: 'rgba(34,197,94,.18)',  filter: 'collected' },
+    const kpis: { label: string; val: number; icon: string; accent: string; filter: string }[] = [
+      { label: 'إجمالي الفواتير', val: counts.total,     icon: '📋', accent: '#8B1C1C', filter: '' },
+      { label: 'معلقة',           val: counts.pending,   icon: '🕒', accent: '#B45309', filter: 'pending' },
+      { label: 'جزئي مسدد',       val: counts.partial,   icon: '🔄', accent: '#B45309', filter: 'partial' },
+      { label: 'مكتملة',          val: counts.collected, icon: '✅', accent: '#2E7D32', filter: 'collected' },
       ...(counts.overdue > 0
-        ? [{ label: 'متأخرة', val: counts.overdue, icon: '⚠️', grad: 'linear-gradient(135deg,#fecaca,#fee2e2)', shadow: 'rgba(239,68,68,.18)', filter: 'overdue' }]
+        ? [{ label: 'متأخرة', val: counts.overdue, icon: '⚠️', accent: '#8B1C1C', filter: 'overdue' }]
         : []),
     ];
 
@@ -873,11 +873,11 @@ export default function CommercialRepPage() {
             <div
               key={k.filter}
               className="comm-kpi-card"
-              style={{ background: k.grad, boxShadow: `0 4px 16px ${k.shadow}` }}
+              style={{ borderTop: `3px solid ${k.accent}` }}
               onClick={() => goToInvoices(k.filter)}
             >
               <div className="comm-kpi-icon">{k.icon}</div>
-              <div className="comm-kpi-val">{k.val}</div>
+              <div className="comm-kpi-val" style={{ color: k.accent }}>{k.val}</div>
               <div className="comm-kpi-lbl">{k.label}</div>
             </div>
           ))}
@@ -2552,6 +2552,7 @@ export default function CommercialRepPage() {
       {pharmVoiceOverlay && (
         <div
           dir="rtl"
+          onClick={stopPharmVoice}
           style={{
             position: 'fixed', inset: 0, zIndex: 99999,
             background: 'rgba(15, 10, 40, 0.72)',
@@ -2559,7 +2560,7 @@ export default function CommercialRepPage() {
             backdropFilter: 'blur(4px)',
           }}
         >
-          <div style={{
+          <div onClick={e => e.stopPropagation()} style={{
             background: '#fff', borderRadius: 24, padding: '40px 48px',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             gap: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.35)',

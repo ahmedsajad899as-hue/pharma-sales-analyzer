@@ -52,12 +52,36 @@ function fmt(dateStr: string) {
 }
 
 export default function DoctorsPage() {
-  const { token, user } = useAuth();
+  const { token, user, hasFeature } = useAuth();
   const isCommercialRep = user?.role === 'commercial_rep';
+  const showDoctorFields    = hasFeature('doctor_fields');
+  const showVisitAnalysis   = hasFeature('visit_analysis_tab');
+  const showDoctorsList     = hasFeature('doctors_list_tab');
+  const showMyVisits        = hasFeature('my_visits_tab');
+  const showPharmacies      = hasFeature('pharmacies_tab');
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
   // ── Tab ──────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits'>('visits');
+  const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits'>(() => {
+    const saved = localStorage.getItem('doctors_active_tab');
+    return (saved && ['list','visits','pharmacies','myvisits'].includes(saved)) ? saved as any : 'visits';
+  });
+  useEffect(() => { localStorage.setItem('doctors_active_tab', activeTab); }, [activeTab]);
+
+  // Redirect away from a tab that was disabled via permissions
+  useEffect(() => {
+    const allowed: Record<string, boolean> = {
+      visits:      showVisitAnalysis,
+      list:        showDoctorsList,
+      myvisits:    isCommercialRep && showMyVisits,
+      pharmacies:  isCommercialRep && showPharmacies,
+    };
+    if (!allowed[activeTab]) {
+      const fallback = (['visits', 'list', 'myvisits', 'pharmacies'] as const).find(t => allowed[t]);
+      if (fallback) setActiveTab(fallback);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVisitAnalysis, showDoctorsList, showMyVisits, showPharmacies]);
 
   // ── Doctors list ─────────────────────────────────────────────
   const [doctors, setDoctors]   = useState<Doctor[]>([]);
@@ -171,6 +195,8 @@ export default function DoctorsPage() {
   const pharmFileRef = useRef<HTMLInputElement>(null);
   const [writingItemFilter, setWritingItemFilter] = useState<string | null>(null);
   const [showVisitedPopup, setShowVisitedPopup] = useState(false);
+  const [expandedDocIds, setExpandedDocIds] = useState<Set<number>>(() => new Set<number>());
+  const toggleDocExpand = (id: number) => setExpandedDocIds(prev => { const s = new Set<number>(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const writingCardRef = useRef<HTMLDivElement>(null);
   const visitedCardRef = useRef<HTMLDivElement>(null);
 
@@ -379,7 +405,7 @@ export default function DoctorsPage() {
     if (!showWritingPopup) return;
     const handler = (e: MouseEvent) => {
       if (writingCardRef.current && !writingCardRef.current.contains(e.target as Node))
-        { setShowWritingPopup(false); setWritingItemFilter(null); }
+        { setShowWritingPopup(false); setWritingItemFilter(null); setExpandedDocIds(new Set<number>()); }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -388,7 +414,7 @@ export default function DoctorsPage() {
     if (!showVisitedPopup) return;
     const handler = (e: MouseEvent) => {
       if (visitedCardRef.current && !visitedCardRef.current.contains(e.target as Node))
-        setShowVisitedPopup(false);
+        { setShowVisitedPopup(false); setExpandedDocIds(new Set<number>()); }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -531,12 +557,11 @@ export default function DoctorsPage() {
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
-        {([          ['visits',    '📍 تحليل الزيارات'],
-          ['list',      '📋 قائمة الأطباء'],
-          ...(isCommercialRep ? [
-            ['myvisits',   '📝 زياراتي'],
-            ['pharmacies', '🏪 قائمة الصيدليات'],
-          ] : []),
+        {([
+          ...(showVisitAnalysis                    ? [['visits',      '📍 تحليل الزيارات']]      : []),
+          ...(showDoctorsList                       ? [['list',        '📋 قائمة الأطباء']]        : []),
+          ...(isCommercialRep && showMyVisits       ? [['myvisits',    '📝 زياراتي']]              : []),
+          ...(isCommercialRep && showPharmacies     ? [['pharmacies',  '🏪 قائمة الصيدليات']]     : []),
         ] as ['list' | 'visits' | 'pharmacies' | 'myvisits', string][]).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
@@ -549,7 +574,7 @@ export default function DoctorsPage() {
       </div>
 
       {/* ── LIST TAB ─────────────────────────────────────── */}
-      {activeTab === 'list' && (<>
+      {activeTab === 'list' && showDoctorsList && (<>
       {/* Excel import panel */}
       {showImportPanel && (
         <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: 20, marginBottom: 20 }}>
@@ -662,22 +687,22 @@ export default function DoctorsPage() {
                   }}>{d.isActive ? 'نشط' : 'غير نشط'}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 12, marginTop: 5, flexWrap: 'wrap' }}>
-                  {d.specialty && (
+                  {showDoctorFields && d.specialty && (
                     <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 3 }}>
                       🩺 {d.specialty}
                     </span>
                   )}
-                  {d.area && (
+                  {showDoctorFields && d.area && (
                     <span style={{ fontSize: 11, color: '#6366f1', display: 'flex', alignItems: 'center', gap: 3 }}>
                       📍 {d.area.name}
                     </span>
                   )}
-                  {d.pharmacyName && (
+                  {showDoctorFields && d.pharmacyName && (
                     <span style={{ fontSize: 11, color: '#0891b2', display: 'flex', alignItems: 'center', gap: 3 }}>
                       🏪 {d.pharmacyName}
                     </span>
                   )}
-                  {d.targetItem && (
+                  {showDoctorFields && d.targetItem && (
                     <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '1px 8px', fontWeight: 600 }}>
                       💊 {d.targetItem.name}
                     </span>
@@ -705,7 +730,7 @@ export default function DoctorsPage() {
       </>)}
 
       {/* ── VISITS TAB ───────────────────────────────────── */}
-      {activeTab === 'visits' && (
+      {activeTab === 'visits' && showVisitAnalysis && (
         <div>
           {/* Analysis type toggle: doctors vs pharmacies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -816,7 +841,7 @@ export default function DoctorsPage() {
                       const sorted = [...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors);
                       return (
                         <>
-                          <div onClick={() => setShowTotalPopup(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                          <div onClick={e => { e.stopPropagation(); setShowTotalPopup(false); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
                           <div
                             onClick={e => e.stopPropagation()}
                             style={{
@@ -868,7 +893,7 @@ export default function DoctorsPage() {
                       const visitedDocs = visitAreas.flatMap(a => a.doctors.filter(d => d.visited));
                       return (
                         <>
-                          <div onClick={() => setShowVisitedPopup(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                          <div onClick={e => { e.stopPropagation(); setShowVisitedPopup(false); setExpandedDocIds(new Set<number>()); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
                           <div
                             onClick={e => e.stopPropagation()}
                             style={{
@@ -879,10 +904,16 @@ export default function DoctorsPage() {
                               width: 'min(92vw,440px)', maxHeight: '80vh',
                               display: 'flex', flexDirection: 'column', direction: 'rtl',
                             }}>
-                          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: '#065f46' }}>✅ الأطباء المُزارون ({visitedDocs.length})</span>
-                            <button onClick={() => setShowVisitedPopup(false)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>×</button>
+                          <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 32, height: 32, borderRadius: 8, background: '#2E7D32', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>✅</div>
+                              <div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>الأطباء المُزارون</div>
+                                <div style={{ fontSize: 11, color: '#999' }}>{visitedDocs.length} طبيب</div>
+                              </div>
+                            </div>
+                            <button onClick={() => { setShowVisitedPopup(false); setExpandedDocIds(new Set<number>()); }}
+                              style={{ width: 28, height: 28, borderRadius: '50%', background: '#F5F5F5', border: 'none', cursor: 'pointer', color: '#555', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                           </div>
                           {visitedDocs.length === 0 ? (
                             <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13 }}>لا توجد زيارات</div>
@@ -891,31 +922,41 @@ export default function DoctorsPage() {
                               {visitedDocs.map((doc, idx) => {
                                 const lastVisit = doc.visits[0];
                                 const item = lastVisit?.item ?? doc.targetItem;
+                                const isExpanded = expandedDocIds.has(doc.id);
+                                const hasDetails = showDoctorFields && (doc.specialty || doc.area || (doc as any).pharmacyName);
                                 return (
                                   <div key={doc.id} style={{
-                                    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-                                    gap: 10, padding: '9px 16px',
-                                    borderBottom: idx < visitedDocs.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                    background: idx % 2 === 0 ? '#fff' : '#f0fdf4',
+                                    padding: '11px 16px',
+                                    borderBottom: idx < visitedDocs.length - 1 ? '1px solid #F0F0F0' : 'none',
                                     direction: 'rtl',
                                   }}>
-                                    {/* RIGHT: number + name + specialty + area + pharmacy */}
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                        <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#d1fae5', color: '#065f46', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{doc.name}</span>
+                                    {/* Name row */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: hasDetails ? 5 : 0 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                        <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#2E7D32', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                        <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{doc.name}</span>
+                                        {hasDetails && (
+                                          <button onClick={() => toggleDocExpand(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: '#999', fontSize: 11, lineHeight: 1, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</button>
+                                        )}
                                       </div>
-                                      <div style={{ paddingRight: 26, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                        {doc.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>{doc.specialty}</span>}
-                                        {doc.area && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {doc.area.name}</span>}
-                                        {(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {(doc as any).pharmacyName}</span>}
-                                        {!doc.specialty && !doc.area && !(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>}
+                                      {item && (
+                                        <span style={{ fontSize: 10, background: '#fceaea', color: '#8B1C1C', borderRadius: 20, padding: '3px 9px', fontWeight: 700, whiteSpace: 'nowrap', border: '1px solid #f5c6c6' }}>💊 {item.name}</span>
+                                      )}
+                                    </div>
+                                    {/* Collapsible detail chips */}
+                                    {isExpanded && hasDetails && (
+                                      <div style={{ paddingRight: 29, display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+                                        {doc.specialty && (
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#F5F5F5', color: '#555', borderRadius: 6, padding: '3px 8px', border: '1px solid #E8E8E8' }}>🩺 {doc.specialty}</span>
+                                        )}
+                                        {doc.area && (
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#FFF0F0', color: '#8B1C1C', borderRadius: 6, padding: '3px 8px', border: '1px solid #f5c6c6' }}>📍 {doc.area.name}</span>
+                                        )}
+                                        {(doc as any).pharmacyName && (
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#F0F7FF', color: '#1D5FA4', borderRadius: 6, padding: '3px 8px', border: '1px solid #C5DCF5' }}>🏥 {(doc as any).pharmacyName}</span>
+                                        )}
                                       </div>
-                                    </div>
-                                    {/* LEFT: item badge */}
-                                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
-                                      {item && <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>💊 {item.name}</span>}
-                                    </div>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -929,7 +970,7 @@ export default function DoctorsPage() {
                     {/* Coverage popup */}
                     {s.clickable === 'coverage' && showCoveragePopup && (
                       <>
-                        <div onClick={() => setShowCoveragePopup(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                        <div onClick={e => { e.stopPropagation(); setShowCoveragePopup(false); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
                         <div
                           onClick={e => e.stopPropagation()}
                           style={{
@@ -986,7 +1027,7 @@ export default function DoctorsPage() {
                         : allWritingDocs;
                       return (
                         <>
-                          <div onClick={() => { setShowWritingPopup(false); setWritingItemFilter(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
+                          <div onClick={e => { e.stopPropagation(); setShowWritingPopup(false); setWritingItemFilter(null); setExpandedDocIds(new Set<number>()); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
                           <div
                             onClick={e => e.stopPropagation()}
                             style={{
@@ -998,34 +1039,38 @@ export default function DoctorsPage() {
                               display: 'flex', flexDirection: 'column', direction: 'rtl',
                             }}>
                           {/* Header */}
-                          <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>
-                              ✏️ الأطباء الكاتبون ({filtered.length}{writingItemFilter ? `/${allWritingDocs.length}` : ''})
-                            </span>
-                            <button onClick={() => { setShowWritingPopup(false); setWritingItemFilter(null); }}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>×</button>
+                          <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 32, height: 32, borderRadius: 8, background: '#8B1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>✏️</div>
+                              <div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>الأطباء الكاتبون</div>
+                                <div style={{ fontSize: 11, color: '#999' }}>{filtered.length}{writingItemFilter ? `/${allWritingDocs.length}` : ''} طبيب</div>
+                              </div>
+                            </div>
+                            <button onClick={() => { setShowWritingPopup(false); setWritingItemFilter(null); setExpandedDocIds(new Set()); }}
+                              style={{ width: 28, height: 28, borderRadius: '50%', background: '#F5F5F5', border: 'none', cursor: 'pointer', color: '#555', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                           </div>
                           {/* Item filter pills */}
                           {itemNames.length > 0 && (
-                            <div style={{ padding: '8px 16px 8px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', flexWrap: 'wrap', gap: 6, background: '#FAFAFA' }}>
                               <button
                                 onClick={() => setWritingItemFilter(null)}
                                 style={{
-                                  fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                  border: `1.5px solid ${writingItemFilter === null ? '#10b981' : '#e2e8f0'}`,
-                                  background: writingItemFilter === null ? '#d1fae5' : '#f8fafc',
-                                  color: writingItemFilter === null ? '#065f46' : '#64748b',
-                                  cursor: 'pointer',
+                                  fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
+                                  border: `1.5px solid ${writingItemFilter === null ? '#8B1C1C' : '#E0E0E0'}`,
+                                  background: writingItemFilter === null ? '#8B1C1C' : '#fff',
+                                  color: writingItemFilter === null ? '#fff' : '#555',
+                                  cursor: 'pointer', transition: 'all 0.15s',
                                 }}>الكل</button>
                               {itemNames.map(name => (
                                 <button key={name}
                                   onClick={() => setWritingItemFilter(prev => prev === name ? null : name)}
                                   style={{
-                                    fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                                    border: `1.5px solid ${writingItemFilter === name ? '#6d28d9' : '#e2e8f0'}`,
-                                    background: writingItemFilter === name ? '#ede9fe' : '#f8fafc',
-                                    color: writingItemFilter === name ? '#6d28d9' : '#64748b',
-                                    cursor: 'pointer',
+                                    fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
+                                    border: `1.5px solid ${writingItemFilter === name ? '#8B1C1C' : '#E0E0E0'}`,
+                                    background: writingItemFilter === name ? '#fceaea' : '#fff',
+                                    color: writingItemFilter === name ? '#8B1C1C' : '#555',
+                                    cursor: 'pointer', transition: 'all 0.15s',
                                   }}>💊 {name}</button>
                               ))}
                             </div>
@@ -1035,33 +1080,45 @@ export default function DoctorsPage() {
                             <div style={{ padding: '14px 16px', color: '#94a3b8', fontSize: 13 }}>لا يوجد أطباء لهذا الايتم</div>
                           ) : (
                             <div style={{ overflowY: 'auto', flex: 1 }}>
-                              {filtered.map((doc, idx) => (
-                                <div key={doc.id} style={{
-                                  display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-                                  gap: 10, padding: '9px 16px',
-                                  borderBottom: idx < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                  background: idx % 2 === 0 ? '#fff' : '#f8fffe',
-                                  direction: 'rtl',
-                                }}>
-                                  {/* RIGHT: number + name + specialty + area + pharmacy */}
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                      <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#d1fae5', color: '#065f46', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{doc.name}</span>
+                              {filtered.map((doc, idx) => {
+                                const isExpanded = expandedDocIds.has(doc.id);
+                                const hasDetails = showDoctorFields && (doc.specialty || doc.area || (doc as any).pharmacyName);
+                                return (
+                                  <div key={doc.id} style={{
+                                    padding: '11px 16px',
+                                    borderBottom: idx < filtered.length - 1 ? '1px solid #F0F0F0' : 'none',
+                                    direction: 'rtl',
+                                  }}>
+                                    {/* Name row */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: hasDetails ? 5 : 0 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                        <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#8B1C1C', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                        <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{doc.name}</span>
+                                        {hasDetails && (
+                                          <button onClick={() => toggleDocExpand(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: '#999', fontSize: 11, lineHeight: 1, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</button>
+                                        )}
+                                      </div>
+                                      {doc._item && !writingItemFilter && (
+                                        <span style={{ fontSize: 10, background: '#fceaea', color: '#8B1C1C', borderRadius: 20, padding: '3px 9px', fontWeight: 700, whiteSpace: 'nowrap', border: '1px solid #f5c6c6' }}>💊 {doc._item.name}</span>
+                                      )}
                                     </div>
-                                    <div style={{ paddingRight: 26, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                      {doc.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>{doc.specialty}</span>}
-                                      {doc.area && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {doc.area.name}</span>}
-                                      {(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {(doc as any).pharmacyName}</span>}
-                                      {!doc.specialty && !doc.area && !(doc as any).pharmacyName && <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>}
-                                    </div>
+                                    {/* Collapsible detail chips */}
+                                    {isExpanded && hasDetails && (
+                                      <div style={{ paddingRight: 29, display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+                                        {doc.specialty && (
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#F5F5F5', color: '#555', borderRadius: 6, padding: '3px 8px', border: '1px solid #E8E8E8' }}>🩺 {doc.specialty}</span>
+                                        )}
+                                        {doc.area && (
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#FFF0F0', color: '#8B1C1C', borderRadius: 6, padding: '3px 8px', border: '1px solid #f5c6c6' }}>📍 {doc.area.name}</span>
+                                        )}
+                                        {(doc as any).pharmacyName && (
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#F0F7FF', color: '#1D5FA4', borderRadius: 6, padding: '3px 8px', border: '1px solid #C5DCF5' }}>🏥 {(doc as any).pharmacyName}</span>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
-                                  {/* LEFT: item badge */}
-                                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
-                                    {doc._item && !writingItemFilter && <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '2px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>💊 {doc._item.name}</span>}
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                           </div>
@@ -1681,7 +1738,7 @@ export default function DoctorsPage() {
       )}
 
       {/* ── PHARMACIES TAB ───────────────────────────────── */}
-      {activeTab === 'pharmacies' && (
+      {activeTab === 'pharmacies' && showPharmacies && (
         <div>
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -1827,7 +1884,7 @@ export default function DoctorsPage() {
       )}
 
       {/* ── MY VISITS TAB (زياراتي - for commercial rep) ─── */}
-      {activeTab === 'myvisits' && (
+      {activeTab === 'myvisits' && showMyVisits && (
         <div style={{ background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 8px rgba(0,0,0,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
             <span style={{ fontSize: 24 }}>📝</span>

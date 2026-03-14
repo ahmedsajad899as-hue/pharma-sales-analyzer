@@ -1,21 +1,41 @@
-﻿import { useState, useEffect, useCallback, Component } from 'react';
+﻿import { useState, useEffect, useCallback, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import RepAnalysisPage from './pages/RepAnalysisPage';
-import UploadPage from './pages/UploadPage';
-import RepresentativesPage from './pages/RepresentativesPage';
-import ScientificRepsPage from './pages/ScientificRepsPage';
-import DoctorsPage from './pages/DoctorsPage';
-import MonthlyPlansPage from './pages/MonthlyPlansPage';
-import ReportsPage from './pages/ReportsPage';
-import UsersPage from './pages/UsersPage';
-import CommercialRepPage from './pages/CommercialRepPage';
-import AIAssistant from './components/AIAssistant';
 import './App.css';
+
+// Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
+const DashboardPage       = lazy(() => import('./pages/DashboardPage'));
+const RepAnalysisPage     = lazy(() => import('./pages/RepAnalysisPage'));
+const UploadPage          = lazy(() => import('./pages/UploadPage'));
+const RepresentativesPage = lazy(() => import('./pages/RepresentativesPage'));
+const ScientificRepsPage  = lazy(() => import('./pages/ScientificRepsPage'));
+const DoctorsPage         = lazy(() => import('./pages/DoctorsPage'));
+const MonthlyPlansPage    = lazy(() => import('./pages/MonthlyPlansPage'));
+const ReportsPage         = lazy(() => import('./pages/ReportsPage'));
+const UsersPage           = lazy(() => import('./pages/UsersPage'));
+const CommercialRepPage   = lazy(() => import('./pages/CommercialRepPage'));
+const AIAssistant         = lazy(() => import('./components/AIAssistant'));
+
+// Minimal spinner shown while a page chunk is loading
+function PageLoader() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      height: '60vh', flexDirection: 'column', gap: 14, color: '#94a3b8',
+    }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: '50%',
+        border: '3px solid #e2e8f0', borderTopColor: '#6366f1',
+        animation: 'spin 0.7s linear infinite',
+      }} />
+      <span style={{ fontSize: 13, fontWeight: 500 }}>جاري التحميل...</span>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
 
 export type PageId =
   | 'dashboard'
@@ -95,6 +115,7 @@ function AppInner() {
     return saved ?? 'dashboard';
   });
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
+  const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
   const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
 
   // Redirect commercial_rep to the commercial page on every load
@@ -119,10 +140,21 @@ function AppInner() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Track which pages have been visited — only those get mounted
+  const [mountedPages, setMountedPages] = useState<Set<PageId>>(() => new Set([activePage]));
+  const prevActivePage = activePage;
+
   const navigateTo = useCallback((page: PageId) => {
     localStorage.setItem('lastPage', page);
     history.pushState({ page }, '');
     setActivePage(page);
+    setMountedPages(prev => { const s = new Set(prev); s.add(page); return s; });
+  }, []);
+
+  // Also mount the initial page
+  useEffect(() => {
+    setMountedPages(prev => { const s = new Set(prev); s.add(prevActivePage); return s; });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleFileActive = (id: number | null) => {
@@ -135,32 +167,19 @@ function AppInner() {
   // Show login page when not authenticated
   if (!user) return <LoginPage />;
 
-  const renderPage = () => {
-    switch (activePage) {
-      case 'dashboard':
-        return <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
-      case 'upload':
-        return <UploadPage activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
-      case 'representatives':
-        return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={navigateTo} />;
-      case 'scientific-reps':
-        return <ScientificRepsPage />;
-      case 'doctors':
-        return <DoctorsPage />;
-      case 'monthly-plans':
-        return <MonthlyPlansPage />;
-      case 'reports':
-        return <ReportsPage activeFileIds={activeFileIds} onNavigate={navigateTo} />;
-      case 'users':
-        return <UsersPage />;
-      case 'rep-analysis':
-        return <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
-      case 'commercial':
-        return <CommercialRepPage />;
-      default:
-        return <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} />;
-    }
-  };
+  // Page definitions — each page only mounts once and stays in DOM (hidden when inactive)
+  const allPages: { id: PageId; node: React.ReactNode }[] = [
+    { id: 'dashboard',       node: <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
+    { id: 'upload',          node: <UploadPage activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
+    { id: 'representatives', node: <RepresentativesPage activeFileIds={activeFileIds} onNavigate={navigateTo} /> },
+    { id: 'scientific-reps', node: <ScientificRepsPage /> },
+    { id: 'doctors',         node: <DoctorsPage /> },
+    { id: 'monthly-plans',   node: <MonthlyPlansPage /> },
+    { id: 'reports',         node: <ReportsPage activeFileIds={activeFileIds} onNavigate={navigateTo} /> },
+    { id: 'users',           node: <UsersPage /> },
+    { id: 'rep-analysis',    node: <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
+    { id: 'commercial',      node: <CommercialRepPage /> },
+  ];
 
   return (
     <div className="app-shell" dir="rtl">
@@ -171,13 +190,28 @@ function AppInner() {
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         activeFileIds={activeFileIds}
+        showAI={showAI}
+        onAIToggle={() => setShowAI(v => { const n = !v; localStorage.setItem('showAIAssistant', String(n)); return n; })}
       />
       <main className={`app-main ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
         style={isImpersonating ? { paddingTop: 40 } : undefined}>
-        {renderPage()}
+        {allPages.map(({ id, node }) => {
+          const isMounted = mountedPages.has(id);
+          const isActive  = activePage === id;
+          if (!isMounted) return null;
+          return (
+            <Suspense key={id} fallback={<PageLoader />}>
+              <div style={isActive ? undefined : { display: 'none', visibility: 'hidden', pointerEvents: 'none' }}>
+                {node}
+              </div>
+            </Suspense>
+          );
+        })}
       </main>
-      {hasFeature('ai_assistant') && (
-        <AIAssistant activePage={activePage} navigateTo={navigateTo} />
+      {hasFeature('ai_assistant') && showAI && (
+        <Suspense fallback={null}>
+          <AIAssistant activePage={activePage} navigateTo={navigateTo} />
+        </Suspense>
       )}
     </div>
   );
