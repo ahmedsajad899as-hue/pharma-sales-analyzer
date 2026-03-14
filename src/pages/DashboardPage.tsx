@@ -97,6 +97,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // ── Silent Location Tracking ─────────────────────────────
   const trackingActiveRef   = useRef(false);
   const trackingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastCallTimeRef     = useRef<number | null>(null); // ms timestamp of last saved call
   // Tracking-map modal state
   const [trackingMapRepId, setTrackingMapRepId] = useState<number | null>(null);
   // ── Call Type (doctor / pharmacy) ─────────────────────────
@@ -651,6 +652,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // ─── Silent background tracking ──────────────────────────────
   const captureLocation = () => {
     if (!trackingActiveRef.current) return;
+    // Auto-stop 30 min after last call (only if at least one call was made)
+    if (lastCallTimeRef.current !== null) {
+      const elapsed = Date.now() - lastCallTimeRef.current;
+      if (elapsed > 30 * 60 * 1000) {
+        stopTracking();
+        return;
+      }
+    }
     navigator.geolocation.getCurrentPosition(
       pos => {
         fetch('/api/tracking/location', {
@@ -676,13 +685,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     trackingIntervalRef.current = setInterval(captureLocation, 10 * 60 * 1000); // every 10 min
   };
 
-  const stopTracking = () => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  function stopTracking() {
     trackingActiveRef.current = false;
     if (trackingIntervalRef.current) {
       clearInterval(trackingIntervalRef.current);
       trackingIntervalRef.current = null;
     }
-  };
+  }
 
   const detectNotInPlan = () => {
     if (!clDoctor.trim() || clSelectedEntry || clOtherDocId || !activePlan) return;
@@ -728,7 +738,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setShowCallLog(false);
         setIsDoubleVisit(false);
         loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-        if (isScientificRep) startTracking();
+        if (isScientificRep) {
+          lastCallTimeRef.current = Date.now(); // reset 30-min window
+          startTracking(); // restart if was stopped
+        }
       } catch (err: any) {
         setClError(err.message || 'حدث خطأ أثناء الحفظ');
       } finally {
@@ -800,7 +813,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       setShowCallLog(false);
       setIsDoubleVisit(false);
       loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-      if (isScientificRep) startTracking();
+      if (isScientificRep) {
+        lastCallTimeRef.current = Date.now(); // reset 30-min window
+        startTracking(); // restart if was stopped
+      }
       // Refresh plan entries
       fetch(`/api/monthly-plans`, { headers: authH() })
         .then(r => r.json())
@@ -817,8 +833,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
   };
 
-  // Stop tracking on page unmount / tab close
+  // Start tracking on mount (for sci-reps) + cleanup on unmount
   useEffect(() => {
+    if (isScientificRep) startTracking();
     const onUnload = () => stopTracking();
     window.addEventListener('beforeunload', onUnload);
     return () => {
