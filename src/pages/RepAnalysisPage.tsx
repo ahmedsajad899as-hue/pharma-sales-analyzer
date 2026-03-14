@@ -23,11 +23,15 @@ const TABS: { id: TabId; label: string; icon: string; color: string; bg: string;
 ];
 
 export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavigate }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>('upload');
-  const [animKey, setAnimKey]     = useState(0);
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const saved = localStorage.getItem('rep_analysis_tab');
+    return (saved && TABS.some(t => t.id === saved)) ? saved as TabId : 'upload';
+  });
+  const [animKey, setAnimKey] = useState(0);
 
   const handleTabChange = (id: TabId) => {
     if (id === activeTab) return;
+    localStorage.setItem('rep_analysis_tab', id);
     setAnimKey(k => k + 1);
     setActiveTab(id);
   };

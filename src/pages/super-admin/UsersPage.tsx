@@ -18,18 +18,73 @@ const ROLES = [
   { value: 'manager',                 label: 'مدير (manager)' },
 ];
 
-const FEATURES = [
-  // ── الصفحات ──
-  { key: 'ai_assistant',  label: 'مساعد الذكاء الاصطناعي', icon: '🤖', desc: 'زر مساعد AI والأوامر الصوتية والنصية الذكية', group: 'pages' },
-  { key: 'monthly_plans', label: 'البلانات الشهرية',        icon: '📅', desc: 'صفحة إنشاء وإدارة البلانات الشهرية',          group: 'pages' },
-  { key: 'reports',       label: 'التقارير',                icon: '📊', desc: 'صفحة عرض التقارير والإحصائيات',               group: 'pages' },
-  { key: 'rep_analysis',  label: 'تحليل زيارات المندوب',    icon: '📈', desc: 'تحليل أداء المندوب التفصيلي',                 group: 'pages' },
-  { key: 'wish_list',     label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'صفحة قائمة الأطباء المستهدفين',               group: 'pages' },
-  { key: 'export_report', label: 'تصدير التقارير',          icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير',               group: 'pages' },
-  // ── ميزات داخل التطبيق ──
-  { key: 'call_log',      label: 'سجل إضافة الزيارات',      icon: '📝', desc: 'نموذج تسجيل الزيارة اليومية وإدخال البيانات', group: 'features' },
-  { key: 'voice_visit',   label: 'الزيارة الصوتية',          icon: '🎤', desc: 'زر تسجيل الزيارة عبر الصوت (الميكروفون)',     group: 'features' },
-  { key: 'daily_map',     label: 'خريطة الزيارات اليومية',   icon: '🗺️', desc: 'عرض مواقع الزيارات على الخريطة التفاعلية',   group: 'features' },
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  MANDATORY RULE — FEATURE_TREE                                          ║
+// ║  أي صفحة أو تبويب أو زر أو حقل أو ميزة جديدة تُضاف للتطبيق            ║
+// ║  يجب إضافتها هنا في FEATURE_TREE فوراً بـ key عربي ووصف وأيقونة        ║
+// ║  ثم تُغلق في المكوّن المناسب عبر:  hasFeature('key')                   ║
+// ║  وإن كانت صفحة كاملة: أضفها أيضاً في featurePageMap بـ Sidebar.tsx     ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ── Role groups for feature-tree visibility ──────────────────────────────────
+const COMMERCIAL_ROLES = ['commercial_rep','commercial_team_leader','commercial_supervisor','admin','manager','office_manager','company_manager'];
+const REP_ROLES        = ['scientific_rep','team_leader','supervisor','admin','manager','company_manager','product_manager','office_manager'];
+
+interface FeatureNode {
+  key?:       string;
+  label:      string;
+  icon:       string;
+  desc?:      string;
+  onlyRoles?: string[];
+  children?:  FeatureNode[];
+}
+
+const FEATURE_TREE: FeatureNode[] = [
+  // ── 1. لوحة الرئيسية
+  {
+    label: 'لوحة الرئيسية', icon: '🏠',
+    desc: 'الشاشة الرئيسية — متاحة دائماً لجميع المستخدمين',
+    children: [
+      { key: 'call_log',    label: 'سجل إضافة الزيارات',    icon: '📝', desc: 'نموذج تسجيل الزيارة اليومية وإدخال البيانات' },
+      { key: 'voice_visit', label: 'الزيارة الصوتية',         icon: '🎤', desc: 'زر تسجيل الزيارة عبر الصوت (الميكروفون)'     },
+      { key: 'daily_map',   label: 'خريطة الزيارات اليومية',  icon: '🗺️', desc: 'عرض مواقع الزيارات على الخريطة التفاعلية'   },
+    ],
+  },
+  // ── 2. مساعد الذكاء الاصطناعي
+  { key: 'ai_assistant', label: 'مساعد الذكاء الاصطناعي', icon: '🤖', desc: 'الزر العائم للأوامر الصوتية والنصية الذكية' },
+  // ── 3. قائمة السيرفي
+  {
+    label: 'قائمة السيرفي', icon: '🏥',
+    desc: 'صفحة إدارة الأطباء والزيارات — متاحة لجميع الأدوار',
+    children: [
+      { key: 'visit_analysis_tab', label: 'تحليل الزيارات',           icon: '📍', desc: 'تبويب تحليل أداء الزيارات اليومية'               },
+      { key: 'doctors_list_tab',   label: 'قائمة الأطباء',             icon: '📋', desc: 'تبويب عرض وإدارة قائمة الأطباء'                 },
+      { key: 'my_visits_tab',      label: 'زياراتي',                  icon: '📝', desc: 'تبويب زيارات المندوب التجاري', onlyRoles: COMMERCIAL_ROLES },
+      { key: 'pharmacies_tab',     label: 'قائمة الصيدليات',           icon: '🏪', desc: 'تبويب قائمة الصيدليات',        onlyRoles: COMMERCIAL_ROLES },
+      { key: 'doctor_fields',      label: 'الحقول التفصيلية للطبيب',  icon: '🩺', desc: 'التخصص والمنطقة والصيدلية والملاحظات'          },
+    ],
+  },
+  // ── 4. البلانات الشهرية
+  { key: 'monthly_plans', label: 'البلانات الشهرية', icon: '📅', desc: 'صفحة إنشاء وإدارة البلانات الشهرية' },
+  // ── 5. التقارير
+  {
+    key: 'reports', label: 'التقارير', icon: '📊', desc: 'صفحة عرض التقارير والإحصائيات',
+    children: [
+      { key: 'export_report', label: 'تصدير التقارير', icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير' },
+    ],
+  },
+  // ── 6. تحليل ملفات المندوبين
+  {
+    key: 'rep_analysis', label: 'تحليل ملفات المندوبين', icon: '📂',
+    desc: 'صفحة رفع وتحليل ملفات بيانات المندوبين', onlyRoles: REP_ROLES,
+    children: [
+      { key: 'rep_files', label: 'رفع وعرض الملفات', icon: '📤', desc: 'رفع ملفات Excel وعرض نتائج التحليل', onlyRoles: REP_ROLES },
+    ],
+  },
+  // ── 7. قائمة المستخدمين
+  { key: 'users_list', label: 'قائمة المستخدمين',        icon: '👥', desc: 'صفحة عرض وإدارة قائمة المستخدمين'   },
+  // ── 8. قائمة الطلبات (السيرفي)
+  { key: 'wish_list',  label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'خاصية عرض قائمة الأطباء المستهدفين' },
 ];
 
 interface Office   { id: number; name: string; }
@@ -51,7 +106,7 @@ interface UserDetail extends UserRow {
   managersOfUser:     { managerId: number; manager: { username: string; displayName?: string } }[];
 }
 
-export default function UsersPage() {
+export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: number | null; onJumpClear?: () => void } = {}) {
   const { token } = useSuperAdmin();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
@@ -111,6 +166,13 @@ export default function UsersPage() {
   };
 
   useEffect(load, []);
+
+  // Auto-open a user when navigated from another page
+  useEffect(() => {
+    if (!jumpUserId) return;
+    loadDetail(jumpUserId);
+    onJumpClear?.();
+  }, [jumpUserId]);
 
   // Reset drafts whenever detail changes
   useEffect(() => {
@@ -304,53 +366,81 @@ export default function UsersPage() {
           )}
           {tab === 'features' && (
             <div>
-              <p style={{ fontSize: 13, color: '#64748b', marginTop: 0, marginBottom: 16 }}>
-                تحكم في الميزات المتاحة لهذا المستخدم. أي ميزة مُعطَّلة لن تظهر عند تسجيل دخوله.
+              <p style={{ fontSize: 13, color: '#64748b', marginTop: 0, marginBottom: 20 }}>
+                تحكم في صلاحيات هذا المستخدم بحسب دوره. أي بند مُعطَّل لن يظهر له عند تسجيل دخوله.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {(['pages', 'features'] as const).map(group => (
-                  <div key={group}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, marginTop: group === 'features' ? 14 : 0 }}>
-                      {group === 'pages' ? '📄 الصفحات والأقسام' : '⚙️ ميزات داخل التطبيق'}
-                    </div>
-                    {FEATURES.filter(f => f.group === group).map(f => {
-                      const isDisabled = draftDisabledFeats.includes(f.key);
-                      return (
-                        <div key={f.key} style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '12px 16px', borderRadius: 10, border: `1.5px solid ${isDisabled ? '#fee2e2' : '#dcfce7'}`,
-                          background: isDisabled ? '#fff7f7' : '#f0fdf4', marginBottom: 8,
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <span style={{ fontSize: 22 }}>{f.icon}</span>
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{f.label}</div>
-                              <div style={{ fontSize: 12, color: '#94a3b8' }}>{f.desc}</div>
-                            </div>
+                {FEATURE_TREE.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role)).map(node => {
+                  const parentOff = node.key ? draftDisabledFeats.includes(node.key) : false;
+                  const kids = (node.children ?? []).filter(c => !c.onlyRoles || c.onlyRoles.includes(detail.role));
+
+                  const MiniToggle = ({ fKey, small }: { fKey: string; small?: boolean }) => {
+                    const off = draftDisabledFeats.includes(fKey);
+                    const w = small ? 40 : 48; const h = small ? 22 : 26; const ball = small ? 16 : 20;
+                    return (
+                      <label style={{ position: 'relative', display: 'inline-block', width: w, height: h, cursor: 'pointer', flexShrink: 0 }}>
+                        <input type="checkbox" checked={!off}
+                          onChange={e => {
+                            if (e.target.checked) setDraftDisabledFeats(p => p.filter(k => k !== fKey));
+                            else setDraftDisabledFeats(p => [...p, fKey]);
+                          }}
+                          style={{ opacity: 0, width: 0, height: 0 }} />
+                        <span style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: off ? '#e2e8f0' : '#22c55e', borderRadius: h, transition: 'background 0.2s' }} />
+                        <span style={{ position: 'absolute', top: 3, left: off ? 3 : w - ball - 3, width: ball, height: ball, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                      </label>
+                    );
+                  };
+
+                  return (
+                    <div key={node.key || node.label} style={{
+                      borderRadius: 12, overflow: 'hidden',
+                      border: `1.5px solid ${node.key ? (parentOff ? '#fecaca' : '#bbf7d0') : '#e2e8f0'}`,
+                    }}>
+                      {/* ── header row ── */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '13px 16px',
+                        background: node.key ? (parentOff ? '#fff7f7' : '#f0fdf4') : '#f8fafc',
+                        borderBottom: kids.length > 0 ? '1px solid #e2e8f0' : 'none',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 22 }}>{node.icon}</span>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{node.label}</div>
+                            {node.desc && <div style={{ fontSize: 12, color: '#64748b' }}>{node.desc}</div>}
                           </div>
-                          <label style={{ position: 'relative', display: 'inline-block', width: 48, height: 26, cursor: 'pointer', flexShrink: 0 }}>
-                            <input type="checkbox" checked={!isDisabled}
-                              onChange={e => {
-                                if (e.target.checked) setDraftDisabledFeats(prev => prev.filter(k => k !== f.key));
-                                else setDraftDisabledFeats(prev => [...prev, f.key]);
-                              }}
-                              style={{ opacity: 0, width: 0, height: 0 }} />
-                            <span style={{
-                              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                              background: isDisabled ? '#e2e8f0' : '#22c55e',
-                              borderRadius: 26, transition: 'background 0.2s',
-                            }} />
-                            <span style={{
-                              position: 'absolute', top: 3, left: isDisabled ? 3 : 25, width: 20, height: 20,
-                              background: '#fff', borderRadius: '50%', transition: 'left 0.2s',
-                              boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                            }} />
-                          </label>
                         </div>
-                      );
-                    })}
-                  </div>
-                ))}
+                        {node.key
+                          ? <MiniToggle fKey={node.key} />
+                          : <span style={{ fontSize: 11, color: '#64748b', background: '#e2e8f0', borderRadius: 20, padding: '2px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>دائماً متاح</span>
+                        }
+                      </div>
+                      {/* ── children rows ── */}
+                      {kids.map((child, idx) => {
+                        const childOff = child.key ? draftDisabledFeats.includes(child.key) : false;
+                        return (
+                          <div key={child.key || child.label} style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '10px 16px 10px 40px',
+                            background: childOff ? '#fef9f9' : '#fafffe',
+                            borderBottom: idx < kids.length - 1 ? '1px solid #f1f5f9' : 'none',
+                            opacity: parentOff ? 0.45 : 1, transition: 'opacity 0.2s',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 13, color: '#cbd5e1', userSelect: 'none' }}>└─</span>
+                              <span style={{ fontSize: 18 }}>{child.icon}</span>
+                              <div>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{child.label}</div>
+                                {child.desc && <div style={{ fontSize: 11, color: '#94a3b8' }}>{child.desc}</div>}
+                              </div>
+                            </div>
+                            {child.key && <MiniToggle fKey={child.key} small />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
               <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={saveFeatures} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ المميزات'}</button>
@@ -398,8 +488,8 @@ export default function UsersPage() {
             <tbody>
               {filtered.map((u, i) => (
                 <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ fontWeight: 600 }}>{u.displayName || u.username}</div>
+                  <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => loadDetail(u.id)}>
+                    <div style={{ fontWeight: 600, color: '#4f46e5' }}>{u.displayName || u.username}</div>
                     <div style={{ fontSize: 12, color: '#94a3b8' }}>@{u.username}</div>
                   </td>
                   <td style={{ padding: '12px 16px', fontSize: 13 }}>{ROLES.find(r => r.value === u.role)?.label || u.role}</td>

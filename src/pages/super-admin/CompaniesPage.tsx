@@ -55,15 +55,19 @@ const ORG_CSS = `
 `;
 
 // ─── Single node card ─────────────────────────────────────────────────────
-function OrgCard({ u }: { u: OrgUser }) {
+function OrgCard({ u, onSelect }: { u: OrgUser; onSelect?: (u: OrgUser) => void }) {
   const m = ROLE_META[u.role] ?? DEF_META;
   return (
-    <div style={{
+    <div onClick={() => onSelect?.(u)} style={{
       background: m.bg, border: `1px solid ${m.color}33`, borderTop: `3px solid ${m.color}`,
       borderRadius: 10, padding: '10px 12px', minWidth: 140, maxWidth: 180,
       display: 'inline-block', verticalAlign: 'top',
       opacity: u.isActive ? 1 : 0.6, boxShadow: '0 1px 4px #0001',
-    }}>
+      cursor: onSelect ? 'pointer' : 'default', transition: 'box-shadow .15s, transform .15s',
+    }}
+      onMouseEnter={e => { if (onSelect) { (e.currentTarget as HTMLDivElement).style.boxShadow = `0 4px 14px ${m.color}44`; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; } }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px #0001'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; }}
+    >
       <div style={{ fontSize: 20, marginBottom: 3 }}>{m.icon}</div>
       <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', marginBottom: 2, lineHeight: 1.4 }}>
         {u.displayName || u.username}
@@ -78,16 +82,16 @@ function OrgCard({ u }: { u: OrgUser }) {
 }
 
 // ─── Recursive branch ─────────────────────────────────────────────────────
-function OrgBranch({ u, all, visited }: { u: OrgUser; all: OrgUser[]; visited: Set<number> }) {
+function OrgBranch({ u, all, visited, onSelect }: { u: OrgUser; all: OrgUser[]; visited: Set<number>; onSelect?: (u: OrgUser) => void }) {
   if (visited.has(u.id)) return null;
   const next = new Set(visited); next.add(u.id);
   const children = all.filter(c => c.managerIds.includes(u.id) && !next.has(c.id));
   return (
     <li className="otree-li">
-      <OrgCard u={u} />
+      <OrgCard u={u} onSelect={onSelect} />
       {children.length > 0 && (
         <ul className="otree-ul">
-          {children.map(c => <OrgBranch key={c.id} u={c} all={all} visited={next} />)}
+          {children.map(c => <OrgBranch key={c.id} u={c} all={all} visited={next} onSelect={onSelect} />)}
         </ul>
       )}
     </li>
@@ -95,7 +99,7 @@ function OrgBranch({ u, all, visited }: { u: OrgUser; all: OrgUser[]; visited: S
 }
 
 // ─── Full tree ────────────────────────────────────────────────────────────
-function OrgTree({ users }: { users: OrgUser[] }) {
+function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: OrgUser) => void }) {
   if (users.length === 0) return (
     <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0', fontSize: 14 }}>
       لا يوجد مستخدمون مضافون لهذه الشركة بعد
@@ -108,14 +112,14 @@ function OrgTree({ users }: { users: OrgUser[] }) {
       <style dangerouslySetInnerHTML={{ __html: ORG_CSS }} />
       <div style={{ overflowX: 'auto', paddingBottom: 16, minWidth: 0 }}>
         <ul className="otree-root">
-          {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} visited={new Set()} />)}
+          {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} visited={new Set()} onSelect={onSelect} />)}
         </ul>
       </div>
     </>
   );
 }
 
-export default function CompaniesPage() {
+export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: number) => void } = {}) {
   const { token } = useSuperAdmin();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
@@ -135,6 +139,7 @@ export default function CompaniesPage() {
   const [orgError,   setOrgError]   = useState('');
   // keep the company id so we can still render the header on error
   const [orgCompanyId, setOrgCompanyId] = useState<number | null>(null);
+  const [orgUserPop,   setOrgUserPop]   = useState<OrgUser | null>(null);
 
   const loadOrg = (id: number) => {
     setDetail(null);
@@ -291,7 +296,7 @@ export default function CompaniesPage() {
                 ({orgData.users.length} مستخدم)
               </span>
             </h3>
-            <OrgTree users={orgData.users} />
+            <OrgTree users={orgData.users} onSelect={setOrgUserPop} />
           </div>
 
           {/* ── Items & Lines sidebar ────────────────────────────────────── */}
@@ -350,6 +355,49 @@ export default function CompaniesPage() {
           </div>
         </div>
       )}
+
+      {/* ── User detail popup ──────────────────────────────────────────── */}
+      {orgUserPop && (() => {
+        const m = ROLE_META[orgUserPop.role] ?? DEF_META;
+        const managers = orgData?.users.filter(u => orgUserPop.managerIds.includes(u.id)) ?? [];
+        const subs     = orgData?.users.filter(u => orgUserPop.subordinateIds.includes(u.id)) ?? [];
+        return (
+          <div onClick={() => setOrgUserPop(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 28, minWidth: 340, maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', position: 'relative' }}>
+              <button onClick={() => setOrgUserPop(null)} style={{ position: 'absolute', top: 12, left: 16, background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>✕</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+                <div style={{ width: 52, height: 52, borderRadius: 14, background: m.bg, border: `2px solid ${m.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>{m.icon}</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>{orgUserPop.displayName || orgUserPop.username}</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>@{orgUserPop.username}</div>
+                </div>
+                <span style={{ marginRight: 'auto', background: m.bg, color: m.color, border: `1px solid ${m.color}33`, borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 600 }}>{m.label}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[
+                  ['الحالة',    orgUserPop.isActive ? '✅ نشط' : '❌ معطل'],
+                  orgUserPop.phone ? ['الهاتف', orgUserPop.phone] : null,
+                  managers.length > 0 ? ['المدير',   managers.map(u => u.displayName || u.username).join('، ')] : null,
+                  subs.length     > 0 ? ['المرؤوسون', subs.map(u => u.displayName || u.username).join('، ')] : null,
+                ].filter(Boolean).map(([label, value]) => (
+                  <div key={label as string} style={{ display: 'flex', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, fontSize: 13 }}>
+                    <span style={{ color: '#64748b', fontWeight: 600, minWidth: 80 }}>{label}</span>
+                    <span style={{ color: '#1e293b' }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+              {onOpenUser && (
+                <button
+                  onClick={() => { setOrgUserPop(null); onOpenUser(orgUserPop.id); }}
+                  style={{ marginTop: 8, width: '100%', padding: '10px 0', background: 'linear-gradient(135deg,#4f46e5,#6366f1)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+                >
+                  📋 فتح التفاصيل الكاملة
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 
@@ -463,16 +511,22 @@ export default function CompaniesPage() {
       {loading ? <Spinner /> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>
           {companies.map(c => (
-            <div key={c.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, cursor: 'pointer' }}>
+            <div key={c.id} onClick={() => loadOrg(c.id)} style={{
+              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20,
+              cursor: 'pointer', transition: 'box-shadow .15s, transform .15s',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 18px rgba(99,102,241,0.13)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 16 }} onClick={() => loadOrg(c.id)}>{c.name}</div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{c.name}</div>
                 <span style={{ background: c.isActive ? '#dcfce7' : '#fee2e2', color: c.isActive ? '#16a34a' : '#dc2626', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
                   {c.isActive ? 'نشط' : 'معطل'}
                 </span>
               </div>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>🏢 {c.office?.name} · 💊 {c._count?.items ?? 0} ايتم · 📋 {c._count?.lines ?? 0} لاين</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button onClick={() => loadOrg(c.id)} style={btnStyle('#6366f1', true)}>التفاصيل</button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
                 <button onClick={() => setForm({ ...c })} style={btnStyle('#3b82f6', true)}>تعديل</button>
                 <button onClick={() => toggleCompany(c)} style={btnStyle(c.isActive ? '#f59e0b' : '#10b981', true)}>{c.isActive ? 'تعطيل' : 'تفعيل'}</button>
                 <button onClick={() => delCompany(c)} style={btnStyle('#ef4444', true)}>حذف</button>

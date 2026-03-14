@@ -69,7 +69,7 @@ function makeVisitIcon(label: string) {
 async function fetchRouteSegment(coords: [number, number][]): Promise<[number, number][]> {
   if (coords.length < 2) return coords;
   try {
-    const token = localStorage.getItem('token') || '';
+    const token = localStorage.getItem('auth_token') || '';
     const res = await fetch('/api/ors/route', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -121,7 +121,7 @@ export default function RepTrackingMap({ repId, repName, date, visitMarkers = []
 
   // ── Fetch location points ──────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem('token') || '';
+    const token = localStorage.getItem('auth_token') || '';
     setLoading(true);
     setError('');
     const query = repId > 0 ? `repId=${repId}&date=${date}` : `date=${date}`;
