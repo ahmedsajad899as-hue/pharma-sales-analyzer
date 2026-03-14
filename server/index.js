@@ -32,6 +32,7 @@ import companiesRoutes          from './modules/companies/companies.routes.js';
 import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
+import trackingRoutes             from './modules/tracking/tracking.routes.js';
 
 dotenv.config();
 
@@ -117,7 +118,37 @@ app.use('/api/doctors',           doctorsRoutes);
 app.use('/api/monthly-plans',     monthlyPlansRoutes);
 app.use('/api/ai-assistant',      aiAssistantRoutes);
 app.use('/api/commercial',        commercialRoutes);
+app.use('/api/tracking',          trackingRoutes);
 app.use('/api',                   salesRoutes);
+
+// ── ORS routing proxy (keeps API key server-side) ────────────
+app.post('/api/ors/route', async (req, res) => {
+  try {
+    const orsKey = process.env.ORS_API_KEY;
+    if (!orsKey) return res.status(503).json({ error: 'ORS_API_KEY not configured' });
+    const { coordinates } = req.body;
+    if (!Array.isArray(coordinates) || coordinates.length < 2)
+      return res.status(400).json({ error: 'coordinates array required (min 2)' });
+    // ORS free plan: max 50 waypoints per request
+    const chunk = coordinates.slice(0, 50);
+    const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': orsKey },
+      body: JSON.stringify({ coordinates: chunk, instructions: false }),
+    });
+    if (!orsRes.ok) {
+      const errBody = await orsRes.text();
+      console.error('[ORS proxy]', orsRes.status, errBody);
+      // Return straight-line fallback so frontend still works
+      return res.json({ fallback: true, coordinates: chunk });
+    }
+    const data = await orsRes.json();
+    res.json(data);
+  } catch (err) {
+    console.error('[ORS proxy] error:', err);
+    res.status(500).json({ error: 'خطأ في الـ routing' });
+  }
+});
 
 // ── Utility routes ───────────────────────────────────────────
 app.get('/api/areas', async (req, res) => {

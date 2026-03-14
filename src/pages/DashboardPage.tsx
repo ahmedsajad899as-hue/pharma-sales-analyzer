@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import type { PageId } from '../App';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
+const RepTrackingMap = lazy(() => import('../components/RepTrackingMap'));
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -93,6 +94,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const clTimerRef = useRef<any>(null);
   const clGpsWatchRef = useRef<number | null>(null);
   const clGpsBestAccRef = useRef<number>(Infinity);
+  // ── Silent Location Tracking ─────────────────────────────
+  const trackingActiveRef   = useRef(false);
+  const trackingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracking-map modal state
+  const [trackingMapRepId, setTrackingMapRepId] = useState<number | null>(null);
   // ── Call Type (doctor / pharmacy) ─────────────────────────
   const [callType, setCallType]               = useState<'doctor' | 'pharmacy'>('doctor');
   const [isDoubleVisit, setIsDoubleVisit]     = useState(false);
@@ -642,6 +648,42 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
   };
 
+  // ─── Silent background tracking ──────────────────────────────
+  const captureLocation = () => {
+    if (!trackingActiveRef.current) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        fetch('/api/tracking/location', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authH() },
+          body: JSON.stringify({
+            latitude:  pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy:  pos.coords.accuracy,
+            workDate:  callsDateFrom,
+          }),
+        }).catch(() => {}); // silent failure
+      },
+      () => {}, // silent failure — never show any error
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const startTracking = () => {
+    if (trackingActiveRef.current) return;
+    trackingActiveRef.current = true;
+    captureLocation(); // immediate first capture
+    trackingIntervalRef.current = setInterval(captureLocation, 10 * 60 * 1000); // every 10 min
+  };
+
+  const stopTracking = () => {
+    trackingActiveRef.current = false;
+    if (trackingIntervalRef.current) {
+      clearInterval(trackingIntervalRef.current);
+      trackingIntervalRef.current = null;
+    }
+  };
+
   const detectNotInPlan = () => {
     if (!clDoctor.trim() || clSelectedEntry || clOtherDocId || !activePlan) return;
     const lv = clDoctor.toLowerCase();
@@ -686,6 +728,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setShowCallLog(false);
         setIsDoubleVisit(false);
         loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
+        if (isScientificRep) startTracking();
       } catch (err: any) {
         setClError(err.message || 'حدث خطأ أثناء الحفظ');
       } finally {
@@ -757,6 +800,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       setShowCallLog(false);
       setIsDoubleVisit(false);
       loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
+      if (isScientificRep) startTracking();
       // Refresh plan entries
       fetch(`/api/monthly-plans`, { headers: authH() })
         .then(r => r.json())
@@ -772,6 +816,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       setClSaving(false);
     }
   };
+
+  // Stop tracking on page unmount / tab close
+  useEffect(() => {
+    const onUnload = () => stopTracking();
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onUnload);
+      stopTracking();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load dashboard stats
   useEffect(() => {
@@ -1235,6 +1289,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               title="عرض على الخريطة"
             >🗺️</button>
           )}
+          <button
+            className="btn btn--secondary"
+            style={{ flexShrink: 0, padding: '6px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '10px' }}
+            onClick={() => setTrackingMapRepId(0)}
+            title="مسار يومي على الخريطة"
+          >📍 مساري</button>
         </div>
 
         {/* Controls */}
@@ -1763,6 +1823,27 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         )}
         {mapSingleVisit && (
           <DailyCallsMap visits={[mapSingleVisit]} onClose={() => setMapSingleVisit(null)} />
+        )}
+
+        {/* ── Rep Tracking Map Modal (sci-rep own view) ── */}
+        {trackingMapRepId !== null && (
+          <Suspense fallback={null}>
+            <RepTrackingMap
+              repId={0}
+              repName={user?.displayName || user?.username || 'أنا'}
+              date={callsDateFrom}
+              visitMarkers={(callsData?.visits || [])
+                .filter(v => v.latitude != null)
+                .map(v => ({
+                  lat:   v.latitude as number,
+                  lng:   v.longitude as number,
+                  label: v.doctor?.name || 'زيارة',
+                  time:  new Date(v.visitDate).toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit' }),
+                }))
+              }
+              onClose={() => setTrackingMapRepId(null)}
+            />
+          </Suspense>
         )}
 
         {/* ── Quick Call Log Modal ── */}
@@ -2610,6 +2691,26 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 {(t.dashboard as any).dailyCallsMapBtn}
               </button>
             )}
+            {/* Tracking route button(s) */}
+            {isScientificRep && (
+              <button
+                className="btn btn--secondary"
+                style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => setTrackingMapRepId(0)}
+              >
+                📍 مساري اليوم
+              </button>
+            )}
+            {isManagerOrAdmin && callsData && callsData.reps.map(r => (
+              <button
+                key={r.id}
+                className="btn btn--secondary"
+                style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                onClick={() => setTrackingMapRepId(r.id)}
+              >
+                📍 {r.name}
+              </button>
+            ))}
           </div>
 
           {/* Table card */}
@@ -2800,6 +2901,34 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       )}
       {mapSingleVisit && (
         <DailyCallsMap visits={[mapSingleVisit]} onClose={() => setMapSingleVisit(null)} />
+      )}
+
+      {/* ─── Rep Tracking Map Modal ─── */}
+      {trackingMapRepId !== null && (
+        <Suspense fallback={null}>
+          <RepTrackingMap
+            repId={trackingMapRepId}
+            repName={
+              trackingMapRepId === 0
+                ? (user?.displayName || user?.username || 'أنا')
+                : (callsData?.reps.find(r => r.id === trackingMapRepId)?.name || '')
+            }
+            date={callsDateFrom}
+            visitMarkers={(callsData?.visits || [])
+              .filter(v =>
+                v.latitude != null &&
+                (trackingMapRepId === 0 || (v.scientificRep as any).id === trackingMapRepId)
+              )
+              .map(v => ({
+                lat:   v.latitude as number,
+                lng:   v.longitude as number,
+                label: v.doctor?.name || 'زيارة',
+                time:  new Date(v.visitDate).toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit' }),
+              }))
+            }
+            onClose={() => setTrackingMapRepId(null)}
+          />
+        </Suspense>
       )}
 
       {/* ─── Areas Panel Modal ─── */}

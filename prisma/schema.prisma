@@ -305,10 +305,27 @@ model ScientificRepresentative {
   doctorVisits   DoctorVisit[]
   pharmacyVisits PharmacyVisit[]
   linkedUsers    User[]                    @relation("UserLinkedRep")
+  locationPoints RepLocationPoint[]
 
   @@unique([name, userId])
   @@index([userId])
   @@map("scientific_representatives")
+}
+
+// ─── Rep Location Tracking ───────────────────────────────────
+model RepLocationPoint {
+  id              Int      @id @default(autoincrement())
+  scientificRepId Int
+  latitude        Float
+  longitude       Float
+  accuracy        Float?
+  trackedAt       DateTime @default(now())
+  workDate        String   // YYYY-MM-DD
+
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+
+  @@index([scientificRepId, workDate])
+  @@map("rep_location_points")
 }
 
 // ─── ScientificRep ↔ Area ────────────────────────────────────
