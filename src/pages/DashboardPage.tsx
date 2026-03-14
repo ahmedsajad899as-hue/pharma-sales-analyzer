@@ -652,13 +652,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // ─── Silent background tracking ──────────────────────────────
   const captureLocation = () => {
     if (!trackingActiveRef.current) return;
-    // Auto-stop 30 min after last call (only if at least one call was made)
+    // Skip capture (but keep interval running) if 30 min have passed since last call
     if (lastCallTimeRef.current !== null) {
       const elapsed = Date.now() - lastCallTimeRef.current;
-      if (elapsed > 30 * 60 * 1000) {
-        stopTracking();
-        return;
-      }
+      if (elapsed > 30 * 60 * 1000) return; // silent skip, interval continues
     }
     navigator.geolocation.getCurrentPosition(
       pos => {
@@ -738,10 +735,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setShowCallLog(false);
         setIsDoubleVisit(false);
         loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-        if (isScientificRep) {
-          lastCallTimeRef.current = Date.now(); // reset 30-min window
-          startTracking(); // restart if was stopped
-        }
+        if (isScientificRep) lastCallTimeRef.current = Date.now(); // extend 30-min window
       } catch (err: any) {
         setClError(err.message || 'حدث خطأ أثناء الحفظ');
       } finally {
@@ -813,10 +807,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       setShowCallLog(false);
       setIsDoubleVisit(false);
       loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-      if (isScientificRep) {
-        lastCallTimeRef.current = Date.now(); // reset 30-min window
-        startTracking(); // restart if was stopped
-      }
+      if (isScientificRep) lastCallTimeRef.current = Date.now(); // extend 30-min window
       // Refresh plan entries
       fetch(`/api/monthly-plans`, { headers: authH() })
         .then(r => r.json())
