@@ -312,6 +312,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       </header>
 
       {/* ── MOBILE BOTTOM NAV ── */}
+      {!['commercial_rep','commercial_team_leader','commercial_supervisor'].includes(role) && (
       <nav className="mobile-bottom-nav">
         {visibleItems.slice(0, 5).map(item => (
           <button
@@ -324,6 +325,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           </button>
         ))}
       </nav>
+      )}
 
       {/* ── MOBILE SLIDE-IN MENU (drawer) ── */}
       {mobileMenuOpen && (
