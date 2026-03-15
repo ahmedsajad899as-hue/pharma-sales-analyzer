@@ -234,20 +234,20 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <div style={{ marginBottom: 6 }}>
                 <LangToggleBtn full />
               </div>
-              {isLocal && (
-                <div style={{ marginBottom: 6 }}>
-                  <button
-                    onClick={switchEnv}
-                    title="فتح نفس الصفحة على Production"
-                    style={{
-                      background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.4)',
-                      borderRadius: 8, padding: '6px 14px', fontSize: 12,
-                      color: '#fbbf24', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', gap: 6,
-                    }}
-                  >🚀 فتح على Production</button>
-                </div>
-              )}
+              <div style={{ marginBottom: 6 }}>
+                <button
+                  onClick={switchEnv}
+                  title={isLocal ? 'فتح نفس الصفحة على Production' : 'فتح نفس الصفحة على Local'}
+                  style={{
+                    background: isLocal ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)',
+                    border: `1px solid ${isLocal ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.4)'}`,
+                    borderRadius: 8, padding: '6px 14px', fontSize: 12,
+                    color: isLocal ? '#fbbf24' : '#4ade80',
+                    cursor: 'pointer', fontWeight: 700, width: '100%',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >{isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}</button>
+              </div>
               <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
                 🚪 {t.sidebar.logout}
               </button>
@@ -277,17 +277,17 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 }}
               >🤖</button>
               <LangToggleBtn />
-              {isLocal && (
-                <button
-                  onClick={switchEnv}
-                  title="فتح على Production"
-                  style={{
-                    background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.4)',
-                    borderRadius: 8, padding: '6px', fontSize: 14, cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24',
-                  }}
-                >🚀</button>
-              )}
+              <button
+                onClick={switchEnv}
+                title={isLocal ? 'فتح على Production' : 'فتح على Local'}
+                style={{
+                  background: isLocal ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)',
+                  border: `1px solid ${isLocal ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.4)'}`,
+                  borderRadius: 8, padding: '6px', fontSize: 14, cursor: 'pointer', width: '100%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: isLocal ? '#fbbf24' : '#4ade80',
+                }}
+              >{isLocal ? '🚀' : '🖥️'}</button>
               <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%' }}>
                 <span className="sidebar-nav-icon">🚪</span>
               </button>
