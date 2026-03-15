@@ -218,6 +218,8 @@ export default function CommercialRepPage() {
   const [voiceListening, setVoiceListening] = useState(false);
   const [pharmVoiceOverlay, setPharmVoiceOverlay] = useState(false);
   const pharmRecognitionRef = useRef<any>(null);
+  const fabHoldTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fabLongFiredRef     = useRef(false);
 
   // ── Return goods state ────────────────────────────────────────
   const [withReturn, setWithReturn]         = useState(false);
@@ -1480,43 +1482,6 @@ export default function CommercialRepPage() {
       // ── HOME / DASHBOARD ──────────────────────────────────────
       case 'home': return (
         <div>
-          {/* إنشاء استحصال */}
-          {(isRep || canCollect) && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 0 }}>
-              <button
-                className="comm-btn-collect-start"
-                style={{ flex: 1, margin: 0 }}
-                onClick={() => { setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }}
-              >
-                💵 إنشاء استحصال
-              </button>
-              <button
-                type="button"
-                onClick={startVoicePickPharmacy}
-                disabled={voiceListening}
-                title="بحث صوتي عن صيدلية"
-                style={{
-                  padding: '0 20px',
-                  borderRadius: 14,
-                  border: voiceListening ? '2px solid #ef4444' : '2px solid rgba(255,255,255,0.4)',
-                  background: voiceListening
-                    ? 'linear-gradient(135deg,#fca5a5,#f87171)'
-                    : 'linear-gradient(135deg,#38bdf8,#0ea5e9)',
-                  cursor: voiceListening ? 'not-allowed' : 'pointer',
-                  fontSize: 24,
-                  color: '#fff',
-                  flexShrink: 0,
-                  boxShadow: voiceListening
-                    ? '0 0 0 4px rgba(239,68,68,0.25)'
-                    : '0 4px 14px rgba(14,165,233,0.4)',
-                  transition: 'all 0.2s',
-                  animation: voiceListening ? 'pulse 1s infinite' : 'none',
-                }}
-              >
-                {voiceListening ? '🔴' : '🎙️'}
-              </button>
-            </div>
-          )}
 
           {/* Pick-pharmacy modal */}
           {pickModal && (() => {
@@ -2617,32 +2582,45 @@ export default function CommercialRepPage() {
         </div>
       )}
 
-      {/* ── Floating Action Button: إنشاء استحصال ── */}
-      {(isRep || canCollect) && (
-        <button
-          onClick={() => { setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }}
-          title="إنشاء استحصال جديد"
-          style={{
-            position: 'fixed',
-            bottom: 80,
-            left: 24,
-            width: 56,
-            height: 56,
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, #8B1A1A, #6b1414)',
-            color: '#fff',
-            border: 'none',
-            fontSize: 28,
-            fontWeight: 700,
-            cursor: 'pointer',
-            boxShadow: '0 4px 20px rgba(139, 26, 26, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 900,
-            lineHeight: 1,
-          }}
-        >+</button>
+      {/* ── Floating Action Button: tap = pick-pharmacy / hold 600ms = voice ── */}
+      {(isRep || canCollect) && !pickModal && !collectModal && !selectedInv && (
+        <div className="fab-ring">
+          <button
+            onMouseDown={() => {
+              fabLongFiredRef.current = false;
+              fabHoldTimerRef.current = setTimeout(() => {
+                fabLongFiredRef.current = true;
+                startVoicePickPharmacy();
+              }, 600);
+            }}
+            onTouchStart={e => {
+              e.preventDefault();
+              fabLongFiredRef.current = false;
+              fabHoldTimerRef.current = setTimeout(() => {
+                fabLongFiredRef.current = true;
+                startVoicePickPharmacy();
+              }, 600);
+            }}
+            onMouseUp={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
+            onMouseLeave={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
+            onTouchEnd={e => {
+              e.preventDefault();
+              if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; }
+              if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }
+            }}
+            onClick={() => { if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); } }}
+            title="اضغط: إنشاء استحصال | اضغط مطوّل: بحث صوتي"
+            style={{
+              width: 56, height: 56, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #8B1A1A, #6b1414)',
+              color: '#fff', border: 'none', fontSize: 28, fontWeight: 700,
+              cursor: 'pointer', boxShadow: '0 4px 20px rgba(139,26,26,0.5)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative', zIndex: 1, lineHeight: 1,
+              userSelect: 'none', WebkitUserSelect: 'none',
+            }}
+          >+</button>
+        </div>
       )}
 
       <style>{`
