@@ -2470,7 +2470,7 @@ export default function CommercialRepPage() {
         <div>
           <h1 className="comm-page-title">💰 القسم التجاري</h1>
           <div className="comm-page-sub">
-            {isRep ? 'تابع فواتيرك وسجل استحصالاتك'
+            {isRep ? ''
              : isLead ? 'لوحة متابعة الفريق التجاري'
              : 'إدارة الفواتير والاستحصالات التجارية'}
           </div>
