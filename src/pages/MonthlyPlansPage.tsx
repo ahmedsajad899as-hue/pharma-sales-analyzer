@@ -490,7 +490,7 @@ export default function MonthlyPlansPage() {
       let wishedDoctorIds = '';
       if (sUseWishList) {
         try {
-          const stored = localStorage.getItem('wishedDoctors');
+          const stored = localStorage.getItem(`wishedDoctors_${authUser?.id ?? 'guest'}`);
           const ids: number[] = stored ? JSON.parse(stored) : [];
           wishedDoctorIds = ids.filter(id => !sWishExcluded.has(id)).join(',');
         } catch { /* ignore */ }
@@ -1876,11 +1876,11 @@ export default function MonthlyPlansPage() {
                       const wishItems: Record<number, string> = {};
                       const wishNames: Record<number, string> = {};
                       try {
-                        const stored = localStorage.getItem('wishedDoctors');
+                        const stored = localStorage.getItem(`wishedDoctors_${authUser?.id ?? 'guest'}`);
                         wishIds = stored ? JSON.parse(stored) : [];
-                        const wi = localStorage.getItem('wishedItems');
+                        const wi = localStorage.getItem(`wishedItems_${authUser?.id ?? 'guest'}`);
                         if (wi) Object.assign(wishItems, JSON.parse(wi));
-                        const wn = localStorage.getItem('wishedDoctorNames');
+                        const wn = localStorage.getItem(`wishedDoctorNames_${authUser?.id ?? 'guest'}`);
                         if (wn) Object.assign(wishNames, JSON.parse(wn));
                       } catch { /* ignore */ }
                       // Fallback: look up names from plans data for any IDs missing a name

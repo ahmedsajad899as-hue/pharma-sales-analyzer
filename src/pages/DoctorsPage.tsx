@@ -194,17 +194,22 @@ export default function DoctorsPage() {
     open ? next.add(id) : next.delete(id);
     return next;
   });
+  // Per-user localStorage keys — prevents one user seeing another user's wish list
+  const wishKey  = `wishedDoctors_${user?.id ?? 'guest'}`;
+  const itemsKey = `wishedItems_${user?.id ?? 'guest'}`;
+  const namesKey = `wishedDoctorNames_${user?.id ?? 'guest'}`;
+
   const [wishedDoctors, setWishedDoctors] = useState<Set<number>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('wishedDoctors') || '[]')); }
+    try { return new Set(JSON.parse(localStorage.getItem(`wishedDoctors_${user?.id ?? 'guest'}`) || '[]')); }
     catch { return new Set(); }
   });
   const [wishedItems, setWishedItems] = useState<Record<number, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('wishedItems') || '{}'); }
+    try { return JSON.parse(localStorage.getItem(`wishedItems_${user?.id ?? 'guest'}`) || '{}'); }
     catch { return {}; }
   });
   // Doctor id→name cache stored so MonthlyPlansPage can display names
   const [wishedNames, setWishedNames] = useState<Record<number, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('wishedDoctorNames') || '{}'); }
+    try { return JSON.parse(localStorage.getItem(`wishedDoctorNames_${user?.id ?? 'guest'}`) || '{}'); }
     catch { return {}; }
   });
   const [showWishPanel, setShowWishPanel] = useState(false);
@@ -258,13 +263,13 @@ export default function DoctorsPage() {
     setWishedDoctors(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
-      localStorage.setItem('wishedDoctors', JSON.stringify([...next]));
+      localStorage.setItem(wishKey, JSON.stringify([...next]));
       return next;
     });
     if (name) {
       setWishedNames(prev => {
         const next = { ...prev, [id]: name };
-        localStorage.setItem('wishedDoctorNames', JSON.stringify(next));
+        localStorage.setItem(namesKey, JSON.stringify(next));
         return next;
       });
     }
@@ -272,7 +277,7 @@ export default function DoctorsPage() {
   const setWishedItem = (docId: number, itemName: string) => {
     setWishedItems(prev => {
       const next = { ...prev, [docId]: itemName };
-      localStorage.setItem('wishedItems', JSON.stringify(next));
+      localStorage.setItem(itemsKey, JSON.stringify(next));
       return next;
     });
   };
