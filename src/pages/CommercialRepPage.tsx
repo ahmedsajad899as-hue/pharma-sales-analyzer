@@ -2477,26 +2477,64 @@ export default function CommercialRepPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="comm-tabs">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`comm-tab ${activeTab === tab.id ? 'comm-tab--active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.icon} {tab.label}
-            {tab.id === 'notifs' && unreadCount > 0 && (
-              <span className="comm-tab-badge">{unreadCount}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Tabs — hidden for rep, shown for others */}
+      {!isRep && (
+        <div className="comm-tabs">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              className={`comm-tab ${activeTab === tab.id ? 'comm-tab--active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.icon} {tab.label}
+              {tab.id === 'notifs' && unreadCount > 0 && (
+                <span className="comm-tab-badge">{unreadCount}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Content */}
-      <div className="comm-content">
+      <div className="comm-content" style={isRep ? { paddingBottom: 76 } : undefined}>
         {renderTabContent()}
       </div>
+
+      {/* Bottom nav for rep */}
+      {isRep && (
+        <nav style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          height: 62, background: '#fff',
+          borderTop: '1px solid #e2e8f0',
+          boxShadow: '0 -4px 16px rgba(0,0,0,0.08)',
+          zIndex: 200, display: 'flex', alignItems: 'stretch',
+        }}>
+          {tabs.map(tab => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 2,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  padding: '6px 2px', position: 'relative',
+                  color: active ? '#8B1C1C' : '#64748b',
+                  borderTop: active ? '2.5px solid #8B1C1C' : '2.5px solid transparent',
+                  transition: 'color 0.15s',
+                }}
+              >
+                <span style={{ fontSize: 20, lineHeight: 1 }}>{tab.icon}</span>
+                <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 600, whiteSpace: 'nowrap' }}>{tab.label}</span>
+                {tab.id === 'notifs' && unreadCount > 0 && (
+                  <span style={{ position: 'absolute', top: 4, right: '25%', background: '#8B1C1C', color: '#fff', fontSize: 9, fontWeight: 800, borderRadius: 10, padding: '1px 4px', minWidth: 14, textAlign: 'center' }}>{unreadCount}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       {/* Modals */}
       {renderInvoiceDetail()}
