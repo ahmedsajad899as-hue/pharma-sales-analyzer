@@ -1205,6 +1205,166 @@ app.post('/api/pharmacy-visits', async (req, res) => {
   }
 });
 
+// ── POST /api/doctor-visits — save a doctor visit without a monthly plan ─────
+app.post('/api/doctor-visits', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const role   = req.user?.role ?? '';
+    const { doctorId: rawDocId, doctorName, specialty, pharmacyName, areaId,
+            itemId, itemName, feedback, notes, visitDate, latitude, longitude, isDoubleVisit } = req.body;
+
+    // Resolve scientificRepId from the user's record
+    const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+    let scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
+    if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
+
+    // Resolve or create doctor
+    let doctorId = rawDocId ? parseInt(rawDocId) : null;
+    if (!doctorId && doctorName?.trim()) {
+      const existing = await prisma.doctor.findFirst({ where: { name: doctorName.trim(), userId } });
+      if (existing) { doctorId = existing.id; }
+      else {
+        const created = await prisma.doctor.create({
+          data: { name: doctorName.trim(), specialty: specialty || null, pharmacyName: pharmacyName || null,
+                  areaId: areaId ? parseInt(areaId) : null, userId },
+        });
+        doctorId = created.id;
+      }
+    }
+    if (!doctorId) return res.status(400).json({ error: 'doctorId أو doctorName مطلوب' });
+
+    // Resolve itemId by name if not provided
+    let resolvedItemId = itemId ? parseInt(itemId) : null;
+    if (!resolvedItemId && itemName?.trim()) {
+      const n = String(itemName).trim().toLowerCase();
+      let candidates;
+      if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
+        const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId }, include: { item: { select: { id: true, name: true } } } });
+        candidates = ri.map(r => r.item);
+      } else {
+        candidates = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+      }
+      const match = candidates.find(it => it.name.toLowerCase() === n)
+                 || candidates.find(it => it.name.toLowerCase().includes(n) || n.includes(it.name.toLowerCase()));
+      if (match) resolvedItemId = match.id;
+    }
+
+    const visit = await prisma.doctorVisit.create({
+      data: {
+        doctorId, scientificRepId, planEntryId: null,
+        visitDate:     visitDate ? new Date(visitDate) : new Date(),
+        itemId:        resolvedItemId,
+        feedback:      feedback ?? 'pending',
+        notes:         notes ?? '',
+        isDoubleVisit: isDoubleVisit === true || isDoubleVisit === 'true',
+        latitude:      latitude  != null ? parseFloat(latitude)  : null,
+        longitude:     longitude != null ? parseFloat(longitude) : null,
+        userId,
+      },
+      include: { item: { select: { id: true, name: true } } },
+    });
+    res.status(201).json(visit);
+  } catch (e) {
+    console.error('[POST /api/doctor-visits] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/doctor-visits/voice-record — transcribe audio, no plan needed ──
+app.post('/api/doctor-visits/voice-record', upload.single('audio'), async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const role   = req.user?.role ?? '';
+    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
+
+    // Fetch items accessible to this user
+    let allItems;
+    if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
+      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+      if (rep) {
+        const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId: rep.id }, include: { item: { select: { id: true, name: true } } } });
+        allItems = ri.map(r => r.item);
+      } else { allItems = []; }
+    } else {
+      allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+    }
+
+    const audioData   = fs.readFileSync(req.file.path);
+    const audioBase64 = audioData.toString('base64');
+    const mimeType    = req.file.mimetype || 'audio/webm';
+    fs.unlinkSync(req.file.path);
+
+    const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
+    const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
+
+    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
+مهمتك: استخراج زيارة طبيب واحدة من التسجيل — بدون اختراع.
+
+قواعد:
+1. إذا التسجيل فارغ أو غير واضح → أرجع {"visits":[]}
+2. اسم الطبيب إجباري — لا تختره إذا لم يُذكر صراحةً
+3. itemId يجب أن يكون من القائمة أدناه فقط — لا تختره
+4. feedback: ${feedbackValues.join(' | ')}
+
+قائمة الأيتمات للمطابقة فقط:
+${itemNames}
+
+أرجع JSON فقط:
+{"visits":[{"doctorName":"...","itemId":null,"itemName":"...","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
+
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI  = new GoogleGenerativeAI(apiKey);
+    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent([
+      { inlineData: { mimeType, data: audioBase64 } },
+      prompt,
+    ]);
+    const responseText = result.response.text();
+    const jsonMatch    = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
+    const findItem  = rawName => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (itemMap.has(n)) return itemMap.get(n);
+      for (const [key, item] of itemMap) {
+        if (key.includes(n) || n.includes(key)) return item;
+      }
+      return null;
+    };
+
+    const visits = (parsed.visits || []).map(v => {
+      let itemId   = v.itemId || null;
+      let itemName = v.itemName || '';
+      if (itemName && !itemId) {
+        const match = findItem(itemName);
+        if (match) { itemId = match.id; itemName = match.name; }
+      }
+      return {
+        entryId:      null,    // no plan — always null
+        doctorName:   v.doctorName   || '',
+        itemId, itemName,
+        feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
+        notes:        v.notes        || '',
+        specialty:    v.specialty    || '',
+        pharmacyName: v.pharmacyName || '',
+        areaName:     v.areaName     || '',
+      };
+    });
+
+    res.json({ visits, raw: responseText });
+  } catch (e) {
+    console.error('[POST /api/doctor-visits/voice-record] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/pharmacy-visits/voice-record — transcribe audio and parse pharmacy visit data
 app.post('/api/pharmacy-visits/voice-record', upload.single('audio'), async (req, res) => {
   try {

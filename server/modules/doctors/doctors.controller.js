@@ -204,7 +204,7 @@ export async function list(req, res, next) {
   try {
     const userId = req.user.id;
     const role   = req.user.role;
-    const { areaId, isActive } = req.query;
+    const { areaId, isActive, q } = req.query;
 
     const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
@@ -237,6 +237,7 @@ export async function list(req, res, next) {
 
     if (areaId)    where.areaId   = parseInt(areaId);
     if (isActive !== undefined) where.isActive = isActive === 'true';
+    if (q?.trim())  where.name    = { contains: q.trim() };
 
     const doctors = await prisma.doctor.findMany({
       where,
@@ -244,6 +245,7 @@ export async function list(req, res, next) {
         area:       { select: { id: true, name: true } },
         targetItem: { select: { id: true, name: true } },
       },
+      take: q?.trim() ? 10 : undefined,
       orderBy: { name: 'asc' },
     });
     res.json(doctors);

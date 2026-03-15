@@ -315,22 +315,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // ── Voice handlers ─────────────────────────────────────────
   // Step 1: open reminder panel (no recording yet)
   const openVoicePanel = () => {
-    // For doctor mode we still need a plan; for pharmacy we don't
-    if (callType === 'doctor' && !activePlan) {
-      setVoiceError('لا يوجد خطة نشطة — يمكنك التبديل لزيارة صيدلية');
-      setVoiceOverlay(true);
-      setVoiceReady(true);
-      return;
-    }
     setVoiceError(''); setVoiceReady(true); setVoiceOverlay(true);
   };
   // Step 2: start actual mic recording
   const startRecordingNow = async () => {
-    // Guard: doctor mode requires an active plan
-    if (callType === 'doctor' && !activePlan) {
-      setVoiceError('لا يوجد خطة نشطة — اختر "صيدلية" من الأعلى أو أنشئ بلاناً أولاً');
-      return;
-    }
     setVoiceReady(false);
     // beeps are non-blocking — don't await
     safeBeep(660); setTimeout(() => safeBeep(880), 130);
@@ -412,7 +400,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         }
 
         // ── Doctor voice path ───────────────────────────────
-        const r = await fetch(`/api/monthly-plans/${activePlan.id}/voice-record`, {
+        const voiceUrl = activePlan
+          ? `/api/monthly-plans/${activePlan.id}/voice-record`
+          : '/api/doctor-visits/voice-record';
+        const r = await fetch(voiceUrl, {
           method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -661,9 +652,23 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClOtherDocId(null);
     setClOtherDoc(null);
     setClManualMode(false);
-    if (!val.trim() || !activePlan) { setClSuggestions([]); setClShowSugg(false); return; }
+    if (!val.trim()) { setClSuggestions([]); setClShowSugg(false); return; }
     const lv = val.toLowerCase();
-    // Show plan matches immediately
+    if (!activePlan) {
+      // No plan — search all accessible doctors directly
+      if (val.trim().length >= 2) {
+        fetch(`/api/doctors?q=${encodeURIComponent(val)}`, { headers: authH() })
+          .then(r => r.json())
+          .then(docs => {
+            if (!Array.isArray(docs)) return;
+            setClSuggestions(docs.slice(0, 8).map((d: any) => ({ doctor: d, id: null, _inPlan: false })));
+            setClShowSugg(true);
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+    // Plan exists — show plan matches immediately
     const planMatches = (activePlan.entries ?? [])
       .filter((e: any) => e.doctor.name.toLowerCase().includes(lv))
       .slice(0, 5)
@@ -804,7 +809,50 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       return;
     }
     // ── Doctor call path ───────────────────────────────────
-    if (!activePlan) { setClError('لا يوجد خطة شهرية نشطة'); return; }
+    if (!activePlan) {
+      // No plan — save visit directly (planEntryId = null)
+      if (!clOtherDocId && !clManualMode && !clDoctor.trim()) {
+        setClManualMode(true); return;
+      }
+      if (clManualMode && !clDoctor.trim()) { setClError('الرجاء إدخال اسم الطبيب'); return; }
+      if (clGpsStatus !== 'got' && !clGpsWarning) { setClGpsWarning(true); return; }
+      setClGpsWarning(false);
+      setClSaving(true); setClError('');
+      try {
+        const now = new Date();
+        const [vy2, vm2, vd2] = callsDateFrom.split('-').map(Number);
+        const visitDate = new Date(vy2, vm2 - 1, vd2, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
+        let resolvedItemId = clItemId;
+        if (!resolvedItemId && clItemName.trim()) {
+          const lv = clItemName.trim().toLowerCase();
+          const found = clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
+          if (found) resolvedItemId = String(found.id);
+        }
+        const visitRes = await fetch('/api/doctor-visits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authH() },
+          body: JSON.stringify({
+            doctorId:     clOtherDocId || null,
+            doctorName:   clDoctor.trim() || (clOtherDoc as any)?.name || null,
+            specialty:    clManualSpecialty.trim() || null,
+            pharmacyName: clManualPharmacy.trim() || null,
+            areaId:       clManualAreaId || null,
+            feedback: clFeedback, notes: clNotes,
+            itemId:   resolvedItemId || null,
+            itemName: clItemName.trim() || null,
+            visitDate, isDoubleVisit,
+            ...(clLat != null ? { latitude: clLat, longitude: clLng } : {}),
+          }),
+        });
+        if (!visitRes.ok) { const e = await visitRes.json().catch(() => ({})); throw new Error(e.error || 'فشل تسجيل الزيارة'); }
+        clearInterval(clTimerRef.current);
+        setShowCallLog(false); setIsDoubleVisit(false);
+        loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
+        if (isScientificRep) lastCallTimeRef.current = Date.now();
+      } catch (err: any) { setClError(err.message || 'حدث خطأ أثناء الحفظ'); }
+      finally { setClSaving(false); }
+      return;
+    }
     if (!clSelectedEntry && !clOtherDocId && !clManualMode) {
       setClError('الرجاء اختيار طبيب أو إدخال بياناته يدوياً');
       return;
@@ -1810,6 +1858,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <>
                     <div style={{ fontSize: 44, marginBottom: 8 }}>🎙️</div>
                     <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', marginBottom: 10 }}>نوع الزيارة الصوتية</div>
+                    {/* no-plan warning */}
+                    {!activePlan && callType === 'doctor' && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '7px 10px', marginBottom: 10, fontSize: 12, color: '#92400e' }}>
+                        ⚠️ لا يوجد بلان — ستُسجَّل الزيارة بدون بلان
+                      </div>
+                    )}
                     {/* Call type selector */}
                     <div style={{ display: 'flex', gap: '8px', marginBottom: 14, justifyContent: 'center' }}>
                       <button
@@ -1852,10 +1906,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     )}
                     <button
                       onClick={startRecordingNow}
-                      disabled={callType === 'doctor' && !activePlan}
-                      style={{ width: '100%', background: (callType === 'doctor' && !activePlan) ? '#d1d5db' : callType === 'pharmacy' ? '#059669' : '#f97316', color: (callType === 'doctor' && !activePlan) ? '#9ca3af' : '#fff', border: 'none',
-                        borderRadius: '10px', padding: '11px', fontSize: 15, fontWeight: 800,
-                        cursor: (callType === 'doctor' && !activePlan) ? 'not-allowed' : 'pointer',
+                      style={{ width: '100%', background: callType === 'pharmacy' ? '#059669' : '#f97316', color: '#fff', border: 'none',
+                        borderRadius: '10px', padding: '11px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
                         marginBottom: 8 }}
                     >
                       🎤 ابدأ التسجيل
@@ -2013,6 +2065,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {activePlan && callType === 'doctor' && (
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px', fontSize: '13px', color: '#166534' }}>
                   📋 البلان: شهر {activePlan.month}/{activePlan.year} — {activePlan.entries?.length ?? 0} طبيب
+                </div>
+              )}
+
+              {/* No-plan warning */}
+              {!activePlan && callType === 'doctor' && (
+                <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: '8px', padding: '9px 12px', marginBottom: '14px', fontSize: '12px', color: '#92400e' }}>
+                  ⚠️ لا يوجد بلان شهري نشط — ستُسجَّل الزيارة بدون بلان
                 </div>
               )}
 
