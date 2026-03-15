@@ -357,11 +357,10 @@ export default function CommercialRepPage() {
   // ── Fetch pharmacy names that have pending/partial invoices only ──
   const fetchPharmNames = useCallback(async () => {
     try {
-      const r = await fetch('/api/commercial/invoices?status=open&take=1000', { headers: H() });
+      const r = await fetch('/api/commercial/invoices?take=2000', { headers: H() });
       if (!r.ok) return;
       const d = await r.json();
       const names = [...new Set<string>((d.data as Invoice[])
-        .filter(i => i.status !== 'collected')
         .map((i: Invoice) => i.pharmacyName))].sort();
       setPharmNames(names);
     } catch {}
