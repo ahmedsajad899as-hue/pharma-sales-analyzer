@@ -1209,9 +1209,25 @@ app.post('/api/pharmacy-visits', async (req, res) => {
 app.post('/api/pharmacy-visits/voice-record', upload.single('audio'), async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
+    const role   = req.user?.role ?? '';
     if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
 
-    const allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+    // scientific_rep items come from ScientificRepItem junction, not direct userId ownership
+    let allItems;
+    if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
+      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+      if (rep) {
+        const repItems = await prisma.scientificRepItem.findMany({
+          where: { scientificRepId: rep.id },
+          include: { item: { select: { id: true, name: true } } },
+        });
+        allItems = repItems.map(ri => ri.item);
+      } else {
+        allItems = [];
+      }
+    } else {
+      allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+    }
     const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
 
     const audioData   = fs.readFileSync(req.file.path);

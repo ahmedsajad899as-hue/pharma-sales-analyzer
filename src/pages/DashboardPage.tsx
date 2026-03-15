@@ -326,6 +326,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
   // Step 2: start actual mic recording
   const startRecordingNow = async () => {
+    // Guard: doctor mode requires an active plan
+    if (callType === 'doctor' && !activePlan) {
+      setVoiceError('لا يوجد خطة نشطة — اختر "صيدلية" من الأعلى أو أنشئ بلاناً أولاً');
+      return;
+    }
     setVoiceReady(false);
     // beeps are non-blocking — don't await
     safeBeep(660); setTimeout(() => safeBeep(880), 130);
@@ -1847,8 +1852,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     )}
                     <button
                       onClick={startRecordingNow}
-                      style={{ width: '100%', background: callType === 'pharmacy' ? '#059669' : '#f97316', color: '#fff', border: 'none',
-                        borderRadius: '10px', padding: '11px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
+                      disabled={callType === 'doctor' && !activePlan}
+                      style={{ width: '100%', background: (callType === 'doctor' && !activePlan) ? '#d1d5db' : callType === 'pharmacy' ? '#059669' : '#f97316', color: (callType === 'doctor' && !activePlan) ? '#9ca3af' : '#fff', border: 'none',
+                        borderRadius: '10px', padding: '11px', fontSize: 15, fontWeight: 800,
+                        cursor: (callType === 'doctor' && !activePlan) ? 'not-allowed' : 'pointer',
                         marginBottom: 8 }}
                     >
                       🎤 ابدأ التسجيل
