@@ -2649,14 +2649,16 @@ export default function CommercialRepPage() {
                 startVoicePickPharmacy();
               }, 600);
             }}
-            onMouseUp={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
+            onMouseUp={() => {
+              if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; }
+              if (!fabLongFiredRef.current) { setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }
+            }}
             onMouseLeave={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
             onTouchEnd={e => {
               e.preventDefault();
               if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; }
               if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }
             }}
-            onClick={() => { if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); } }}
             title="اضغط: إنشاء استحصال | اضغط مطوّل: بحث صوتي"
             style={{
               width: 56, height: 56, borderRadius: '50%',
