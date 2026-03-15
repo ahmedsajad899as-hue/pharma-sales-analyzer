@@ -264,7 +264,7 @@ export default function CommercialRepPage() {
   const [pharmaModal, setPharmaModal]       = useState(false);
   const [newPharma, setNewPharma]           = useState({ name: '', ownerName: '', phone: '', address: '', areaName: '' });
   const [pharmaSaving, setPharmaSaving]     = useState(false);
-  const [showRecentColl, setShowRecentColl] = useState(true);
+  const [showRecentColl, setShowRecentColl] = useState(false);
 
   // ── Pharmacy search debounce ───────────────────────────────────
   const pharmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1178,6 +1178,228 @@ export default function CommercialRepPage() {
     );
   };
 
+  // ── PICK-PHARMACY MODAL ────────────────────────────────────────
+  const renderPickModal = () => {
+    if (!pickModal) return null;
+    const allNames = [...new Set([...pharmNames, ...pharmacies.map(p => p.name)])].sort();
+    const areaByName: Record<string, string> = { ...pharmAreaMap };
+    pharmacies.forEach(p => { if (p.areaName) areaByName[p.name] = p.areaName; });
+    const q = pickQuery.trim().toLowerCase();
+    const suggestions = q.length === 0 ? [] : allNames
+      .filter(n => n.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const ai = a.toLowerCase().indexOf(q), bi = b.toLowerCase().indexOf(q);
+        if (ai !== bi) return ai - bi;
+        return a.length - b.length;
+      })
+      .slice(0, 8);
+
+    const selectPharm = async (name: string) => {
+      setPickPharmName(name);
+      setPickPharmInvs([]);
+      setPickPharmLoading(true);
+      try {
+        const params = new URLSearchParams({ pharmacyName: name, take: '100' });
+        const r = await fetch(`/api/commercial/invoices?${params}`, { headers: H() });
+        const d = await r.json();
+        const open = ((d.data ?? []) as Invoice[]).filter(i => i.status !== 'collected');
+        open.sort((a, b) => new Date(a.dueDate ?? a.invoiceDate).getTime() - new Date(b.dueDate ?? b.invoiceDate).getTime());
+        setPickPharmInvs(open);
+      } catch {}
+      finally { setPickPharmLoading(false); }
+    };
+
+    const highlightMatch = (name: string) => {
+      if (!q) return <span>{name}</span>;
+      const idx = name.toLowerCase().indexOf(q);
+      if (idx === -1) return <span>{name}</span>;
+      return <span>{name.slice(0, idx)}<mark style={{ background: '#fef08a', borderRadius: 3, padding: '0 1px' }}>{name.slice(idx, idx + q.length)}</mark>{name.slice(idx + q.length)}</span>;
+    };
+
+    return (
+      <div
+        style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          padding: '60px 16px 80px',
+        }}
+        onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: '#fff', borderRadius: 20, width: '100%', maxWidth: 420,
+            boxShadow: '0 24px 60px rgba(0,0,0,0.25)', overflow: 'hidden',
+            display: 'flex', flexDirection: 'column', maxHeight: '85vh',
+          }}
+        >
+          {/* ── Header ── */}
+          {!pickPharmName ? (
+            <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#1e293b' }}>💊 اختر الصيدلية</div>
+                <button
+                  onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
+                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 50, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >✕</button>
+              </div>
+              {/* Search box */}
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: '#94a3b8' }}>🔍</span>
+                <input
+                  autoFocus
+                  value={pickQuery}
+                  onChange={e => setPickQuery(e.target.value)}
+                  placeholder="ابدأ بكتابة اسم الصيدلية..."
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '11px 40px 11px 14px',
+                    borderRadius: 12, border: '2px solid #e2e8f0',
+                    fontSize: 14, outline: 'none', direction: 'rtl',
+                    background: '#f8fafc', transition: 'border-color 0.2s',
+                  }}
+                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                />
+                {pickQuery && (
+                  <button
+                    onClick={() => setPickQuery('')}
+                    style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8' }}
+                  >✕</button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                onClick={() => { setPickPharmName(null); setPickPharmInvs([]); setPickQuery(''); }}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: 50, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+              >←</button>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🏥 {pickPharmName}</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>اختر الفاتورة للاستحصال</div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Body ── */}
+          <div style={{ overflowY: 'auto', flex: 1, padding: '8px 16px 16px' }}>
+
+            {/* Step 1: suggestions */}
+            {!pickPharmName && (<>
+              {q.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '32px 0 24px', color: '#94a3b8' }}>
+                  <div style={{ fontSize: 36, marginBottom: 8 }}>🏪</div>
+                  <div style={{ fontSize: 13 }}>ابدأ بكتابة اسم الصيدلية للبحث</div>
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>{allNames.length} صيدلية متاحة</div>
+                </div>
+              )}
+              {q.length > 0 && suggestions.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>🔎</div>
+                  <div style={{ fontSize: 13 }}>لا توجد نتائج لـ "{pickQuery}"</div>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: q ? 8 : 0 }}>
+                {suggestions.map((name, idx) => (
+                  <button
+                    key={name}
+                    onClick={() => selectPharm(name)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '12px 14px', borderRadius: 12,
+                      border: '1.5px solid #e2e8f0', background: idx === 0 ? '#f0f9ff' : '#fafafa',
+                      cursor: 'pointer', textAlign: 'right', width: '100%',
+                      transition: 'all 0.15s',
+                      borderColor: idx === 0 ? '#bae6fd' : '#e2e8f0',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#a5b4fc'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = idx === 0 ? '#f0f9ff' : '#fafafa'; e.currentTarget.style.borderColor = idx === 0 ? '#bae6fd' : '#e2e8f0'; }}
+                  >
+                    <span style={{ fontSize: 22, flexShrink: 0 }}>🏥</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{highlightMatch(name)}</div>
+                      {areaByName[name] && (
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>📍 {areaByName[name]}</div>
+                      )}
+                    </div>
+                    {idx === 0 && <span style={{ fontSize: 10, background: '#0ea5e9', color: '#fff', borderRadius: 20, padding: '2px 8px', flexShrink: 0 }}>الأقرب</span>}
+                    <span style={{ color: '#cbd5e1', fontSize: 16, flexShrink: 0 }}>‹</span>
+                  </button>
+                ))}
+              </div>
+            </>)}
+
+            {/* Step 2: invoices list */}
+            {pickPharmName && (<>
+              {pickPharmLoading && (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+                  <div style={{ fontSize: 13 }}>جاري تحميل الفواتير...</div>
+                </div>
+              )}
+              {!pickPharmLoading && pickPharmInvs.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: '#16a34a' }}>
+                  <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>لا توجد فواتير مستحقة</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>جميع مستحقات هذه الصيدلية مسددة</div>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                {!pickPharmLoading && pickPharmInvs.map((inv, idx) => {
+                  const refDate = inv.dueDate ?? inv.invoiceDate;
+                  const days = Math.floor((Date.now() - new Date(refDate).getTime()) / 86_400_000);
+                  const remaining = inv.totalAmount - inv.collectedAmount - (inv.returnedAmount ?? 0);
+                  const daysColor = days > 30 ? '#dc2626' : days > 14 ? '#d97706' : days > 0 ? '#0369a1' : '#16a34a';
+                  const urgency = days > 30 ? { bg: '#fff1f2', border: '#fecdd3' } : days > 14 ? { bg: '#fffbeb', border: '#fde68a' } : { bg: '#f0f9ff', border: '#bae6fd' };
+                  return (
+                    <button
+                      key={inv.id}
+                      onClick={() => {
+                        setPickModal(false); setPickPharmName(null); setPickPharmInvs([]);
+                        fetchInvoiceDetail(inv.id);
+                        setCollectModal(true); setCollectAmt(''); setCollectDiscount('0');
+                        setCollectFull(false); setCollectNotes(''); setCollectGps(null);
+                        setWithReturn(false); setReturnQtys({});
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '14px', borderRadius: 14,
+                        border: `1.5px solid ${urgency.border}`, background: urgency.bg,
+                        cursor: 'pointer', textAlign: 'right', width: '100%',
+                        transition: 'transform 0.12s, box-shadow 0.12s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.01)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+                    >
+                      {/* rank badge */}
+                      <div style={{ width: 32, height: 32, borderRadius: 10, background: daysColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                        {idx + 1}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>#{inv.invoiceNumber}</div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                          {inv.dueDate ? `📅 استحقاق: ${inv.dueDate}` : `📄 فاتورة: ${inv.invoiceDate}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'left', flexShrink: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, color: '#dc2626', direction: 'ltr' }}>{remaining.toLocaleString()}<span style={{ fontSize: 10, fontWeight: 500 }}> د.ع</span></div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: daysColor, background: `${daysColor}18`, borderRadius: 20, padding: '2px 8px', marginTop: 3, textAlign: 'center' }}>
+                          {days > 0 ? `${days} يوم` : days === 0 ? 'اليوم' : `${Math.abs(days)}ي متبقي`}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </>)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── COLLECT MODAL ──────────────────────────────────────────────
   const renderCollectModal = () => {
     if (!collectModal) return null;
@@ -1494,229 +1716,6 @@ export default function CommercialRepPage() {
       // ── HOME / DASHBOARD ──────────────────────────────────────
       case 'home': return (
         <div>
-
-          {/* Pick-pharmacy modal */}
-          {pickModal && (() => {
-            const allNames = [...new Set([...pharmNames, ...pharmacies.map(p => p.name)])].sort();
-            // Map: pharmacy name → area name
-            const areaByName: Record<string, string> = { ...pharmAreaMap };
-            pharmacies.forEach(p => { if (p.areaName) areaByName[p.name] = p.areaName; });
-            // Step-1 suggestions: only show when typing, sorted by best match first
-            const q = pickQuery.trim().toLowerCase();
-            const suggestions = q.length === 0 ? [] : allNames
-              .filter(n => n.toLowerCase().includes(q))
-              .sort((a, b) => {
-                const ai = a.toLowerCase().indexOf(q), bi = b.toLowerCase().indexOf(q);
-                if (ai !== bi) return ai - bi; // earlier match first
-                return a.length - b.length;    // shorter name first
-              })
-              .slice(0, 8);
-
-            const selectPharm = async (name: string) => {
-              setPickPharmName(name);
-              setPickPharmInvs([]);
-              setPickPharmLoading(true);
-              try {
-                const params = new URLSearchParams({ pharmacyName: name, take: '100' });
-                const r = await fetch(`/api/commercial/invoices?${params}`, { headers: H() });
-                const d = await r.json();
-                const open = ((d.data ?? []) as Invoice[]).filter(i => i.status !== 'collected');
-                open.sort((a, b) => new Date(a.dueDate ?? a.invoiceDate).getTime() - new Date(b.dueDate ?? b.invoiceDate).getTime());
-                setPickPharmInvs(open);
-              } catch {}
-              finally { setPickPharmLoading(false); }
-            };
-
-            const highlightMatch = (name: string) => {
-              if (!q) return <span>{name}</span>;
-              const idx = name.toLowerCase().indexOf(q);
-              if (idx === -1) return <span>{name}</span>;
-              return <span>{name.slice(0, idx)}<mark style={{ background: '#fef08a', borderRadius: 3, padding: '0 1px' }}>{name.slice(idx, idx + q.length)}</mark>{name.slice(idx + q.length)}</span>;
-            };
-
-            return (
-              <div
-                style={{
-                  position: 'fixed', inset: 0, zIndex: 9999,
-                  background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',
-                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-                  padding: '60px 16px 80px',
-                }}
-                onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
-              >
-                <div
-                  onClick={e => e.stopPropagation()}
-                  style={{
-                    background: '#fff', borderRadius: 20, width: '100%', maxWidth: 420,
-                    boxShadow: '0 24px 60px rgba(0,0,0,0.25)', overflow: 'hidden',
-                    display: 'flex', flexDirection: 'column', maxHeight: '85vh',
-                  }}
-                >
-                  {/* ── Header ── */}
-                  {!pickPharmName ? (
-                    <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                        <div style={{ fontWeight: 800, fontSize: 16, color: '#1e293b' }}>💊 اختر الصيدلية</div>
-                        <button
-                          onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
-                          style={{ background: '#f1f5f9', border: 'none', borderRadius: 50, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        >✕</button>
-                      </div>
-                      {/* Search box */}
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: '#94a3b8' }}>🔍</span>
-                        <input
-                          autoFocus
-                          value={pickQuery}
-                          onChange={e => setPickQuery(e.target.value)}
-                          placeholder="ابدأ بكتابة اسم الصيدلية..."
-                          style={{
-                            width: '100%', boxSizing: 'border-box',
-                            padding: '11px 40px 11px 14px',
-                            borderRadius: 12, border: '2px solid #e2e8f0',
-                            fontSize: 14, outline: 'none', direction: 'rtl',
-                            background: '#f8fafc', transition: 'border-color 0.2s',
-                          }}
-                          onFocus={e => (e.target.style.borderColor = '#6366f1')}
-                          onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                        />
-                        {pickQuery && (
-                          <button
-                            onClick={() => setPickQuery('')}
-                            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8' }}
-                          >✕</button>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <button
-                        onClick={() => { setPickPharmName(null); setPickPharmInvs([]); setPickQuery(''); }}
-                        style={{ background: '#f1f5f9', border: 'none', borderRadius: 50, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-                      >←</button>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800, fontSize: 15, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🏥 {pickPharmName}</div>
-                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>اختر الفاتورة للاستحصال</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── Body ── */}
-                  <div style={{ overflowY: 'auto', flex: 1, padding: '8px 16px 16px' }}>
-
-                    {/* Step 1: suggestions */}
-                    {!pickPharmName && (<>
-                      {q.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '32px 0 24px', color: '#94a3b8' }}>
-                          <div style={{ fontSize: 36, marginBottom: 8 }}>🏪</div>
-                          <div style={{ fontSize: 13 }}>ابدأ بكتابة اسم الصيدلية للبحث</div>
-                          <div style={{ fontSize: 11, marginTop: 4, color: '#cbd5e1' }}>{allNames.length} صيدلية متاحة</div>
-                        </div>
-                      )}
-                      {q.length > 0 && suggestions.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
-                          <div style={{ fontSize: 32, marginBottom: 8 }}>🔎</div>
-                          <div style={{ fontSize: 13 }}>لا توجد نتائج لـ "{pickQuery}"</div>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: q ? 8 : 0 }}>
-                        {suggestions.map((name, idx) => (
-                          <button
-                            key={name}
-                            onClick={() => selectPharm(name)}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 12,
-                              padding: '12px 14px', borderRadius: 12,
-                              border: '1.5px solid #e2e8f0', background: idx === 0 ? '#f0f9ff' : '#fafafa',
-                              cursor: 'pointer', textAlign: 'right', width: '100%',
-                              transition: 'all 0.15s',
-                              borderColor: idx === 0 ? '#bae6fd' : '#e2e8f0',
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#a5b4fc'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = idx === 0 ? '#f0f9ff' : '#fafafa'; e.currentTarget.style.borderColor = idx === 0 ? '#bae6fd' : '#e2e8f0'; }}
-                          >
-                            <span style={{ fontSize: 22, flexShrink: 0 }}>🏥</span>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{highlightMatch(name)}</div>
-                              {areaByName[name] && (
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>📍 {areaByName[name]}</div>
-                              )}
-                            </div>
-                            {idx === 0 && <span style={{ fontSize: 10, background: '#0ea5e9', color: '#fff', borderRadius: 20, padding: '2px 8px', flexShrink: 0 }}>الأقرب</span>}
-                            <span style={{ color: '#cbd5e1', fontSize: 16, flexShrink: 0 }}>‹</span>
-                          </button>
-                        ))}
-                      </div>
-                    </>)}
-
-                    {/* Step 2: invoices list */}
-                    {pickPharmName && (<>
-                      {pickPharmLoading && (
-                        <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
-                          <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
-                          <div style={{ fontSize: 13 }}>جاري تحميل الفواتير...</div>
-                        </div>
-                      )}
-                      {!pickPharmLoading && pickPharmInvs.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '32px 0', color: '#16a34a' }}>
-                          <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>لا توجد فواتير مستحقة</div>
-                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>جميع مستحقات هذه الصيدلية مسددة</div>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                        {!pickPharmLoading && pickPharmInvs.map((inv, idx) => {
-                          const refDate = inv.dueDate ?? inv.invoiceDate;
-                          const days = Math.floor((Date.now() - new Date(refDate).getTime()) / 86_400_000);
-                          const remaining = inv.totalAmount - inv.collectedAmount - (inv.returnedAmount ?? 0);
-                          const daysColor = days > 30 ? '#dc2626' : days > 14 ? '#d97706' : days > 0 ? '#0369a1' : '#16a34a';
-                          const urgency = days > 30 ? { bg: '#fff1f2', border: '#fecdd3' } : days > 14 ? { bg: '#fffbeb', border: '#fde68a' } : { bg: '#f0f9ff', border: '#bae6fd' };
-                          return (
-                            <button
-                              key={inv.id}
-                              onClick={() => {
-                                setPickModal(false); setPickPharmName(null); setPickPharmInvs([]);
-                                fetchInvoiceDetail(inv.id);
-                                setCollectModal(true); setCollectAmt(''); setCollectDiscount('0');
-                                setCollectFull(false); setCollectNotes(''); setCollectGps(null);
-                                setWithReturn(false); setReturnQtys({});
-                              }}
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: 12,
-                                padding: '14px', borderRadius: 14,
-                                border: `1.5px solid ${urgency.border}`, background: urgency.bg,
-                                cursor: 'pointer', textAlign: 'right', width: '100%',
-                                transition: 'transform 0.12s, box-shadow 0.12s',
-                              }}
-                              onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.01)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                              onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
-                            >
-                              {/* rank badge */}
-                              <div style={{ width: 32, height: 32, borderRadius: 10, background: daysColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
-                                {idx + 1}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>#{inv.invoiceNumber}</div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                                  {inv.dueDate ? `📅 استحقاق: ${inv.dueDate}` : `📄 فاتورة: ${inv.invoiceDate}`}
-                                </div>
-                              </div>
-                              <div style={{ textAlign: 'left', flexShrink: 0 }}>
-                                <div style={{ fontWeight: 800, fontSize: 14, color: '#dc2626', direction: 'ltr' }}>{remaining.toLocaleString()}<span style={{ fontSize: 10, fontWeight: 500 }}> د.ع</span></div>
-                                <div style={{ fontSize: 11, fontWeight: 700, color: daysColor, background: `${daysColor}18`, borderRadius: 20, padding: '2px 8px', marginTop: 3, textAlign: 'center' }}>
-                                  {days > 0 ? `${days} يوم` : days === 0 ? 'اليوم' : `${Math.abs(days)}ي متبقي`}
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>)}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
 
           {renderStats()}
 
@@ -2557,6 +2556,7 @@ export default function CommercialRepPage() {
       )}
 
       {/* Modals */}
+      {renderPickModal()}
       {renderInvoiceDetail()}
       {renderCollectModal()}
       {renderCreateModal()}
