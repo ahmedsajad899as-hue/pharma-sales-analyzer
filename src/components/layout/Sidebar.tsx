@@ -37,6 +37,15 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSwitchPanel, setShowSwitchPanel] = useState(false);
 
+  // Dev env switcher — only visible on localhost
+  const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const prodHost = 'ordine-sales.up.railway.app';
+  const switchEnv = () => {
+    const path = window.location.pathname + window.location.search + window.location.hash;
+    if (isLocal) window.open(`https://${prodHost}${path}`, '_blank');
+    else window.open(`http://localhost:5173${path}`, '_blank');
+  };
+
   const role = user?.role ?? 'user';
 
   // Roles that see the merged "rep analysis" page instead of 4 separate pages
@@ -225,6 +234,20 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <div style={{ marginBottom: 6 }}>
                 <LangToggleBtn full />
               </div>
+              {isLocal && (
+                <div style={{ marginBottom: 6 }}>
+                  <button
+                    onClick={switchEnv}
+                    title="فتح نفس الصفحة على Production"
+                    style={{
+                      background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.4)',
+                      borderRadius: 8, padding: '6px 14px', fontSize: 12,
+                      color: '#fbbf24', cursor: 'pointer', fontWeight: 700, width: '100%',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}
+                  >🚀 فتح على Production</button>
+                </div>
+              )}
               <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
                 🚪 {t.sidebar.logout}
               </button>
@@ -254,6 +277,17 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 }}
               >🤖</button>
               <LangToggleBtn />
+              {isLocal && (
+                <button
+                  onClick={switchEnv}
+                  title="فتح على Production"
+                  style={{
+                    background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.4)',
+                    borderRadius: 8, padding: '6px', fontSize: 14, cursor: 'pointer', width: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24',
+                  }}
+                >🚀</button>
+              )}
               <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%' }}>
                 <span className="sidebar-nav-icon">🚪</span>
               </button>
