@@ -1330,7 +1330,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               }}
             >
               {isDoubleVisit ? '👥' : '👤'}
-              <span style={{ fontSize: '11px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
+              <span style={{ fontSize: '9px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
             </button>
             {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
               <button
@@ -2584,7 +2584,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 width: 56,
                 height: 56,
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #059669, #047857)',
+                background: 'linear-gradient(135deg, #8B1A1A, #6b1414)',
                 color: '#fff',
                 border: 'none',
                 fontSize: 28,

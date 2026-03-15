@@ -236,15 +236,13 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
       {/* ── MOBILE TOP HEADER ── */}
       <header className="mobile-header">
-        <div className="mobile-header-brand">
-          <span style={{ fontSize: 22, display:'flex', alignItems:'center' }}><OrdineLogo size={24} /></span>
-          <span className="mobile-header-title">{t.appName}</span>
+        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="mobile-header-title" style={{ fontSize: 22 }}>{t.appName}</span>
+          <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={36} /></span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu">
-            ☰
-          </button>
-        </div>
+        <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu" style={{ marginRight: 0, fontSize: 16 }}>
+          ☰
+        </button>
       </header>
 
       {/* ── MOBILE BOTTOM NAV ── */}

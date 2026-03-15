@@ -3,6 +3,58 @@ import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
 
+// ── Smart Search Component ─────────────────────────────────────
+function SmartSearch({ value, onChange, suggestions, placeholder, style }: {
+  value: string;
+  onChange: (v: string) => void;
+  suggestions: string[];
+  placeholder?: string;
+  style?: React.CSSProperties;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const q = value.trim().toLowerCase();
+  const filtered = q.length >= 1
+    ? suggestions.filter(s => s.toLowerCase().includes(q) && s.toLowerCase() !== q).slice(0, 8)
+    : [];
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', ...style }}>
+      <input
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder || 'بحث...'}
+        style={{ width: '100%', padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', direction: 'rtl' }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200,
+          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginTop: 2, overflow: 'hidden',
+        }}>
+          {filtered.map(s => (
+            <div key={s} onMouseDown={() => { onChange(s); setOpen(false); }}
+              style={{ padding: '8px 14px', cursor: 'pointer', fontSize: 13, direction: 'rtl', borderBottom: '1px solid #f1f5f9' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Area   { id: number; name: string; }
 interface Item   { id: number; name: string; }
 interface Doctor {
@@ -127,6 +179,7 @@ export default function DoctorsPage() {
   const [visitAreas, setVisitAreas]         = useState<VisitArea[]>([]);
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
+  const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
   const [expandedAreas, setExpandedAreas]   = useState<Set<string>>(new Set());
   const [visitSearch, setVisitSearch]       = useState('');
   const [showOnlyVisited, setShowOnlyVisited] = useState(false);  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
@@ -167,6 +220,7 @@ export default function DoctorsPage() {
   const [pharmVisitAreas, setPharmVisitAreas]       = useState<PharmAreaGroup[]>([]);
   const [pharmVisitLoading, setPharmVisitLoading]   = useState(false);
   const [pharmVisitMonthFilter, setPharmVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
+  const [showPharmMonthPicker, setShowPharmMonthPicker] = useState(false);
   const [pharmExpandedAreas, setPharmExpandedAreas] = useState<Set<string>>(new Set());
   const [pharmSearch, setPharmSearch]               = useState('');
   const [expandedPharma, setExpandedPharma]         = useState<Set<string>>(new Set());
@@ -523,15 +577,14 @@ export default function DoctorsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>🏥 قائمة السيرفي</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 14 }}>إدارة قاعدة بيانات الأطباء</p>
         </div>
         {activeTab === 'list' && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => { setShowImportPanel(v => !v); setImportResult(null); }}
-              style={btnStyle('#10b981')}>📊 استيراد Excel</button>
-            <button onClick={openAdd} style={btnStyle('#3b82f6')}>+ إضافة طبيب</button>
+              style={{ ...btnStyle('#10b981'), padding: '6px 10px', fontSize: 16 }} title="استيراد Excel">📊</button>
+            <button onClick={openAdd} style={{ ...btnStyle('#3b82f6'), padding: '6px 10px', fontSize: 16 }} title="إضافة طبيب">+</button>
             {doctors.length > 0 && (
-              <button onClick={deleteAll} style={btnStyle('#ef4444')} title="مسح جميع الأطباء">🗑 مسح الكل</button>
+              <button onClick={deleteAll} style={{ ...btnStyle('#ef4444'), padding: '6px 10px', fontSize: 16 }} title="مسح جميع الأطباء">🗑</button>
             )}
           </div>
         )}
@@ -643,9 +696,13 @@ export default function DoctorsPage() {
 
       {/* Search & filter bar */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="🔍 بحث بالاسم أو التخصص..."
-          style={{ ...inputStyle, maxWidth: 260 }} />
+        <SmartSearch
+          value={search}
+          onChange={setSearch}
+          placeholder="🔍 بحث..."
+          suggestions={doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean)}
+          style={{ maxWidth: 260, minWidth: 180 }}
+        />
         <select value={filterArea} onChange={e => setFilterArea(e.target.value)} style={{ ...inputStyle, maxWidth: 180 }}>
           <option value="all">📍 كل المناطق</option>
           {areas.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
@@ -680,11 +737,12 @@ export default function DoctorsPage() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{d.name}</span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
-                    background: d.isActive ? '#d1fae5' : '#fee2e2',
-                    color: d.isActive ? '#065f46' : '#991b1b',
-                  }}>{d.isActive ? 'نشط' : 'غير نشط'}</span>
+                  {d.isActive === false && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
+                      background: '#fee2e2', color: '#991b1b',
+                    }}>غير نشط</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 12, marginTop: 5, flexWrap: 'wrap' }}>
                   {showDoctorFields && d.specialty && (
@@ -711,17 +769,17 @@ export default function DoctorsPage() {
               </div>
 
               {/* Actions */}
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button onClick={() => openEdit(d)} style={{
-                  fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8,
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <button onClick={() => openEdit(d)} title="تعديل" style={{
+                  fontSize: 15, padding: '4px 8px', borderRadius: 8,
                   border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca',
                   cursor: 'pointer',
-                }}>تعديل</button>
-                <button onClick={() => remove(d.id)} style={{
-                  fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8,
+                }}>✏️</button>
+                <button onClick={() => remove(d.id)} title="حذف" style={{
+                  fontSize: 15, padding: '4px 8px', borderRadius: 8,
                   border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c',
                   cursor: 'pointer',
-                }}>حذف</button>
+                }}>🗑</button>
               </div>
             </div>
           ))}
@@ -734,7 +792,6 @@ export default function DoctorsPage() {
         <div>
           {/* Analysis type toggle: doctors vs pharmacies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>عرض تحليل:</span>
             <button
               onClick={() => setVisitAnalysisType('doctors')}
               style={{
@@ -765,32 +822,51 @@ export default function DoctorsPage() {
               options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
             }
             return (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
-                <button
-                  onClick={() => setVisitMonthFilter(null)}
-                  style={{
-                    fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                    border: `1px solid ${visitMonthFilter === null ? '#6366f1' : '#e2e8f0'}`,
-                    background: visitMonthFilter === null ? '#eef2ff' : 'transparent',
-                    color: visitMonthFilter === null ? '#4338ca' : '#94a3b8',
-                    cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}>الكل</button>
-                {options.map(o => {
-                  const active = visitMonthFilter?.month === o.month && visitMonthFilter?.year === o.year;
-                  return (
-                    <button key={`${o.month}-${o.year}`}
-                      onClick={() => setVisitMonthFilter({ month: o.month, year: o.year })}
-                      style={{
-                        fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                        border: `1px solid ${active ? '#6366f1' : '#e2e8f0'}`,
-                        background: active ? '#eef2ff' : 'transparent',
-                        color: active ? '#4338ca' : '#94a3b8',
-                        cursor: 'pointer', whiteSpace: 'nowrap',
-                      }}>{o.label}</button>
-                  );
-                })}
-              </div>
+              !showVisitMonthPicker ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
+                  <button
+                    style={{
+                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                      border: '1px solid #6366f1', background: '#eef2ff', color: '#4338ca',
+                      cursor: 'default', whiteSpace: 'nowrap',
+                    }}>الكل</button>
+                  <button
+                    onClick={() => setShowVisitMonthPicker(true)}
+                    style={{
+                      fontSize: 13, padding: '2px 8px', borderRadius: 14, flexShrink: 0,
+                      border: '1px solid #e2e8f0', background: 'transparent', color: '#94a3b8',
+                      cursor: 'pointer', lineHeight: 1,
+                    }}>‹</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
+                  <button
+                    onClick={() => { setVisitMonthFilter(null); setShowVisitMonthPicker(false); }}
+                    style={{
+                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                      border: `1px solid ${visitMonthFilter === null ? '#6366f1' : '#e2e8f0'}`,
+                      background: visitMonthFilter === null ? '#eef2ff' : 'transparent',
+                      color: visitMonthFilter === null ? '#4338ca' : '#94a3b8',
+                      cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}>الكل</button>
+                  {options.map(o => {
+                    const active = visitMonthFilter?.month === o.month && visitMonthFilter?.year === o.year;
+                    return (
+                      <button key={`${o.month}-${o.year}`}
+                        onClick={() => setVisitMonthFilter({ month: o.month, year: o.year })}
+                        style={{
+                          fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                          border: `1px solid ${active ? '#6366f1' : '#e2e8f0'}`,
+                          background: active ? '#eef2ff' : 'transparent',
+                          color: active ? '#4338ca' : '#94a3b8',
+                          cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}>{o.label}</button>
+                    );
+                  })}
+                </div>
+              )
             );
           })()}
 
@@ -834,7 +910,7 @@ export default function DoctorsPage() {
                     <div style={{ fontSize: 22 }}>{s.icon}</div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
                     <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
-                    {s.clickable && <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 3 }}>اضغط للتفاصيل ▾</div>}
+                    {s.clickable && <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 3 }}>▾</div>}
 
                     {/* Visited doctors popup */}
                     {s.clickable === 'total' && showTotalPopup && (() => {
@@ -1134,9 +1210,13 @@ export default function DoctorsPage() {
 
           {/* Search + filter */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={visitSearch} onChange={e => setVisitSearch(e.target.value)}
-              placeholder="بحث باسم الطبيب أو التخصص..."
-              style={{ ...inputStyle, maxWidth: 260 }} />
+            <SmartSearch
+              value={visitSearch}
+              onChange={setVisitSearch}
+              placeholder="بحث..."
+              suggestions={visitAreas.flatMap(a => a.doctors.map((d: any) => d.name))}
+              style={{ maxWidth: 260, minWidth: 180 }}
+            />
             <button onClick={() => setShowOnlyVisited(v => !v)} style={{
               padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${showOnlyVisited ? '#10b981' : '#e2e8f0'}`,
               background: showOnlyVisited ? '#f0fdf4' : '#fff', color: showOnlyVisited ? '#065f46' : '#64748b',
@@ -1369,11 +1449,11 @@ export default function DoctorsPage() {
                       </span>
                       {/* visited → writing pill */}
                       <span style={{ display: 'inline-flex', alignItems: 'center', background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 20, overflow: 'hidden', fontSize: 12 }}>
-                        <span style={{ padding: '2px 9px', color: '#065f46', fontWeight: 700 }}>✅ {area.visitedCount} مُزار</span>
+                        <span style={{ padding: '2px 9px', color: '#065f46', fontWeight: 700 }}>{area.visitedCount} ✅</span>
                         {area.writingCount > 0 && (
                           <>
                             <span style={{ color: '#34d399', fontSize: 11, padding: '0 2px' }}>←</span>
-                            <span style={{ padding: '2px 9px', color: '#0d9488', fontWeight: 700, borderRight: '1px solid #6ee7b7' }}>✏️ {area.writingCount} يكتب</span>
+                            <span style={{ padding: '2px 9px', color: '#0d9488', fontWeight: 700, borderRight: '1px solid #6ee7b7' }}>{area.writingCount} ✏️</span>
                           </>
                         )}
                       </span>
@@ -1534,28 +1614,46 @@ export default function DoctorsPage() {
                   options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
                 }
                 return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
-                    <button onClick={() => setPharmVisitMonthFilter(null)} style={{
-                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                      border: `1px solid ${pharmVisitMonthFilter === null ? '#0ea5e9' : '#e2e8f0'}`,
-                      background: pharmVisitMonthFilter === null ? '#e0f2fe' : 'transparent',
-                      color: pharmVisitMonthFilter === null ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
-                    }}>الكل</button>
-                    {options.map(o => {
-                      const active = pharmVisitMonthFilter?.month === o.month && pharmVisitMonthFilter?.year === o.year;
-                      return (
-                        <button key={`${o.month}-${o.year}`}
-                          onClick={() => setPharmVisitMonthFilter({ month: o.month, year: o.year })}
-                          style={{
-                            fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                            border: `1px solid ${active ? '#0ea5e9' : '#e2e8f0'}`,
-                            background: active ? '#e0f2fe' : 'transparent',
-                            color: active ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
-                          }}>{o.label}</button>
-                      );
-                    })}
-                  </div>
+                  !showPharmMonthPicker ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
+                      <button style={{
+                        fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                        border: '1px solid #0ea5e9', background: '#e0f2fe', color: '#0369a1',
+                        cursor: 'default', whiteSpace: 'nowrap',
+                      }}>الكل</button>
+                      <button
+                        onClick={() => setShowPharmMonthPicker(true)}
+                        style={{
+                          fontSize: 13, padding: '2px 8px', borderRadius: 14, flexShrink: 0,
+                          border: '1px solid #e2e8f0', background: 'transparent', color: '#94a3b8',
+                          cursor: 'pointer', lineHeight: 1,
+                        }}>‹</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
+                      <button onClick={() => { setPharmVisitMonthFilter(null); setShowPharmMonthPicker(false); }} style={{
+                        fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                        border: `1px solid ${pharmVisitMonthFilter === null ? '#0ea5e9' : '#e2e8f0'}`,
+                        background: pharmVisitMonthFilter === null ? '#e0f2fe' : 'transparent',
+                        color: pharmVisitMonthFilter === null ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}>الكل</button>
+                      {options.map(o => {
+                        const active = pharmVisitMonthFilter?.month === o.month && pharmVisitMonthFilter?.year === o.year;
+                        return (
+                          <button key={`${o.month}-${o.year}`}
+                            onClick={() => setPharmVisitMonthFilter({ month: o.month, year: o.year })}
+                            style={{
+                              fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                              border: `1px solid ${active ? '#0ea5e9' : '#e2e8f0'}`,
+                              background: active ? '#e0f2fe' : 'transparent',
+                              color: active ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}>{o.label}</button>
+                        );
+                      })}
+                    </div>
+                  )
                 );
               })()}
 
@@ -1586,11 +1684,15 @@ export default function DoctorsPage() {
 
               {/* Search + expand/collapse */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input value={pharmSearch} onChange={e => setPharmSearch(e.target.value)}
-                  placeholder="بحث باسم الصيدلية..."
-                  style={{ ...inputStyle, maxWidth: 260 }} />
+                <SmartSearch
+                  value={pharmSearch}
+                  onChange={setPharmSearch}
+                  placeholder="بحث..."
+                  suggestions={pharmVisitAreas.flatMap(a => a.pharmacies.map((p: any) => p.name))}
+                  style={{ maxWidth: 260, minWidth: 180 }}
+                />
                 <button onClick={() => setPharmExpandedAreas(
-                  pharmExpandedAreas.size > 0 ? new Set() : new Set(pharmVisitAreas.map(a => String(a.id)))
+                  pharmExpandedAreas.size > 0 ? new Set() : new Set(pharmVisitAreas.map((a, i) => a.id != null ? String(a.id) : `name-${i}-${a.name}`))
                 )} style={{
                   padding: '7px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0',
                   background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: 13, fontWeight: 600,
@@ -1616,8 +1718,8 @@ export default function DoctorsPage() {
               )}
 
               {/* Area groups */}
-              {!pharmVisitLoading && pharmVisitAreas.map(area => {
-                const key    = String(area.id);
+              {!pharmVisitLoading && pharmVisitAreas.map((area, aIdx) => {
+                const key    = area.id != null ? String(area.id) : `name-${aIdx}-${area.name}`;
                 const isOpen = pharmExpandedAreas.has(key);
                 const searchQ = pharmSearch.trim().toLowerCase();
                 const filteredPharmas = area.pharmacies.filter(p =>
@@ -1782,9 +1884,13 @@ export default function DoctorsPage() {
 
           {/* Search + area filter */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={surveyPharmSearch} onChange={e => setSurveyPharmSearch(e.target.value)}
-              placeholder="بحث باسم الصيدلية أو المالك..."
-              style={{ ...inputStyle, maxWidth: 280 }} />
+            <SmartSearch
+              value={surveyPharmSearch}
+              onChange={setSurveyPharmSearch}
+              placeholder="بحث..."
+              suggestions={surveyPharmacies.flatMap(p => [p.name, p.ownerName ?? '', p.areaName ?? '']).filter(Boolean)}
+              style={{ maxWidth: 280, minWidth: 180 }}
+            />
             {(() => {
               const areas = [...new Set(surveyPharmacies.map(p => p.areaName ?? '').filter(Boolean))].sort();
               return (
