@@ -320,6 +320,22 @@ export default function DoctorsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // When user changes (login/switch), reload wishlist from correct per-user key
+  // and remove old generic keys to prevent bleed-over
+  useEffect(() => {
+    if (!user?.id) return;
+    const key  = `wishedDoctors_${user.id}`;
+    const kIt  = `wishedItems_${user.id}`;
+    const kNm  = `wishedDoctorNames_${user.id}`;
+    try { setWishedDoctors(new Set(JSON.parse(localStorage.getItem(key) || '[]'))); } catch { setWishedDoctors(new Set()); }
+    try { setWishedItems(JSON.parse(localStorage.getItem(kIt) || '{}')); }           catch { setWishedItems({}); }
+    try { setWishedNames(JSON.parse(localStorage.getItem(kNm) || '{}')); }           catch { setWishedNames({}); }
+    // Remove old generic keys so they no longer pollute any session
+    localStorage.removeItem('wishedDoctors');
+    localStorage.removeItem('wishedItems');
+    localStorage.removeItem('wishedDoctorNames');
+  }, [user?.id]);
+
   // AI assistant page-action listener
   useEffect(() => {
     const handler = (e: Event) => {
