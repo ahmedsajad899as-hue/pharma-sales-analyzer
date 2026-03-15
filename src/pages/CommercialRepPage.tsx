@@ -2475,16 +2475,6 @@ export default function CommercialRepPage() {
              : 'إدارة الفواتير والاستحصالات التجارية'}
           </div>
         </div>
-        {/* Notification bell */}
-        <button
-          className="comm-bell-btn"
-          onClick={() => setActiveTab('notifs')}
-        >
-          🔔
-          {unreadCount > 0 && (
-            <span className="comm-bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
-          )}
-        </button>
       </div>
 
       {/* Tabs */}
