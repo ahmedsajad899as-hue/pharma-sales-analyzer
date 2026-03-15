@@ -1335,6 +1335,10 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     if (role === 'user') {
       if (userId) where.userId = userId;
       if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
+    } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
+      // Rep sees only their own visits
+      if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
+      else if (userId) where.userId = userId;
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
@@ -1388,6 +1392,10 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     if (role === 'user') {
       if (userId) pharmWhere.userId = userId;
       if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
+    } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
+      // Rep sees only their own visits
+      if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
+      else if (userId) pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
