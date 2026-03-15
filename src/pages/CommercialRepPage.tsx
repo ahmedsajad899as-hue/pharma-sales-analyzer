@@ -264,6 +264,7 @@ export default function CommercialRepPage() {
   const [pharmaModal, setPharmaModal]       = useState(false);
   const [newPharma, setNewPharma]           = useState({ name: '', ownerName: '', phone: '', address: '', areaName: '' });
   const [pharmaSaving, setPharmaSaving]     = useState(false);
+  const [showRecentColl, setShowRecentColl] = useState(true);
 
   // ── Pharmacy search debounce ───────────────────────────────────
   const pharmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1718,8 +1719,15 @@ export default function CommercialRepPage() {
           {/* Recent collections */}
           {stats && stats.recentCollections.length > 0 && (
             <div className="comm-card" style={{ marginTop: 16 }}>
-              <div className="comm-card-title">🕐 آخر الاستحصالات (7 أيام)</div>
-              {stats.recentCollections.map((c: any, i: number) => (
+              <div
+                className="comm-card-title"
+                onClick={() => setShowRecentColl(p => !p)}
+                style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <span>🕐 آخر الاستحصالات (7 أيام)</span>
+                <span style={{ fontSize: 14, color: '#64748b', transition: 'transform 0.2s', display: 'inline-block', transform: showRecentColl ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▾</span>
+              </div>
+              {showRecentColl && stats.recentCollections.map((c: any, i: number) => (
                 <div key={i} className={`comm-recent-row ${c.isFullCollection ? 'full' : 'partial'}`}
                   style={{ cursor: c.invoice?.id ? 'pointer' : undefined }}
                   onClick={() => { if (c.invoice?.id) fetchInvoiceDetail(c.invoice.id); }}
