@@ -234,6 +234,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <div style={{ marginBottom: 6 }}>
                 <LangToggleBtn full />
               </div>
+              {!REP_ANALYSIS_ROLES.has(role) && (
               <div style={{ marginBottom: 6 }}>
                 <button
                   onClick={switchEnv}
@@ -248,6 +249,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   }}
                 >{isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}</button>
               </div>
+              )}
               <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
                 🚪 {t.sidebar.logout}
               </button>
@@ -277,6 +279,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 }}
               >🤖</button>
               <LangToggleBtn />
+              {!REP_ANALYSIS_ROLES.has(role) && (
               <button
                 onClick={switchEnv}
                 title={isLocal ? 'فتح على Production' : 'فتح على Local'}
@@ -288,6 +291,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   color: isLocal ? '#fbbf24' : '#4ade80',
                 }}
               >{isLocal ? '🚀' : '🖥️'}</button>
+              )}
               <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%' }}>
                 <span className="sidebar-nav-icon">🚪</span>
               </button>
@@ -390,6 +394,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               >
                 🌐 {t.toggleLang}
               </button>
+              {!REP_ANALYSIS_ROLES.has(role) && (
               <button
                 onClick={() => { switchEnv(); setMobileMenuOpen(false); }}
                 style={{
@@ -402,6 +407,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               >
                 {isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}
               </button>
+              )}
               <button
                 className="btn btn--secondary"
                 style={{ width: '100%', fontSize: 14 }}
