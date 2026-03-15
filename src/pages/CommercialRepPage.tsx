@@ -360,9 +360,13 @@ export default function CommercialRepPage() {
       const r = await fetch('/api/commercial/invoices?take=2000', { headers: H() });
       if (!r.ok) return;
       const d = await r.json();
-      const names = [...new Set<string>((d.data as Invoice[])
-        .map((i: Invoice) => i.pharmacyName))].sort();
+      const areaMap: Record<string, string> = {};
+      (d.data as Invoice[]).forEach((i: Invoice) => {
+        if (i.areaName && !areaMap[i.pharmacyName]) areaMap[i.pharmacyName] = i.areaName;
+      });
+      const names = [...new Set<string>((d.data as Invoice[]).map((i: Invoice) => i.pharmacyName))].sort();
       setPharmNames(names);
+      setPharmAreaMap(areaMap);
     } catch {}
   }, [H]);
 
@@ -1495,7 +1499,7 @@ export default function CommercialRepPage() {
           {pickModal && (() => {
             const allNames = [...new Set([...pharmNames, ...pharmacies.map(p => p.name)])].sort();
             // Map: pharmacy name → area name
-            const areaByName: Record<string, string> = {};
+            const areaByName: Record<string, string> = { ...pharmAreaMap };
             pharmacies.forEach(p => { if (p.areaName) areaByName[p.name] = p.areaName; });
             // Step-1 suggestions: only show when typing, sorted by best match first
             const q = pickQuery.trim().toLowerCase();
