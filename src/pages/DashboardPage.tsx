@@ -55,6 +55,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [showCallsSection, setShowCallsSection] = useState(() => localStorage.getItem('dash_calls_open') === 'true');
   const [showCallStats, setShowCallStats] = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
+  // Pre-fetched rep list for managers — shown in dropdown even when today has no visits
+  const [dashReps, setDashReps] = useState<{ id: number; name: string }[]>([]);
   const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
   const [showLikersId, setShowLikersId] = useState<number | null>(null);
@@ -164,6 +166,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       .catch(() => {})
       .finally(() => setCallsLoading(false));
   };
+
+  // Pre-fetch available reps so manager rep-filter works even when today has no visits
+  useEffect(() => {
+    if (!isManagerOrAdmin) return;
+    fetch(`/api/scientific-reps`, { headers: authH() })
+      .then(r => r.json())
+      .then(json => {
+        const list: { id: number; name: string }[] = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
+        setDashReps(list);
+      }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, isManagerOrAdmin]);
 
   // Load commercial rep dashboard data
   useEffect(() => {
@@ -2794,24 +2808,28 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               )}
             </div>
             {/* Rep filter — only for admin/manager */}
-            {isManagerOrAdmin && callsData && callsData.reps.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                  👤 {(t.dashboard as any).dailyCallsRep}:
-                </label>
-                <select
-                  className="form-input"
-                  style={{ padding: '5px 10px', fontSize: '13px' }}
-                  value={callsRepId}
-                  onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
-                >
-                  <option value="">{(t.dashboard as any).dailyCallsAllReps}</option>
-                  {callsData.reps.map(r => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {isManagerOrAdmin && (() => {
+              const repList = (callsData && callsData.reps.length > 0) ? callsData.reps : dashReps;
+              if (repList.length === 0) return null;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                    👤 {(t.dashboard as any).dailyCallsRep}:
+                  </label>
+                  <select
+                    className="form-input"
+                    style={{ padding: '5px 10px', fontSize: '13px' }}
+                    value={callsRepId}
+                    onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">{(t.dashboard as any).dailyCallsAllReps}</option>
+                    {repList.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
             {/* Map button */}
             {callsData && callsData.visits.length > 0 && (
               <button

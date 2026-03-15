@@ -30,6 +30,8 @@ export async function listAllUsers(req, res) {
       isActive: true, phone: true, officeId: true, linkedRepId: true,
       office: { select: { id: true, name: true } },
       _count: { select: { companyAssignments: true, doctorVisits: true } },
+      companyAssignments: { include: { company: { select: { id: true, name: true } } } },
+      managersOfUser:     { include: { manager: { select: { id: true, username: true, displayName: true } } } },
     },
     orderBy: { createdAt: 'asc' },
   });

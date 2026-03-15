@@ -19,6 +19,7 @@ export async function create(dto) {
 
 // Roles that see only their assigned-company reps (not all reps)
 const COMPANY_SCOPED_ROLES = new Set([
+  'scientific_rep',
   'company_manager', 'supervisor', 'product_manager', 'team_leader',
   'office_manager', 'commercial_supervisor', 'commercial_team_leader',
 ]);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { PageId } from '../../App';
 import { useAuth } from '../../context/AuthContext';
+import type { SavedAccount } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 function OrdineLogo({ size = 28 }: { size?: number }) {
@@ -31,9 +32,10 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, activeFileIds = [], showAI, onAIToggle }: SidebarProps) {
-  const { user, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature } = useAuth();
+  const { user, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, savedAccounts, switchAccount, removeSavedAccount } = useAuth();
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showSwitchPanel, setShowSwitchPanel] = useState(false);
 
   const role = user?.role ?? 'user';
 
@@ -113,6 +115,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const roleLabel = ROLE_LABELS[role] ?? role;
   const roleIcon  = ROLE_ICONS[role]  ?? '👤';
 
+  // Other saved accounts (excluding the currently active one)
+  const otherAccounts = savedAccounts.filter(a => a.user.id !== user?.id);
+  // Show switch button whenever the feature is enabled and at least one account is saved
+  // (even a single saved account is useful — user can open panel, see info, add more)
+  const showSwitchBtn = hasFeature('switch_account') && savedAccounts.length >= 1;
+
   const LangToggleBtn = ({ full }: { full?: boolean }) => (
     <button
       onClick={toggleLang}
@@ -182,12 +190,21 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 18 }}>{roleIcon}</span>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0' }}>{user?.username}</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    {roleLabel}
-                  </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{roleLabel}</div>
                 </div>
+                {showSwitchBtn && (
+                  <button
+                    onClick={() => setShowSwitchPanel(true)}
+                    title="تبديل الحساب"
+                    style={{
+                      background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                      borderRadius: 7, padding: '4px 7px', fontSize: 14, cursor: 'pointer',
+                      color: '#a5b4fc', flexShrink: 0,
+                    }}
+                  >⇄</button>
+                )}
               </div>
               <div style={{ marginBottom: 6 }}>
                 <button
@@ -214,6 +231,17 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             </>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+              {showSwitchBtn && (
+                <button
+                  onClick={() => setShowSwitchPanel(true)}
+                  title="تبديل الحساب"
+                  style={{
+                    background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a5b4fc',
+                  }}
+                >⇄</button>
+              )}
               <button
                 onClick={onAIToggle}
                 title={showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
@@ -296,6 +324,16 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               })}
             </nav>
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {showSwitchBtn && (
+                <button
+                  onClick={() => { setShowSwitchPanel(true); setMobileMenuOpen(false); }}
+                  style={{
+                    background: '#eef2ff', border: '1px solid #a5b4fc', borderRadius: 8,
+                    padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#4338ca',
+                    cursor: 'pointer', width: '100%', textAlign: 'center',
+                  }}
+                >⇄ تبديل الحساب</button>
+              )}
               <button
                 onClick={() => { onAIToggle?.(); setMobileMenuOpen(false); }}
                 style={{
@@ -326,6 +364,126 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 🚪 {t.sidebar.logout}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SWITCH ACCOUNT PANEL ── */}
+      {showSwitchPanel && (
+        <div
+          onClick={() => setShowSwitchPanel(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 18, padding: 24,
+              minWidth: 300, maxWidth: 400, width: '90%',
+              maxHeight: '80vh', overflowY: 'auto',
+              direction: 'rtl', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>⇄ تبديل الحساب</h2>
+              <button
+                onClick={() => setShowSwitchPanel(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}
+              >✕</button>
+            </div>
+
+            {/* Current account */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>الحساب الحالي</div>
+              <div style={{
+                background: '#eef2ff', border: '2px solid #a5b4fc', borderRadius: 12,
+                padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12,
+              }}>
+                <div style={{
+                  width: 38, height: 38, borderRadius: '50%', background: '#6366f1',
+                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 900, fontSize: 17, flexShrink: 0,
+                }}>
+                  {(user?.displayName || user?.username || '?')[0].toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#3730a3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user?.displayName || user?.username}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6366f1' }}>{ROLE_LABELS[user?.role ?? ''] ?? user?.role}</div>
+                </div>
+                <span style={{ fontSize: 18, color: '#6366f1' }}>✓</span>
+              </div>
+            </div>
+
+            {/* Other accounts */}
+            {otherAccounts.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>حسابات أخرى</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {otherAccounts.map((acc: SavedAccount) => (
+                    <div
+                      key={acc.user.id}
+                      style={{
+                        background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12,
+                        padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12,
+                        cursor: 'pointer', transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
+                      onMouseLeave={e => (e.currentTarget.style.background = '#f8fafc')}
+                    >
+                      {/* Avatar */}
+                      <div
+                        onClick={() => { switchAccount(acc); setShowSwitchPanel(false); }}
+                        style={{
+                          width: 38, height: 38, borderRadius: '50%', background: '#0ea5e9',
+                          color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 900, fontSize: 17, flexShrink: 0, cursor: 'pointer',
+                        }}
+                      >
+                        {(acc.user.displayName || acc.user.username || '?')[0].toUpperCase()}
+                      </div>
+                      {/* Info */}
+                      <div
+                        style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                        onClick={() => { switchAccount(acc); setShowSwitchPanel(false); }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {acc.user.displayName || acc.user.username}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>{ROLE_LABELS[acc.user.role] ?? acc.user.role}</div>
+                      </div>
+                      {/* Switch btn */}
+                      <button
+                        onClick={() => { switchAccount(acc); setShowSwitchPanel(false); }}
+                        style={{
+                          background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 8,
+                          padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                        }}
+                      >تبديل</button>
+                      {/* Remove btn */}
+                      <button
+                        onClick={e => { e.stopPropagation(); removeSavedAccount(acc.user.id); }}
+                        title="إزالة من القائمة"
+                        style={{
+                          background: 'none', border: 'none', fontSize: 16,
+                          cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', flexShrink: 0,
+                        }}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {savedAccounts.length <= 1 && (
+              <p style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', marginTop: 8 }}>
+                لا توجد حسابات محفوظة أخرى — سجّل دخول بحساب آخر أولاً ليظهر هنا
+              </p>
+            )}
           </div>
         </div>
       )}

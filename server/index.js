@@ -1338,6 +1338,28 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
+    } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
+      // Scope to reps assigned to same company as this user
+      const assignments = await prisma.userCompanyAssignment.findMany({
+        where: { userId },
+        select: { companyId: true },
+      });
+      const companyIds = assignments.map(a => a.companyId);
+      if (companyIds.length > 0) {
+        const repUsers = await prisma.user.findMany({
+          where: {
+            companyAssignments: { some: { companyId: { in: companyIds } } },
+            linkedRepId: { not: null },
+          },
+          select: { linkedRepId: true },
+        });
+        const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
+        if (repId && repIds.includes(repId)) {
+          where.scientificRepId = repId;
+        } else if (!repId && repIds.length > 0) {
+          where.scientificRepId = { in: repIds };
+        }
+      }
     } else {
       // admin: optionally filter by rep
       if (repId) where.scientificRepId = repId;
@@ -1368,6 +1390,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
+    } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
+      // Reuse the same rep-scope computed above for doctor visits
+      if (where.scientificRepId) pharmWhere.scientificRepId = where.scientificRepId;
     } else {
       if (repId) pharmWhere.scientificRepId = repId;
     }

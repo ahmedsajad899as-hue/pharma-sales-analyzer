@@ -293,6 +293,7 @@ tr:hover {
   z-index: 100;
   transition: width 0.3s ease;
   box-shadow: -4px 0 20px rgba(0,0,0,0.25);
+  overflow: hidden;
 }
 
 .sidebar--open  { width: 240px; }
@@ -338,6 +339,9 @@ tr:hover {
   flex-direction: column;
   padding: 12px 8px;
   gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 .sidebar-nav-item {

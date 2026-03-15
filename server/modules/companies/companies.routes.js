@@ -1,14 +1,17 @@
 import express from 'express';
+import multer from 'multer';
 import {
   listCompanies, getCompany, createCompany, updateCompany, deleteCompany,
   listLines, createLine, updateLine, deleteLine,
   setLineItems, getAllLines,
   createCompanyItem, deleteCompanyItem,
+  importCompanyItems,
   getCompanyOrg,
 } from './companies.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
 const router = express.Router();
+const memUpload = multer({ storage: multer.memoryStorage() });
 
 router.use(requireSuperAdmin);
 
@@ -24,8 +27,9 @@ router.put('/:id',        updateCompany);
 router.delete('/:id',     deleteCompany);
 
 // Items within a company
-router.post('/:id/items',           createCompanyItem);
-router.delete('/:id/items/:itemId', deleteCompanyItem);
+router.post('/:id/items',                  createCompanyItem);
+router.post('/:id/items/import',           memUpload.single('file'), importCompanyItems);
+router.delete('/:id/items/:itemId',        deleteCompanyItem);
 
 // Lines within a company
 router.get('/:id/lines',               listLines);

@@ -133,6 +133,12 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
   const [error,     setError]     = useState('');
   const [itemForm,  setItemForm]  = useState<ItemForm | null>(null);
 
+  // ─── Excel import ──────────────────────────────────────────────────────
+  const [xlsxOpen,    setXlsxOpen]    = useState(false);
+  const [xlsxFile,    setXlsxFile]    = useState<File | null>(null);
+  const [xlsxLoading, setXlsxLoading] = useState(false);
+  const [xlsxResult,  setXlsxResult]  = useState<{ inserted: number; skipped: number; errors: { name: string; error: string }[] } | null>(null);
+
   // ─── Org view ──────────────────────────────────────────────────────────
   const [orgData,    setOrgData]    = useState<OrgData | null>(null);
   const [orgLoading, setOrgLoading] = useState(false);
@@ -210,6 +216,20 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
   };
 
   const blankItemForm = (): ItemForm => ({ name: '', scientificName: '', dosage: '', form: '', price: '', scientificMessage: '' });
+
+  const importFromExcel = async () => {
+    if (!detail || !xlsxFile) return;
+    setXlsxLoading(true); setXlsxResult(null); setError('');
+    const fd = new FormData();
+    fd.append('file', xlsxFile);
+    const res = await fetch(`/api/sa/companies/${detail.id}/items/import`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+    });
+    const d = await res.json();
+    setXlsxLoading(false);
+    if (d.success) { setXlsxResult(d.data); loadDetail(detail.id); }
+    else setError(d.error || 'خطأ في الاستيراد');
+  };
 
   const addItem = async () => {
     if (!detail || !itemForm?.name?.trim()) return;
@@ -379,7 +399,7 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
                   orgUserPop.phone ? ['الهاتف', orgUserPop.phone] : null,
                   managers.length > 0 ? ['المدير',   managers.map(u => u.displayName || u.username).join('، ')] : null,
                   subs.length     > 0 ? ['المرؤوسون', subs.map(u => u.displayName || u.username).join('، ')] : null,
-                ].filter(Boolean).map(([label, value]) => (
+                ].filter((x): x is string[] => x !== null).map(([label, value]) => (
                   <div key={label as string} style={{ display: 'flex', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, fontSize: 13 }}>
                     <span style={{ color: '#64748b', fontWeight: 600, minWidth: 80 }}>{label}</span>
                     <span style={{ color: '#1e293b' }}>{value}</span>
@@ -415,7 +435,10 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#374151' }}>الايتمات ({detail.items.length})</h3>
-          <button onClick={() => { setItemForm(blankItemForm()); setError(''); }} style={btnStyle('#059669', true)}>+ إضافة ايتم</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { setXlsxOpen(true); setXlsxFile(null); setXlsxResult(null); setError(''); }} style={btnStyle('#7c3aed', true)}>📊 استيراد من اكسل</button>
+            <button onClick={() => { setItemForm(blankItemForm()); setError(''); }} style={btnStyle('#059669', true)}>+ إضافة ايتم</button>
+          </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {detail.items.map(i => (
@@ -454,6 +477,49 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
         ))}
         {detail.lines.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 16 }}>لا توجد لاينات</div>}
       </div>
+
+      {/* Excel import modal */}
+      {xlsxOpen && (
+        <Modal onClose={() => { setXlsxOpen(false); setError(''); setXlsxResult(null); }} title="استيراد ايتمات من اكسل">
+          <div style={{ marginBottom: 14, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#475569', lineHeight: 1.7, border: '1px solid #e2e8f0' }}>
+            <strong style={{ display: 'block', marginBottom: 4, color: '#1e293b' }}>📋 تنسيق العمود المطلوب:</strong>
+            <code style={{ display: 'block', fontFamily: 'monospace', color: '#6366f1' }}>name | scientificName | dosage | form | price | scientificMessage</code>
+            <span style={{ color: '#94a3b8', marginTop: 4, display: 'block' }}>يمكن استخدام الأسماء العربية: الاسم / الاسم العلمي / الجرعة / الشكل / السعر / المسج</span>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>اختر ملف Excel</label>
+            <input
+              type="file" accept=".xlsx,.xls"
+              onChange={e => { setXlsxFile(e.target.files?.[0] ?? null); setXlsxResult(null); }}
+              style={{ width: '100%', fontSize: 13, cursor: 'pointer' }}
+            />
+          </div>
+          {error && <ErrBox msg={error} />}
+          {xlsxResult && (
+            <div style={{ marginBottom: 14, padding: '12px 14px', background: xlsxResult.errors.length ? '#fff7ed' : '#f0fdf4', borderRadius: 8, border: `1px solid ${xlsxResult.errors.length ? '#fed7aa' : '#bbf7d0'}` }}>
+              <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600, marginBottom: 6 }}>نتيجة الاستيراد:</div>
+              <div style={{ fontSize: 13, color: '#16a34a' }}>✅ تم إضافة: <strong>{xlsxResult.inserted}</strong> ايتم</div>
+              <div style={{ fontSize: 13, color: '#64748b' }}>⏭️ تم تخطي: <strong>{xlsxResult.skipped}</strong> (موجود مسبقاً أو بدون اسم)</div>
+              {xlsxResult.errors.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>⚠️ أخطاء ({xlsxResult.errors.length}):</div>
+                  {xlsxResult.errors.slice(0, 5).map((e, i) => (
+                    <div key={i} style={{ fontSize: 11, color: '#b45309', marginTop: 2 }}>• {e.name}: {e.error}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={() => { setXlsxOpen(false); setError(''); setXlsxResult(null); }} style={btnStyle('#6b7280', true)}>إغلاق</button>
+            {!xlsxResult && (
+              <button onClick={importFromExcel} disabled={xlsxLoading || !xlsxFile} style={btnStyle('#7c3aed', true)}>
+                {xlsxLoading ? '⏳ جاري الاستيراد...' : '📥 استيراد'}
+              </button>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {/* Item add modal */}
       {itemForm !== null && (

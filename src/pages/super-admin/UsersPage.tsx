@@ -85,6 +85,8 @@ const FEATURE_TREE: FeatureNode[] = [
   { key: 'users_list', label: 'قائمة المستخدمين',        icon: '👥', desc: 'صفحة عرض وإدارة قائمة المستخدمين'   },
   // ── 8. قائمة الطلبات (السيرفي)
   { key: 'wish_list',  label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'خاصية عرض قائمة الأطباء المستهدفين' },
+  // ── 9. تبديل الحساب
+  { key: 'switch_account', label: 'تبديل الحساب (Switch Account)', icon: '⇄', desc: 'زر في الشريط الجانبي لتبديل الحسابات المحفوظة بدون تسجيل خروج' },
 ];
 
 interface Office   { id: number; name: string; }
@@ -94,16 +96,18 @@ interface Item     { id: number; name: string; }
 interface Area     { id: number; name: string; }
 interface UserRow  {
   id: number; username: string; displayName?: string; role: string; phone?: string;
-  isActive: boolean; officeId?: number; office?: { name: string };
+  isActive: boolean; officeId?: number; office?: { id: number; name: string };
   permissions?: string | null;
   _count?: { companyAssignments: number; areas: number; };
+  companyAssignments?: { companyId: number; company: { id: number; name: string } }[];
+  managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
 }
 interface UserDetail extends UserRow {
-  companyAssignments: { companyId: number; company: { name: string } }[];
+  companyAssignments: { companyId: number; company: { id: number; name: string } }[];
   lineAssignments:    { lineId: number;    line:    { name?: string; companyId: number } }[];
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
   areaAssignments:    { areaId: number;    area:    { name: string } }[];
-  managersOfUser:     { managerId: number; manager: { username: string; displayName?: string } }[];
+  managersOfUser:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
 }
 
 export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: number | null; onJumpClear?: () => void } = {}) {
@@ -464,6 +468,114 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   }
 
   // ── LIST VIEW ────────────────────────────────────────────────
+
+  // Role colour helpers
+  const ROLE_COLOR: Record<string, { bg: string; color: string }> = {
+    admin:                  { bg: '#f1f5f9', color: '#475569' },
+    manager:                { bg: '#f1f5f9', color: '#475569' },
+    office_manager:         { bg: '#eef2ff', color: '#4f46e5' },
+    office_hr:              { bg: '#f0fdfa', color: '#0d9488' },
+    office_employee:        { bg: '#f8fafc', color: '#64748b' },
+    company_manager:        { bg: '#f5f3ff', color: '#7c3aed' },
+    supervisor:             { bg: '#eff6ff', color: '#1d4ed8' },
+    product_manager:        { bg: '#e0f2fe', color: '#0369a1' },
+    team_leader:            { bg: '#ecfeff', color: '#0891b2' },
+    scientific_rep:         { bg: '#f0fdf4', color: '#059669' },
+    commercial_supervisor:  { bg: '#fffbeb', color: '#b45309' },
+    commercial_team_leader: { bg: '#fff7ed', color: '#c2410c' },
+    commercial_rep:         { bg: '#fff1f2', color: '#dc2626' },
+  };
+
+  // Inline user card used inside group blocks
+  const UserCard = ({ u, indent = false }: { u: UserRow; indent?: boolean }) => {
+    const rc = ROLE_COLOR[u.role] ?? { bg: '#f8fafc', color: '#64748b' };
+    const mgrs = u.managersOfUser ?? [];
+    const mgrLabel = mgrs.length > 0
+      ? mgrs.map(m => m.manager.displayName || m.manager.username).join('، ')
+      : null;
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 14px', background: '#fff',
+        borderRadius: 10, border: '1px solid #e9eef5',
+        marginRight: indent ? 28 : 0,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, cursor: 'pointer', minWidth: 0 }} onClick={() => loadDetail(u.id)}>
+          {indent && <span style={{ color: '#cbd5e1', fontSize: 14, flexShrink: 0 }}>└─</span>}
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: rc.bg, border: `1.5px solid ${rc.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+            {u.isActive ? '👤' : '🚫'}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{u.displayName || u.username}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8' }}>@{u.username}{u.phone ? ` · ${u.phone}` : ''}</div>
+            {mgrLabel && <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 1 }}>↑ {mgrLabel}</div>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginRight: 8 }}>
+          <span style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.color}33`, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            {ROLES.find(r => r.value === u.role)?.label || u.role}
+          </span>
+          <span style={{ background: u.isActive ? '#dcfce7' : '#fee2e2', color: u.isActive ? '#16a34a' : '#dc2626', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
+            {u.isActive ? 'نشط' : 'معطل'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+          <button onClick={() => viewAsUser(u)} title="مراقبة" style={btnStyle('#0ea5e9', true)}>👁️</button>
+          <button onClick={() => setForm({ ...u, password: '' })} style={btnStyle('#3b82f6', true)}>تعديل</button>
+          <button onClick={() => toggleUser(u)} style={btnStyle(u.isActive ? '#f59e0b' : '#10b981', true)}>{u.isActive ? 'تعطيل' : 'تفعيل'}</button>
+          <button onClick={() => delUser(u)} style={btnStyle('#ef4444', true)}>حذف</button>
+        </div>
+      </div>
+    );
+  };
+
+  // Admin users = no office OR role admin/manager
+  const ADMIN_ROLES = ['admin', 'manager'];
+  const adminUsers   = filtered.filter(u => !u.officeId || ADMIN_ROLES.includes(u.role));
+  // Office users — grouped by office, then by company
+  const officeUsers  = filtered.filter(u => u.officeId && !ADMIN_ROLES.includes(u.role));
+
+  // Build grouped structure: office → company → users
+  type CompanyGroup = { company: { id: number; name: string } | null; users: UserRow[] };
+  type OfficeGroup  = { office: { id: number; name: string }; companyGroups: CompanyGroup[] };
+
+  const officeMap = new Map<number, OfficeGroup>();
+  for (const u of officeUsers) {
+    const oid = u.officeId!;
+    if (!officeMap.has(oid)) {
+      officeMap.set(oid, { office: { id: oid, name: u.office?.name || `مكتب #${oid}` }, companyGroups: [] });
+    }
+    const og = officeMap.get(oid)!;
+    const userCompanies = u.companyAssignments ?? [];
+    if (userCompanies.length === 0) {
+      // No company — put in null group
+      let nullGroup = og.companyGroups.find(g => g.company === null);
+      if (!nullGroup) { nullGroup = { company: null, users: [] }; og.companyGroups.push(nullGroup); }
+      nullGroup.users.push(u);
+    } else {
+      for (const ca of userCompanies) {
+        let cg = og.companyGroups.find(g => g.company?.id === ca.company.id);
+        if (!cg) { cg = { company: ca.company, users: [] }; og.companyGroups.push(cg); }
+        if (!cg.users.find(x => x.id === u.id)) cg.users.push(u);
+      }
+    }
+  }
+  // Sort company groups: named companies first, null last
+  for (const og of officeMap.values()) {
+    og.companyGroups.sort((a, b) => {
+      if (a.company === null) return 1;
+      if (b.company === null) return -1;
+      return a.company.name.localeCompare(b.company.name);
+    });
+  }
+  const officeGroups = Array.from(officeMap.values());
+
+  // Sort users inside a company group: managers first
+  const ROLE_ORDER = ['company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep','office_manager','office_hr','office_employee'];
+  const sortUsers = (list: UserRow[]) =>
+    [...list].sort((a, b) => (ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)) || a.id - b.id);
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -475,47 +587,68 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         placeholder="🔍 بحث..."
         style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, marginBottom: 20, boxSizing: 'border-box' }}
       />
+
       {loading ? <Spinner /> : (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['المستخدم', 'الدور', 'المكتب', 'الشركات', 'الحالة', ''].map(h => (
-                  <th key={h} style={{ padding: '12px 16px', textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((u, i) => (
-                <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                  <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => loadDetail(u.id)}>
-                    <div style={{ fontWeight: 600, color: '#4f46e5' }}>{u.displayName || u.username}</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>@{u.username}</div>
-                  </td>
-                  <td style={{ padding: '12px 16px', fontSize: 13 }}>{ROLES.find(r => r.value === u.role)?.label || u.role}</td>
-                  <td style={{ padding: '12px 16px', fontSize: 13, color: '#64748b' }}>{u.office?.name || '—'}</td>
-                  <td style={{ padding: '12px 16px', fontSize: 13 }}>{u._count?.companyAssignments ?? 0}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span style={{ background: u.isActive ? '#dcfce7' : '#fee2e2', color: u.isActive ? '#16a34a' : '#dc2626', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
-                      {u.isActive ? 'نشط' : 'معطل'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button onClick={() => viewAsUser(u)} title="دخول كهذا المستخدم" style={btnStyle('#0ea5e9', true)}>👁️ مراقبة</button>
-                      <button onClick={() => loadDetail(u.id)} style={btnStyle('#6366f1', true)}>تفاصيل</button>
-                      <button onClick={() => setForm({ ...u, password: '' })} style={btnStyle('#3b82f6', true)}>تعديل</button>
-                      <button onClick={() => toggleUser(u)} style={btnStyle(u.isActive ? '#f59e0b' : '#10b981', true)}>{u.isActive ? 'تعطيل' : 'تفعيل'}</button>
-                      <button onClick={() => delUser(u)} style={btnStyle('#ef4444', true)}>حذف</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* ── 1. حسابات إدارة التطبيق ────────────────────────────────── */}
+          {adminUsers.length > 0 && (
+            <div style={{ border: '2px solid #6366f1', borderRadius: 14, overflow: 'hidden' }}>
+              <div style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>⚙️</span>
+                <span style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>حسابات إدارة التطبيق</span>
+                <span style={{ fontSize: 12, color: '#c7d2fe', marginRight: 'auto' }}>{adminUsers.length} حساب</span>
+              </div>
+              <div style={{ background: '#fafbff', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {adminUsers.map(u => <UserCard key={u.id} u={u} />)}
+              </div>
+            </div>
+          )}
+
+          {/* ── 2. مكاتب + شركات ───────────────────────────────────────── */}
+          {officeGroups.map(og => (
+            <div key={og.office.id} style={{ border: '2px solid #3b82f6', borderRadius: 14, overflow: 'hidden' }}>
+              {/* Office header */}
+              <div style={{ background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>🏢</span>
+                <span style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>مكتب: {og.office.name}</span>
+                <span style={{ fontSize: 12, color: '#bfdbfe', marginRight: 'auto' }}>
+                  {officeUsers.filter(u => u.officeId === og.office.id).length} مستخدم
+                </span>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {og.companyGroups.map((cg, ci) => (
+                  <div key={cg.company?.id ?? 'none'} style={{
+                    border: `1.5px solid ${cg.company ? '#a5b4fc' : '#e2e8f0'}`,
+                    borderRadius: 12, overflow: 'hidden',
+                    background: '#fff',
+                  }}>
+                    {/* Company sub-header */}
+                    <div style={{
+                      background: cg.company ? '#eef2ff' : '#f1f5f9',
+                      padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
+                      borderBottom: '1px solid #e2e8f0',
+                    }}>
+                      <span style={{ fontSize: 16 }}>{cg.company ? '🏭' : '📌'}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: cg.company ? '#4338ca' : '#64748b' }}>
+                        {cg.company ? cg.company.name : 'بدون شركة'}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{cg.users.length} مستخدم</span>
                     </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
-              )}
-            </tbody>
-          </table>
+                    {/* Users sorted by role */}
+                    <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {sortUsers(cg.users).map((u, ui) => <UserCard key={`${u.id}-${ci}`} u={u} indent={ui > 0} />)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {filtered.length === 0 && (
+            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</div>
+          )}
         </div>
       )}
 

@@ -73,12 +73,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return () => window.removeEventListener('ai-page-action', handler);
   }, []);
 
+// Always load scientific reps — doctor-visit reports don't require uploaded Excel files
+  useEffect(() => {
+    fetch(`/api/scientific-reps`, { headers: authH() })
+      .then(r => r.json())
+      .then(json => {
+        const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
+        setSciReps(list);
+      }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   useEffect(() => {
     if (activeFileIds.length === 0) {
       setCommReps([]);
-      setSciReps([]);
       setCommRepId('');
-      setSciRepId('');
       setCommReport(null);
       setSciReport(null);
       return;
@@ -89,13 +98,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       .then(json => {
         const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
         setCommReps(list);
-      }).catch(() => {});
-
-    fetch(`/api/scientific-reps`, { headers: authH() })
-      .then(r => r.json())
-      .then(json => {
-        const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
-        setSciReps(list);
       }).catch(() => {});
   }, [activeFileIds.join(',')]);
 

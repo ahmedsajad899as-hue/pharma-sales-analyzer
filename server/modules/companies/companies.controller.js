@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import XLSX from 'xlsx';
 
 // ── List companies (optionally filtered by officeId) ──────────────────────
 export async function listCompanies(req, res) {
@@ -254,4 +255,73 @@ export async function getCompanyOrg(req, res) {
     console.error('[getCompanyOrg]', err);
     res.status(500).json({ success: false, error: err.message });
   }
+}
+
+// ── Bulk-import items for a company from an Excel file ────────────────────
+export async function importCompanyItems(req, res) {
+  const companyId = parseInt(req.params.id);
+  if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف' });
+
+  let rows;
+  try {
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  } catch (e) {
+    return res.status(400).json({ error: 'فشل قراءة الملف: ' + e.message });
+  }
+
+  if (!rows.length) return res.status(400).json({ error: 'الملف فارغ أو لا يحتوي بيانات' });
+
+  const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  const COL_MAP = {
+    name:              ['name','اسم_الايتم','الاسم','الايتم','اسم','item','item_name'],
+    scientificName:    ['scientificname','scientific_name','الاسم_العلمي','اسم_علمي'],
+    dosage:            ['dosage','الجرعة','جرعة','dose'],
+    form:              ['form','الشكل','الشكل_الدوائي','dosage_form'],
+    price:             ['price','السعر','سعر'],
+    scientificMessage: ['scientificmessage','scientific_message','scientific_msg','المسج_العلمي','المسج','ملاحظات','notes'],
+  };
+
+  const mapRow = (raw) => {
+    const out = {};
+    const keys = Object.keys(raw);
+    for (const [field, aliases] of Object.entries(COL_MAP)) {
+      const found = keys.find(k => aliases.includes(normalize(k)));
+      out[field] = found != null ? String(raw[found]).trim() : '';
+    }
+    return out;
+  };
+
+  let inserted = 0, skipped = 0;
+  const errors = [];
+
+  for (const raw of rows) {
+    const r = mapRow(raw);
+    if (!r.name) { skipped++; continue; }
+
+    const existing = await prisma.item.findFirst({
+      where: { name: r.name, scientificCompanyId: companyId },
+    });
+    if (existing) { skipped++; continue; }
+
+    try {
+      await prisma.item.create({
+        data: {
+          name:              r.name,
+          scientificName:    r.scientificName    || null,
+          dosage:            r.dosage            || null,
+          form:              r.form              || null,
+          price:             r.price !== '' ? (parseFloat(r.price) || null) : null,
+          scientificMessage: r.scientificMessage || null,
+          scientificCompanyId: companyId,
+        },
+      });
+      inserted++;
+    } catch (e) {
+      errors.push({ name: r.name, error: e.message });
+    }
+  }
+
+  res.json({ success: true, data: { inserted, skipped, errors } });
 }
