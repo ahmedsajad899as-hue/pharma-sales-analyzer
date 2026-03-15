@@ -391,6 +391,18 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 🌐 {t.toggleLang}
               </button>
               <button
+                onClick={() => { switchEnv(); setMobileMenuOpen(false); }}
+                style={{
+                  background: isLocal ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.12)',
+                  border: `1px solid ${isLocal ? 'rgba(234,179,8,0.5)' : 'rgba(34,197,94,0.5)'}`,
+                  borderRadius: 8, padding: '8px 14px', fontSize: 13,
+                  fontWeight: 700, color: isLocal ? '#d97706' : '#16a34a',
+                  cursor: 'pointer', width: '100%', textAlign: 'center',
+                }}
+              >
+                {isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}
+              </button>
+              <button
                 className="btn btn--secondary"
                 style={{ width: '100%', fontSize: 14 }}
                 onClick={() => { logout(); setMobileMenuOpen(false); }}
