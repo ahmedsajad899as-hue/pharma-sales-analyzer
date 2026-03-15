@@ -24,6 +24,7 @@ interface Props {
   visits: VisitPoint[];
   repName?: string;
   onClose: () => void;
+  onShowRoute?: () => void;
 }
 
 // Feedback colour mapping
@@ -70,7 +71,7 @@ function makeNumberedIcon(num: number, color: string) {
   });
 }
 
-export default function DailyCallsMap({ visits, repName, onClose }: Props) {
+export default function DailyCallsMap({ visits, repName, onClose, onShowRoute }: Props) {
   const { t } = useLanguage();
   const mapRef    = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<L.Map | null>(null);
@@ -212,37 +213,47 @@ export default function DailyCallsMap({ visits, repName, onClose }: Props) {
             </div>
           </div>
 
-          {/* Right: GPS badge + close */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              background: 'rgba(255,255,255,0.12)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: 20,
-              padding: '5px 13px',
+          {/* Right: GPS badge + route button + close */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'nowrap' }}>
+            {onShowRoute && (
+              <button
+                onClick={() => { onClose(); onShowRoute(); }}
+                style={{
+                  background: 'rgba(16,185,129,0.18)',
+                  border: '1.5px solid rgba(16,185,129,0.55)',
+                  color: '#fff', borderRadius: 8,
+                  padding: '6px 10px', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                  whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(16,185,129,0.32)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(16,185,129,0.18)')}
+                title="مسار يومي على الخريطة"
+              >
+                📍 مساري
+              </button>
+            )}
+            <span style={{
+              background: gpsVisits.length === visits.length ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.25)',
+              color: '#fff', borderRadius: 14, padding: '3px 8px',
+              fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
             }}>
-              <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>نقاط GPS</span>
-              <span style={{
-                background: gpsVisits.length === visits.length ? '#10b981' : '#f59e0b',
-                color: '#fff', borderRadius: 12, padding: '1px 9px',
-                fontSize: 12, fontWeight: 700,
-              }}>
-                {gpsVisits.length} / {visits.length}
-              </span>
-            </div>
+              📍 {gpsVisits.length}/{visits.length}
+            </span>
             <button
               onClick={onClose}
               style={{
                 background: 'rgba(255,255,255,0.14)',
                 border: '1.5px solid rgba(255,255,255,0.32)',
                 color: '#fff', borderRadius: 8,
-                padding: '7px 15px', fontSize: 13, fontWeight: 600,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                padding: '6px 12px', fontSize: 13, fontWeight: 700,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                whiteSpace: 'nowrap', flexShrink: 0,
               }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.26)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.14)')}
             >
-              ✕ إغلاق
+              ✕
             </button>
           </div>
         </div>

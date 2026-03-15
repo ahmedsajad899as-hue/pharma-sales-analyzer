@@ -417,7 +417,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         style={{
           position: 'fixed',
           bottom: 88,
-          left: 24,
+          right: 24,
           zIndex: 9999,
           width: 52,
           height: 52,
@@ -445,7 +445,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           style={{
             position: 'fixed',
             bottom: 152,
-            left: 16,
+            right: 16,
             zIndex: 9998,
             width: 360,
             maxWidth: 'calc(100vw - 32px)',

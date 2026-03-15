@@ -3,6 +3,23 @@ import type { PageId } from '../../App';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
+function OrdineLogo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="28" height="28" rx="6" fill="#8B1A1A"/>
+      {/* Large arc r=12 */}
+      <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+      {/* Medium arc r=8.5 */}
+      <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+      {/* Small arc r=5 */}
+      <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+      {/* Free + in top-right gap */}
+      <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="white" strokeWidth="2.4" strokeLinecap="round"/>
+      <line x1="21" y1="3" x2="21" y2="12" stroke="white" strokeWidth="2.4" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
 interface SidebarProps {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
@@ -132,7 +149,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       {/* ── DESKTOP SIDEBAR ── */}
       <aside className={`sidebar sidebar--desktop ${isOpen ? 'sidebar--open' : 'sidebar--closed'}`}>
         <div className="sidebar-brand">
-          <span className="sidebar-brand-icon">💊</span>
+          <span className="sidebar-brand-icon"><OrdineLogo size={28} /></span>
           {isOpen && <span className="sidebar-brand-text">{t.appName}</span>}
           <button className="sidebar-toggle" onClick={onToggle} title={t.sidebar.collapse}>
             {isOpen ? (lang === 'ar' ? '◀' : '▶') : (lang === 'ar' ? '▶' : '◀')}
@@ -220,22 +237,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       {/* ── MOBILE TOP HEADER ── */}
       <header className="mobile-header">
         <div className="mobile-header-brand">
-          <span style={{ fontSize: 22 }}>💊</span>
+          <span style={{ fontSize: 22, display:'flex', alignItems:'center' }}><OrdineLogo size={24} /></span>
           <span className="mobile-header-title">{t.appName}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={toggleLang}
-            style={{
-              background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 6,
-              padding: '4px 10px', fontSize: 12, fontWeight: 700, color: '#334155', cursor: 'pointer',
-            }}
-          >
-            🌐 {lang === 'ar' ? 'EN' : 'ع'}
-          </button>
-          <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>
-            {roleIcon} {user?.username}
-          </span>
           <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu">
             ☰
           </button>
@@ -262,7 +267,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           <div className="mobile-drawer" onClick={e => e.stopPropagation()}>
             <div className="mobile-drawer-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 26 }}>💊</span>
+                <span style={{ fontSize: 26, display:'flex', alignItems:'center' }}><OrdineLogo size={28} /></span>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{t.appName}</div>
                   <div style={{ fontSize: 12, color: '#64748b' }}>

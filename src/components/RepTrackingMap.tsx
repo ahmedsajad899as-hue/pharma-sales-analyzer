@@ -23,6 +23,7 @@ interface Props {
   date: string;         // YYYY-MM-DD
   visitMarkers?: VisitMarker[];
   onClose: () => void;
+  onBack?: () => void;  // if provided, button becomes "back" and restores previous page
 }
 
 // Fix Leaflet default icon path issue with bundlers
@@ -111,7 +112,7 @@ async function buildRoadRoute(points: LocationPoint[]): Promise<L.LatLngExpressi
   return merged.map(([lng, lat]) => [lat, lng] as L.LatLngExpression);
 }
 
-export default function RepTrackingMap({ repId, repName, date, visitMarkers = [], onClose }: Props) {
+export default function RepTrackingMap({ repId, repName, date, visitMarkers = [], onClose, onBack }: Props) {
   const mapRef     = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<L.Map | null>(null);
   const [points,  setPoints]  = useState<LocationPoint[]>([]);
@@ -267,40 +268,44 @@ export default function RepTrackingMap({ repId, repName, date, visitMarkers = []
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {points.length > 0 && (
-              <>
-                <span style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
-                  📍 {points.length} نقطة
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {/* Badges — hidden on very narrow screens via overflow but button always stays */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', overflow: 'hidden', maxWidth: 'calc(100vw - 200px)' }}>
+              {points.length > 0 && (
+                <>
+                  <span style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 16, padding: '3px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
+                    📍 {points.length}
+                  </span>
+                  {timeRange && (
+                    <span style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 16, padding: '3px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
+                      🕐 {timeRange}
+                    </span>
+                  )}
+                  {visitMarkers.length > 0 && (
+                    <span style={{ background: 'rgba(99,102,241,0.45)', color: '#e0e7ff', borderRadius: 16, padding: '3px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
+                      🏥 {visitMarkers.length}
+                    </span>
+                  )}
+                </>
+              )}
+              {routing && (
+                <span style={{ background: 'rgba(251,191,36,0.3)', color: '#fef3c7', borderRadius: 16, padding: '3px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
+                  ⏳
                 </span>
-                {timeRange && (
-                  <span style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
-                    🕐 {timeRange}
-                  </span>
-                )}
-                {visitMarkers.length > 0 && (
-                  <span style={{ background: 'rgba(99,102,241,0.45)', color: '#e0e7ff', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
-                    🏥 {visitMarkers.length} زيارة
-                  </span>
-                )}
-              </>
-            )}
-            {routing && (
-              <span style={{ background: 'rgba(251,191,36,0.3)', color: '#fef3c7', borderRadius: 16, padding: '4px 12px', fontSize: 12 }}>
-                ⏳ رسم المسار...
-              </span>
-            )}
+              )}
+            </div>
             <button
-              onClick={onClose}
+              onClick={() => { onClose(); onBack?.(); }}
               style={{
                 background: 'rgba(255,255,255,0.14)', border: '1.5px solid rgba(255,255,255,0.3)',
-                color: '#fff', borderRadius: 8, padding: '7px 16px',
-                fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                color: '#fff', borderRadius: 8, padding: '7px 14px',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 5,
+                flexShrink: 0, whiteSpace: 'nowrap',
               }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.26)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.14)')}
-            >✕ إغلاق</button>
+            >{onBack ? '→ رجوع' : '✕ إغلاق'}</button>
           </div>
         </div>
 

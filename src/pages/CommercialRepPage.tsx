@@ -2617,6 +2617,34 @@ export default function CommercialRepPage() {
         </div>
       )}
 
+      {/* ── Floating Action Button: إنشاء استحصال ── */}
+      {(isRep || canCollect) && (
+        <button
+          onClick={() => { setPickQuery(''); setPickModal(true); setPickPharmName(null); setPickPharmInvs([]); }}
+          title="إنشاء استحصال جديد"
+          style={{
+            position: 'fixed',
+            bottom: 80,
+            left: 24,
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+            color: '#fff',
+            border: 'none',
+            fontSize: 28,
+            fontWeight: 700,
+            cursor: 'pointer',
+            boxShadow: '0 4px 20px rgba(220, 38, 38, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 900,
+            lineHeight: 1,
+          }}
+        >+</button>
+      )}
+
       <style>{`
         @keyframes commRecPulse  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.3)} }
         @keyframes commRecRipple { 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(1.8);opacity:0} }

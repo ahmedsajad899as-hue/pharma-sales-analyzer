@@ -3,7 +3,7 @@ export type Lang = 'ar' | 'en';
 const translations = {
   ar: {
     // App / Sidebar
-    appName: 'فارما سيلز',
+    appName: 'Ordine',
     appTagline: 'محلل مبيعات الأدوية',
     toggleLang: 'English',
     nav: {
@@ -25,7 +25,7 @@ const translations = {
 
     // Login
     login: {
-      title: 'فارما سيلز',
+      title: 'Ordine',
       subtitle: 'محلل مبيعات الأدوية',
       username: 'اسم المستخدم',
       password: 'كلمة المرور',
@@ -505,7 +505,7 @@ const translations = {
 
   en: {
     // App / Sidebar
-    appName: 'Pharma Sales',
+    appName: 'Ordine',
     appTagline: 'Pharmaceutical Sales Analyzer',
     toggleLang: 'عربي',
     nav: {
@@ -527,7 +527,7 @@ const translations = {
 
     // Login
     login: {
-      title: 'Pharma Sales',
+      title: 'Ordine',
       subtitle: 'Pharmaceutical Sales Analyzer',
       username: 'Username',
       password: 'Password',

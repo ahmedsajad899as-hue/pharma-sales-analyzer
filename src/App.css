@@ -1087,6 +1087,44 @@ tr:hover {
 
 .mobile-menu-btn:hover { background: rgba(255,255,255,0.22); transform: none; box-shadow: none; }
 
+/* ── Compact calls table ── */
+.calls-compact th,
+.calls-compact td {
+  font-size: 10px !important;
+  padding: 3px 6px !important;
+  line-height: 1.3 !important;
+}
+.calls-compact td strong { font-size: 10px !important; }
+.calls-compact td span  { font-size: 9px !important; }
+
+/* ── FAB Ring Pulse ── */
+.fab-ring {
+  position: fixed;
+  bottom: 80px;
+  left: 24px;
+  width: 56px;
+  height: 56px;
+  z-index: 900;
+}
+.fab-ring::before,
+.fab-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(5, 150, 105, 0.25);
+  animation: fabRing 4s ease-out infinite;
+  pointer-events: none;
+}
+.fab-ring::after {
+  animation-delay: 2s;
+}
+@keyframes fabRing {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  40%  { transform: scale(2.0); opacity: 0; }
+  100% { transform: scale(2.0); opacity: 0; }
+}
+
 /* ── Mobile Bottom Navigation ── */
 .mobile-bottom-nav {
   display: none; /* shown only on mobile via media query */
@@ -1140,7 +1178,7 @@ tr:hover {
   background: rgba(0,0,0,0.45);
   z-index: 500;
   align-items: flex-start;
-  justify-content: flex-end;
+  justify-content: flex-start;
   animation: fadeIn 0.2s ease;
 }
 
@@ -1154,11 +1192,11 @@ tr:hover {
   background: #fff;
   display: flex;
   flex-direction: column;
-  animation: slideInRight 0.25s ease;
+  animation: slideInFromRight 0.25s ease;
   overflow: hidden;
 }
 
-@keyframes slideInRight {
+@keyframes slideInFromRight {
   from { transform: translateX(100%); }
   to   { transform: translateX(0); }
 }

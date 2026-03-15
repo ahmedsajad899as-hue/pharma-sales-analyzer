@@ -133,12 +133,16 @@ function AppInner() {
     history.replaceState({ page: saved }, '');
     const handlePopState = (e: PopStateEvent) => {
       const page = (e.state?.page as PageId) || 'dashboard';
+      // Allow open modals to intercept back navigation
+      const modalEv = new CustomEvent('before-navigate-back', { cancelable: true });
+      window.dispatchEvent(modalEv);
+      if (modalEv.defaultPrevented) return;
       localStorage.setItem('lastPage', page);
       setActivePage(page);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [])
 
   // Track which pages have been visited — only those get mounted
   const [mountedPages, setMountedPages] = useState<Set<PageId>>(() => new Set([activePage]));

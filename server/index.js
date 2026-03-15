@@ -121,32 +121,50 @@ app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);
 app.use('/api',                   salesRoutes);
 
-// ── ORS routing proxy (keeps API key server-side) ────────────
+// ── OSRM routing proxy (no API key required) ─────────────────
 app.post('/api/ors/route', async (req, res) => {
   try {
-    const orsKey = process.env.ORS_API_KEY;
-    if (!orsKey) return res.status(503).json({ error: 'ORS_API_KEY not configured' });
-    const { coordinates } = req.body;
+    const { coordinates } = req.body; // array of [lng, lat]
     if (!Array.isArray(coordinates) || coordinates.length < 2)
       return res.status(400).json({ error: 'coordinates array required (min 2)' });
-    // ORS free plan: max 50 waypoints per request
-    const chunk = coordinates.slice(0, 50);
-    const orsRes = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': orsKey },
-      body: JSON.stringify({ coordinates: chunk, instructions: false }),
-    });
-    if (!orsRes.ok) {
-      const errBody = await orsRes.text();
-      console.error('[ORS proxy]', orsRes.status, errBody);
-      // Return straight-line fallback so frontend still works
-      return res.json({ fallback: true, coordinates: chunk });
+
+    // Sample down to max 25 waypoints to keep OSRM URL length reasonable
+    // Always keep first and last, evenly sample the rest
+    const MAX_WP = 25;
+    let pts = coordinates;
+    if (pts.length > MAX_WP) {
+      const step = (pts.length - 1) / (MAX_WP - 1);
+      const sampled = [];
+      for (let i = 0; i < MAX_WP; i++) {
+        sampled.push(pts[Math.round(i * step)]);
+      }
+      pts = sampled;
     }
-    const data = await orsRes.json();
-    res.json(data);
+
+    // OSRM public demo server — free, no key needed
+    const coordStr = pts.map(([lng, lat]) => `${lng},${lat}`).join(';');
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+
+    const osrmRes = await fetch(osrmUrl, { signal: AbortSignal.timeout(8000) });
+    if (!osrmRes.ok) {
+      console.error('[OSRM proxy]', osrmRes.status, await osrmRes.text());
+      return res.json({ fallback: true, coordinates });
+    }
+    const data = await osrmRes.json();
+    if (data.code !== 'Ok' || !data.routes?.[0]?.geometry?.coordinates?.length) {
+      return res.json({ fallback: true, coordinates });
+    }
+
+    // Return in ORS-compatible envelope so the frontend needs no changes
+    res.json({
+      features: [{
+        geometry: { coordinates: data.routes[0].geometry.coordinates }
+      }]
+    });
   } catch (err) {
-    console.error('[ORS proxy] error:', err);
-    res.status(500).json({ error: 'خطأ في الـ routing' });
+    console.error('[OSRM proxy] error:', err);
+    // Fallback to straight line rather than crashing
+    res.json({ fallback: true, coordinates: req.body?.coordinates ?? [] });
   }
 });
 

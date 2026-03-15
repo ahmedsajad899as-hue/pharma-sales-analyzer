@@ -58,10 +58,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
   const [showLikersId, setShowLikersId] = useState<number | null>(null);
+  const [showItemNotesId, setShowItemNotesId] = useState<number | null>(null);
   const likeTimer = useRef<any>(null);
 
   // ── Quick Call Log ──────────────────────────────────────────
   const [showCallLog, setShowCallLog]         = useState(false);
+  const [callsCompact, setCallsCompact]        = useState(false);
   const [activePlan, setActivePlan]           = useState<any>(null);
   const [clDoctor, setClDoctor]               = useState('');
   const [clSuggestions, setClSuggestions]     = useState<any[]>([]);
@@ -98,6 +100,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const trackingActiveRef   = useRef(false);
   const trackingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastCallTimeRef     = useRef<number | null>(null); // ms timestamp of last saved call
+  const fabHoldTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fabLongFiredRef     = useRef(false);
   // Tracking-map modal state
   const [trackingMapRepId, setTrackingMapRepId] = useState<number | null>(null);
   // ── Call Type (doctor / pharmacy) ─────────────────────────
@@ -204,6 +208,31 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
     return () => window.removeEventListener('ai-page-action', handler);
   }, []);
+
+  // Mobile hardware back button: close any open modal instead of navigating away
+  useEffect(() => {
+    const handleBackNav = (e: Event) => {
+      if (voiceOverlay || voiceReady) {
+        e.preventDefault();
+        setVoiceReady(false); setVoiceOverlay(false);
+        history.pushState({ page: 'dashboard' }, '');
+      } else if (trackingMapRepId !== null) {
+        e.preventDefault();
+        setTrackingMapRepId(null);
+        history.pushState({ page: 'dashboard' }, '');
+      } else if (showMap) {
+        e.preventDefault();
+        setShowMap(false);
+        history.pushState({ page: 'dashboard' }, '');
+      } else if (showCallLog) {
+        e.preventDefault();
+        setShowCallLog(false);
+        history.pushState({ page: 'dashboard' }, '');
+      }
+    };
+    window.addEventListener('before-navigate-back', handleBackNav);
+    return () => window.removeEventListener('before-navigate-back', handleBackNav);
+  }, [voiceOverlay, voiceReady, trackingMapRepId, showMap, showCallLog]);
 
   // Load active plan for scientific rep (used by Quick Call Log)
   useEffect(() => {
@@ -652,11 +681,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // ─── Silent background tracking ──────────────────────────────
   const captureLocation = () => {
     if (!trackingActiveRef.current) return;
-    // Skip capture (but keep interval running) if 30 min have passed since last call
-    if (lastCallTimeRef.current !== null) {
-      const elapsed = Date.now() - lastCallTimeRef.current;
-      if (elapsed > 30 * 60 * 1000) return; // silent skip, interval continues
-    }
+    // Only capture if a call was made AND it was within the last 30 minutes
+    if (lastCallTimeRef.current === null) return; // no call recorded yet — skip
+    const elapsed = Date.now() - lastCallTimeRef.current;
+    if (elapsed > 30 * 60 * 1000) return; // more than 30 min since last call — skip
     navigator.geolocation.getCurrentPosition(
       pos => {
         fetch('/api/tracking/location', {
@@ -1288,21 +1316,31 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     return (
       <div className="page">
         <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: '10px' }}>
-          <h1 className="page-title" style={{ margin: 0 }}>📞 {(t.dashboard as any).dailyCalls}</h1>
-          {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
+          <h1 className="page-title" style={{ margin: 0, fontSize: '16px' }}>📞 {(t.dashboard as any).dailyCalls}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <button
-              className="btn btn--primary"
-              style={{ flexShrink: 0, padding: '6px 10px', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', lineHeight: 1, minWidth: 40 }}
-              onClick={() => setShowMap(true)}
-              title="عرض على الخريطة"
-            >🗺️</button>
-          )}
-          <button
-            className="btn btn--secondary"
-            style={{ flexShrink: 0, padding: '6px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '5px', borderRadius: '10px' }}
-            onClick={() => setTrackingMapRepId(0)}
-            title="مسار يومي على الخريطة"
-          >📍 مساري</button>
+              title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
+              onClick={() => setIsDoubleVisit(p => !p)}
+              style={{
+                padding: '6px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                background: isDoubleVisit ? '#7c3aed' : '#f3f4f6',
+                border: `2px solid ${isDoubleVisit ? '#7c3aed' : '#d1d5db'}`,
+                borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#6b7280',
+                fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap',
+              }}
+            >
+              {isDoubleVisit ? '👥' : '👤'}
+              <span style={{ fontSize: '11px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
+            </button>
+            {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
+              <button
+                className="btn btn--primary"
+                style={{ flexShrink: 0, padding: '6px 10px', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', lineHeight: 1, minWidth: 40 }}
+                onClick={() => setShowMap(true)}
+                title="عرض على الخريطة"
+              >🗺️</button>
+            )}
+          </div>
         </div>
 
         {/* Controls */}
@@ -1335,50 +1373,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 >اليوم</button>
               )}
           </div>
-          {/* Row 2: Action buttons — single row, RTL order: تسجيل زيارة | منفردة | زيارة صوتية */}
-          <div style={{ display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'nowrap' }}>
-            {hasFeature('call_log') && (
-              <button
-                className="btn btn--primary"
-                style={{ flex: '1 1 0', padding: '11px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', background: '#059669', borderColor: '#059669', borderRadius: '10px', fontWeight: 700 }}
-                onClick={openCallLog}
-              >
-                ✏️ تسجيل زيارة
-              </button>
-            )}
-            <button
-              title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
-              onClick={() => setIsDoubleVisit(p => !p)}
-              style={{
-                flex: '0 0 auto',
-                padding: '11px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-                background: isDoubleVisit ? '#7c3aed' : '#f3f4f6',
-                border: `2px solid ${isDoubleVisit ? '#7c3aed' : '#d1d5db'}`,
-                borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#6b7280',
-                fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap',
-              }}
-            >
-              {isDoubleVisit ? '👥' : '👤'}
-              <span style={{ fontSize: '12px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
-            </button>
-            {hasFeature('voice_visit') && (
-              <button
-                style={{
-                  flex: '1 1 0',
-                  padding: '11px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-                  background: voiceListening ? '#ef4444' : '#f97316',
-                  border: 'none', borderRadius: '10px', color: '#fff', fontWeight: 700, cursor: 'pointer',
-                  animation: voiceListening ? 'clGpsPulse 1.2s ease-in-out infinite' : 'none',
-                  whiteSpace: 'nowrap',
-                }}
-                onClick={() => (voiceListening || voiceReady) ? stopVoice() : openVoicePanel()}
-                disabled={voiceParsing}
-                title={voiceListening ? 'إيقاف التسجيل' : 'زيارة صوتية'}
-              >
-                {voiceParsing ? '⏳ جاري التحليل...' : voiceListening ? '⏹ إيقاف' : '🎤 زيارة صوتية'}
-              </button>
-            )}
-          </div>
+
         </div>
 
         {/* Table card */}
@@ -1397,6 +1392,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <span style={{ fontWeight: 600, fontSize: '11px', color: '#6b7280' }}>
                   📞 {(t.dashboard as any).dailyCallsTotal}: <span style={{ fontSize: '13px', color: '#374151', fontWeight: 700 }}>{filteredVisits.length}</span>{filteredVisits.length !== callsData.visits.length && <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: '11px' }}> / {callsData.visits.length}</span>}
                 </span>
+                <button
+                  onClick={() => setCallsCompact(p => !p)}
+                  title={callsCompact ? 'توسيع الجدول' : 'ضغط الجدول (عرض أكثر)'}
+                  style={{ marginRight: 'auto', background: callsCompact ? '#ede9fe' : 'none', border: `1px solid ${callsCompact ? '#a78bfa' : '#d1d5db'}`, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 13, color: callsCompact ? '#6d28d9' : '#6b7280', lineHeight: 1 }}
+                >
+                  {callsCompact ? '▲' : '▼'}
+                </button>
               </div>
               {/* Filter bar */}
               <div style={{ padding: '5px 8px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'nowrap' }}>
@@ -1426,19 +1428,41 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   </button>
                 )}
               </div>
-              <div style={{ overflowX: 'auto', maxHeight: '520px', overflowY: 'auto' }}>
-                <table className="data-table">
+              <div
+                style={{ overflowX: 'auto', maxHeight: callsCompact ? '75vh' : '520px', overflowY: 'auto' }}
+                onTouchStart={e => {
+                  if (e.touches.length === 2) {
+                    (e.currentTarget as any)._pinchStart = Math.hypot(
+                      e.touches[0].clientX - e.touches[1].clientX,
+                      e.touches[0].clientY - e.touches[1].clientY
+                    );
+                  }
+                }}
+                onTouchMove={e => {
+                  if (e.touches.length === 2 && (e.currentTarget as any)._pinchStart) {
+                    const dist = Math.hypot(
+                      e.touches[0].clientX - e.touches[1].clientX,
+                      e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    const delta = dist - (e.currentTarget as any)._pinchStart;
+                    if (Math.abs(delta) > 30) {
+                      setCallsCompact(delta < 0);
+                      (e.currentTarget as any)._pinchStart = null;
+                    }
+                  }
+                }}
+              >
+                <table className={callsCompact ? 'data-table calls-compact' : 'data-table'}>
                   <thead>
                     <tr>
                       <th style={{ width: 36 }}>#</th>
                       <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
-                      <th>الصيدلية / المنطقة</th>
+                      <th style={{ fontSize: '10px', padding: '4px 4px', maxWidth: 80 }}>الصيدلية / المنطقة</th>
                       <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
-                      <th>{(t.dashboard as any).dailyCallsColItem}</th>
+                      <th style={{ fontSize: '10px', padding: '4px 4px', maxWidth: 80 }}>{(t.dashboard as any).dailyCallsColItem}</th>
                       <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
                       <th>الملاحظات</th>
-                      <th>{(t.dashboard as any).dailyCallsColLocation}</th>
-                      <th style={{ width: 44 }}>❤️</th>
+                      <th style={{ width: 44, padding: '4px 2px', textAlign: 'center', fontSize: '11px' }}>📍 ❤️</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1507,15 +1531,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               <div style={{ fontSize: '12px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                             )}
                           </td>
-                          <td style={{ fontSize: '13px', color: '#374151' }}>
+                          <td style={{ fontSize: '10px', color: '#374151', maxWidth: 80, overflow: 'hidden', padding: '3px 4px' }}>
                             {(v as any)._visitType === 'pharmacy' ? (
-                              v.doctor.area?.name ? <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.area.name}</div> : '—'
+                              v.doctor.area?.name ? <div style={{ fontSize: '10px', color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.area.name}</div> : '—'
                             ) : (
                               v.doctor.pharmacyName || v.doctor.area?.name ? (
                                 <>
-                                  {v.doctor.pharmacyName && <div>{v.doctor.pharmacyName}</div>}
+                                  {v.doctor.pharmacyName && <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.pharmacyName}</div>}
                                   {v.doctor.area?.name && (
-                                    <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.area.name}</div>
+                                    <div style={{ fontSize: '9px', color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.area.name}</div>
                                   )}
                                 </>
                               ) : '—'
@@ -1524,20 +1548,35 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <td style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
                             {isMultiDay ? (() => { const { date, time } = fmtDateAndTime(v.visitDate); return <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></>; })() : (() => { const { date, time } = fmtDateAndTime(v.visitDate); return <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
                           </td>
-                          <td style={{ fontSize: '13px' }}>
+                          <td style={{ fontSize: '10px', maxWidth: 80, padding: '3px 4px', overflow: 'visible', position: 'relative' }}>
                             {(v as any)._visitType === 'pharmacy' ? (
                               (v as any).pharmItems?.length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                  {(v as any).pharmItems.map((pi: any, i: number) => (
-                                    <div key={i}>
-                                      <span>{pi.item?.name ?? pi.itemName ?? '—'}</span>
-                                      {pi.notes && <span style={{ fontSize: '11px', color: '#6b7280', marginRight: '4px' }}>({pi.notes})</span>}
-                                    </div>
-                                  ))}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                                  {(v as any).pharmItems.map((pi: any, i: number) => {
+                                    const hasNotes = !!pi.notes;
+                                    return (
+                                      <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pi.item?.name ?? pi.itemName ?? '—'}</span>
+                                        {hasNotes && (
+                                          <span
+                                            onClick={() => setShowItemNotesId(showItemNotesId === v.id * 100 + i ? null : v.id * 100 + i)}
+                                            style={{ cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}
+                                          >📝
+                                            {showItemNotesId === v.id * 100 + i && (
+                                              <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}
+                                                onClick={e => e.stopPropagation()}>
+                                                {pi.notes}
+                                              </div>
+                                            )}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ) : '—'
                             ) : (
-                              v.item?.name ?? '—'
+                              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.item?.name ?? '—'}</div>
                             )}
                           </td>
                           <td>
@@ -1557,63 +1596,61 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '200px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.5' }}>
                             {v.notes || '—'}
                           </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {v.latitude != null
-                              ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', padding: '2px', lineHeight: 1 }}>📍</button>
-                              : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
-                          </td>
-                          {/* Like cell — only for doctor visits */}
-                          <td style={{ textAlign: 'center', position: 'relative' }}>
-                            {(v as any)._visitType !== 'pharmacy' && (() => {
-                              const likes = (v as any).likes ?? [];
-                              const likeCount = likes.length;
-                              const liked = !!(likes.find((l: any) => l.userId === user?.id));
-                              return (
-                                <div style={{ position: 'relative', display: 'inline-block' }}>
-                                  <button
-                                    title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
-                                    disabled={!isManagerOrAdmin || likingVisit === v.id}
-                                    onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
-                                    onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
-                                    onMouseUp={() => clearTimeout(likeTimer.current)}
-                                    onMouseLeave={() => clearTimeout(likeTimer.current)}
-                                    onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
-                                    onTouchEnd={() => clearTimeout(likeTimer.current)}
-                                    style={{
-                                      position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                      width: 28, height: 28, borderRadius: '50%', padding: 0,
-                                      border: 'none', background: 'transparent',
-                                      cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
-                                      transition: 'opacity 0.15s',
-                                    }}>
-                                    <svg viewBox="0 0 24 24" width="16" height="16" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                                    {likeCount > 0 && (
-                                      <span style={{
-                                        position: 'absolute', top: -5, right: -5,
-                                        background: '#ef4444', color: '#fff', borderRadius: '50%',
-                                        fontSize: 9, fontWeight: 800, width: 15, height: 15,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        lineHeight: 1, border: '1.5px solid #fff',
-                                      }}>{likeCount}</span>
+                          <td style={{ textAlign: 'center', padding: '2px', width: 44, position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                              {v.latitude != null
+                                ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', padding: '1px', lineHeight: 1 }}>📍</button>
+                                : <span style={{ color: '#d1d5db', fontSize: '10px', width: 18, display: 'inline-block' }}>—</span>}
+                              {(v as any)._visitType !== 'pharmacy' && (() => {
+                                const likes = (v as any).likes ?? [];
+                                const likeCount = likes.length;
+                                return (
+                                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                                    <button
+                                      title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
+                                      disabled={!isManagerOrAdmin || likingVisit === v.id}
+                                      onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
+                                      onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                      onMouseUp={() => clearTimeout(likeTimer.current)}
+                                      onMouseLeave={() => clearTimeout(likeTimer.current)}
+                                      onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                      onTouchEnd={() => clearTimeout(likeTimer.current)}
+                                      style={{
+                                        position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 22, height: 22, borderRadius: '50%', padding: 0,
+                                        border: 'none', background: 'transparent',
+                                        cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
+                                        transition: 'opacity 0.15s',
+                                      }}>
+                                      <svg viewBox="0 0 24 24" width="12" height="12" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                      {likeCount > 0 && (
+                                        <span style={{
+                                          position: 'absolute', top: -4, right: -4,
+                                          background: '#ef4444', color: '#fff', borderRadius: '50%',
+                                          fontSize: 8, fontWeight: 800, width: 13, height: 13,
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          lineHeight: 1, border: '1.5px solid #fff',
+                                        }}>{likeCount}</span>
+                                      )}
+                                    </button>
+                                    {showLikersId === v.id && (
+                                      <div style={{
+                                        position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+                                        background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
+                                        fontSize: 11, whiteSpace: 'nowrap', zIndex: 999,
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110,
+                                      }} onClick={() => setShowLikersId(null)}>
+                                        <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                                        {likeCount === 0
+                                          ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
+                                          : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)
+                                        }
+                                      </div>
                                     )}
-                                  </button>
-                                  {showLikersId === v.id && (
-                                    <div style={{
-                                      position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-                                      background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
-                                      fontSize: 11, whiteSpace: 'nowrap', zIndex: 999,
-                                      boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110,
-                                    }} onClick={() => setShowLikersId(null)}>
-                                      <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
-                                      {likeCount === 0
-                                        ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
-                                        : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)
-                                      }
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           </td>
                         </tr>
                         );
@@ -1827,7 +1864,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         })()}
 
         {showMap && callsData && (
-          <DailyCallsMap visits={callsData.visits} onClose={() => setShowMap(false)} />
+          <DailyCallsMap
+            visits={callsData.visits}
+            onClose={() => setShowMap(false)}
+            onShowRoute={() => setTrackingMapRepId(0)}
+          />
         )}
         {mapSingleVisit && (
           <DailyCallsMap visits={[mapSingleVisit]} onClose={() => setMapSingleVisit(null)} />
@@ -1850,6 +1891,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 }))
               }
               onClose={() => setTrackingMapRepId(null)}
+              onBack={() => setShowMap(true)}
             />
           </Suspense>
         )}
@@ -2507,6 +2549,58 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Floating Action Button: tap = call log / hold 2s = voice ── */}
+        {hasFeature('call_log') && !showCallLog && (
+          <div className="fab-ring">
+            <button
+              onMouseDown={() => {
+                fabLongFiredRef.current = false;
+                fabHoldTimerRef.current = setTimeout(() => {
+                  fabLongFiredRef.current = true;
+                  if (hasFeature('voice_visit')) openVoicePanel();
+                }, 600);
+              }}
+              onTouchStart={e => {
+                e.preventDefault();
+                fabLongFiredRef.current = false;
+                fabHoldTimerRef.current = setTimeout(() => {
+                  fabLongFiredRef.current = true;
+                  if (hasFeature('voice_visit')) openVoicePanel();
+                }, 600);
+              }}
+              onMouseUp={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
+              onMouseLeave={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
+              onTouchEnd={e => {
+                e.preventDefault();
+                if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; }
+                if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} openCallLog(); }
+              }}
+              onClick={() => { if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} openCallLog(); } }}
+              title="اضغط: تسجيل زيارة | اضغط مطوّل: زيارة صوتية"
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #059669, #047857)',
+                color: '#fff',
+                border: 'none',
+                fontSize: 28,
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 4px 20px rgba(5, 150, 105, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                zIndex: 1,
+                lineHeight: 1,
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+              }}
+            >+</button>
           </div>
         )}
       </div>
