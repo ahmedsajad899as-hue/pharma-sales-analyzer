@@ -111,7 +111,7 @@ function ReceiptPrint({ inv, record }: { inv: Invoice; record: CollectionRecord 
             <tr><td style={{ fontWeight: 700 }}>رقم الفاتورة:</td><td>{inv.invoiceNumber}</td></tr>
             <tr><td style={{ fontWeight: 700 }}>تاريخ الاستحصال:</td><td>{fmtDate(record.collectedAt)}</td></tr>
             <tr><td style={{ fontWeight: 700 }}>المبلغ المستحصل:</td><td style={{ color: '#15803d', fontWeight: 900 }}>{fmt(record.finalAmount)} د.ع</td></tr>
-            {record.discount > 0 && <tr><td style={{ fontWeight: 700 }}>الحسم:</td><td>{fmt(record.discount)} د.ع</td></tr>}
+            {record.discount > 0 && <tr><td style={{ fontWeight: 700 }}>الخصم:</td><td>{fmt(record.discount)} د.ع</td></tr>}
             <tr><td style={{ fontWeight: 700 }}>نوع الاستحصال:</td><td>{record.isFullCollection ? 'استحصال كامل ✅' : 'استحصال جزئي 🔄'}</td></tr>
             {record.notes && <tr><td style={{ fontWeight: 700 }}>ملاحظات:</td><td>{record.notes}</td></tr>}
           </tbody>
@@ -266,6 +266,7 @@ export default function CommercialRepPage() {
   const [newPharma, setNewPharma]           = useState({ name: '', ownerName: '', phone: '', address: '', areaName: '' });
   const [pharmaSaving, setPharmaSaving]     = useState(false);
   const [showRecentColl, setShowRecentColl] = useState(false);
+  const [showDateFilter, setShowDateFilter] = useState(false);
 
   // ── Pharmacy search debounce ───────────────────────────────────
   const pharmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -431,6 +432,12 @@ export default function CommercialRepPage() {
   }, []);
 
   useEffect(() => {
+    const handler = () => setActiveTab(defaultTab);
+    window.addEventListener('comm-reset-tab', handler);
+    return () => window.removeEventListener('comm-reset-tab', handler);
+  }, [defaultTab]);
+
+  useEffect(() => {
     if (activeTab === 'invoices' || activeTab === 'team') {
       fetchInvoices();
       // Collapse all areas when switching to invoices tab
@@ -457,31 +464,25 @@ export default function CommercialRepPage() {
     return () => clearInterval(id);
   }, [fetchNotifs]);
 
-  // ── Smart back navigation ─────────────────────────────────────
-  // Push a history entry each time a layer opens so popstate unwinds them
+  // ── Back navigation via before-navigate-back event ────────────
+  // App.tsx fires this event on every back press. We preventDefault()
+  // to close the topmost open layer; App.tsx then re-pushes the working
+  // history entry so NO browser navigation animation is ever shown.
   useEffect(() => {
-    if (collectModal) { history.pushState({ layer: 'collectModal' }, ''); }
-  }, [collectModal]);
-  useEffect(() => {
-    if (selectedInv) { history.pushState({ layer: 'drawer' }, ''); }
-  }, [selectedInv]);
-  useEffect(() => {
-    if (expandedPharmacies.size > 0) { history.pushState({ layer: 'pharmacy' }, ''); }
-  }, [expandedPharmacies.size]);
-  useEffect(() => {
-    if (expandedAreas.size > 0) { history.pushState({ layer: 'area' }, ''); }
-  }, [expandedAreas.size]);
-
-  useEffect(() => {
-    const handleBack = (_e: PopStateEvent) => {
-      if (collectModal)               { setCollectModal(false); return; }
-      if (selectedInv)                { setSelectedInv(null); return; }
-      if (expandedPharmacies.size > 0){ setExpandedPharmacies(new Set()); return; }
-      if (expandedAreas.size > 0)     { setExpandedAreas(new Set()); return; }
+    const handle = (e: Event) => {
+      const ce = e as CustomEvent;
+      if (collectModal)                { ce.preventDefault(); setCollectModal(false); return; }
+      if (selectedInv)                 { ce.preventDefault(); setSelectedInv(null);   return; }
+      if (pickModal)                   { ce.preventDefault(); setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); return; }
+      if (createModal)                 { ce.preventDefault(); setCreateModal(false);  return; }
+      if (pharmaModal)                 { ce.preventDefault(); setPharmaModal(false);  return; }
+      if (filterPharmacy.trim())       { ce.preventDefault(); setFilterPharmacy('');  fetchInvoices(''); return; }
+      if (expandedPharmacies.size > 0) { ce.preventDefault(); setExpandedPharmacies(new Set()); return; }
+      if (expandedAreas.size > 0)      { ce.preventDefault(); setExpandedAreas(new Set());      return; }
     };
-    window.addEventListener('popstate', handleBack);
-    return () => window.removeEventListener('popstate', handleBack);
-  }, [collectModal, selectedInv, expandedPharmacies, expandedAreas]);
+    window.addEventListener('before-navigate-back', handle);
+    return () => window.removeEventListener('before-navigate-back', handle);
+  }, [collectModal, selectedInv, pickModal, createModal, pharmaModal, filterPharmacy, expandedPharmacies, expandedAreas, fetchInvoices]);
 
   // ── Collect submit ────────────────────────────────────────────
   const submitCollect = async () => {
@@ -755,7 +756,7 @@ export default function CommercialRepPage() {
         <tr><td>رقم الفاتورة</td><td>${inv.invoiceNumber}</td></tr>
         <tr><td>تاريخ الاستحصال</td><td>${fmtDate(rec.collectedAt)}</td></tr>
         <tr><td>طريقة الاستحصال</td><td>${rec.isFullCollection ? 'كامل ✅' : 'جزئي 🔄'}</td></tr>
-        ${rec.discount > 0 ? `<tr><td>المبلغ</td><td>${fmt(rec.amount)} د.ع</td></tr><tr><td>الحسم</td><td>${fmt(rec.discount)} د.ع</td></tr>` : ''}
+        ${rec.discount > 0 ? `<tr><td>المبلغ</td><td>${fmt(rec.amount)} د.ع</td></tr><tr><td>الخصم</td><td>${fmt(rec.discount)} د.ع</td></tr>` : ''}
         ${rec.notes ? `<tr><td>ملاحظات</td><td>${rec.notes}</td></tr>` : ''}
       </table>
       ${recReturned > 0 ? `
@@ -872,12 +873,12 @@ export default function CommercialRepPage() {
     };
 
     const kpis: { label: string; val: number; icon: string; accent: string; filter: string }[] = [
-      { label: 'إجمالي الفواتير', val: counts.total,     icon: '📋', accent: '#8B1C1C', filter: '' },
-      { label: 'معلقة',           val: counts.pending,   icon: '🕒', accent: '#B45309', filter: 'pending' },
-      { label: 'جزئي مسدد',       val: counts.partial,   icon: '🔄', accent: '#B45309', filter: 'partial' },
+      { label: 'إجمالي الفواتير', val: counts.total,     icon: '📋', accent: '#4338ca', filter: '' },
+      { label: 'غير مسددة',       val: counts.pending,   icon: '🕒', accent: '#B45309', filter: 'pending' },
+      { label: 'مسدد جزئي',        val: counts.partial,   icon: '🔄', accent: '#B45309', filter: 'partial' },
       { label: 'مكتملة',          val: counts.collected, icon: '✅', accent: '#2E7D32', filter: 'collected' },
       ...(counts.overdue > 0
-        ? [{ label: 'متأخرة', val: counts.overdue, icon: '⚠️', accent: '#8B1C1C', filter: 'overdue' }]
+        ? [{ label: 'متأخرة', val: counts.overdue, icon: '⚠️', accent: '#dc2626', filter: 'overdue' }]
         : []),
     ];
 
@@ -900,7 +901,7 @@ export default function CommercialRepPage() {
 
         <div className="comm-money-card">
           <div className="comm-money-header">
-            <span className="comm-money-title">💰 ملخص المبالغ</span>
+            <span className="comm-money-title">ملخص المبالغ</span>
             <span className="comm-money-pct">{pct}% منجز</span>
           </div>
           <div className="comm-money-row">
@@ -979,16 +980,6 @@ export default function CommercialRepPage() {
         {/* Countdown bar */}
         {!compact && <CountdownBar inv={inv} />}
         <div className="comm-inv-amounts">
-          <div className="comm-inv-amt-item">
-            <span className="comm-inv-amt-label">إجمالي</span>
-            <span className="comm-inv-amt-val">{fmt(inv.totalAmount)}</span>
-          </div>
-          {returned > 0 && (
-            <div className="comm-inv-amt-item">
-              <span className="comm-inv-amt-label" style={{ color: '#7c3aed' }}>استرجاع</span>
-              <span className="comm-inv-amt-val" style={{ color: '#7c3aed' }}>-{fmt(returned)}</span>
-            </div>
-          )}
           <div className="comm-inv-amt-item">
             <span className="comm-inv-amt-label" style={{ color: '#15803d' }}>مستحصل</span>
             <span className="comm-inv-amt-val" style={{ color: '#15803d' }}>{fmt(inv.collectedAmount)}</span>
@@ -1531,42 +1522,20 @@ export default function CommercialRepPage() {
 
             {/* Amount to collect */}
             <label className="comm-label" style={{ marginTop: 12 }}>المبلغ المستحصل (د.ع) *</label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input
-                className="comm-input"
-                type="number"
-                value={collectAmt}
-                placeholder={`الحد الأقصى: ${fmt(remaining)}`}
-                style={{ flex: 1 }}
-                onChange={e => {
-                  setCollectAmt(e.target.value);
-                  const v = parseFloat(e.target.value);
-                  if (v >= remaining) setCollectFull(true);
-                  else setCollectFull(false);
-                }}
-              />
-              <button
-                type="button"
-                onClick={startVoiceInput}
-                disabled={voiceListening}
-                title="إدخال صوتي"
-                style={{
-                  padding: '9px 13px',
-                  borderRadius: 8,
-                  border: voiceListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
-                  background: voiceListening ? '#fee2e2' : '#f0fdf4',
-                  cursor: voiceListening ? 'not-allowed' : 'pointer',
-                  fontSize: 20,
-                  flexShrink: 0,
-                  transition: 'all 0.2s',
-                  boxShadow: voiceListening ? '0 0 0 3px rgba(239,68,68,0.2)' : '0 1px 3px rgba(0,0,0,0.08)',
-                }}
-              >
-                {voiceListening ? '🔴' : '🎙️'}
-              </button>
-            </div>
+            <input
+              className="comm-input"
+              type="number"
+              value={collectAmt}
+              placeholder={`الحد الأقصى: ${fmt(remaining)}`}
+              onChange={e => {
+                setCollectAmt(e.target.value);
+                const v = parseFloat(e.target.value);
+                if (v >= remaining) setCollectFull(true);
+                else setCollectFull(false);
+              }}
+            />
 
-            <label className="comm-label">الحسم (اختياري)</label>
+            <label className="comm-label">الخصم (اختياري)</label>
             <input
               className="comm-input"
               type="number"
@@ -1905,28 +1874,6 @@ export default function CommercialRepPage() {
                                     </div>
                                   </div>
                                 </div>
-                                <div className="comm-pharma-row-right">
-                                  <div className="comm-pharma-amounts">
-                                    <div className="comm-pharma-amt">
-                                      <span className="lbl">إجمالي</span>
-                                      <span className="val">{fmt(pTotal)}</span>
-                                    </div>
-                                    {pRet > 0 && (
-                                      <div className="comm-pharma-amt" style={{ color: '#7c3aed' }}>
-                                        <span className="lbl">استرجاع</span>
-                                        <span className="val">-{fmt(pRet)}</span>
-                                      </div>
-                                    )}
-                                    <div className="comm-pharma-amt">
-                                      <span className="lbl" style={{ color: '#15803d' }}>مستحصل</span>
-                                      <span className="val" style={{ color: '#15803d' }}>{fmt(pColl)}</span>
-                                    </div>
-                                    <div className="comm-pharma-amt">
-                                      <span className="lbl" style={{ color: pRem > 0 ? '#b91c1c' : '#15803d' }}>متبقي</span>
-                                      <span className="val" style={{ color: pRem > 0 ? '#b91c1c' : '#15803d', fontWeight: 900 }}>{fmt(pRem)}</span>
-                                    </div>
-                                  </div>
-                                </div>
                                 <span className="comm-pharma-chevron">{pharmaOpen ? '▾' : '▸'}</span>
                               </div>
                               {pharmaOpen && (
@@ -1949,7 +1896,6 @@ export default function CommercialRepPage() {
         const STATUS_TABS = [
           { value: 'open',      label: 'غير مسدد', icon: '⏳' },
           { value: '',          label: 'الكل',     icon: '📋' },
-          { value: 'pending',   label: 'معلق',     icon: '🕐' },
           { value: 'partial',   label: 'جزئي',     icon: '🔄' },
           { value: 'collected', label: 'مكتمل',    icon: '✅' },
         ];
@@ -1984,7 +1930,6 @@ export default function CommercialRepPage() {
                     fontWeight: active ? 700 : 500,
                     fontSize: 11, cursor: 'pointer',
                     boxShadow: active ? '0 2px 8px rgba(99,102,241,0.18)' : '0 1px 3px rgba(0,0,0,0.06)',
-                    transition: 'all 0.15s',
                     minWidth: 52,
                   }}
                 >
@@ -1999,13 +1944,25 @@ export default function CommercialRepPage() {
           <div className="comm-filters">
             <div style={{ position: 'relative', flex: 1 }}>
               <input
-                className="comm-input"
+                className="comm-input comm-input-sm comm-search-input"
                 placeholder="🔍 بحث بالصيدلية..."
                 value={filterPharmacy}
                 onChange={e => { setFilterPharmacy(e.target.value); setShowSuggestions(true); if (viewMode !== 'grouped') setViewMode('grouped'); }}
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                style={{ paddingLeft: filterPharmacy ? 28 : undefined }}
               />
+              {filterPharmacy && (
+                <button
+                  onMouseDown={e => { e.preventDefault(); setFilterPharmacy(''); setShowSuggestions(false); fetchInvoices(''); }}
+                  style={{
+                    position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: '#e2e8f0', border: 'none', borderRadius: '50%',
+                    width: 16, height: 16, cursor: 'pointer', fontSize: 9, color: '#475569',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                  }}
+                >✕</button>
+              )}
               {showSuggestions && pharmacySuggestions.length > 0 && (
                 <div style={{
                   position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 100,
@@ -2015,9 +1972,12 @@ export default function CommercialRepPage() {
                   {pharmacySuggestions.map(name => (
                     <div
                       key={name}
-                      style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}
+                      style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
                       onMouseDown={() => { setFilterPharmacy(name); setShowSuggestions(false); setViewMode('grouped'); }}
-                    >{name}</div>
+                    >
+                      <span style={{ fontSize: 13, color: '#1e293b' }}>{name}</span>
+                      {pharmAreaMap[name] && <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>{pharmAreaMap[name]}</span>}
+                    </div>
                   ))}
                 </div>
               )}
@@ -2030,8 +1990,50 @@ export default function CommercialRepPage() {
                 ))}
               </select>
             )}
-            <input className="comm-input" type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
-            <input className="comm-input" type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
+            <div style={{ position: 'relative' }}>
+              <button
+                className="comm-date-toggle-btn"
+                onClick={() => setShowDateFilter(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  height: 32, padding: '0 12px', borderRadius: 9,
+                  border: `1.5px solid ${(filterDateFrom || filterDateTo) ? '#6366f1' : '#e2e8f0'}`,
+                  background: (filterDateFrom || filterDateTo) ? '#eef2ff' : '#fff',
+                  color: (filterDateFrom || filterDateTo) ? '#4338ca' : '#64748b',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >
+                🗓 التاريخ {(filterDateFrom || filterDateTo) ? '●' : ''}
+                <span style={{ fontSize: 9, opacity: 0.7 }}>{showDateFilter ? '▲' : '▼'}</span>
+              </button>
+              {showDateFilter && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200,
+                  background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 12,
+                  padding: '12px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  display: 'flex', flexDirection: 'column', gap: 8, minWidth: 220,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, width: 24 }}>من</label>
+                    <input className="comm-input comm-input-sm" type="date" value={filterDateFrom}
+                      onChange={e => setFilterDateFrom(e.target.value)}
+                      style={{ flex: 1, fontSize: 12 }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, width: 24 }}>إلى</label>
+                    <input className="comm-input comm-input-sm" type="date" value={filterDateTo}
+                      onChange={e => setFilterDateTo(e.target.value)}
+                      style={{ flex: 1, fontSize: 12 }} />
+                  </div>
+                  {(filterDateFrom || filterDateTo) && (
+                    <button
+                      onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }}
+                      style={{ fontSize: 11, color: '#b91c1c', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'right', padding: 0 }}
+                    >✕ مسح التاريخ</button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Action bar */}
@@ -2039,11 +2041,8 @@ export default function CommercialRepPage() {
             {canUpload && (
               <button className="comm-btn-primary" onClick={() => setCreateModal(true)}>➕ فاتورة جديدة</button>
             )}
-            <span style={{ marginRight: 'auto', fontSize: 13, color: '#64748b', alignSelf: 'center' }}>
-              {totalInvoices} فاتورة
-            </span>
             {/* View mode toggle */}
-            <div className="comm-view-toggle">
+            <div className="comm-view-toggle" style={{ marginRight: 'auto' }}>
               <button
                 className={`comm-view-btn ${viewMode === 'grouped' ? 'active' : ''}`}
                 onClick={() => setViewMode('grouped')}
@@ -2065,7 +2064,7 @@ export default function CommercialRepPage() {
           ) : !loading && invoices.length === 0 ? (
             <div className="comm-empty">لا توجد فواتير بهذه المعايير</div>
           ) : (
-            <div style={{ opacity: loading ? 0.45 : 1, transition: 'opacity 0.18s', pointerEvents: loading ? 'none' : 'auto' }}>
+            <div style={{ pointerEvents: loading ? 'none' : 'auto' }}>
               {viewMode === 'grouped' ? renderGroupedView() : (
                 <div className="comm-inv-grid">
                   {[...invoices]
@@ -2488,12 +2487,7 @@ export default function CommercialRepPage() {
       {/* Page header */}
       <div className="comm-page-header">
         <div>
-          <h1 className="comm-page-title">💰 القسم التجاري</h1>
-          <div className="comm-page-sub">
-            {isRep ? ''
-             : isLead ? 'لوحة متابعة الفريق التجاري'
-             : 'إدارة الفواتير والاستحصالات التجارية'}
-          </div>
+          <h1 className="comm-page-title">القسم التجاري</h1>
         </div>
       </div>
 

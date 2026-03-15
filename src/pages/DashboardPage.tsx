@@ -77,8 +77,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clOtherDoc, setClOtherDoc]           = useState<any>(null);     // catalog doctor full object
   const [clManualMode, setClManualMode]       = useState(false);         // no match anywhere
   const [clManualSpecialty, setClManualSpecialty] = useState('');
+  const [clManualSpecialtySugg, setClManualSpecialtySugg] = useState<string[]>([]);
+  const [clManualSpecialtyShow, setClManualSpecialtyShow] = useState(false);
   const [clManualPharmacy, setClManualPharmacy]   = useState('');
+  const [clManualPharmacySugg, setClManualPharmacySugg] = useState<string[]>([]);
+  const [clManualPharmacyShow, setClManualPharmacyShow] = useState(false);
   const [clManualAreaId, setClManualAreaId]       = useState('');
+  const [clManualAreaName, setClManualAreaName]   = useState('');
+  const [clManualAreaSugg, setClManualAreaSugg]   = useState<any[]>([]);
+  const [clManualAreaShow, setClManualAreaShow]   = useState(false);
   const [clAreas, setClAreas]                 = useState<any[]>([]);
   const [clItemId, setClItemId]               = useState('');
   const [clItemName, setClItemName]           = useState('');
@@ -436,7 +443,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               const matchArea = (areas: any[]) => {
                 const vn = (v.areaName as string).toLowerCase();
                 const matched = areas.find((a: any) => a.name.toLowerCase().includes(vn) || vn.includes(a.name.toLowerCase()));
-                if (matched) setClManualAreaId(String(matched.id));
+                if (matched) { setClManualAreaId(String(matched.id)); setClManualAreaName(matched.name); }
+                else { setClManualAreaName(v.areaName as string); }
               };
               if (clAreas.length > 0) {
                 matchArea(clAreas);
@@ -613,7 +621,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setCallType('doctor');
     setClDoctor(''); setClSelectedEntry(null); setClNotInPlan(false);
     setClAddToPlan(false); setClOtherDocId(null); setClOtherDoc(null);
-    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId('');
+    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName('');
+    setClManualSpecialtySugg([]); setClManualSpecialtyShow(false);
+    setClManualPharmacySugg([]); setClManualPharmacyShow(false);
+    setClManualAreaSugg([]); setClManualAreaShow(false);
     setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
     setClFeedback('pending'); setClNotes('');
     setClPharmacyName(''); setClPharmacyAreaId(''); setClPharmacyAreaName('');
@@ -621,7 +632,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClPharmacyNameSugg([]); setClPharmacyNameShowSugg(false); setClPharmacyIsNew(false);
     setClPharmacyItems([{ tempId: 1, itemId: '', itemName: '', notes: '', showSugg: false, sugg: [] }]);
     clPharmacyItemCounter.current = 2;
-    setClError(''); setClSaving(false); setClShowSugg(false);
+    setClError(''); setClSaving(false); setClShowSugg(false); setClGpsWarning(false);
     // Live clock
     const tick = () => setClNow(new Date().toLocaleTimeString('ar-IQ-u-nu-latn', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     tick();
@@ -837,6 +848,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             specialty:    clManualSpecialty.trim() || null,
             pharmacyName: clManualPharmacy.trim() || null,
             areaId:       clManualAreaId || null,
+            areaName:     (!clManualAreaId && clManualAreaName.trim()) ? clManualAreaName.trim() : null,
             feedback: clFeedback, notes: clNotes,
             itemId:   resolvedItemId || null,
             itemName: clItemName.trim() || null,
@@ -880,6 +892,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               specialty: clManualSpecialty.trim() || undefined,
               pharmacyName: clManualPharmacy.trim() || undefined,
               areaId: clManualAreaId ? parseInt(clManualAreaId) : undefined,
+              areaName: (!clManualAreaId && clManualAreaName.trim()) ? clManualAreaName.trim() : undefined,
             }),
           });
           if (!docRes.ok) { const e = await docRes.json().catch(() => ({})); throw new Error(e.error || 'فشل إنشاء الطبيب'); }
@@ -1155,35 +1168,35 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         label: 'مبيعات إجمالية',
         value: commDashLoading ? '...' : fmtNum(commDash?.monthlySales ?? 0),
         icon: '📦', color: '#10b981', bg: '#d1fae5',
-        desc: 'إجمالي فواتير الشهر (د.ع)',
+        desc: '',
         onClick: () => setShowSalesBreakdown('sales'),
       },
       {
         label: 'ارجاعات',
         value: commDashLoading ? '...' : fmtNum(commDash?.monthlyReturns ?? 0),
         icon: '↩', color: '#ef4444', bg: '#fee2e2',
-        desc: 'استرجاع البضاعة هذا الشهر (د.ع)',
+        desc: '',
         onClick: () => setShowSalesBreakdown('returns'),
       },
       {
         label: 'صافي (نت)',
         value: commDashLoading ? '...' : fmtNum(commDash?.netSales ?? 0),
         icon: '🏆', color: '#6366f1', bg: '#eef2ff',
-        desc: 'المبيع الصافي = إجمالي − ارجاع',
+        desc: '',
         onClick: () => setShowSalesBreakdown('net'),
       },
       {
         label: 'المندوبون العلميون',
         value: commDashLoading ? '...' : (commDash?.sciReps.length ?? 0),
         icon: '🔬', color: '#8b5cf6', bg: '#ede9fe',
-        desc: 'مندوبون علميون على نفس مناطقك',
+        desc: '',
         onClick: () => setShowSciRepsPanel(true),
       },
       {
         label: 'المناطق',
         value: commDashLoading ? '...' : (commDash?.myAreas.length ?? 0),
         icon: '📍', color: '#0ea5e9', bg: '#e0f2fe',
-        desc: 'مناطق عملك',
+        desc: '',
         onClick: () => setShowMyAreasPanel(true),
       },
     ];
@@ -1192,7 +1205,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       <div className="page">
         <div className="page-header">
           <h1 className="page-title">{t.dashboard.title}</h1>
-          <p className="page-subtitle">لوحة متابعة المندوب التجاري · {selectedMonthName}</p>
         </div>
 
         {/* Month selector */}
@@ -2436,39 +2448,112 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
                   <div style={{ fontWeight: 600, fontSize: '13px', color: '#0369a1', marginBottom: '10px' }}>📋 بيانات الطبيب الجديد</div>
                   <div style={{ display: 'grid', gap: '10px' }}>
-                    <div>
+                    {/* Specialty */}
+                    <div style={{ position: 'relative' }}>
                       <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص</label>
                       <input
                         type="text" className="form-input"
-                        placeholder="اختصاص الطبيب..."
+                        placeholder="اكتب الاختصاص..."
                         value={clManualSpecialty}
-                        onChange={e => setClManualSpecialty(e.target.value)}
+                        autoComplete="off"
+                        onChange={async e => {
+                          const v = e.target.value;
+                          setClManualSpecialty(v);
+                          if (!v.trim()) { setClManualSpecialtySugg([]); setClManualSpecialtyShow(false); return; }
+                          try {
+                            const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() });
+                            const list: string[] = await r.json();
+                            setClManualSpecialtySugg(list);
+                            setClManualSpecialtyShow(list.length > 0);
+                          } catch { setClManualSpecialtySugg([]); }
+                        }}
+                        onFocus={() => { if (clManualSpecialtySugg.length > 0) setClManualSpecialtyShow(true); }}
+                        onBlur={() => setTimeout(() => setClManualSpecialtyShow(false), 200)}
                         style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
                       />
+                      {clManualSpecialtyShow && clManualSpecialtySugg.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                          {clManualSpecialtySugg.map((s, i) => (
+                            <div key={i} onMouseDown={() => { setClManualSpecialty(s); setClManualSpecialtyShow(false); }}
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '')}
+                            >{s}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div>
+                    {/* Pharmacy name */}
+                    <div style={{ position: 'relative' }}>
                       <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية</label>
                       <input
                         type="text" className="form-input"
-                        placeholder="اسم الصيدلية..."
+                        placeholder="اكتب اسم الصيدلية..."
                         value={clManualPharmacy}
-                        onChange={e => setClManualPharmacy(e.target.value)}
+                        autoComplete="off"
+                        onChange={async e => {
+                          const v = e.target.value;
+                          setClManualPharmacy(v);
+                          if (!v.trim()) { setClManualPharmacySugg([]); setClManualPharmacyShow(false); return; }
+                          try {
+                            const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() });
+                            const list: string[] = await r.json();
+                            setClManualPharmacySugg(list);
+                            setClManualPharmacyShow(list.length > 0);
+                          } catch { setClManualPharmacySugg([]); }
+                        }}
+                        onFocus={() => { if (clManualPharmacySugg.length > 0) setClManualPharmacyShow(true); }}
+                        onBlur={() => setTimeout(() => setClManualPharmacyShow(false), 200)}
                         style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
                       />
+                      {clManualPharmacyShow && clManualPharmacySugg.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                          {clManualPharmacySugg.map((s, i) => (
+                            <div key={i} onMouseDown={() => { setClManualPharmacy(s); setClManualPharmacyShow(false); }}
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '')}
+                            >{s}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div>
+                    {/* Area with autocomplete */}
+                    <div style={{ position: 'relative' }}>
                       <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة</label>
-                      <select
-                        className="form-input"
-                        value={clManualAreaId}
-                        onChange={e => setClManualAreaId(e.target.value)}
-                        style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
-                      >
-                        <option value="">— بدون منطقة —</option>
-                        {clAreas.map((a: any) => (
-                          <option key={a.id} value={String(a.id)}>{a.name}</option>
-                        ))}
-                      </select>
+                      <input
+                        type="text" className="form-input"
+                        placeholder="اكتب اسم المنطقة..."
+                        value={clManualAreaName}
+                        autoComplete="off"
+                        onChange={e => {
+                          const v = e.target.value;
+                          setClManualAreaName(v);
+                          setClManualAreaId('');
+                          if (!v.trim()) { setClManualAreaSugg([]); setClManualAreaShow(false); return; }
+                          const lv = v.toLowerCase();
+                          const sugg = clAreas.filter((a: any) => a.name.toLowerCase().includes(lv)).slice(0, 8);
+                          setClManualAreaSugg(sugg);
+                          setClManualAreaShow(sugg.length > 0);
+                        }}
+                        onFocus={() => { if (clManualAreaSugg.length > 0) setClManualAreaShow(true); }}
+                        onBlur={() => setTimeout(() => setClManualAreaShow(false), 200)}
+                        style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: clManualAreaId ? '28px' : undefined }}
+                      />
+                      {clManualAreaId && (
+                        <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(4px)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                      )}
+                      {clManualAreaShow && clManualAreaSugg.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                          {clManualAreaSugg.map((a: any) => (
+                            <div key={a.id} onMouseDown={() => { setClManualAreaName(a.name); setClManualAreaId(String(a.id)); setClManualAreaShow(false); }}
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '')}
+                            >{a.name}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2630,14 +2715,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   onClick={submitCallLog}
                   disabled={clSaving || (
                     callType === 'doctor'
-                      ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
+                      ? (activePlan
+                          ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
+                          : (!clOtherDocId && !clDoctor.trim()))
                       : (!clPharmacyName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim()))
                   )}
                   style={{
                     padding: '8px 24px', background: '#059669', border: 'none', borderRadius: '8px',
                     fontSize: '14px', cursor: 'pointer', color: '#fff', fontWeight: 700,
                     opacity: (clSaving || (callType === 'doctor'
-                      ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
+                      ? (activePlan
+                          ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
+                          : (!clOtherDocId && !clDoctor.trim()))
                       : (!clPharmacyName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim())))) ? 0.5 : 1,
                   }}
                 >

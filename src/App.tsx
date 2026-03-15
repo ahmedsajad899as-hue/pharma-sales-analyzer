@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, Component, lazy, Suspense } from 'react';
+﻿import { useState, useEffect, useCallback, useRef, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
@@ -118,30 +118,97 @@ function AppInner() {
   const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
   const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
 
-  // Redirect commercial_rep to the commercial page on every load
-  useEffect(() => {
-    if (!user) return;
-    if (user.role === 'commercial_rep') {
-      navigateTo('commercial');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role]);
+  // Keep a ref so the popstate closure always sees the latest activePage
+  const activePageRef = useRef(activePage);
+  useEffect(() => { activePageRef.current = activePage; }, [activePage]);
 
   // Sync with browser history so mobile back button navigates within the app
   useEffect(() => {
     const saved = (localStorage.getItem('lastPage') as PageId) || 'dashboard';
+    // Single base entry – when popped we know user wants to exit
     history.replaceState({ page: saved }, '');
-    const handlePopState = (e: PopStateEvent) => {
-      const page = (e.state?.page as PageId) || 'dashboard';
-      // Allow open modals to intercept back navigation
-      const modalEv = new CustomEvent('before-navigate-back', { cancelable: true });
-      window.dispatchEvent(modalEv);
-      if (modalEv.defaultPrevented) return;
-      localStorage.setItem('lastPage', page);
-      setActivePage(page);
+    // Working entry – user always sits here when no layers open
+    history.pushState({ page: saved, appShell: true }, '');
+
+    let exitPending = false;
+    let exitTimer: ReturnType<typeof setTimeout> | null = null;
+    let toastEl: HTMLDivElement | null = null;
+
+    const clearExitState = () => {
+      exitPending = false;
+      if (exitTimer) { clearTimeout(exitTimer); exitTimer = null; }
+      if (toastEl) { toastEl.style.opacity = '0'; setTimeout(() => { toastEl?.remove(); toastEl = null; }, 150); }
     };
+
+    const showExitToast = () => {
+      toastEl = document.createElement('div');
+      toastEl.textContent = 'اضغط مرة أخرى للخروج';
+      Object.assign(toastEl.style, {
+        position: 'fixed', bottom: '80px', left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(15,23,42,0.88)', color: '#fff',
+        padding: '10px 22px', borderRadius: '24px', fontSize: '14px',
+        fontWeight: '600', zIndex: '99999', pointerEvents: 'none',
+        backdropFilter: 'blur(6px)', direction: 'rtl',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
+        opacity: '0', transition: 'opacity .15s',
+      });
+      document.body.appendChild(toastEl);
+      requestAnimationFrame(() => { if (toastEl) toastEl.style.opacity = '1'; });
+    };
+
+    const handlePopState = (e: PopStateEvent) => {
+      // 1. Let open layers intercept (CommercialRepPage listens to this)
+      const layerEv = new CustomEvent('before-navigate-back', { cancelable: true });
+      window.dispatchEvent(layerEv);
+      if (layerEv.defaultPrevented) {
+        // A layer was closed – re-push working entry immediately so
+        // the stack depth is restored with no visible navigation
+        history.pushState({ page: activePageRef.current, appShell: true }, '');
+        clearExitState();
+        return;
+      }
+
+      // 1b. If we landed on a navEntry (pushed by navigateTo), skip it silently.
+      //     This happens when the user closes a drawer then presses back a second
+      //     time — the navigateTo entry for the current page sits below the
+      //     appShell entry and must be jumped over to reach the real previous page.
+      if (e.state?.navEntry) {
+        history.back();
+        return;
+      }
+
+      // 2. Normal page back-navigation (entries pushed by navigateTo)
+      const targetPage = e.state?.page as PageId | undefined;
+      if (targetPage && targetPage !== activePageRef.current) {
+        localStorage.setItem('lastPage', targetPage);
+        setActivePage(targetPage);
+        clearExitState();
+        return;
+      }
+
+      // 3. Same page or no page state → exit candidate
+      // Re-push working entry immediately so browser shows NO navigation animation
+      history.pushState({ page: activePageRef.current, appShell: true }, '');
+
+      if (exitPending) {
+        // Second press within 1s → exit for real (go back twice to leave the app)
+        clearExitState();
+        history.go(-2);
+        return;
+      }
+
+      exitPending = true;
+      navigator.vibrate?.(40);
+      showExitToast();
+      exitTimer = setTimeout(clearExitState, 1000);
+    };
+
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      clearExitState();
+    };
   }, [])
 
   // Track which pages have been visited — only those get mounted
@@ -150,7 +217,11 @@ function AppInner() {
 
   const navigateTo = useCallback((page: PageId) => {
     localStorage.setItem('lastPage', page);
-    history.pushState({ page }, '');
+    // Only push a new history entry when moving to a different page.
+    // Pushing same-page entries creates orphan entries that cause false exit triggers.
+    if (page !== activePageRef.current) {
+      history.pushState({ page, navEntry: true }, '');
+    }
     setActivePage(page);
     setMountedPages(prev => { const s = new Set(prev); s.add(page); return s; });
   }, []);

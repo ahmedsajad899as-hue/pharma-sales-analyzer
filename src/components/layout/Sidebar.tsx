@@ -157,6 +157,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
 
   const handleMobileNavigate = (id: PageId) => {
+    if (id === 'commercial') window.dispatchEvent(new CustomEvent('comm-reset-tab'));
     onNavigate(id);
     setMobileMenuOpen(false);
   };
@@ -180,7 +181,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             return (
               <button
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => { if (item.id === 'commercial') window.dispatchEvent(new CustomEvent('comm-reset-tab')); onNavigate(item.id); }}
                 className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`}
                 style={isRepAnalysis && !isActive ? {
                   background: 'linear-gradient(90deg,rgba(99,102,241,0.18),rgba(99,102,241,0.08))',

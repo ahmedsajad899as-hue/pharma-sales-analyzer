@@ -498,3 +498,51 @@ export async function importExcel(req, res, next) {
     res.json({ imported, skipped, errors, total: rows.length, colMap, detectedCols });
   } catch (e) { next(e); }
 }
+
+// ── GET /specialties?q= — autocomplete distinct specialty values ─
+export async function specialtySuggestions(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const q = String(req.query.q ?? '').trim().toLowerCase();
+    const docs = await prisma.doctor.findMany({
+      where: { userId, specialty: { not: null } },
+      select: { specialty: true },
+      distinct: ['specialty'],
+      orderBy: { name: 'asc' },
+      take: 100,
+    });
+    let names = docs.map(d => d.specialty).filter(Boolean);
+    if (q) names = names.filter(n => n.toLowerCase().includes(q));
+    names.sort((a, b) => {
+      const as = a.toLowerCase().startsWith(q), bs = b.toLowerCase().startsWith(q);
+      if (as && !bs) return -1;
+      if (!as && bs) return 1;
+      return a.localeCompare(b);
+    });
+    res.json(names.slice(0, 10));
+  } catch (e) { next(e); }
+}
+
+// ── GET /pharmacy-names?q= — autocomplete pharmacy names from doctors ─
+export async function pharmacyNameSuggestions(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const q = String(req.query.q ?? '').trim().toLowerCase();
+    const docs = await prisma.doctor.findMany({
+      where: { userId, pharmacyName: { not: null } },
+      select: { pharmacyName: true },
+      distinct: ['pharmacyName'],
+      orderBy: { name: 'asc' },
+      take: 100,
+    });
+    let names = docs.map(d => d.pharmacyName).filter(Boolean);
+    if (q) names = names.filter(n => n.toLowerCase().includes(q));
+    names.sort((a, b) => {
+      const as = a.toLowerCase().startsWith(q), bs = b.toLowerCase().startsWith(q);
+      if (as && !bs) return -1;
+      if (!as && bs) return 1;
+      return a.localeCompare(b);
+    });
+    res.json(names.slice(0, 10));
+  } catch (e) { next(e); }
+}
