@@ -1858,12 +1858,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <>
                     <div style={{ fontSize: 44, marginBottom: 8 }}>🎙️</div>
                     <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', marginBottom: 10 }}>نوع الزيارة الصوتية</div>
-                    {/* no-plan warning */}
-                    {!activePlan && callType === 'doctor' && (
-                      <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '7px 10px', marginBottom: 10, fontSize: 12, color: '#92400e' }}>
-                        ⚠️ لا يوجد بلان — ستُسجَّل الزيارة بدون بلان
-                      </div>
-                    )}
                     {/* Call type selector */}
                     <div style={{ display: 'flex', gap: '8px', marginBottom: 14, justifyContent: 'center' }}>
                       <button
@@ -2065,13 +2059,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {activePlan && callType === 'doctor' && (
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px', fontSize: '13px', color: '#166534' }}>
                   📋 البلان: شهر {activePlan.month}/{activePlan.year} — {activePlan.entries?.length ?? 0} طبيب
-                </div>
-              )}
-
-              {/* No-plan warning */}
-              {!activePlan && callType === 'doctor' && (
-                <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: '8px', padding: '9px 12px', marginBottom: '14px', fontSize: '12px', color: '#92400e' }}>
-                  ⚠️ لا يوجد بلان شهري نشط — ستُسجَّل الزيارة بدون بلان
                 </div>
               )}
 
