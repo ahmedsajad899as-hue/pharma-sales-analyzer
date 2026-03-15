@@ -56,14 +56,17 @@ export async function list(filters, user = null) {
     const repsWithIds = await Promise.all(repUsers.map(async u => {
       let repId = u.linkedRepId;
       if (!repId) {
-        // Auto-create a ScientificRepresentative and link to this user
-        const rep = await prisma.scientificRepresentative.create({
-          data: {
-            name: u.displayName || u.username,
-            phone: u.phone || null,
-            userId: u.id,
-          },
-        });
+        // Find-or-create: avoid duplicate ScientificRepresentative for same userId
+        let rep = await prisma.scientificRepresentative.findFirst({ where: { userId: u.id } });
+        if (!rep) {
+          rep = await prisma.scientificRepresentative.create({
+            data: {
+              name: u.displayName || u.username,
+              phone: u.phone || null,
+              userId: u.id,
+            },
+          });
+        }
         await prisma.user.update({ where: { id: u.id }, data: { linkedRepId: rep.id } });
         repId = rep.id;
       }

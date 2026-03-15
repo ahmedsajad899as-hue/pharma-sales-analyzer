@@ -4,8 +4,10 @@ import prisma from '../../lib/prisma.js';
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
   isActive: true, phone: true, permissions: true, officeId: true,
+  linkedRepId: true,
   createdAt: true,
   office: { select: { id: true, name: true } },
+  linkedRep: { select: { id: true, name: true } },
   companyAssignments: { include: { company: { select: { id: true, name: true } } } },
   lineAssignments:    { include: { line:    { select: { id: true, name: true, companyId: true } } } },
   itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
@@ -74,7 +76,7 @@ export async function createUser(req, res) {
 // ── Update user ───────────────────────────────────────────────────────────
 export async function updateUser(req, res) {
   const id = parseInt(req.params.id);
-  const { displayName, role, isActive, phone, officeId, permissions, password } = req.body;
+  const { displayName, role, isActive, phone, officeId, permissions, password, linkedRepId } = req.body;
 
   const data = {};
   if (displayName  !== undefined) data.displayName = displayName;
@@ -84,9 +86,44 @@ export async function updateUser(req, res) {
   if (officeId     !== undefined) data.officeId    = officeId ? parseInt(officeId) : null;
   if (permissions  !== undefined) data.permissions = JSON.stringify(permissions);
   if (password)                   data.passwordHash = await bcrypt.hash(password, 12);
+  // Allow admin to manually fix/clear the linked rep
+  if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
 
   const user = await prisma.user.update({ where: { id }, data, select: userSelect });
   res.json({ success: true, data: user });
+}
+
+// ── Rep diagnostic: show all ScientificRepresentative records for a user ─
+export async function getUserRepInfo(req, res) {
+  const id = parseInt(req.params.id);
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, username: true, displayName: true, linkedRepId: true },
+  });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // All ScientificRepresentative records with userId = this user
+  const repsByUserId = await prisma.scientificRepresentative.findMany({
+    where: { userId: id },
+    select: {
+      id: true, name: true, isActive: true, createdAt: true,
+      _count: { select: { doctorVisits: true, pharmacyVisits: true } },
+    },
+  });
+
+  // The currently linked rep (via linkedRepId)
+  let linkedRep = null;
+  if (user.linkedRepId) {
+    linkedRep = await prisma.scientificRepresentative.findUnique({
+      where: { id: user.linkedRepId },
+      select: {
+        id: true, name: true, isActive: true, userId: true,
+        _count: { select: { doctorVisits: true, pharmacyVisits: true } },
+      },
+    });
+  }
+
+  res.json({ success: true, data: { user, linkedRep, repsByUserId } });
 }
 
 // ── Delete user ───────────────────────────────────────────────────────────

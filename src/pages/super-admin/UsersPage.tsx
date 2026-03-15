@@ -103,6 +103,8 @@ interface UserRow  {
   managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
 }
 interface UserDetail extends UserRow {
+  linkedRepId?: number | null;
+  linkedRep?:   { id: number; name: string } | null;
   companyAssignments: { companyId: number; company: { id: number; name: string } }[];
   lineAssignments:    { lineId: number;    line:    { name?: string; companyId: number } }[];
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
@@ -144,6 +146,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
+  const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -193,6 +196,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   }, [detail?.id]);
 
   const loadDetail = (id: number) => {
+    setRepInfoData(null);
     fetch(`/api/sa/users/${id}`, { headers: H() }).then(r => r.json()).then(d => {
       if (d.success) { setDetail(d.data); setTab('info'); }
     });
@@ -326,6 +330,69 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               ].map(([k, v]) => (
                 <div key={k}><div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 3 }}>{k}</div><div style={{ fontWeight: 600 }}>{v}</div></div>
               ))}
+              {/* Linked Rep row */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>المندوب المرتبط (linkedRepId)</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: detail.linkedRepId ? '#f0fdf4' : '#fff7ed', border: `1px solid ${detail.linkedRepId ? '#86efac' : '#fed7aa'}`, borderRadius: 8, padding: '10px 14px', flexWrap: 'wrap' }}>
+                  {detail.linkedRepId ? (
+                    <>
+                      <span style={{ fontWeight: 700 }}>🔗 #{detail.linkedRepId} — {detail.linkedRep?.name || '؟'}</span>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`فك ارتباط المندوب عن ${detail.displayName || detail.username}؟`)) return;
+                          const r = await fetch(`/api/sa/users/${detail.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ linkedRepId: null }) });
+                          if (r.ok) { setRepInfoData(null); loadDetail(detail.id); }
+                        }}
+                        style={{ ...btnStyle('#ef4444', true), marginRight: 'auto', fontSize: 12, padding: '5px 12px' }}
+                      >🔓 فك الارتباط</button>
+                    </>
+                  ) : (
+                    <span style={{ color: '#92400e', fontWeight: 600 }}>⚠️ لا يوجد مندوب مرتبط — سيُنشأ تلقائياً عند أول تحميل للتقارير</span>
+                  )}
+                  <button
+                    onClick={async () => {
+                      const r = await fetch(`/api/sa/users/${detail.id}/rep-info`, { headers: H() });
+                      const d = await r.json();
+                      setRepInfoData(d.success ? d.data : null);
+                    }}
+                    style={{ ...btnStyle('#6366f1', true), fontSize: 12, padding: '5px 12px' }}
+                  >🔍 تشخيص المندوبين</button>
+                </div>
+                {repInfoData && (
+                  <div style={{ marginTop: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, fontSize: 13 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, color: '#0f172a' }}>📊 سجلات ScientificRepresentative المرتبطة بهذا المستخدم:</div>
+                    {repInfoData.repsByUserId.length === 0 ? (
+                      <div style={{ color: '#64748b' }}>لا توجد سجلات بـ userId = {detail.id}</div>
+                    ) : (
+                      repInfoData.repsByUserId.map((r: any) => (
+                        <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f1f5f9' }}>
+                          <span style={{ background: repInfoData.user.linkedRepId === r.id ? '#dcfce7' : '#f1f5f9', color: repInfoData.user.linkedRepId === r.id ? '#16a34a' : '#475569', borderRadius: 6, padding: '2px 8px', fontWeight: 700 }}>
+                            #{r.id} {repInfoData.user.linkedRepId === r.id ? '✓ مرتبط حالياً' : ''}
+                          </span>
+                          <span>{r.name}</span>
+                          <span style={{ color: '#94a3b8' }}>· زيارات أطباء: {r._count.doctorVisits} · زيارات صيادليات: {r._count.pharmacyVisits}</span>
+                          {repInfoData.user.linkedRepId !== r.id && (
+                            <button
+                              onClick={async () => {
+                                if (!confirm(`ربط المستخدم بالمندوب #${r.id}؟`)) return;
+                                const res = await fetch(`/api/sa/users/${detail.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ linkedRepId: r.id }) });
+                                if (res.ok) { setRepInfoData(null); loadDetail(detail.id); }
+                              }}
+                              style={{ ...btnStyle('#0ea5e9', true), fontSize: 11, padding: '3px 8px' }}
+                            >ربط</button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                    {repInfoData.linkedRep && repInfoData.linkedRep.userId !== detail.id && (
+                      <div style={{ marginTop: 8, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: 8, color: '#991b1b', fontWeight: 600 }}>
+                        ⚠️ المندوب المرتبط حالياً #{repInfoData.linkedRep.id} — userId في قاعدة البيانات = {repInfoData.linkedRep.userId ?? 'null'} (ليس {detail.id})
+                        · زيارات: {repInfoData.linkedRep._count.doctorVisits + repInfoData.linkedRep._count.pharmacyVisits}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
           {tab === 'companies' && (

@@ -3,6 +3,7 @@ import {
   listAllUsers, getUser, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserItems, setUserLines,
   setUserManagers, setUserInteractions, setUserFeatures,
+  getUserRepInfo,
   deleteUser,
 } from './admin-users.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
@@ -11,11 +12,12 @@ const router = express.Router();
 
 router.use(requireSuperAdmin);
 
-router.get('/',       listAllUsers);
-router.get('/:id',    getUser);
-router.post('/',      createUser);
-router.put('/:id',    updateUser);
-router.delete('/:id', deleteUser);
+router.get('/',            listAllUsers);
+router.get('/:id/rep-info', getUserRepInfo);
+router.get('/:id',         getUser);
+router.post('/',           createUser);
+router.put('/:id',         updateUser);
+router.delete('/:id',      deleteUser);
 
 // Assignment endpoints
 router.put('/:id/companies',    setUserCompanies);
