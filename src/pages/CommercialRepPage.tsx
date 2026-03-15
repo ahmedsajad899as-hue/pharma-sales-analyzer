@@ -1536,7 +1536,8 @@ export default function CommercialRepPage() {
                 style={{
                   position: 'fixed', inset: 0, zIndex: 9999,
                   background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+                  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                  padding: '16px 16px 80px',
                 }}
                 onClick={() => { setPickModal(false); setPickPharmName(null); setPickPharmInvs([]); }}
               >
