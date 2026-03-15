@@ -2477,23 +2477,24 @@ export default function CommercialRepPage() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="comm-tabs">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            className={`comm-tab ${activeTab === tab.id ? 'comm-tab--active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.icon} {tab.label}
+            {tab.id === 'notifs' && unreadCount > 0 && (
+              <span className="comm-tab-badge">{unreadCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* Content */}
       <div className="comm-content">
-        {/* Tabs */}
-        <div className="comm-tabs">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              className={`comm-tab ${activeTab === tab.id ? 'comm-tab--active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.icon} {tab.label}
-              {tab.id === 'notifs' && unreadCount > 0 && (
-                <span className="comm-tab-badge">{unreadCount}</span>
-              )}
-            </button>
-          ))}
-        </div>
         {renderTabContent()}
       </div>
 
