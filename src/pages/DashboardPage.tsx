@@ -191,6 +191,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     } finally { setLikingVisit(null); }
   };
 
+  const togglePharmLike = async (visitId: number) => {
+    const key = -visitId;
+    if (likingVisit === key) return;
+    setLikingVisit(key);
+    try {
+      const res = await fetch(`/api/pharmacy-visits/${visitId}/like`, { method: 'POST', headers: { ...authH(), 'Content-Type': 'application/json' } });
+      if (res.ok) {
+        const { likes } = await res.json();
+        setCallsData(prev => prev ? { ...prev, visits: prev.visits.map(v => (v as any)._visitType === 'pharmacy' && v.id === visitId ? { ...v, likes } : v) } : prev);
+      }
+    } finally { setLikingVisit(null); }
+  };
+
   useEffect(() => { loadDailyCalls(todayStr, todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // AI assistant page-action listener
@@ -1414,11 +1427,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   👨‍⚕️ <span>طبيب</span>
                 </button>
                 <button onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#059669' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdf4' : '#fff', color: fType === 'pharmacy' ? '#065f46' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#0d9488' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdfa' : '#fff', color: fType === 'pharmacy' ? '#0f766e' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                   🏪 <span>صيدلية</span>
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#7c3aed' : '#d1d5db'}`, background: fDouble ? '#ede9fe' : '#fff', color: fDouble ? '#6d28d9' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#0d9488' : '#d1d5db'}`, background: fDouble ? '#f0fdfa' : '#fff', color: fDouble ? '#0f766e' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                   👥 <span>مزدوجة</span>
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
@@ -1501,9 +1514,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         rows.push(
                           <tr key={(v as any)._visitType === 'pharmacy' ? `ph-${v.id}` : v.id}
                             style={
-                              (v as any)._isDoubleVisit
-                                ? { background: '#f5f3ff' }
-                                : (v as any)._visitType === 'pharmacy' ? { background: '#f0fdf4' }
+                              (v as any)._isDoubleVisit || (v as any)._visitType === 'pharmacy'
+                                ? { background: '#f0fdfa' }
                                 : (v as any)._outOfPlan ? { background: '#fff7ed' } : undefined
                             }>
                           <td style={{ textAlign: 'center', color: '#94a3b8' }}>{idx + 1}</td>
@@ -1511,9 +1523,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             {(v as any)._visitType === 'pharmacy' ? (
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
                                 <strong style={{ fontSize: '15px' }}>🏪 {v.doctor.name}</strong>
-                                <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>صيدلية</span>
+                                <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>صيدلية</span>
                                 {(v as any)._isDoubleVisit && (
-                                  <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
+                                  <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
                                 )}
                               </div>
                             ) : (
@@ -1523,7 +1535,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                   <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
                                 )}
                                 {(v as any)._isDoubleVisit && (
-                                  <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
+                                  <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
                                 )}
                               </div>
                             )}
@@ -1576,7 +1588,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 </div>
                               ) : '—'
                             ) : (
-                              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.item?.name ?? '—'}</div>
+                              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.item?.name ?? '—'}</span>
+                                {v.notes && (
+                                  <span
+                                    onClick={() => setShowItemNotesId(showItemNotesId === -v.id ? null : -v.id)}
+                                    style={{ cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}
+                                  >📝
+                                    {showItemNotesId === -v.id && (
+                                      <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}
+                                        onClick={e => e.stopPropagation()}>
+                                        {v.notes}
+                                      </div>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </td>
                           <td>
@@ -1601,19 +1628,21 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               {v.latitude != null
                                 ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', padding: '1px', lineHeight: 1 }}>📍</button>
                                 : <span style={{ color: '#d1d5db', fontSize: '10px', width: 18, display: 'inline-block' }}>—</span>}
-                              {(v as any)._visitType !== 'pharmacy' && (() => {
+                              {(() => {
+                                const isPharm = (v as any)._visitType === 'pharmacy';
+                                const likeKey = isPharm ? -v.id : v.id;
                                 const likes = (v as any).likes ?? [];
                                 const likeCount = likes.length;
                                 return (
                                   <div style={{ position: 'relative', display: 'inline-block' }}>
                                     <button
                                       title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
-                                      disabled={!isManagerOrAdmin || likingVisit === v.id}
-                                      onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
-                                      onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                      disabled={!isManagerOrAdmin || likingVisit === likeKey}
+                                      onClick={() => isManagerOrAdmin && (isPharm ? togglePharmLike(v.id) : toggleDashLike(v.id))}
+                                      onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
                                       onMouseUp={() => clearTimeout(likeTimer.current)}
                                       onMouseLeave={() => clearTimeout(likeTimer.current)}
-                                      onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                                      onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
                                       onTouchEnd={() => clearTimeout(likeTimer.current)}
                                       style={{
                                         position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1633,7 +1662,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                         }}>{likeCount}</span>
                                       )}
                                     </button>
-                                    {showLikersId === v.id && (
+                                    {showLikersId === likeKey && (
                                       <div style={{
                                         position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
                                         background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
@@ -2857,11 +2886,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
                 <button
                   onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'pharmacy' ? '#059669' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdf4' : '#fff', color: fType === 'pharmacy' ? '#065f46' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'pharmacy' ? '#0d9488' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdfa' : '#fff', color: fType === 'pharmacy' ? '#0f766e' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   🏪 صيدلية
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? '#7c3aed' : '#d1d5db'}`, background: fDouble ? '#ede9fe' : '#fff', color: fDouble ? '#6d28d9' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? '#0d9488' : '#d1d5db'}`, background: fDouble ? '#f0fdfa' : '#fff', color: fDouble ? '#0f766e' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   👥 مزدوجة
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (

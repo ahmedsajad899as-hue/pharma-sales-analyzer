@@ -50,8 +50,9 @@ model User {
   assignedPlans  MonthlyPlan[]              @relation("AssignedPlans")
   doctorVisits   DoctorVisit[]
   pharmacyVisits PharmacyVisit[]
-  visitLikes     VisitLike[]
-  visitComments  VisitComment[]
+  visitLikes           VisitLike[]
+  visitComments        VisitComment[]
+  pharmacyVisitLikes   PharmacyVisitLike[]
 
   // Multi-tenant assignments
   companyAssignments  UserCompanyAssignment[]
@@ -550,11 +551,27 @@ model PharmacyVisit {
   area          Area?                    @relation(fields: [areaId], references: [id])
   scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
   items         PharmacyVisitItem[]
+  likes         PharmacyVisitLike[]
 
   @@index([userId])
   @@index([scientificRepId])
   @@index([visitDate])
   @@map("pharmacy_visits")
+}
+
+// ─── Pharmacy Visit Like (إعجاب بزيارة صيدلية) ───────────────
+model PharmacyVisitLike {
+  id        Int           @id @default(autoincrement())
+  visitId   Int
+  userId    Int
+  createdAt DateTime      @default(now())
+
+  visit PharmacyVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id])
+
+  @@unique([visitId, userId])
+  @@index([visitId])
+  @@map("pharmacy_visit_likes")
 }
 
 // ─── Pharmacy Visit Item (ايتمات زيارة الصيدلية) ─────────────

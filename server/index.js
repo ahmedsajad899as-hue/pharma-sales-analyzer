@@ -1377,6 +1377,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         area:          { select: { id: true, name: true } },
         scientificRep: { select: { id: true, name: true } },
         items:         { include: { item: { select: { id: true, name: true } } } },
+        likes:         { select: { id: true, userId: true, user: { select: { id: true, username: true } } } },
       },
       orderBy: { visitDate: 'asc' },
     });
@@ -1401,6 +1402,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       },
       item:    pv.items[0]?.item ?? null, // primary item for the map
       pharmItems: pv.items,               // all items, for the table
+      likes:   pv.likes ?? [],
       _isDoubleVisit: pv.isDoubleVisit ?? false,
     }));
     } catch (pharmErr) {
@@ -1427,6 +1429,26 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         total: allVisits.length,
       },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/pharmacy-visits/:id/like  — toggle like (manager/admin only)
+app.post('/api/pharmacy-visits/:id/like', async (req, res) => {
+  try {
+    const userId  = req.user?.id;
+    const role    = req.user?.role;
+    if (!userId || (role !== 'admin' && role !== 'manager')) return res.status(403).json({ error: 'Forbidden' });
+    const visitId = parseInt(req.params.id);
+    const existing = await prisma.pharmacyVisitLike.findUnique({ where: { visitId_userId: { visitId, userId } } });
+    if (existing) {
+      await prisma.pharmacyVisitLike.delete({ where: { visitId_userId: { visitId, userId } } });
+    } else {
+      await prisma.pharmacyVisitLike.create({ data: { visitId, userId } });
+    }
+    const likes = await prisma.pharmacyVisitLike.findMany({ where: { visitId }, select: { id: true, userId: true, user: { select: { id: true, username: true } } } });
+    res.json({ liked: !existing, likes });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
