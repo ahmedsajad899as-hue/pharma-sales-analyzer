@@ -227,6 +227,7 @@ export default function CommercialRepPage() {
   // ── Search suggestions ─────────────────────────────────────
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [pharmNames, setPharmNames]           = useState<string[]>([]);
+  const [pharmAreaMap, setPharmAreaMap]       = useState<Record<string, string>>({});
   const pharmacySuggestions = filterPharmacy.trim().length > 0
     ? pharmNames.filter(n => n.toLowerCase().includes(filterPharmacy.toLowerCase())).slice(0, 8)
     : [];
