@@ -192,6 +192,16 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               </button>
             );
           })}
+          {role === 'commercial_rep' && (
+            <button
+              className="sidebar-nav-item"
+              onClick={() => { window.dispatchEvent(new CustomEvent('comm-set-tab', { detail: 'upload' })); onNavigate('commercial'); }}
+              title="رفع فاتورة"
+            >
+              <span className="sidebar-nav-icon">📤</span>
+              {isOpen && <span className="sidebar-nav-label">رفع فاتورة</span>}
+            </button>
+          )}
         </nav>
 
         <div className="sidebar-footer" style={{ marginTop: 'auto' }}>
@@ -362,6 +372,15 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   </button>
                 );
               })}
+              {role === 'commercial_rep' && (
+                <button
+                  className="mobile-drawer-item"
+                  onClick={() => { window.dispatchEvent(new CustomEvent('comm-set-tab', { detail: 'upload' })); onNavigate('commercial'); setMobileMenuOpen(false); }}
+                >
+                  <span style={{ fontSize: 20 }}>📤</span>
+                  <span>رفع فاتورة</span>
+                </button>
+              )}
             </nav>
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {showSwitchBtn && (

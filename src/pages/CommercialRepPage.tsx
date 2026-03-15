@@ -148,7 +148,6 @@ export default function CommercialRepPage() {
     ? [
         { id: 'home',     label: 'الاستحصال',  icon: '🏠' },
         { id: 'invoices', label: 'فواتيري',    icon: '📄' },
-        ...(ENABLE_REP_UPLOAD ? [{ id: 'upload' as TabId, label: 'رفع فاتورة', icon: '📤' }] : []),
       ]
     : isLead
     ? [
@@ -416,6 +415,15 @@ export default function CommercialRepPage() {
     fetchPharmacies();
     if (isMgr || isLead) { fetchReps(); }
   }, [fetchStats, fetchNotifs, fetchReps, fetchPharmacies, isMgr, isLead]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent).detail as TabId;
+      setActiveTab(tab);
+    };
+    window.addEventListener('comm-set-tab', handler);
+    return () => window.removeEventListener('comm-set-tab', handler);
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'invoices' || activeTab === 'team') {
