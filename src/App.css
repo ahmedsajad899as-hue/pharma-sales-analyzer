@@ -1057,12 +1057,13 @@ tr:hover {
   position: fixed;
   top: 0; left: 0; right: 0;
   height: 56px;
-  background: linear-gradient(135deg, #1e293b, #0f172a);
+  background: #ffffff;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
   z-index: 200;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .mobile-header-brand {
@@ -1074,13 +1075,13 @@ tr:hover {
 .mobile-header-title {
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: #8B1A1A;
 }
 
 .mobile-menu-btn {
-  background: rgba(255,255,255,0.12);
+  background: rgba(139,26,26,0.08);
   border: none;
-  color: #e2e8f0;
+  color: #8B1A1A;
   font-size: 20px;
   cursor: pointer;
   padding: 6px 10px;
@@ -1089,7 +1090,7 @@ tr:hover {
   transition: background 0.2s;
 }
 
-.mobile-menu-btn:hover { background: rgba(255,255,255,0.22); transform: none; box-shadow: none; }
+.mobile-menu-btn:hover { background: rgba(139,26,26,0.15); transform: none; box-shadow: none; }
 
 /* ── Compact calls table ── */
 .calls-compact th,
