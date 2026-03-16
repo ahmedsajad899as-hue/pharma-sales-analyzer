@@ -6,7 +6,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="theme-color" content="#8B1A1A">
+    <meta name="theme-color" content="#8B1A1A" id="theme-color-meta">
     <meta name="apple-mobile-web-app-title" content="Ordine">
     <title>Ordine</title>
     <link rel="manifest" href="/manifest.json">
@@ -117,7 +117,13 @@
         var s = document.getElementById('splash');
         if (!s) return;
         s.style.animation = 'splashOut 0.35s ease forwards';
-        setTimeout(function(){ s.remove(); }, 360);
+        setTimeout(function(){
+          s.remove();
+          // Switch status bar to white after splash is gone
+          var tm = document.getElementById('theme-color-meta');
+          if (tm) tm.setAttribute('content', '#ffffff');
+          document.body.style.background = '#f1f5f9';
+        }, 360);
       }
       // MutationObserver — hide when #root gets children
       var _obs = new MutationObserver(function(_, obs) {
