@@ -102,6 +102,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clAccuracy, setClAccuracy]           = useState<number | null>(null);
   const [clGpsStatus, setClGpsStatus]         = useState<'idle'|'getting'|'got'|'denied'>('idle');
   const [clGpsWarning, setClGpsWarning]         = useState(false); // show GPS alert before submit
+  const [waitingForSettings, setWaitingForSettings] = useState(false); // waiting for user to return from location settings
   const clTimerRef = useRef<any>(null);
   const clGpsWatchRef = useRef<number | null>(null);
   const clGpsBestAccRef = useRef<number>(Infinity);
@@ -575,22 +576,44 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const openLocationSettings = () => {
     const ua = navigator.userAgent;
     if (/Android/i.test(ua)) {
-      // Open system location settings on Android
+      // Set waiting flag — visibilitychange listener will auto-retry GPS when user returns
+      setWaitingForSettings(true);
+      // Use anchor click (more reliable than window.location.href in standalone PWA)
       try {
-        window.location.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
-        return;
-      } catch {}
+        const a = document.createElement('a');
+        a.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch {
+        // Fallback if intent fails
+        setWaitingForSettings(false);
+        startGpsCapture();
+      }
+      return;
     }
     if (/iPhone|iPad/i.test(ua)) {
-      // On iOS open app settings (works in Safari)
-      try {
-        window.open('App-Prefs:Privacy&path=LOCATION', '_blank');
-        return;
-      } catch {}
+      setWaitingForSettings(true);
+      try { window.open('App-Prefs:Privacy&path=LOCATION', '_blank'); } catch {}
+      return;
     }
-    // Fallback: re-request permission
+    // Desktop fallback: re-request permission
     startGpsCapture();
   };
+
+  // Auto-retry GPS when user returns from device settings
+  useEffect(() => {
+    if (!waitingForSettings) return;
+    const handleVisibility = () => {
+      if (document.hidden) return;
+      // User returned to app — wait briefly then retry GPS
+      setWaitingForSettings(false);
+      setClGpsWarning(false);
+      setTimeout(() => startGpsCapture(), 600);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [waitingForSettings]);
 
   // Detect if running on plain HTTP (local IP) — GPS not available
   const isInsecureHttp = !window.isSecureContext &&
@@ -2680,9 +2703,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <div style={{ fontSize: '13px', color: '#78350f', marginBottom: '12px' }}>
                     {isInsecureHttp
                       ? 'أنت على رابط HTTP غير آمن — متصفح الهاتف يمنع GPS على هذا الرابط. يجب فتح التطبيق من رابط الشبكة الآمن.'
-                      : clGpsStatus === 'getting'
-                        ? 'جاري تحديد الموقع... انتظر لحظة أو تابع بدون موقع.'
-                        : 'تم رفض إذن الموقع. اضغط «إعادة المحاولة» أو افتح إعدادات المتصفح ← الموقع الجغرافي ← السماح.'}
+                      : waitingForSettings
+                        ? '⚙️ قم بتفعيل الموقع الجغرافي من الإعدادات ثم ارجع للتطبيق وسيبدأ تلقائياً...'
+                        : clGpsStatus === 'getting'
+                          ? 'جاري تحديد الموقع... انتظر لحظة أو تابع بدون موقع.'
+                          : 'تم رفض إذن الموقع. اضغط «إعادة المحاولة» لفتح إعدادات الموقع.'}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {isInsecureHttp ? (
@@ -2692,11 +2717,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         rel="noopener noreferrer"
                         style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer', textDecoration: 'none' }}
                       >🔗 فتح الرابط الآمن (Railway)</a>
+                    ) : waitingForSettings ? (
+                      <button
+                        onClick={() => { setWaitingForSettings(false); startGpsCapture(); }}
+                        style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
+                      >✅ فعّلت الموقع — جرّب الآن</button>
                     ) : (
                       <button
                         onClick={retryGps}
                         style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                      >{clGpsStatus === 'getting' ? '⏳ جاري التحديد...' : '🔄 إعادة المحاولة'}</button>
+                      >{clGpsStatus === 'getting' ? '⏳ جاري التحديد...' : '⚙️ فتح إعدادات الموقع'}</button>
                     )}
                     <button
                       onClick={submitCallLog}
