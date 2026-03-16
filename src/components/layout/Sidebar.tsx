@@ -314,7 +314,6 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       {/* ── MOBILE TOP HEADER ── */}
       <header className="mobile-header">
         <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={32} /></span>
           <span className="mobile-header-title" style={{
             fontSize: 24,
             fontFamily: "'Cinzel', serif",
@@ -325,6 +324,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
           }}>Ordine</span>
+          <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={32} /></span>
         </div>
         <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu" style={{ marginRight: 0, fontSize: 16 }}>
           ☰
