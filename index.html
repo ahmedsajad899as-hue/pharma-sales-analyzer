@@ -24,8 +24,109 @@
   <script type="module" src="/src/main.tsx"></script>
 </head>
 <body class="bg-gray-50">
-    <div id="root">
-      <div style="text-align:center;padding:40px;color:#64748b;font-size:20px;">جاري التحميل...</div>
+    <!-- Splash Screen -->
+    <div id="splash" style="
+      position:fixed; inset:0; z-index:99999;
+      background: linear-gradient(160deg, #8B1A1A 0%, #6B1414 60%, #4a0e0e 100%);
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      gap:0;
+      font-family: system-ui, -apple-system, sans-serif;
+      overflow:hidden;
+    ">
+      <!-- Background subtle circles -->
+      <div style="position:absolute;inset:0;overflow:hidden;pointer-events:none;">
+        <div style="position:absolute;top:-120px;right:-120px;width:380px;height:380px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>
+        <div style="position:absolute;bottom:-100px;left:-100px;width:320px;height:320px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:rgba(255,255,255,0.02);"></div>
+      </div>
+
+      <!-- Logo + Name group -->
+      <div id="splash-content" style="
+        display:flex; flex-direction:column; align-items:center; gap:28px;
+        opacity:0; transform:translateY(30px);
+        animation: splashFadeIn 0.7s cubic-bezier(.22,1,.36,1) 0.2s forwards;
+      ">
+        <!-- SVG Logo (same as sidebar) -->
+        <svg width="100" height="100" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"
+          style="filter:drop-shadow(0 8px 24px rgba(0,0,0,0.35)); animation: splashPulse 2s ease-in-out 0.9s infinite;">
+          <rect width="28" height="28" rx="6" fill="#8B1A1A" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
+          <line x1="21" y1="3" x2="21" y2="12" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+
+        <!-- App Name -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <span style="
+            font-size:42px; font-weight:800; color:#ffffff;
+            letter-spacing:6px; line-height:1;
+            text-shadow:0 2px 20px rgba(0,0,0,0.3);
+          ">ORDINE</span>
+          <span style="
+            font-size:13px; color:rgba(255,255,255,0.55);
+            letter-spacing:2.5px; font-weight:400;
+            text-transform:uppercase;
+          ">محلل مبيعات الأدوية</span>
+        </div>
+      </div>
+
+      <!-- Loading bar at bottom -->
+      <div style="
+        position:absolute; bottom:52px; left:50%; transform:translateX(-50%);
+        width:120px; height:3px; background:rgba(255,255,255,0.15); border-radius:9px;
+        overflow:hidden;
+        opacity:0; animation: splashFadeIn 0.5s ease 0.8s forwards;
+      ">
+        <div style="
+          height:100%; width:0%; background:rgba(255,255,255,0.7);
+          border-radius:9px;
+          animation: splashBar 1.4s cubic-bezier(.4,0,.2,1) 0.9s forwards;
+        "></div>
+      </div>
+
+      <style>
+        @keyframes splashFadeIn {
+          to { opacity:1; transform:translateY(0); }
+        }
+        @keyframes splashPulse {
+          0%,100% { transform:scale(1); }
+          50%      { transform:scale(1.04); }
+        }
+        @keyframes splashBar {
+          to { width:100%; }
+        }
+        @keyframes splashOut {
+          to { opacity:0; transform:scale(1.04); pointer-events:none; }
+        }
+      </style>
     </div>
+
+    <div id="root">
+      <!-- splash holds the screen; React mounts here then we hide splash -->
+    </div>
+
+    <script>
+      // Hide splash once React has rendered (or after max 3s)
+      function hideSplash() {
+        var s = document.getElementById('splash');
+        if (!s) return;
+        s.style.animation = 'splashOut 0.35s ease forwards';
+        setTimeout(function(){ s.remove(); }, 360);
+      }
+      // MutationObserver — hide when #root gets children
+      var _obs = new MutationObserver(function(_, obs) {
+        var root = document.getElementById('root');
+        if (root && root.childElementCount > 0) {
+          obs.disconnect();
+          setTimeout(hideSplash, 300);
+        }
+      });
+      _obs.observe(document.getElementById('root'), { childList: true });
+      // Fallback: hide after 3s regardless
+      setTimeout(hideSplash, 3000);
+    </script>
 </body>
 </html>
