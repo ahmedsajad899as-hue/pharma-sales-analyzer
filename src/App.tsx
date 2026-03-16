@@ -7,17 +7,40 @@ import LoginPage from './pages/LoginPage';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
-const DashboardPage       = lazy(() => import('./pages/DashboardPage'));
-const RepAnalysisPage     = lazy(() => import('./pages/RepAnalysisPage'));
-const UploadPage          = lazy(() => import('./pages/UploadPage'));
-const RepresentativesPage = lazy(() => import('./pages/RepresentativesPage'));
-const ScientificRepsPage  = lazy(() => import('./pages/ScientificRepsPage'));
-const DoctorsPage         = lazy(() => import('./pages/DoctorsPage'));
-const MonthlyPlansPage    = lazy(() => import('./pages/MonthlyPlansPage'));
-const ReportsPage         = lazy(() => import('./pages/ReportsPage'));
-const UsersPage           = lazy(() => import('./pages/UsersPage'));
-const CommercialRepPage   = lazy(() => import('./pages/CommercialRepPage'));
-const AIAssistant         = lazy(() => import('./components/AIAssistant'));
+const _importDashboard       = () => import('./pages/DashboardPage');
+const _importRepAnalysis     = () => import('./pages/RepAnalysisPage');
+const _importUpload          = () => import('./pages/UploadPage');
+const _importRepresentatives = () => import('./pages/RepresentativesPage');
+const _importScientificReps  = () => import('./pages/ScientificRepsPage');
+const _importDoctors         = () => import('./pages/DoctorsPage');
+const _importMonthlyPlans    = () => import('./pages/MonthlyPlansPage');
+const _importReports         = () => import('./pages/ReportsPage');
+const _importUsers           = () => import('./pages/UsersPage');
+const _importCommercial      = () => import('./pages/CommercialRepPage');
+const _importAI              = () => import('./components/AIAssistant');
+
+const DashboardPage       = lazy(_importDashboard);
+const RepAnalysisPage     = lazy(_importRepAnalysis);
+const UploadPage          = lazy(_importUpload);
+const RepresentativesPage = lazy(_importRepresentatives);
+const ScientificRepsPage  = lazy(_importScientificReps);
+const DoctorsPage         = lazy(_importDoctors);
+const MonthlyPlansPage    = lazy(_importMonthlyPlans);
+const ReportsPage         = lazy(_importReports);
+const UsersPage           = lazy(_importUsers);
+const CommercialRepPage   = lazy(_importCommercial);
+const AIAssistant         = lazy(_importAI);
+
+// Preload all page chunks immediately in background after app mounts
+function preloadAllChunks() {
+  const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 100));
+  idle(() => {
+    _importDashboard(); _importRepAnalysis(); _importUpload();
+    _importRepresentatives(); _importScientificReps(); _importDoctors();
+    _importMonthlyPlans(); _importReports(); _importUsers();
+    _importCommercial(); _importAI();
+  });
+}
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -105,6 +128,10 @@ function ImpersonationBanner() {
 function AppInner() {
   const { user, hasFeature } = useAuth();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
+
+  // Preload all page chunks in background so navigation is instant
+  useEffect(() => { preloadAllChunks(); }, []);
+
   // On mobile (< 768px) start with sidebar closed
   const [activePage, setActivePage]       = useState<PageId>(() => {
     try {
