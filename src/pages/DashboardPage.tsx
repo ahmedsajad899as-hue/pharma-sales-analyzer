@@ -86,6 +86,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clManualAreaName, setClManualAreaName]   = useState('');
   const [clManualAreaSugg, setClManualAreaSugg]   = useState<any[]>([]);
   const [clManualAreaShow, setClManualAreaShow]   = useState(false);
+  const [clMissingFields, setClMissingFields]     = useState<string[]>([]);  // missing fields for existing doctor
   const [clAreas, setClAreas]                 = useState<any[]>([]);
   const [clItemId, setClItemId]               = useState('');
   const [clItemName, setClItemName]           = useState('');
@@ -622,7 +623,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setCallType('doctor');
     setClDoctor(''); setClSelectedEntry(null); setClNotInPlan(false);
     setClAddToPlan(false); setClOtherDocId(null); setClOtherDoc(null);
-    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName('');
+    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName(''); setClMissingFields([]);
     setClManualSpecialtySugg([]); setClManualSpecialtyShow(false);
     setClManualPharmacySugg([]); setClManualPharmacyShow(false);
     setClManualAreaSugg([]); setClManualAreaShow(false);
@@ -707,6 +708,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClDoctor(entry.doctor.name);
     setClSuggestions([]);
     setClShowSugg(false);
+    // Compute which fields are missing for this doctor
+    const missing: string[] = [];
+    if (!entry.doctor.specialty) missing.push('specialty');
+    if (!entry.doctor.pharmacyName) missing.push('pharmacy');
+    if (!entry.doctor.area?.name) missing.push('area');
+    setClMissingFields(missing);
+    setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName('');
     if (entry._inPlan) {
       setClSelectedEntry(entry);
       setClNotInPlan(false);
@@ -833,11 +841,21 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       if (!clOtherDocId && !clManualMode && !clDoctor.trim()) {
         setClManualMode(true); return;
       }
+      // Doctor typed but not selected from suggestions → force manual mode to collect required info
+      if (!clManualMode && !clOtherDocId && clDoctor.trim()) {
+        setClManualMode(true); setClNotInPlan(true); return;
+      }
       if (clManualMode && !clDoctor.trim()) { setClError('الرجاء إدخال اسم الطبيب'); return; }
       if (clManualMode) {
         if (!clManualSpecialty.trim()) { setClError('الرجاء إدخال الاختصاص'); return; }
         if (!clManualPharmacy.trim())  { setClError('الرجاء إدخال اسم الصيدلية'); return; }
         if (!clManualAreaId && !clManualAreaName.trim()) { setClError('الرجاء إدخال المنطقة'); return; }
+      }
+      // Validate missing fields for existing catalog doctor
+      if (clOtherDocId && clMissingFields.length > 0) {
+        if (clMissingFields.includes('specialty') && !clManualSpecialty.trim()) { setClError('الرجاء إدخال اختصاص الطبيب'); return; }
+        if (clMissingFields.includes('pharmacy') && !clManualPharmacy.trim()) { setClError('الرجاء إدخال صيدلية الطبيب'); return; }
+        if (clMissingFields.includes('area') && !clManualAreaId && !clManualAreaName.trim()) { setClError('الرجاء إدخال منطقة الطبيب'); return; }
       }
       if (clGpsStatus !== 'got') {
         setClGpsWarning(true);
@@ -891,6 +909,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       if (!clManualPharmacy.trim())  { setClError('الرجاء إدخال اسم الصيدلية'); return; }
       if (!clManualAreaId && !clManualAreaName.trim()) { setClError('الرجاء إدخال المنطقة'); return; }
     }
+    // Validate missing fields for existing doctor (in-plan or catalog)
+    if (!clManualMode && clMissingFields.length > 0) {
+      if (clMissingFields.includes('specialty') && !clManualSpecialty.trim()) { setClError('الرجاء إدخال اختصاص الطبيب'); return; }
+      if (clMissingFields.includes('pharmacy') && !clManualPharmacy.trim()) { setClError('الرجاء إدخال صيدلية الطبيب'); return; }
+      if (clMissingFields.includes('area') && !clManualAreaId && !clManualAreaName.trim()) { setClError('الرجاء إدخال منطقة الطبيب'); return; }
+    }
     // GPS check — warn user if location not obtained yet
     if (clGpsStatus !== 'got') {
       setClGpsWarning(true);
@@ -901,6 +925,23 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClError('');
     try {
       let entryId = clSelectedEntry?.id;
+      // Update existing doctor's missing fields if user filled them in
+      const existingDoctorId = clSelectedEntry?.doctor?.id ?? (clManualMode ? null : clOtherDocId);
+      if (existingDoctorId && clMissingFields.length > 0) {
+        const upd: any = {};
+        if (clMissingFields.includes('specialty') && clManualSpecialty.trim()) upd.specialty = clManualSpecialty.trim();
+        if (clMissingFields.includes('pharmacy') && clManualPharmacy.trim()) upd.pharmacyName = clManualPharmacy.trim();
+        if (clMissingFields.includes('area')) {
+          if (clManualAreaId) upd.areaId = parseInt(clManualAreaId);
+          else if (clManualAreaName.trim()) upd.areaName = clManualAreaName.trim();
+        }
+        if (Object.keys(upd).length > 0) {
+          await fetch(`/api/doctors/${existingDoctorId}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json', ...authH() },
+            body: JSON.stringify(upd),
+          }).catch(() => {});
+        }
+      }
       if (!clSelectedEntry) {
         let doctorId = clOtherDocId;
         // Manual mode: create the doctor first
@@ -1542,6 +1583,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 )}
               </div>
               <div
+                data-no-sidebar-swipe
                 style={{ overflowX: 'auto', maxHeight: callsCompact ? '75vh' : '520px', overflowY: 'auto' }}
                 onTouchStart={e => {
                   if (e.touches.length === 2) {

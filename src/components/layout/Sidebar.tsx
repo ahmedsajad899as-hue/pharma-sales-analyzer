@@ -40,12 +40,16 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // Swipe left to open mobile drawer
   const touchStartX = useRef<number>(0);
   const touchStartY = useRef<number>(0);
+  const swipeBlocked = useRef<boolean>(false);
   useEffect(() => {
     const onTouchStart = (e: TouchEvent) => {
       touchStartX.current = e.touches[0].clientX;
       touchStartY.current = e.touches[0].clientY;
+      // Block sidebar swipe if touch starts inside a horizontally-scrollable area
+      swipeBlocked.current = !!(e.target as Element)?.closest('[data-no-sidebar-swipe]');
     };
     const onTouchEnd = (e: TouchEvent) => {
+      if (swipeBlocked.current) return; // touch started inside a scrollable card table
       const dx = touchStartX.current - e.changedTouches[0].clientX;
       const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY);
       if (dy >= 80) return; // ignore vertical swipes
