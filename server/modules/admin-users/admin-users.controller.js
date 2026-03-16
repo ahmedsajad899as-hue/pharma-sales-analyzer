@@ -75,23 +75,27 @@ export async function createUser(req, res) {
 
 // ── Update user ───────────────────────────────────────────────────────────
 export async function updateUser(req, res) {
-  const id = parseInt(req.params.id);
-  const { username, displayName, role, isActive, phone, officeId, permissions, password, linkedRepId } = req.body;
+  try {
+    const id = parseInt(req.params.id);
+    const { username, displayName, role, isActive, phone, officeId, permissions, password, linkedRepId } = req.body;
 
-  const data = {};
-  if (username     !== undefined) data.username    = username;
-  if (displayName  !== undefined) data.displayName = displayName;
-  if (role         !== undefined) data.role        = role;
-  if (isActive     !== undefined) data.isActive    = Boolean(isActive);
-  if (phone        !== undefined) data.phone       = phone;
-  if (officeId     !== undefined) data.officeId    = officeId ? parseInt(officeId) : null;
-  if (permissions  !== undefined) data.permissions = JSON.stringify(permissions);
-  if (password)                   data.passwordHash = await bcrypt.hash(password, 12);
-  // Allow admin to manually fix/clear the linked rep
-  if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
+    const data = {};
+    if (username     !== undefined) data.username    = username;
+    if (displayName  !== undefined) data.displayName = displayName;
+    if (role         !== undefined) data.role        = role;
+    if (isActive     !== undefined) data.isActive    = Boolean(isActive);
+    if (phone        !== undefined) data.phone       = phone;
+    if (officeId     !== undefined) data.officeId    = officeId ? parseInt(officeId) : null;
+    if (permissions  !== undefined) data.permissions = JSON.stringify(permissions);
+    if (password)                   data.passwordHash = await bcrypt.hash(password, 12);
+    if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
 
-  const user = await prisma.user.update({ where: { id }, data, select: userSelect });
-  res.json({ success: true, data: user });
+    const user = await prisma.user.update({ where: { id }, data, select: userSelect });
+    res.json({ success: true, data: user });
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'اسم المستخدم مستخدم بالفعل.' });
+    res.status(500).json({ error: err.message });
+  }
 }
 
 // ── Rep diagnostic: show all ScientificRepresentative records for a user ─
