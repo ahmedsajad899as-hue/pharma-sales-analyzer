@@ -35,6 +35,7 @@ interface AuthContextType {
   isManager: boolean;
   isManagerOrAdmin: boolean;
   hasFeature: (key: string) => boolean;
+  requiresGps: () => boolean;
   savedAccounts: SavedAccount[];
   switchAccount: (account: SavedAccount) => void;
   removeSavedAccount: (userId: number) => void;
@@ -168,8 +169,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch { return true; }
   };
 
+  const requiresGps = (): boolean => {
+    try {
+      const p = JSON.parse(user?.permissions || '{}');
+      return p.requireGps === true;
+    } catch { return false; }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, savedAccounts, switchAccount, removeSavedAccount }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, requiresGps, savedAccounts, switchAccount, removeSavedAccount }}>
       {children}
     </AuthContext.Provider>
   );

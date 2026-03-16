@@ -14,7 +14,7 @@ interface DailyRep { id: number; name: string; }
 interface DailyCallsData { visits: VisitPoint[]; reps: DailyRep[]; total: number; }
 
 export default function DashboardPage({ onNavigate, activeFileIds, onFileActivated }: { onNavigate: (p: PageId) => void; activeFileIds: number[]; onFileActivated: (id: number) => void }) {
-  const { token, user, hasFeature } = useAuth();
+  const { token, user, hasFeature, requiresGps } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [stats, setStats]         = useState<Stats>({ sciRepsCount: 0, filesCount: 0, areasCount: 0, totalSales: 0, totalReturns: 0 });
@@ -790,7 +790,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       if (!clPharmacyName.trim()) { setClError('الرجاء إدخال اسم الصيدلية'); return; }
       const validItems = clPharmacyItems.filter(it => it.itemId || it.itemName.trim());
       if (validItems.length === 0) { setClError('الرجاء إدخال ايتم واحد على الأقل'); return; }
-      if (clGpsStatus !== 'got' && !clGpsWarning) { setClGpsWarning(true); return; }
+      if (clGpsStatus !== 'got') {
+        setClGpsWarning(true);
+        if (requiresGps() || !clGpsWarning) return;
+      }
       setClGpsWarning(false);
       setClSaving(true); setClError('');
       try {
@@ -831,7 +834,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setClManualMode(true); return;
       }
       if (clManualMode && !clDoctor.trim()) { setClError('الرجاء إدخال اسم الطبيب'); return; }
-      if (clGpsStatus !== 'got' && !clGpsWarning) { setClGpsWarning(true); return; }
+      if (clGpsStatus !== 'got') {
+        setClGpsWarning(true);
+        if (requiresGps() || !clGpsWarning) return;
+      }
       setClGpsWarning(false);
       setClSaving(true); setClError('');
       try {
@@ -876,9 +882,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
     if (clManualMode && !clDoctor.trim()) { setClError('الرجاء إدخال اسم الطبيب'); return; }
     // GPS check — warn user if location not obtained yet
-    if (clGpsStatus !== 'got' && !clGpsWarning) {
+    if (clGpsStatus !== 'got') {
       setClGpsWarning(true);
-      return;
+      if (requiresGps() || !clGpsWarning) return;
     }
     setClGpsWarning(false);
     setClSaving(true);

@@ -146,6 +146,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
+  const [draftRequireGps,    setDraftRequireGps]    = useState(false);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
   const load = () => {
@@ -192,7 +193,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     try {
       const p = JSON.parse(detail.permissions || '{}');
       setDraftDisabledFeats(p.disabledFeatures ?? []);
-    } catch { setDraftDisabledFeats([]); }
+      setDraftRequireGps(p.requireGps === true);
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(false); }
   }, [detail?.id]);
 
   const loadDetail = (id: number) => {
@@ -242,7 +244,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setSaving(true);
     try {
       await fetch(`/api/sa/users/${detail.id}/features`, {
-        method: 'PUT', headers: H(), body: JSON.stringify({ disabledFeatures: draftDisabledFeats }),
+        method: 'PUT', headers: H(), body: JSON.stringify({ disabledFeatures: draftDisabledFeats, requireGps: draftRequireGps }),
       });
       loadDetail(detail.id);
     } finally {
@@ -440,6 +442,34 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <p style={{ fontSize: 13, color: '#64748b', marginTop: 0, marginBottom: 20 }}>
                 تحكم في صلاحيات هذا المستخدم بحسب دوره. أي بند مُعطَّل لن يظهر له عند تسجيل دخوله.
               </p>
+
+              {/* ── GPS Constraint Card ───────────────────────────────── */}
+              <div style={{
+                borderRadius: 14, border: `2px solid ${draftRequireGps ? '#f97316' : '#e2e8f0'}`,
+                background: draftRequireGps ? '#fff7ed' : '#f8fafc',
+                padding: '14px 18px', marginBottom: 20,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 28 }}>📍</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>إلزام تفعيل الموقع الجغرافي</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                      {draftRequireGps
+                        ? '🔴 مفعّل — المستخدم لا يستطيع إرسال أي تقرير بدون GPS'
+                        : '🟢 معطّل — يُظهر تحذير الموقع لكن يسمح بالإرسال بدونه'}
+                    </div>
+                  </div>
+                </div>
+                {/* Toggle */}
+                <label style={{ position: 'relative', display: 'inline-block', width: 52, height: 28, cursor: 'pointer', flexShrink: 0 }}>
+                  <input type="checkbox" checked={draftRequireGps}
+                    onChange={e => setDraftRequireGps(e.target.checked)}
+                    style={{ opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ position: 'absolute', inset: 0, background: draftRequireGps ? '#f97316' : '#e2e8f0', borderRadius: 28, transition: 'background 0.2s' }} />
+                  <span style={{ position: 'absolute', top: 4, left: draftRequireGps ? 28 : 4, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                </label>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {FEATURE_TREE.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role)).map(node => {
                   const parentOff = node.key ? draftDisabledFeats.includes(node.key) : false;
