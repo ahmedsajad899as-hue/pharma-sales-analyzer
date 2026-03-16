@@ -1130,6 +1130,12 @@ app.post('/api/pharmacy-visits', async (req, res) => {
       return res.status(400).json({ error: 'يجب إضافة صنف واحد على الأقل' });
     }
 
+    // ── requireGps check ──────────────────────────────────────
+    if (userId) {
+      const _u = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true } });
+      try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
+    }
+
     // Find the linked scientific rep for the current user
     let scientificRepId = req.user?.linkedRepId ?? null;
     if (!scientificRepId) {
@@ -1212,6 +1218,12 @@ app.post('/api/doctor-visits', async (req, res) => {
     const role   = req.user?.role ?? '';
     const { doctorId: rawDocId, doctorName, specialty, pharmacyName, areaId, areaName,
             itemId, itemName, feedback, notes, visitDate, latitude, longitude, isDoubleVisit } = req.body;
+
+    // ── requireGps check ──────────────────────────────────────
+    if (userId) {
+      const _u = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true } });
+      try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
+    }
 
     // Resolve scientificRepId from the user's record
     const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
