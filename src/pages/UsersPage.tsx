@@ -7,12 +7,27 @@ interface ScientificRep { id: number; name: string; }
 interface User {
   id: number;
   username: string;
-  role: 'admin' | 'manager' | 'user';
+  role: string;
   isActive: boolean;
   createdAt: string;
   linkedRepId: number | null;
   linkedRep: ScientificRep | null;
 }
+
+const ALL_ROLES: { value: string; label: string }[] = [
+  { value: 'user',                   label: '👤 مستخدم' },
+  { value: 'scientific_rep',         label: '🔬 مندوب علمي' },
+  { value: 'team_leader',            label: '🎯 قائد فريق' },
+  { value: 'supervisor',             label: '🔷 مشرف' },
+  { value: 'product_manager',        label: '📦 مدير منتج' },
+  { value: 'company_manager',        label: '🏭 مدير شركة' },
+  { value: 'office_manager',         label: '🏢 مدير مكتب' },
+  { value: 'commercial_rep',         label: '💼 مندوب تجاري' },
+  { value: 'commercial_team_leader', label: '💼 قائد فريق تجاري' },
+  { value: 'commercial_supervisor',  label: '💼 مشرف تجاري' },
+  { value: 'manager',                label: '🛡️ مدير الفريق' },
+  { value: 'admin',                  label: '👑 مدير النظام' },
+];
 
 type ModalType = 'add' | 'edit' | 'password' | null;
 
@@ -31,7 +46,7 @@ export default function UsersPage() {
   // Form fields
   const [fUsername,     setFUsername]     = useState('');
   const [fPassword,     setFPassword]     = useState('');
-  const [fRole,         setFRole]         = useState<'admin' | 'manager' | 'user'>('user');
+  const [fRole,         setFRole]         = useState<string>('user');
   const [fIsActive,     setFIsActive]     = useState(true);
   const [fLinkedRepId,  setFLinkedRepId]  = useState<number | ''>('');
   const [fNewPass,      setFNewPass]      = useState('');
@@ -62,7 +77,7 @@ export default function UsersPage() {
     const handler = (e: Event) => {
       const { action } = (e as CustomEvent).detail || {};
       if (action === 'open-add-user') {
-        setFUsername(''); setFPassword(''); setFRole('user'); setFIsActive(true); setFLinkedRepId('');
+        setFUsername(''); setFPassword(''); setFRole('scientific_rep'); setFIsActive(true); setFLinkedRepId('');
         setSelected(null);
         setModal('add');
       }
@@ -74,7 +89,7 @@ export default function UsersPage() {
   }, []);
 
   const openAdd = () => {
-    setFUsername(''); setFPassword(''); setFRole('user'); setFIsActive(true); setFLinkedRepId('');
+    setFUsername(''); setFPassword(''); setFRole('scientific_rep'); setFIsActive(true); setFLinkedRepId('');
     setSelected(null);
     setModal('add');
   };
@@ -104,7 +119,7 @@ export default function UsersPage() {
         username: fUsername.trim(),
         role: fRole,
         isActive: fIsActive,
-        linkedRepId: fRole === 'user' && fLinkedRepId !== '' ? fLinkedRepId : null,
+        linkedRepId: (fRole === 'user' || fRole === 'scientific_rep') && fLinkedRepId !== '' ? fLinkedRepId : null,
       };
       if (modal === 'add') body.password = fPassword;
 
@@ -194,11 +209,11 @@ export default function UsersPage() {
                     <span className={`badge ${
                       u.role === 'admin' ? 'badge--purple'
                       : u.role === 'manager' ? 'badge--orange'
+                      : u.role === 'company_manager' || u.role === 'office_manager' ? 'badge--orange'
+                      : u.role === 'scientific_rep' || u.role === 'team_leader' || u.role === 'supervisor' ? 'badge--green'
                       : 'badge--blue'
                     }`}>
-                      {u.role === 'admin' ? `👑 ${t.users.admin}`
-                        : u.role === 'manager' ? '🛡️ مدير الفريق'
-                        : `👤 ${t.users.user}`}
+                      {ALL_ROLES.find(r => r.value === u.role)?.label ?? `👤 ${u.role}`}
                     </span>
                   </td>
                   <td style={{ fontSize: 13, color: '#475569' }}>
@@ -251,13 +266,13 @@ export default function UsersPage() {
               )}
               <div className="form-group">
                 <label className="form-label">{t.users.colRole}</label>
-                <select className="form-input" value={fRole} onChange={e => setFRole(e.target.value as any)}>
-                  <option value="user">👤 {t.users.user}</option>
-                  <option value="manager">🛡️ مدير الفريق</option>
-                  <option value="admin">👑 {t.users.admin}</option>
+                <select className="form-input" value={fRole} onChange={e => setFRole(e.target.value)}>
+                  {ALL_ROLES.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
                 </select>
               </div>
-              {fRole === 'user' && (
+              {(fRole === 'user' || fRole === 'scientific_rep') && (
                 <div className="form-group">
                   <label className="form-label">🔬 ربط بمندوب علمي (اختياري)</label>
                   <select
