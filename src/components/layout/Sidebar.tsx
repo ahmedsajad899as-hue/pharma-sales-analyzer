@@ -46,12 +46,16 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       touchStartY.current = e.touches[0].clientY;
     };
     const onTouchEnd = (e: TouchEvent) => {
-      if (mobileMenuOpen) return;
       const dx = touchStartX.current - e.changedTouches[0].clientX;
       const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY);
-      // Swipe left: dx > 60px, and mostly horizontal (not vertical scroll)
-      if (dx > 60 && dy < 80) {
+      if (dy >= 80) return; // ignore vertical swipes
+      // Swipe left (dx > 0): open drawer
+      if (!mobileMenuOpen && dx > 60) {
         setMobileMenuOpen(true);
+      }
+      // Swipe right (dx < 0): close drawer
+      if (mobileMenuOpen && dx < -60) {
+        setMobileMenuOpen(false);
       }
     };
     document.addEventListener('touchstart', onTouchStart, { passive: true });
