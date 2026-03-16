@@ -573,13 +573,23 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
   // Open device location settings — works on Android via geo: prompt
   const openLocationSettings = () => {
-    // Try to force a new geolocation prompt; if denied, user must go to browser settings manually
-    startGpsCapture();
-    // For Android Chrome: opening a geo: URI triggers location prompt if not yet asked
     const ua = navigator.userAgent;
     if (/Android/i.test(ua)) {
-      try { window.open('geo:0,0', '_blank'); } catch {}
+      // Open system location settings on Android
+      try {
+        window.location.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
+        return;
+      } catch {}
     }
+    if (/iPhone|iPad/i.test(ua)) {
+      // On iOS open app settings (works in Safari)
+      try {
+        window.open('App-Prefs:Privacy&path=LOCATION', '_blank');
+        return;
+      } catch {}
+    }
+    // Fallback: re-request permission
+    startGpsCapture();
   };
 
   // Detect if running on plain HTTP (local IP) — GPS not available
