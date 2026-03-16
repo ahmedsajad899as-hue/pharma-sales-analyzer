@@ -1255,6 +1255,22 @@ app.post('/api/doctor-visits', async (req, res) => {
     }
     if (!doctorId) return res.status(400).json({ error: 'doctorId أو doctorName مطلوب' });
 
+    // Update existing doctor's null fields if new data was provided (fill missing specialty/pharmacy/area)
+    if (rawDocId && (specialty || pharmacyName || resolvedAreaId)) {
+      try {
+        const docCheck = await prisma.doctor.findUnique({ where: { id: doctorId }, select: { specialty: true, pharmacyName: true, areaId: true } });
+        if (docCheck) {
+          const docUpd = {};
+          if (!docCheck.specialty    && specialty)      docUpd.specialty    = specialty;
+          if (!docCheck.pharmacyName && pharmacyName)   docUpd.pharmacyName = pharmacyName;
+          if (!docCheck.areaId       && resolvedAreaId) docUpd.areaId       = resolvedAreaId;
+          if (Object.keys(docUpd).length > 0) {
+            await prisma.doctor.update({ where: { id: doctorId }, data: docUpd });
+          }
+        }
+      } catch (_) { /* non-critical — don't block visit creation */ }
+    }
+
     // Resolve itemId by name if not provided
     let resolvedItemId = itemId ? parseInt(itemId) : null;
     if (!resolvedItemId && itemName?.trim()) {

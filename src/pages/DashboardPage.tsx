@@ -2465,6 +2465,84 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </div>
               )}
 
+              {/* Missing fields block for existing doctor (in-plan or catalog) */}
+              {!clManualMode && clMissingFields.length > 0 && (clSelectedEntry || clOtherDoc) && (
+                <div style={{ background: '#fff7ed', border: '2px solid #fb923c', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '13px', color: '#c2410c', marginBottom: '10px' }}>
+                    ⚠️ بيانات الطبيب غير مكتملة — يرجى تعبئة الحقول التالية قبل الإرسال <span style={{ color: '#ef4444' }}>*</span>
+                  </div>
+                  <div style={{ display: 'grid', gap: '10px' }}>
+                    {clMissingFields.includes('specialty') && (
+                      <div style={{ position: 'relative' }}>
+                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: '#ef4444' }}>*</span></label>
+                        <input type="text" className="form-input" placeholder="اكتب الاختصاص..." value={clManualSpecialty} autoComplete="off"
+                          onChange={async e => {
+                            const v = e.target.value; setClManualSpecialty(v);
+                            if (!v.trim()) { setClManualSpecialtySugg([]); setClManualSpecialtyShow(false); return; }
+                            try { const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClManualSpecialtySugg(list); setClManualSpecialtyShow(list.length > 0); } catch {}
+                          }}
+                          onFocus={() => { if (clManualSpecialtySugg.length > 0) setClManualSpecialtyShow(true); }}
+                          onBlur={() => setTimeout(() => setClManualSpecialtyShow(false), 200)}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                        />
+                        {clManualSpecialtyShow && clManualSpecialtySugg.length > 0 && (
+                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                            {clManualSpecialtySugg.map((s, i) => (
+                              <div key={i} onMouseDown={() => { setClManualSpecialty(s); setClManualSpecialtyShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{s}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {clMissingFields.includes('pharmacy') && (
+                      <div style={{ position: 'relative' }}>
+                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span></label>
+                        <input type="text" className="form-input" placeholder="اكتب اسم الصيدلية..." value={clManualPharmacy} autoComplete="off"
+                          onChange={async e => {
+                            const v = e.target.value; setClManualPharmacy(v);
+                            if (!v.trim()) { setClManualPharmacySugg([]); setClManualPharmacyShow(false); return; }
+                            try { const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClManualPharmacySugg(list); setClManualPharmacyShow(list.length > 0); } catch {}
+                          }}
+                          onFocus={() => { if (clManualPharmacySugg.length > 0) setClManualPharmacyShow(true); }}
+                          onBlur={() => setTimeout(() => setClManualPharmacyShow(false), 200)}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                        />
+                        {clManualPharmacyShow && clManualPharmacySugg.length > 0 && (
+                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                            {clManualPharmacySugg.map((s, i) => (
+                              <div key={i} onMouseDown={() => { setClManualPharmacy(s); setClManualPharmacyShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{s}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {clMissingFields.includes('area') && (
+                      <div style={{ position: 'relative' }}>
+                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
+                        <input type="text" className="form-input" placeholder="اكتب اسم المنطقة..." value={clManualAreaName} autoComplete="off"
+                          onChange={e => {
+                            const v = e.target.value; setClManualAreaName(v); setClManualAreaId('');
+                            if (!v.trim()) { setClManualAreaSugg([]); setClManualAreaShow(false); return; }
+                            const matches = clAreas.filter((a: any) => a.name.toLowerCase().includes(v.toLowerCase()));
+                            setClManualAreaSugg(matches.slice(0, 6)); setClManualAreaShow(matches.length > 0);
+                          }}
+                          onFocus={() => { if (clManualAreaSugg.length > 0) setClManualAreaShow(true); }}
+                          onBlur={() => setTimeout(() => setClManualAreaShow(false), 200)}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                        />
+                        {clManualAreaShow && clManualAreaSugg.length > 0 && (
+                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                            {clManualAreaSugg.map((a: any) => (
+                              <div key={a.id} onMouseDown={() => { setClManualAreaName(a.name); setClManualAreaId(String(a.id)); setClManualAreaShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{a.name}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Not-in-plan: catalog suggestions still visible above manual fields */}
               {clNotInPlan && !clOtherDoc && !clManualMode && (
                 <div style={{ marginBottom: '16px' }}>

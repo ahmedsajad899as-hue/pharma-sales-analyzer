@@ -307,7 +307,12 @@ export async function update(req, res, next) {
     const userId = req.user.id;
     const role   = req.user.role;
     const id = parseInt(req.params.id);
-    const { name, specialty, areaId, pharmacyName, targetItemId, notes, isActive } = req.body;
+    const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes, isActive } = req.body;
+    let resolvedAreaId = areaId !== undefined ? (areaId ? parseInt(areaId) : null) : undefined;
+    if (resolvedAreaId === undefined && areaName?.trim()) {
+      const found = await prisma.area.findFirst({ where: { name: { equals: areaName.trim(), mode: 'insensitive' } }, select: { id: true } });
+      if (found) resolvedAreaId = found.id;
+    }
 
     // التحقق من وجود الطبيب أولاً (يمكن أن يكون مسجّلاً بحساب آخر لكن زاره المندوب)
     const existing = await prisma.doctor.findUnique({ where: { id }, select: { id: true, userId: true } });
@@ -329,7 +334,7 @@ export async function update(req, res, next) {
         ...(pharmacyName !== undefined && { pharmacyName }),
         ...(notes        !== undefined && { notes }),
         ...(isActive     !== undefined && { isActive }),
-        ...(areaId       !== undefined && { areaId:       areaId       ? parseInt(areaId)       : null }),
+        ...(resolvedAreaId !== undefined && { areaId: resolvedAreaId }),
         ...(targetItemId !== undefined && { targetItemId: targetItemId ? parseInt(targetItemId) : null }),
       },
     });
