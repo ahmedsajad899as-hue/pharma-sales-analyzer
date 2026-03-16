@@ -2666,50 +2666,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* GPS Warning — shown when user tries to submit without location */}
               {clGpsWarning && clGpsStatus !== 'got' && (
-                <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginBottom: '14px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#92400e', marginBottom: '8px' }}>📍 الموقع الجغرافي غير مفعّل</div>
-
-                  {isInsecureHttp ? (
-                    <>
-                      <div style={{ fontSize: '13px', color: '#78350f', marginBottom: '10px' }}>أنت على رابط HTTP — المتصفح يمنع GPS. افتح الرابط الآمن:</div>
-                      <a href="https://ordine-sales.up.railway.app" target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-block', padding: '7px 16px', background: '#059669', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', textDecoration: 'none' }}>
-                        🔗 فتح الرابط الآمن
-                      </a>
-                    </>
-                  ) : clGpsStatus === 'getting' ? (
-                    <div style={{ fontSize: '13px', color: '#78350f' }}>⏳ جاري تحديد الموقع...</div>
-                  ) : (
-                    <>
-                      {/* Step-by-step instructions */}
-                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 12px', marginBottom: '10px', fontSize: '12px', color: '#78350f', lineHeight: 1.9 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>🔧 لتفعيل الموقع يدوياً:</div>
-                        <div>1️⃣ اضغط على <strong>⋮</strong> أو أيقونة القفل 🔒 في شريط المتصفح</div>
-                        <div>2️⃣ اختر <strong>إعدادات الموقع</strong> أو <strong>الأذونات</strong></div>
-                        <div>3️⃣ غيّر الموقع الجغرافي إلى <strong>السماح</strong></div>
-                        <div>4️⃣ ارجع للتطبيق واضغط <strong>🔄 جرّب مجدداً</strong></div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <button onClick={retryGps}
-                          style={{ padding: '7px 18px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
-                          🔄 جرّب مجدداً
-                        </button>
-                        <button onClick={submitCallLog}
-                          style={{ padding: '7px 16px', background: '#6b7280', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
-                          متابعة بدون موقع ←
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  {clGpsStatus === 'getting' && (
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
-                      <button onClick={submitCallLog}
-                        style={{ padding: '7px 16px', background: '#6b7280', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
-                        متابعة بدون موقع ←
-                      </button>
-                    </div>
-                  )}
+                <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginBottom: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#92400e' }}>
+                    📍 الموقع الجغرافي غير مفعّل، يرجى تفعيل الموقع
+                  </div>
                 </div>
               )}
 
