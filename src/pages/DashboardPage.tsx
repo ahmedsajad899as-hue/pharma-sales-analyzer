@@ -769,15 +769,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   }
 
   const detectNotInPlan = () => {
-    if (!clDoctor.trim() || clSelectedEntry || clOtherDocId || !activePlan) return;
+    if (!clDoctor.trim() || clSelectedEntry || clOtherDocId) return;
+    if (!activePlan) {
+      // No plan — if nothing was selected from suggestions, go manual
+      if (!clOtherDocId) { setClNotInPlan(true); setClManualMode(true); setClShowSugg(false); }
+      return;
+    }
     const lv = clDoctor.toLowerCase();
     const match = (activePlan.entries ?? []).find((e: any) => e.doctor.name.toLowerCase() === lv);
     if (match) return;
+    // Doctor not found anywhere — open extra fields automatically
     setClNotInPlan(true);
     setClShowSugg(false);
-    // If no catalog suggestions either, go directly to manual mode
-    const hasCatalog = clSuggestions.some((s: any) => !s._inPlan);
-    if (!hasCatalog) setClManualMode(true);
+    setClManualMode(true);
   };
 
   const submitCallLog = async () => {
@@ -2403,51 +2407,36 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </div>
               )}
 
-              {/* Not-in-plan: catalog suggestions (doctor name typed, not selected from dropdown) */}
+              {/* Not-in-plan: catalog suggestions still visible above manual fields */}
               {clNotInPlan && !clOtherDoc && !clManualMode && (
                 <div style={{ marginBottom: '16px' }}>
-                  {clSuggestions.filter((s: any) => !s._inPlan).length > 0 ? (
-                    <>
-                      <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#92400e', marginBottom: '8px' }}>
-                        ⚠️ "<strong>{clDoctor}</strong>" غير موجود في البلان — اختر من النتائج أدناه أو أضف يدوياً
-                      </div>
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
-                        {clSuggestions.filter((s: any) => !s._inPlan).map((entry: any) => (
-                          <div
-                            key={entry.doctor.id}
-                            onMouseDown={() => selectClEntry(entry)}
-                            style={{ padding: '8px 14px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: '#fff' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = '#fefce8')}
-                            onMouseLeave={e => (e.currentTarget.style.background = '')}
-                          >
-                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{entry.doctor.name}</div>
-                            <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              {entry.doctor.specialty && <span>🔬 {entry.doctor.specialty}</span>}
-                              {entry.doctor.pharmacyName && <span>🏪 {entry.doctor.pharmacyName}</span>}
-                              {entry.doctor.area?.name && <span>📍 {entry.doctor.area.name}</span>}
-                            </div>
+                  {clSuggestions.filter((s: any) => !s._inPlan).length > 0 && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                      {clSuggestions.filter((s: any) => !s._inPlan).map((entry: any) => (
+                        <div
+                          key={entry.doctor.id}
+                          onMouseDown={() => selectClEntry(entry)}
+                          style={{ padding: '8px 14px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: '#fff' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#fefce8')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}
+                        >
+                          <div style={{ fontWeight: 600, fontSize: '13px' }}>{entry.doctor.name}</div>
+                          <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {entry.doctor.specialty && <span>🔬 {entry.doctor.specialty}</span>}
+                            {entry.doctor.pharmacyName && <span>🏪 {entry.doctor.pharmacyName}</span>}
+                            {entry.doctor.area?.name && <span>📍 {entry.doctor.area.name}</span>}
                           </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', color: '#92400e', marginBottom: '8px' }}>
-                      ⚠️ "<strong>{clDoctor}</strong>" غير موجود في القوائم
+                        </div>
+                      ))}
                     </div>
                   )}
-                  <button
-                    onClick={() => setClManualMode(true)}
-                    style={{ fontSize: '13px', color: '#1d4ed8', background: 'none', border: '1px solid #93c5fd', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer' }}
-                  >
-                    ✏️ إدخال بيانات الطبيب يدوياً
-                  </button>
                 </div>
               )}
 
               {/* Manual mode: fill in doctor details */}
               {clManualMode && (
                 <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: '#0369a1', marginBottom: '10px' }}>📋 بيانات الطبيب الجديد</div>
+                  <div style={{ fontWeight: 600, fontSize: '13px', color: '#0369a1', marginBottom: '10px' }}>📋 "{clDoctor}" — أضف بياناته الإضافية (اختياري)</div>
                   <div style={{ display: 'grid', gap: '10px' }}>
                     {/* Specialty */}
                     <div style={{ position: 'relative' }}>
