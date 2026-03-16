@@ -5,14 +5,16 @@ import OfficesPage from './pages/super-admin/OfficesPage';
 import CompaniesPage from './pages/super-admin/CompaniesPage';
 import UsersPage from './pages/super-admin/UsersPage';
 import SuperAdminsPage from './pages/super-admin/SuperAdminsPage';
+import VisitsPage from './pages/super-admin/VisitsPage';
 
-type Page = 'offices' | 'companies' | 'users' | 'super-admins';
+type Page = 'offices' | 'companies' | 'users' | 'super-admins' | 'visits';
 
 const NAV: { id: Page; label: string; icon: string; color: string; glow: string; masterOnly?: boolean }[] = [
   { id: 'offices',      label: 'المكاتب',    icon: '🏢', color: '#06b6d4', glow: 'rgba(6,182,212,0.35)' },
   { id: 'companies',    label: 'الشركات',    icon: '🏭', color: '#8b5cf6', glow: 'rgba(139,92,246,0.35)' },
   { id: 'users',        label: 'المستخدمون', icon: '👥', color: '#10b981', glow: 'rgba(16,185,129,0.35)' },
   { id: 'super-admins', label: 'المشرفون',   icon: '🛡️', color: '#f59e0b', glow: 'rgba(245,158,11,0.35)', masterOnly: true },
+  { id: 'visits',       label: 'الزيارات',    icon: '📋', color: '#e11d48', glow: 'rgba(225,29,72,0.35)',  masterOnly: true },
 ];
 
 interface SAStats { offices: number; companies: number; users: number; }
@@ -252,6 +254,7 @@ function SuperAdminShell() {
             {page === 'companies'    && <CompaniesPage onOpenUser={id => { setJumpUserId(id); setPage('users'); }} />}
             {page === 'users'        && <UsersPage jumpUserId={jumpUserId} onJumpClear={() => setJumpUserId(null)} />}
             {page === 'super-admins' && <SuperAdminsPage />}
+            {page === 'visits'       && <VisitsPage />}
           </div>
         </main>
       </div>
