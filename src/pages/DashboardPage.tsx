@@ -580,10 +580,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setWaitingForSettings(true);
     const ua = navigator.userAgent;
     if (/Android/i.test(ua)) {
-      // window.open with _blank opens in system browser, not inside PWA WebView
-      // so it won't navigate/reload the app
+      // intent:// must be assigned to location.href for Android Chrome to handle it
       try {
-        window.open('intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end', '_blank');
+        window.location.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
       } catch {}
       return;
     }
