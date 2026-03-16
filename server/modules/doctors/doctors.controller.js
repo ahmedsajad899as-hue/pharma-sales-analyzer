@@ -273,13 +273,23 @@ export async function getOne(req, res, next) {
 export async function create(req, res, next) {
   try {
     const userId = req.user.id;
-    const { name, specialty, areaId, pharmacyName, targetItemId, notes } = req.body;
+    const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
+
+    // Resolve areaId from areaName if only text was provided
+    let resolvedAreaId = areaId ? parseInt(areaId) : null;
+    if (!resolvedAreaId && areaName?.trim()) {
+      const found = await prisma.area.findFirst({
+        where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (found) resolvedAreaId = found.id;
+    }
 
     const doctor = await prisma.doctor.create({
       data: {
         name, specialty, pharmacyName, notes,
-        areaId:       areaId       ? parseInt(areaId)       : null,
+        areaId:       resolvedAreaId ?? null,
         targetItemId: targetItemId ? parseInt(targetItemId) : null,
         userId,
       },

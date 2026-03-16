@@ -1210,13 +1210,23 @@ app.post('/api/doctor-visits', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
     const role   = req.user?.role ?? '';
-    const { doctorId: rawDocId, doctorName, specialty, pharmacyName, areaId,
+    const { doctorId: rawDocId, doctorName, specialty, pharmacyName, areaId, areaName,
             itemId, itemName, feedback, notes, visitDate, latitude, longitude, isDoubleVisit } = req.body;
 
     // Resolve scientificRepId from the user's record
     const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
     let scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
     if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
+
+    // Resolve areaId from areaName if only text was provided
+    let resolvedAreaId = areaId ? parseInt(areaId) : null;
+    if (!resolvedAreaId && areaName?.trim()) {
+      const found = await prisma.area.findFirst({
+        where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (found) resolvedAreaId = found.id;
+    }
 
     // Resolve or create doctor
     let doctorId = rawDocId ? parseInt(rawDocId) : null;
@@ -1226,7 +1236,7 @@ app.post('/api/doctor-visits', async (req, res) => {
       else {
         const created = await prisma.doctor.create({
           data: { name: doctorName.trim(), specialty: specialty || null, pharmacyName: pharmacyName || null,
-                  areaId: areaId ? parseInt(areaId) : null, userId },
+                  areaId: resolvedAreaId, userId },
         });
         doctorId = created.id;
       }
