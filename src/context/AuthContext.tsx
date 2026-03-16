@@ -172,8 +172,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const requiresGps = (): boolean => {
     try {
       const p = JSON.parse(user?.permissions || '{}');
-      return p.requireGps === true;
-    } catch { return false; }
+      return p.requireGps !== false; // ON by default unless explicitly disabled
+    } catch { return true; }
   };
 
   return (

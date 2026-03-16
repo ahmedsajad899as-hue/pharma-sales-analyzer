@@ -146,7 +146,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
-  const [draftRequireGps,    setDraftRequireGps]    = useState(false);
+  const [draftRequireGps,    setDraftRequireGps]    = useState(true);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
   const load = () => {
@@ -193,8 +193,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     try {
       const p = JSON.parse(detail.permissions || '{}');
       setDraftDisabledFeats(p.disabledFeatures ?? []);
-      setDraftRequireGps(p.requireGps === true);
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(false); }
+      setDraftRequireGps(p.requireGps !== false);
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); }
   }, [detail?.id]);
 
   const loadDetail = (id: number) => {

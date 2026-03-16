@@ -1133,7 +1133,7 @@ app.post('/api/pharmacy-visits', async (req, res) => {
     // ── requireGps check ──────────────────────────────────────
     if (userId) {
       const _u = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true } });
-      try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
+      try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps !== false && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
     }
 
     // Find the linked scientific rep for the current user
@@ -1222,7 +1222,7 @@ app.post('/api/doctor-visits', async (req, res) => {
     // ── requireGps check ──────────────────────────────────────
     if (userId) {
       const _u = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true } });
-      try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
+      try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps !== false && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
     }
 
     // Resolve scientificRepId from the user's record

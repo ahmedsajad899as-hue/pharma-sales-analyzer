@@ -643,7 +643,7 @@ export async function addVisit(req, res, next) {
 
     // ── requireGps check ──────────────────────────────────────
     const _u = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true } });
-    try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
+    try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps !== false && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
 
     const plan = await findAccessiblePlan(planId, userId, role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
