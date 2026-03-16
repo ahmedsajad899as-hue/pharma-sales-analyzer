@@ -834,6 +834,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setClManualMode(true); return;
       }
       if (clManualMode && !clDoctor.trim()) { setClError('الرجاء إدخال اسم الطبيب'); return; }
+      if (clManualMode) {
+        if (!clManualSpecialty.trim()) { setClError('الرجاء إدخال الاختصاص'); return; }
+        if (!clManualPharmacy.trim())  { setClError('الرجاء إدخال اسم الصيدلية'); return; }
+        if (!clManualAreaId && !clManualAreaName.trim()) { setClError('الرجاء إدخال المنطقة'); return; }
+      }
       if (clGpsStatus !== 'got') {
         setClGpsWarning(true);
         if (requiresGps() || !clGpsWarning) return;
@@ -881,6 +886,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       return;
     }
     if (clManualMode && !clDoctor.trim()) { setClError('الرجاء إدخال اسم الطبيب'); return; }
+    if (clManualMode) {
+      if (!clManualSpecialty.trim()) { setClError('الرجاء إدخال الاختصاص'); return; }
+      if (!clManualPharmacy.trim())  { setClError('الرجاء إدخال اسم الصيدلية'); return; }
+      if (!clManualAreaId && !clManualAreaName.trim()) { setClError('الرجاء إدخال المنطقة'); return; }
+    }
     // GPS check — warn user if location not obtained yet
     if (clGpsStatus !== 'got') {
       setClGpsWarning(true);
@@ -2442,11 +2452,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* Manual mode: fill in doctor details */}
               {clManualMode && (
                 <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: '#0369a1', marginBottom: '10px' }}>📋 "{clDoctor}" — أضف بياناته الإضافية (اختياري)</div>
+                  <div style={{ fontWeight: 600, fontSize: '13px', color: '#b91c1c', marginBottom: '10px' }}>📋 "{clDoctor}" — طبيب جديد، يرجى تعبئة الحقول التالية <span style={{ color: '#ef4444' }}>*</span></div>
                   <div style={{ display: 'grid', gap: '10px' }}>
                     {/* Specialty */}
                     <div style={{ position: 'relative' }}>
-                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص</label>
+                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: '#ef4444' }}>*</span></label>
                       <input
                         type="text" className="form-input"
                         placeholder="اكتب الاختصاص..."
@@ -2481,7 +2491,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </div>
                     {/* Pharmacy name */}
                     <div style={{ position: 'relative' }}>
-                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية</label>
+                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span></label>
                       <input
                         type="text" className="form-input"
                         placeholder="اكتب اسم الصيدلية..."
@@ -2516,7 +2526,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </div>
                     {/* Area with autocomplete */}
                     <div style={{ position: 'relative' }}>
-                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة</label>
+                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
                       <input
                         type="text" className="form-input"
                         placeholder="اكتب اسم المنطقة..."
