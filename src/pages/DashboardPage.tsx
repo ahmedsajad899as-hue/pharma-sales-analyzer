@@ -526,6 +526,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setClLng(pos.coords.longitude);
         setClAccuracy(Math.round(acc));
         setClGpsStatus('got');
+        // GPS acquired — clear any location warnings
+        setClGpsWarning(false);
+        setWaitingForSettings(false);
       }
       // Stop watching once accuracy is good enough
       if (acc <= GOOD_ACCURACY) { stopGpsWatch(); }
@@ -572,32 +575,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }, 90000);
   };
 
-  // Open device location settings — works on Android via geo: prompt
+  // Open device location settings
   const openLocationSettings = () => {
+    setWaitingForSettings(true);
     const ua = navigator.userAgent;
     if (/Android/i.test(ua)) {
-      // Set waiting flag — visibilitychange listener will auto-retry GPS when user returns
-      setWaitingForSettings(true);
-      // Use anchor click (more reliable than window.location.href in standalone PWA)
+      // window.open with _blank opens in system browser, not inside PWA WebView
+      // so it won't navigate/reload the app
       try {
-        const a = document.createElement('a');
-        a.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      } catch {
-        // Fallback if intent fails
-        setWaitingForSettings(false);
-        startGpsCapture();
-      }
+        window.open('intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end', '_blank');
+      } catch {}
       return;
     }
     if (/iPhone|iPad/i.test(ua)) {
-      setWaitingForSettings(true);
       try { window.open('App-Prefs:Privacy&path=LOCATION', '_blank'); } catch {}
       return;
     }
-    // Desktop fallback: re-request permission
+    // Desktop fallback
+    setWaitingForSettings(false);
     startGpsCapture();
   };
 
@@ -607,9 +602,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     const handleVisibility = () => {
       if (document.hidden) return;
       // User returned to app — wait briefly then retry GPS
-      setWaitingForSettings(false);
-      setClGpsWarning(false);
-      setTimeout(() => startGpsCapture(), 600);
+      // Keep clGpsWarning=true and waitingForSettings=true until GPS is actually acquired
+      setTimeout(() => startGpsCapture(), 800);
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
@@ -619,12 +613,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const isInsecureHttp = !window.isSecureContext &&
     location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
 
-  // Retry GPS: if already denied → open phone settings; otherwise just retry
+  // Retry GPS: if already denied → open phone settings (keep warning visible); otherwise just retry
   const retryGps = () => {
-    setClGpsWarning(false);
     if (clGpsStatus === 'denied') {
+      // Do NOT hide warning — keep it shown while user goes to settings
       openLocationSettings();
     } else {
+      setClGpsWarning(false);
       startGpsCapture();
     }
   };
@@ -2704,10 +2699,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {isInsecureHttp
                       ? 'أنت على رابط HTTP غير آمن — متصفح الهاتف يمنع GPS على هذا الرابط. يجب فتح التطبيق من رابط الشبكة الآمن.'
                       : waitingForSettings
-                        ? '⚙️ قم بتفعيل الموقع الجغرافي من الإعدادات ثم ارجع للتطبيق وسيبدأ تلقائياً...'
+                        ? '⚙️ فعّل الموقع الجغرافي في الإعدادات ثم ارجع للتطبيق. سيبدأ تلقائياً أو اضغط «جرّب مجدداً».'
                         : clGpsStatus === 'getting'
-                          ? 'جاري تحديد الموقع... انتظر لحظة أو تابع بدون موقع.'
-                          : 'تم رفض إذن الموقع. اضغط «إعادة المحاولة» لفتح إعدادات الموقع.'}
+                          ? '⏳ جاري تحديد الموقع...'
+                          : 'تم رفض إذن الموقع. افتح إعدادات الهاتف وفعّل الموقع الجغرافي.'}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {isInsecureHttp ? (
@@ -2718,15 +2713,23 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer', textDecoration: 'none' }}
                       >🔗 فتح الرابط الآمن (Railway)</a>
                     ) : waitingForSettings ? (
-                      <button
-                        onClick={() => { setWaitingForSettings(false); startGpsCapture(); }}
-                        style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                      >✅ فعّلت الموقع — جرّب الآن</button>
+                      <>
+                        <button
+                          onClick={() => startGpsCapture()}
+                          style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
+                        >🔄 جرّب مجدداً</button>
+                        <button
+                          onClick={() => openLocationSettings()}
+                          style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
+                        >⚙️ فتح الإعدادات</button>
+                      </>
+                    ) : clGpsStatus === 'getting' ? (
+                      <span style={{ fontSize: '13px', color: '#92400e', alignSelf: 'center' }}>⏳ جاري البحث عن الموقع...</span>
                     ) : (
                       <button
                         onClick={retryGps}
                         style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                      >{clGpsStatus === 'getting' ? '⏳ جاري التحديد...' : '⚙️ فتح إعدادات الموقع'}</button>
+                      >⚙️ فتح إعدادات الموقع</button>
                     )}
                     <button
                       onClick={submitCallLog}
