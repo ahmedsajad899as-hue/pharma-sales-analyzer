@@ -7,7 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 function OrdineLogo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="28" height="28" rx="6" fill="white" stroke="#8B1A1A" strokeWidth="1.2"/>
+      <rect width="28" height="28" rx="6" fill="white"/>
       {/* Large arc r=12 */}
       <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="#8B1A1A" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
       {/* Medium arc r=8.5 */}
