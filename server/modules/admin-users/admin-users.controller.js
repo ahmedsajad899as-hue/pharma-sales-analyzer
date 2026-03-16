@@ -76,9 +76,10 @@ export async function createUser(req, res) {
 // ── Update user ───────────────────────────────────────────────────────────
 export async function updateUser(req, res) {
   const id = parseInt(req.params.id);
-  const { displayName, role, isActive, phone, officeId, permissions, password, linkedRepId } = req.body;
+  const { username, displayName, role, isActive, phone, officeId, permissions, password, linkedRepId } = req.body;
 
   const data = {};
+  if (username     !== undefined) data.username    = username;
   if (displayName  !== undefined) data.displayName = displayName;
   if (role         !== undefined) data.role        = role;
   if (isActive     !== undefined) data.isActive    = Boolean(isActive);
