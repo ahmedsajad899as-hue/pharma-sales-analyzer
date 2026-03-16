@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { PageId } from '../../App';
 import { useAuth } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
@@ -36,6 +36,31 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSwitchPanel, setShowSwitchPanel] = useState(false);
+
+  // Swipe left to open mobile drawer
+  const touchStartX = useRef<number>(0);
+  const touchStartY = useRef<number>(0);
+  useEffect(() => {
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (mobileMenuOpen) return;
+      const dx = touchStartX.current - e.changedTouches[0].clientX;
+      const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY);
+      // Swipe left: dx > 60px, and mostly horizontal (not vertical scroll)
+      if (dx > 60 && dy < 80) {
+        setMobileMenuOpen(true);
+      }
+    };
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [mobileMenuOpen]);
 
   // Dev env switcher — only visible on localhost
   const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
