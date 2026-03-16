@@ -576,51 +576,25 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   // Open device location settings
+  // NOTE: intent:// and chrome:// URLs are blocked by Chrome from web pages (security policy).
+  // The only working approach is: re-trigger geolocation prompt + show manual instructions.
   const openLocationSettings = () => {
     setWaitingForSettings(true);
-    const ua = navigator.userAgent;
-    if (/Android/i.test(ua)) {
-      // intent:// must be assigned to location.href for Android Chrome to handle it
-      try {
-        window.location.href = 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end';
-      } catch {}
-      return;
-    }
-    if (/iPhone|iPad/i.test(ua)) {
-      try { window.open('App-Prefs:Privacy&path=LOCATION', '_blank'); } catch {}
-      return;
-    }
-    // Desktop fallback
-    setWaitingForSettings(false);
     startGpsCapture();
   };
-
-  // Auto-retry GPS when user returns from device settings
-  useEffect(() => {
-    if (!waitingForSettings) return;
-    const handleVisibility = () => {
-      if (document.hidden) return;
-      // User returned to app — wait briefly then retry GPS
-      // Keep clGpsWarning=true and waitingForSettings=true until GPS is actually acquired
-      setTimeout(() => startGpsCapture(), 800);
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [waitingForSettings]);
 
   // Detect if running on plain HTTP (local IP) — GPS not available
   const isInsecureHttp = !window.isSecureContext &&
     location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
 
-  // Retry GPS: if already denied → open phone settings (keep warning visible); otherwise just retry
+  // Retry GPS
   const retryGps = () => {
     if (clGpsStatus === 'denied') {
-      // Do NOT hide warning — keep it shown while user goes to settings
-      openLocationSettings();
+      setWaitingForSettings(true);
     } else {
       setClGpsWarning(false);
-      startGpsCapture();
     }
+    startGpsCapture();
   };
 
   // open call log without resetting already-filled fields (used after voice parse)
@@ -2693,48 +2667,49 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* GPS Warning — shown when user tries to submit without location */}
               {clGpsWarning && clGpsStatus !== 'got' && (
                 <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginBottom: '14px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#92400e', marginBottom: '6px' }}>📍 الموقع الجغرافي غير محدد</div>
-                  <div style={{ fontSize: '13px', color: '#78350f', marginBottom: '12px' }}>
-                    {isInsecureHttp
-                      ? 'أنت على رابط HTTP غير آمن — متصفح الهاتف يمنع GPS على هذا الرابط. يجب فتح التطبيق من رابط الشبكة الآمن.'
-                      : waitingForSettings
-                        ? '⚙️ فعّل الموقع الجغرافي في الإعدادات ثم ارجع للتطبيق. سيبدأ تلقائياً أو اضغط «جرّب مجدداً».'
-                        : clGpsStatus === 'getting'
-                          ? '⏳ جاري تحديد الموقع...'
-                          : 'تم رفض إذن الموقع. افتح إعدادات الهاتف وفعّل الموقع الجغرافي.'}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {isInsecureHttp ? (
-                      <a
-                        href="https://ordine-sales.up.railway.app"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer', textDecoration: 'none' }}
-                      >🔗 فتح الرابط الآمن (Railway)</a>
-                    ) : waitingForSettings ? (
-                      <>
-                        <button
-                          onClick={() => startGpsCapture()}
-                          style={{ padding: '7px 16px', background: '#059669', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                        >🔄 جرّب مجدداً</button>
-                        <button
-                          onClick={() => openLocationSettings()}
-                          style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                        >⚙️ فتح الإعدادات</button>
-                      </>
-                    ) : clGpsStatus === 'getting' ? (
-                      <span style={{ fontSize: '13px', color: '#92400e', alignSelf: 'center' }}>⏳ جاري البحث عن الموقع...</span>
-                    ) : (
-                      <button
-                        onClick={retryGps}
-                        style={{ padding: '7px 16px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}
-                      >⚙️ فتح إعدادات الموقع</button>
-                    )}
-                    <button
-                      onClick={submitCallLog}
-                      style={{ padding: '7px 16px', background: '#6b7280', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer' }}
-                    >متابعة بدون موقع ←</button>
-                  </div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#92400e', marginBottom: '8px' }}>📍 الموقع الجغرافي غير مفعّل</div>
+
+                  {isInsecureHttp ? (
+                    <>
+                      <div style={{ fontSize: '13px', color: '#78350f', marginBottom: '10px' }}>أنت على رابط HTTP — المتصفح يمنع GPS. افتح الرابط الآمن:</div>
+                      <a href="https://ordine-sales.up.railway.app" target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-block', padding: '7px 16px', background: '#059669', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', textDecoration: 'none' }}>
+                        🔗 فتح الرابط الآمن
+                      </a>
+                    </>
+                  ) : clGpsStatus === 'getting' ? (
+                    <div style={{ fontSize: '13px', color: '#78350f' }}>⏳ جاري تحديد الموقع...</div>
+                  ) : (
+                    <>
+                      {/* Step-by-step instructions */}
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 12px', marginBottom: '10px', fontSize: '12px', color: '#78350f', lineHeight: 1.9 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>🔧 لتفعيل الموقع يدوياً:</div>
+                        <div>1️⃣ اضغط على <strong>⋮</strong> أو أيقونة القفل 🔒 في شريط المتصفح</div>
+                        <div>2️⃣ اختر <strong>إعدادات الموقع</strong> أو <strong>الأذونات</strong></div>
+                        <div>3️⃣ غيّر الموقع الجغرافي إلى <strong>السماح</strong></div>
+                        <div>4️⃣ ارجع للتطبيق واضغط <strong>🔄 جرّب مجدداً</strong></div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button onClick={retryGps}
+                          style={{ padding: '7px 18px', background: '#f59e0b', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
+                          🔄 جرّب مجدداً
+                        </button>
+                        <button onClick={submitCallLog}
+                          style={{ padding: '7px 16px', background: '#6b7280', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                          متابعة بدون موقع ←
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {clGpsStatus === 'getting' && (
+                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                      <button onClick={submitCallLog}
+                        style={{ padding: '7px 16px', background: '#6b7280', border: 'none', borderRadius: '7px', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+                        متابعة بدون موقع ←
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
