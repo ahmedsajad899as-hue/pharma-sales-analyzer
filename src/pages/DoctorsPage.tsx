@@ -581,6 +581,11 @@ export default function DoctorsPage() {
     return matchSearch && matchArea;
   }), [doctors, search, filterArea]);
 
+  const doctorNameSuggestions = useMemo(
+    () => doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean) as string[],
+    [doctors]
+  );
+
   const toggleArea = (key: string) => setExpandedAreas(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -721,7 +726,7 @@ export default function DoctorsPage() {
           value={search}
           onChange={setSearch}
           placeholder="🔍 بحث..."
-          suggestions={useMemo(() => doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean), [doctors])}
+          suggestions={doctorNameSuggestions}
           style={{ maxWidth: 260, minWidth: 180 }}
         />
         <select value={filterArea} onChange={e => setFilterArea(e.target.value)} style={{ ...inputStyle, maxWidth: 180 }}>
