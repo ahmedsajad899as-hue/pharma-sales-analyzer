@@ -440,6 +440,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const visits: any[] = data.visits ?? [];
         if (visits.length === 0) { setVoiceError('لم يتم التعرف على بيانات الزيارة'); setVoiceOverlay(false); return; }
         const v = visits[0];
+
+        // ── Reset all doctor/item states before applying new voice data ──
+        // This prevents stale data from a previous call contaminating this one
+        setClSelectedEntry(null);
+        setClOtherDocId(null);
+        setClOtherDoc(null);
+        setClManualMode(false);
+        setClManualSpecialty('');
+        setClManualPharmacy('');
+        setClManualAreaId('');
+        setClManualAreaName('');
+        setClMissingFields([]);
+        setClDoctorSuggestion(null);
+        setClItemId('');
+        setClItemName('');
+        setClNotInPlan(false);
+        setClAddToPlan(false);
+
         if (v.entryId) {
           const entry = (activePlan.entries ?? []).find((e: any) => e.id === v.entryId);
           if (entry) {
