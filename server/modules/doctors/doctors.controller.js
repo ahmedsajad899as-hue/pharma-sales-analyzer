@@ -217,17 +217,24 @@ export async function list(req, res, next) {
       const linkedRepId = userRow?.linkedRepId;
 
       if (linkedRepId) {
-        // أطباء تمت زيارتهم من قِبل هذا المندوب
-        const visits = await prisma.doctorVisit.findMany({
-          where: { scientificRepId: linkedRepId },
-          select: { doctorId: true },
-          distinct: ['doctorId'],
-        });
+        // أطباء تمت زيارتهم + أطباء في خطة المندوب + أطباء مسجّلين بحسابه
+        const [visits, ownDocs, planEntries] = await Promise.all([
+          prisma.doctorVisit.findMany({
+            where: { scientificRepId: linkedRepId },
+            select: { doctorId: true },
+            distinct: ['doctorId'],
+          }),
+          prisma.doctor.findMany({ where: { userId }, select: { id: true } }),
+          prisma.planEntry.findMany({
+            where: { plan: { scientificRepId: linkedRepId } },
+            select: { doctorId: true },
+            distinct: ['doctorId'],
+          }),
+        ]);
         const visitedIds = visits.map(v => v.doctorId);
-        // دمج مع أطباء مسجّلين بحسابه مباشرة
-        const ownDocs = await prisma.doctor.findMany({ where: { userId }, select: { id: true } });
-        const ownIds  = ownDocs.map(d => d.id);
-        doctorIds = [...new Set([...ownIds, ...visitedIds])];
+        const ownIds     = ownDocs.map(d => d.id);
+        const planIds    = planEntries.map(e => e.doctorId);
+        doctorIds = [...new Set([...ownIds, ...visitedIds, ...planIds])];
       }
     }
 
@@ -239,18 +246,20 @@ export async function list(req, res, next) {
     if (isActive !== undefined) where.isActive = isActive === 'true';
     if (q?.trim())  where.name    = { contains: q.trim(), mode: 'insensitive' };
 
+    const isSearch = Boolean(q?.trim());
+
     const doctors = await prisma.doctor.findMany({
       where,
       include: {
         area:       { select: { id: true, name: true } },
         targetItem: { select: { id: true, name: true } },
       },
-      take: q?.trim() ? 50 : undefined,
+      take: isSearch ? 50 : undefined,
       orderBy: { name: 'asc' },
     });
 
-    // Sort: names that START with the query come first, then the rest
-    if (q?.trim()) {
+    // Sort: names that START with the query come first, then the rest (autocomplete only)
+    if (isSearch) {
       const qNorm = q.trim().toLowerCase()
         .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
       doctors.sort((a, b) => {
@@ -261,9 +270,10 @@ export async function list(req, res, next) {
         if (aStarts !== bStarts) return aStarts - bStarts;
         return aN.localeCompare(bN, 'ar');
       });
+      res.json(doctors.slice(0, 10));
+    } else {
+      res.json(doctors);
     }
-
-    res.json(doctors.slice(0, 10));
   } catch (e) { next(e); }
 }
 
