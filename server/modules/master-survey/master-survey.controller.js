@@ -68,12 +68,12 @@ export async function addDoctor(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     await assertVisible(surveyId, req.user, res);
-    const { name, specialty, areaName, pharmacyName, phone, notes } = req.body;
+    const { name, specialty, areaName, pharmacyName, className, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
     const doc = await prisma.masterSurveyDoctor.create({
       data: {
         surveyId,
-        name: name.trim(), specialty, areaName, pharmacyName, phone, notes,
+        name: name.trim(), specialty, areaName, pharmacyName, className, phone, notes,
         lastEditedById: req.user.id,
         lastEditedAt:   new Date(),
       },
@@ -91,12 +91,13 @@ export async function updateDoctor(req, res, next) {
     await assertVisible(surveyId, req.user, res);
     const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
     if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-    const { name, specialty, areaName, pharmacyName, phone, notes } = req.body;
+    const { name, specialty, areaName, pharmacyName, className, phone, notes } = req.body;
     const data = { lastEditedById: req.user.id, lastEditedAt: new Date() };
     if (name         !== undefined) data.name         = name.trim();
     if (specialty    !== undefined) data.specialty    = specialty;
     if (areaName     !== undefined) data.areaName     = areaName;
     if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
+    if (className    !== undefined) data.className    = className;
     if (phone        !== undefined) data.phone        = phone;
     if (notes        !== undefined) data.notes        = notes;
     const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });

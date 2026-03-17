@@ -966,6 +966,7 @@ model MasterSurveyDoctor {
   specialty     String?
   areaName      String?
   pharmacyName  String?
+  className     String?
   phone         String?
   notes         String?
   createdAt     DateTime @default(now())
