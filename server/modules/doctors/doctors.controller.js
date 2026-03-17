@@ -221,42 +221,63 @@ export async function list(req, res, next) {
     const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
-    let doctorIds = null; // null = no extra filter needed
+    let where;
 
     if (isFieldRep) {
-      // جلب linkedRepId
+      // جلب linkedRepId والمناطق المُعيَّنة للمندوب
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
 
+      const orConditions = [{ userId }]; // دائماً أطباؤه الخاصون
+
       if (linkedRepId) {
-        // أطباء تمت زيارتهم + أطباء في خطة المندوب + أطباء مسجّلين بحسابه
-        const [visits, ownDocs, planEntries] = await Promise.all([
+        // المناطق المحددة للمندوب، الزيارات السابقة، خطة المندوب
+        const [repAreas, visits, planEntries] = await Promise.all([
+          prisma.scientificRepArea.findMany({
+            where: { scientificRepId: linkedRepId },
+            select: { areaId: true },
+          }),
           prisma.doctorVisit.findMany({
             where: { scientificRepId: linkedRepId },
             select: { doctorId: true },
             distinct: ['doctorId'],
           }),
-          prisma.doctor.findMany({ where: { userId }, select: { id: true } }),
           prisma.planEntry.findMany({
             where: { plan: { scientificRepId: linkedRepId } },
             select: { doctorId: true },
             distinct: ['doctorId'],
           }),
         ]);
-        const visitedIds = visits.map(v => v.doctorId);
-        const ownIds     = ownDocs.map(d => d.id);
-        const planIds    = planEntries.map(e => e.doctorId);
-        doctorIds = [...new Set([...ownIds, ...visitedIds, ...planIds])];
+
+        const repAreaIds = repAreas.map(a => a.areaId);
+        const extraIds   = [...new Set([
+          ...visits.map(v => v.doctorId),
+          ...planEntries.map(e => e.doctorId),
+        ])];
+
+        // أطباء المناطق المحددة للمندوب (الأولوية الرئيسية)
+        if (repAreaIds.length > 0) orConditions.push({ areaId: { in: repAreaIds } });
+        // أطباء تمت زيارتهم أو في الخطة (احتياطياً)
+        if (extraIds.length > 0)   orConditions.push({ id: { in: extraIds } });
       }
+
+      // فلاتر إضافية تُطبَّق بـ AND فوق شرط OR
+      const andFilters = [];
+      if (areaId)                 andFilters.push({ areaId: parseInt(areaId) });
+      if (isActive !== undefined) andFilters.push({ isActive: isActive === 'true' });
+      if (q?.trim())              andFilters.push({ name: { contains: q.trim(), mode: 'insensitive' } });
+
+      where = andFilters.length > 0
+        ? { AND: [{ OR: orConditions }, ...andFilters] }
+        : { OR: orConditions };
+
+    } else {
+      // مدير: كل أطبائه
+      where = { userId };
+      if (areaId)                 where.areaId   = parseInt(areaId);
+      if (isActive !== undefined) where.isActive = isActive === 'true';
+      if (q?.trim())              where.name     = { contains: q.trim(), mode: 'insensitive' };
     }
-
-    const where = doctorIds !== null
-      ? { id: { in: doctorIds } }
-      : { userId };
-
-    if (areaId)    where.areaId   = parseInt(areaId);
-    if (isActive !== undefined) where.isActive = isActive === 'true';
-    if (q?.trim())  where.name    = { contains: q.trim(), mode: 'insensitive' };
 
     const isSearch = Boolean(q?.trim());
 
