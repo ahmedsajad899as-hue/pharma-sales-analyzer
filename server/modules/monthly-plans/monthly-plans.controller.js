@@ -222,6 +222,14 @@ export async function suggest(req, res, next) {
       currentPlan.entries.forEach(e => usedDoctorIds.add(e.doctorId));
     }
 
+    // Get scientific rep areas first (needed for both keepDoctors and newDoctors filtering)
+    const repAreas = await prisma.scientificRepArea.findMany({
+      where: { scientificRepId: repId },
+      select: { areaId: true },
+    });
+    const areaIds = repAreas.map(a => a.areaId);
+    const areaIdSet = new Set(areaIds);
+
     // Merge entries from all lookback plans (newest first → most recent feedback wins)
     const seenDoctorInPrev = new Map(); // doctorId → { doctor, visits[] }
     for (const plan of prevPlans) {
@@ -234,6 +242,8 @@ export async function suggest(req, res, next) {
 
     for (const { doctor, visits } of seenDoctorInPrev.values()) {
       if (usedDoctorIds.has(doctor.id)) continue;
+      // If area restriction is active, skip doctors outside the rep's assigned areas
+      if (useAreaRestriction && areaIds.length > 0 && doctor.areaId && !areaIdSet.has(doctor.areaId)) continue;
       const lastFeedback = visits[0]?.feedback ?? 'pending';
       if (KEEP_FEEDBACK.includes(lastFeedback)) {
         keepDoctors.push({ doctor, reason: lastFeedback });
@@ -246,13 +256,6 @@ export async function suggest(req, res, next) {
         } else { replacedCount++; }
       } else { replacedCount++; }
     }
-
-    // Get scientific rep areas to find matching doctors
-    const repAreas = await prisma.scientificRepArea.findMany({
-      where: { scientificRepId: repId },
-      select: { areaId: true },
-    });
-    const areaIds = repAreas.map(a => a.areaId);
 
     // ── Process userNote with Gemini AI ──────────────────────
     let priorityDoctors = [];
