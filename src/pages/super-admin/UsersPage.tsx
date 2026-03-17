@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
@@ -116,6 +116,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const { token } = useSuperAdmin();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
+  // Preserve scroll position when entering/leaving detail view
+  const savedScrollRef = useRef<number>(0);
+  const getMainEl = () => document.querySelector<HTMLElement>('main[style]');
+
   const viewAsUser = async (u: UserRow) => {
     if (!u.isActive) { alert('المستخدم غير نشط'); return; }
     const res = await fetch(`/api/super-admin/impersonate/${u.id}`, { method: 'POST', headers: H() });
@@ -133,6 +137,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [areas,     setAreas]     = useState<Area[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [detail,    setDetail]    = useState<UserDetail | null>(null);
+
   const [form,      setForm]      = useState<any | null>(null);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
@@ -198,11 +203,28 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   }, [detail?.id]);
 
   const loadDetail = (id: number) => {
+    // Save current scroll position before entering detail
+    const main = getMainEl();
+    if (main) savedScrollRef.current = main.scrollTop;
     setRepInfoData(null);
     fetch(`/api/sa/users/${id}`, { headers: H() }).then(r => r.json()).then(d => {
-      if (d.success) { setDetail(d.data); setTab('info'); }
+      if (d.success) {
+        setDetail(d.data);
+        setTab('info');
+        // Scroll to top of detail view
+        requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = 0; });
+      }
     });
     loadRefs();
+  };
+
+  const goBack = () => {
+    setDetail(null);
+    // Restore scroll position after list re-renders
+    requestAnimationFrame(() => {
+      const m = getMainEl();
+      if (m) m.scrollTop = savedScrollRef.current;
+    });
   };
 
   const saveUser = async () => {
@@ -300,7 +322,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
     return (
       <div>
-        <button onClick={() => setDetail(null)} style={{ ...btnStyle('#64748b', true), marginBottom: 20 }}>← رجوع</button>
+        <button onClick={goBack} style={{ ...btnStyle('#64748b', true), marginBottom: 20 }}>← رجوع</button>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>👤 {detail.displayName || detail.username}</h2>
