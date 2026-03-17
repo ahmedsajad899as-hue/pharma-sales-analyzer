@@ -2507,18 +2507,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {clMissingFields.includes('specialty') && (
                       <div style={{ position: 'relative' }}>
                         <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="text" className="form-input" placeholder="اكتب الاختصاص..." value={clManualSpecialty} autoComplete="off"
-                          onChange={async e => {
-                            const v = e.target.value; setClManualSpecialty(v);
-                            if (!v.trim()) { setClManualSpecialtySugg([]); setClManualSpecialtyShow(false); return; }
-                            try { const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClManualSpecialtySugg(list); setClManualSpecialtyShow(list.length > 0); } catch {}
-                          }}
-                          onFocus={() => { if (clManualSpecialtySugg.length > 0) setClManualSpecialtyShow(true); }}
-                          onBlur={() => setTimeout(() => setClManualSpecialtyShow(false), 200)}
-                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
-                        />
+                        <div style={{ position: 'relative' }}>
+                          <input type="text" className="form-input" placeholder="اكتب الاختصاص..." value={clManualSpecialty} autoComplete="off"
+                            onChange={async e => {
+                              const v = e.target.value; setClManualSpecialty(v);
+                              if (!v.trim()) { setClManualSpecialtySugg([]); setClManualSpecialtyShow(false); return; }
+                              try { const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClManualSpecialtySugg(list); setClManualSpecialtyShow(list.length > 0); } catch {}
+                            }}
+                            onFocus={() => { if (clManualSpecialtySugg.length > 0) setClManualSpecialtyShow(true); }}
+                            onBlur={() => setTimeout(() => setClManualSpecialtyShow(false), 200)}
+                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '32px' }}
+                          />
+                          <button type="button" onMouseDown={e => e.preventDefault()} onClick={async () => {
+                            if (clManualSpecialtyShow) { setClManualSpecialtyShow(false); return; }
+                            try { const r = await fetch('/api/doctors/specialties', { headers: authH() }); const list: string[] = await r.json(); setClManualSpecialtySugg(list); setClManualSpecialtyShow(list.length > 0); } catch {}
+                          }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af', fontSize: '11px', lineHeight: 1 }}>▼</button>
+                        </div>
                         {clManualSpecialtyShow && clManualSpecialtySugg.length > 0 && (
-                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
                             {clManualSpecialtySugg.map((s, i) => (
                               <div key={i} onMouseDown={() => { setClManualSpecialty(s); setClManualSpecialtyShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{s}</div>
                             ))}
@@ -2529,18 +2535,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {clMissingFields.includes('pharmacy') && (
                       <div style={{ position: 'relative' }}>
                         <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="text" className="form-input" placeholder="اكتب اسم الصيدلية..." value={clManualPharmacy} autoComplete="off"
-                          onChange={async e => {
-                            const v = e.target.value; setClManualPharmacy(v);
-                            if (!v.trim()) { setClManualPharmacySugg([]); setClManualPharmacyShow(false); return; }
-                            try { const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClManualPharmacySugg(list); setClManualPharmacyShow(list.length > 0); } catch {}
-                          }}
-                          onFocus={() => { if (clManualPharmacySugg.length > 0) setClManualPharmacyShow(true); }}
-                          onBlur={() => setTimeout(() => setClManualPharmacyShow(false), 200)}
-                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
-                        />
+                        <div style={{ position: 'relative' }}>
+                          <input type="text" className="form-input" placeholder="اكتب اسم الصيدلية..." value={clManualPharmacy} autoComplete="off"
+                            onChange={async e => {
+                              const v = e.target.value; setClManualPharmacy(v);
+                              if (!v.trim()) { setClManualPharmacySugg([]); setClManualPharmacyShow(false); return; }
+                              try { const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClManualPharmacySugg(list); setClManualPharmacyShow(list.length > 0); } catch {}
+                            }}
+                            onFocus={() => { if (clManualPharmacySugg.length > 0) setClManualPharmacyShow(true); }}
+                            onBlur={() => setTimeout(() => setClManualPharmacyShow(false), 200)}
+                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '32px' }}
+                          />
+                          <button type="button" onMouseDown={e => e.preventDefault()} onClick={async () => {
+                            if (clManualPharmacyShow) { setClManualPharmacyShow(false); return; }
+                            try { const r = await fetch('/api/doctors/pharmacy-names', { headers: authH() }); const list: string[] = await r.json(); setClManualPharmacySugg(list); setClManualPharmacyShow(list.length > 0); } catch {}
+                          }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af', fontSize: '11px', lineHeight: 1 }}>▼</button>
+                        </div>
                         {clManualPharmacyShow && clManualPharmacySugg.length > 0 && (
-                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
                             {clManualPharmacySugg.map((s, i) => (
                               <div key={i} onMouseDown={() => { setClManualPharmacy(s); setClManualPharmacyShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{s}</div>
                             ))}
@@ -2551,19 +2563,25 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {clMissingFields.includes('area') && (
                       <div style={{ position: 'relative' }}>
                         <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input type="text" className="form-input" placeholder="اكتب اسم المنطقة..." value={clManualAreaName} autoComplete="off"
-                          onChange={e => {
-                            const v = e.target.value; setClManualAreaName(v); setClManualAreaId('');
-                            if (!v.trim()) { setClManualAreaSugg([]); setClManualAreaShow(false); return; }
-                            const matches = clAreas.filter((a: any) => a.name.toLowerCase().includes(v.toLowerCase()));
-                            setClManualAreaSugg(matches.slice(0, 6)); setClManualAreaShow(matches.length > 0);
-                          }}
-                          onFocus={() => { if (clManualAreaSugg.length > 0) setClManualAreaShow(true); }}
-                          onBlur={() => setTimeout(() => setClManualAreaShow(false), 200)}
-                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
-                        />
+                        <div style={{ position: 'relative' }}>
+                          <input type="text" className="form-input" placeholder="اكتب اسم المنطقة..." value={clManualAreaName} autoComplete="off"
+                            onChange={e => {
+                              const v = e.target.value; setClManualAreaName(v); setClManualAreaId('');
+                              if (!v.trim()) { setClManualAreaSugg([]); setClManualAreaShow(false); return; }
+                              const matches = clAreas.filter((a: any) => a.name.toLowerCase().includes(v.toLowerCase()));
+                              setClManualAreaSugg(matches.slice(0, 6)); setClManualAreaShow(matches.length > 0);
+                            }}
+                            onFocus={() => { if (clManualAreaSugg.length > 0) setClManualAreaShow(true); }}
+                            onBlur={() => setTimeout(() => setClManualAreaShow(false), 200)}
+                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '32px' }}
+                          />
+                          <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => {
+                            if (clManualAreaShow) { setClManualAreaShow(false); return; }
+                            setClManualAreaSugg(clAreas.slice(0, 50)); setClManualAreaShow(clAreas.length > 0);
+                          }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af', fontSize: '11px', lineHeight: 1 }}>▼</button>
+                        </div>
                         {clManualAreaShow && clManualAreaSugg.length > 0 && (
-                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
                             {clManualAreaSugg.map((a: any) => (
                               <div key={a.id} onMouseDown={() => { setClManualAreaName(a.name); setClManualAreaId(String(a.id)); setClManualAreaShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{a.name}</div>
                             ))}
@@ -2609,28 +2627,34 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {/* Specialty */}
                     <div style={{ position: 'relative' }}>
                       <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: '#ef4444' }}>*</span></label>
-                      <input
-                        type="text" className="form-input"
-                        placeholder="اكتب الاختصاص..."
-                        value={clManualSpecialty}
-                        autoComplete="off"
-                        onChange={async e => {
-                          const v = e.target.value;
-                          setClManualSpecialty(v);
-                          if (!v.trim()) { setClManualSpecialtySugg([]); setClManualSpecialtyShow(false); return; }
-                          try {
-                            const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() });
-                            const list: string[] = await r.json();
-                            setClManualSpecialtySugg(list);
-                            setClManualSpecialtyShow(list.length > 0);
-                          } catch { setClManualSpecialtySugg([]); }
-                        }}
-                        onFocus={() => { if (clManualSpecialtySugg.length > 0) setClManualSpecialtyShow(true); }}
-                        onBlur={() => setTimeout(() => setClManualSpecialtyShow(false), 200)}
-                        style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
-                      />
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="text" className="form-input"
+                          placeholder="اكتب الاختصاص..."
+                          value={clManualSpecialty}
+                          autoComplete="off"
+                          onChange={async e => {
+                            const v = e.target.value;
+                            setClManualSpecialty(v);
+                            if (!v.trim()) { setClManualSpecialtySugg([]); setClManualSpecialtyShow(false); return; }
+                            try {
+                              const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() });
+                              const list: string[] = await r.json();
+                              setClManualSpecialtySugg(list);
+                              setClManualSpecialtyShow(list.length > 0);
+                            } catch { setClManualSpecialtySugg([]); }
+                          }}
+                          onFocus={() => { if (clManualSpecialtySugg.length > 0) setClManualSpecialtyShow(true); }}
+                          onBlur={() => setTimeout(() => setClManualSpecialtyShow(false), 200)}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '32px' }}
+                        />
+                        <button type="button" onMouseDown={e => e.preventDefault()} onClick={async () => {
+                          if (clManualSpecialtyShow) { setClManualSpecialtyShow(false); return; }
+                          try { const r = await fetch('/api/doctors/specialties', { headers: authH() }); const list: string[] = await r.json(); setClManualSpecialtySugg(list); setClManualSpecialtyShow(list.length > 0); } catch {}
+                        }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af', fontSize: '11px', lineHeight: 1 }}>▼</button>
+                      </div>
                       {clManualSpecialtyShow && clManualSpecialtySugg.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
                           {clManualSpecialtySugg.map((s, i) => (
                             <div key={i} onMouseDown={() => { setClManualSpecialty(s); setClManualSpecialtyShow(false); }}
                               style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
@@ -2644,28 +2668,34 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {/* Pharmacy name */}
                     <div style={{ position: 'relative' }}>
                       <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span></label>
-                      <input
-                        type="text" className="form-input"
-                        placeholder="اكتب اسم الصيدلية..."
-                        value={clManualPharmacy}
-                        autoComplete="off"
-                        onChange={async e => {
-                          const v = e.target.value;
-                          setClManualPharmacy(v);
-                          if (!v.trim()) { setClManualPharmacySugg([]); setClManualPharmacyShow(false); return; }
-                          try {
-                            const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() });
-                            const list: string[] = await r.json();
-                            setClManualPharmacySugg(list);
-                            setClManualPharmacyShow(list.length > 0);
-                          } catch { setClManualPharmacySugg([]); }
-                        }}
-                        onFocus={() => { if (clManualPharmacySugg.length > 0) setClManualPharmacyShow(true); }}
-                        onBlur={() => setTimeout(() => setClManualPharmacyShow(false), 200)}
-                        style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
-                      />
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="text" className="form-input"
+                          placeholder="اكتب اسم الصيدلية..."
+                          value={clManualPharmacy}
+                          autoComplete="off"
+                          onChange={async e => {
+                            const v = e.target.value;
+                            setClManualPharmacy(v);
+                            if (!v.trim()) { setClManualPharmacySugg([]); setClManualPharmacyShow(false); return; }
+                            try {
+                              const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() });
+                              const list: string[] = await r.json();
+                              setClManualPharmacySugg(list);
+                              setClManualPharmacyShow(list.length > 0);
+                            } catch { setClManualPharmacySugg([]); }
+                          }}
+                          onFocus={() => { if (clManualPharmacySugg.length > 0) setClManualPharmacyShow(true); }}
+                          onBlur={() => setTimeout(() => setClManualPharmacyShow(false), 200)}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '32px' }}
+                        />
+                        <button type="button" onMouseDown={e => e.preventDefault()} onClick={async () => {
+                          if (clManualPharmacyShow) { setClManualPharmacyShow(false); return; }
+                          try { const r = await fetch('/api/doctors/pharmacy-names', { headers: authH() }); const list: string[] = await r.json(); setClManualPharmacySugg(list); setClManualPharmacyShow(list.length > 0); } catch {}
+                        }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af', fontSize: '11px', lineHeight: 1 }}>▼</button>
+                      </div>
                       {clManualPharmacyShow && clManualPharmacySugg.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
                           {clManualPharmacySugg.map((s, i) => (
                             <div key={i} onMouseDown={() => { setClManualPharmacy(s); setClManualPharmacyShow(false); }}
                               style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
@@ -2679,30 +2709,36 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     {/* Area with autocomplete */}
                     <div style={{ position: 'relative' }}>
                       <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
-                      <input
-                        type="text" className="form-input"
-                        placeholder="اكتب اسم المنطقة..."
-                        value={clManualAreaName}
-                        autoComplete="off"
-                        onChange={e => {
-                          const v = e.target.value;
-                          setClManualAreaName(v);
-                          setClManualAreaId('');
-                          if (!v.trim()) { setClManualAreaSugg([]); setClManualAreaShow(false); return; }
-                          const lv = v.toLowerCase();
-                          const sugg = clAreas.filter((a: any) => a.name.toLowerCase().includes(lv)).slice(0, 8);
-                          setClManualAreaSugg(sugg);
-                          setClManualAreaShow(sugg.length > 0);
-                        }}
-                        onFocus={() => { if (clManualAreaSugg.length > 0) setClManualAreaShow(true); }}
-                        onBlur={() => setTimeout(() => setClManualAreaShow(false), 200)}
-                        style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: clManualAreaId ? '28px' : undefined }}
-                      />
-                      {clManualAreaId && (
-                        <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(4px)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
-                      )}
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="text" className="form-input"
+                          placeholder="اكتب اسم المنطقة..."
+                          value={clManualAreaName}
+                          autoComplete="off"
+                          onChange={e => {
+                            const v = e.target.value;
+                            setClManualAreaName(v);
+                            setClManualAreaId('');
+                            if (!v.trim()) { setClManualAreaSugg([]); setClManualAreaShow(false); return; }
+                            const lv = v.toLowerCase();
+                            const sugg = clAreas.filter((a: any) => a.name.toLowerCase().includes(lv)).slice(0, 8);
+                            setClManualAreaSugg(sugg);
+                            setClManualAreaShow(sugg.length > 0);
+                          }}
+                          onFocus={() => { if (clManualAreaSugg.length > 0) setClManualAreaShow(true); }}
+                          onBlur={() => setTimeout(() => setClManualAreaShow(false), 200)}
+                          style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '32px' }}
+                        />
+                        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => {
+                          if (clManualAreaShow) { setClManualAreaShow(false); return; }
+                          setClManualAreaSugg(clAreas.slice(0, 50)); setClManualAreaShow(clAreas.length > 0);
+                        }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af', fontSize: '11px', lineHeight: 1 }}>▼</button>
+                        {clManualAreaId && (
+                          <span style={{ position: 'absolute', left: '26px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                        )}
+                      </div>
                       {clManualAreaShow && clManualAreaSugg.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '200px', overflowY: 'auto' }}>
                           {clManualAreaSugg.map((a: any) => (
                             <div key={a.id} onMouseDown={() => { setClManualAreaName(a.name); setClManualAreaId(String(a.id)); setClManualAreaShow(false); }}
                               style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
@@ -2760,8 +2796,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   {/* Dropdown arrow button */}
                   <button
                     type="button"
-                    onMouseDown={e => {
-                      e.preventDefault();
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
                       if (clItemShowSugg) { setClItemShowSugg(false); return; }
                       setClItemSugg(clAllItems.slice(0, 50));
                       setClItemShowSugg(true);
