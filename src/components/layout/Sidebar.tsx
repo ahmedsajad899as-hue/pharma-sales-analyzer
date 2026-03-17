@@ -95,10 +95,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
+    { id: 'master-survey',   label: 'السيرفي',             icon: '🗂️', roles: [] },
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
     { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager','company_manager'] },
-    { id: 'master-survey',   label: 'السيرفي',             icon: '🗂️', roles: [] },
   ];
 
   // Feature-to-page mapping — pages hidden when feature is disabled
