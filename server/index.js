@@ -34,7 +34,6 @@ import adminUsersRoutes         from './modules/admin-users/admin-users.routes.j
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
 import trackingRoutes             from './modules/tracking/tracking.routes.js';
-import masterSurveyRoutes         from './modules/master-survey/master-survey.routes.js';
 
 dotenv.config();
 
@@ -85,7 +84,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // ── Super Admin routes (own JWT — no requireAuth middleware) ──
-app.use('/api/super-admin',       superAdminRoutes);
+app.use('/api/super-admin',         superAdminRoutes);
 app.use('/api/super-admin/surveys', surveyAdminRoutes);
 app.use('/api/sa/offices',        officesRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
@@ -122,7 +121,6 @@ app.use('/api/monthly-plans',     monthlyPlansRoutes);
 app.use('/api/ai-assistant',      aiAssistantRoutes);
 app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);
-app.use('/api/master-surveys',    masterSurveyRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────
@@ -176,44 +174,11 @@ app.post('/api/ors/route', async (req, res) => {
 app.get('/api/areas', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
-    const role   = req.user?.role ?? '';
-
-    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
-    const isFieldRep  = FIELD_ROLES.includes(role);
-
-    let areas;
-
-    if (isFieldRep && userId) {
-      // جلب المناطق من كلا المصدرين: UserAreaAssignment (الأدمن) + ScientificRepArea (لمديري المناطق)
-      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-      const linkedRepId = userRow?.linkedRepId;
-
-      const [userAreaRows, repAreaRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({
-          where: { userId },
-          select: { area: { select: { id: true, name: true } } },
-        }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({
-              where: { scientificRepId: linkedRepId },
-              select: { area: { select: { id: true, name: true } } },
-            })
-          : Promise.resolve([]),
-      ]);
-
-      // دمج المناطق وإزالة التكرار
-      const areaMap = new Map();
-      [...userAreaRows, ...repAreaRows].forEach(r => areaMap.set(r.area.id, r.area));
-      areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      // مدير: كل مناطقه
-      areas = await prisma.area.findMany({
-        where: userId ? { userId } : {},
-        orderBy: { name: 'asc' },
-        select: { id: true, name: true },
-      });
-    }
-
+    const areas = await prisma.area.findMany({
+      where: userId ? { userId } : {},
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
+    });
     res.json({ success: true, data: areas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -293,36 +258,18 @@ app.get('/api/items', async (req, res) => {
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
     const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } };
-    // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction + assigned companies
+    // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction
     if (['scientific_rep', 'team_leader', 'supervisor'].includes(userRole) && userId) {
       const rep = await prisma.scientificRepresentative.findFirst({
         where: { userId },
         select: { id: true },
       });
       if (rep) {
-        const [repItemRows, repCompanyRows] = await Promise.all([
-          prisma.scientificRepItem.findMany({
-            where: { scientificRepId: rep.id },
-            include: { item: { select: itemSelect } },
-          }),
-          prisma.scientificRepCompany.findMany({
-            where: { scientificRepId: rep.id },
-            select: { companyId: true },
-          }),
-        ]);
-        const explicitItems = repItemRows.map(ri => ri.item);
-        const companyIds = repCompanyRows.map(rc => rc.companyId);
-        let companyItems = [];
-        if (companyIds.length > 0) {
-          companyItems = await prisma.item.findMany({
-            where: { companyId: { in: companyIds } },
-            select: itemSelect,
-          });
-        }
-        const seen = new Set();
-        items = [...explicitItems, ...companyItems]
-          .filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; })
-          .sort((a, b) => a.name.localeCompare(b.name));
+        const repItems = await prisma.scientificRepItem.findMany({
+          where: { scientificRepId: rep.id },
+          include: { item: { select: itemSelect } },
+        });
+        items = repItems.map(ri => ri.item).sort((a, b) => a.name.localeCompare(b.name));
       } else {
         items = [];
       }
@@ -1285,19 +1232,14 @@ app.post('/api/doctor-visits', async (req, res) => {
     let scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
     if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
 
-    // Resolve areaId from areaName if only text was provided (create new area if not found)
+    // Resolve areaId from areaName if only text was provided
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
       const found = await prisma.area.findFirst({
         where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
         select: { id: true },
       });
-      if (found) {
-        resolvedAreaId = found.id;
-      } else {
-        const newArea = await prisma.area.create({ data: { name: areaName.trim(), userId } });
-        resolvedAreaId = newArea.id;
-      }
+      if (found) resolvedAreaId = found.id;
     }
 
     // Resolve or create doctor
@@ -1334,8 +1276,7 @@ app.post('/api/doctor-visits', async (req, res) => {
     // Resolve itemId by name if not provided
     let resolvedItemId = itemId ? parseInt(itemId) : null;
     if (!resolvedItemId && itemName?.trim()) {
-      const rawName = String(itemName).trim();
-      const n = rawName.toLowerCase();
+      const n = String(itemName).trim().toLowerCase();
       let candidates;
       if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
         const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId }, include: { item: { select: { id: true, name: true } } } });
@@ -1345,26 +1286,7 @@ app.post('/api/doctor-visits', async (req, res) => {
       }
       const match = candidates.find(it => it.name.toLowerCase() === n)
                  || candidates.find(it => it.name.toLowerCase().includes(n) || n.includes(it.name.toLowerCase()));
-      if (match) {
-        resolvedItemId = match.id;
-      } else {
-        // Free-text item not found — upsert it so the name is never lost in reports
-        const upserted = await prisma.item.upsert({
-          where:  { name_userId: { name: rawName, userId } },
-          create: { name: rawName, userId },
-          update: {},
-          select: { id: true },
-        });
-        resolvedItemId = upserted.id;
-        // Link to the rep's item list so it appears in future suggestions
-        if (['scientific_rep', 'team_leader', 'supervisor'].includes(role) && scientificRepId) {
-          await prisma.scientificRepItem.upsert({
-            where:  { scientificRepId_itemId: { scientificRepId, itemId: resolvedItemId } },
-            create: { scientificRepId, itemId: resolvedItemId },
-            update: {},
-          });
-        }
-      }
+      if (match) resolvedItemId = match.id;
     }
 
     const visit = await prisma.doctorVisit.create({
@@ -1407,53 +1329,28 @@ app.post('/api/doctor-visits/voice-record', upload.single('audio'), async (req, 
       allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
     }
 
-    // Load saved doctors + areas for smart auto-fill
-    const allDoctors = await prisma.doctor.findMany({
-      where: userId ? { userId } : {},
-      select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { id: true, name: true } } },
-    });
-    const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
-
     const audioData   = fs.readFileSync(req.file.path);
     const audioBase64 = audioData.toString('base64');
     const mimeType    = req.file.mimetype || 'audio/webm';
     fs.unlinkSync(req.file.path);
 
-    const itemNames    = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
-    const areaNames    = allAreas.map(a => a.name).join(', ');
-    const doctorNames  = allDoctors.map(d => d.name).join('\n');
+    const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
     const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
 
-    const prompt = `أنت مساعد ذكي متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية في العراق.
-مهمتك: استخرج بيانات زيارة طبيب واحدة من التسجيل بدقة تامة.
+    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
+مهمتك: استخراج زيارة طبيب واحدة من التسجيل — بدون اختراع.
 
-══ تعليمات عامة ══
-- الكلام قد يكون غير مرتب أو عامي أو فيه ضوضاء — استخرج المعلومات حتى لو جاءت بترتيب عشوائي
-- اسم الطبيب: ابحث عن أقرب تطابق في قائمة الأطباء المحفوظة وأرجع الاسم الدقيق من القائمة. الأطباء قد يُنادون بألقاب (دكتور/أبو/حاج) — تجاهل اللقب وطابق الاسم.
-- اسم المنطقة: أرجع الاسم الصريح فقط بدون كلمة "منطقة/زون/حي"
-- اسم الصيدلية: أرجع الاسم الصريح بدون كلمة "صيدلية/فارماسي/كلينيك"
-- feedback: ${feedbackValues.join(' | ')}
-- إذا التسجيل غير واضح تماماً → أرجع {"visits":[]}
+قواعد:
+1. إذا التسجيل فارغ أو غير واضح → أرجع {"visits":[]}
+2. اسم الطبيب إجباري — لا تختره إذا لم يُذكر صراحةً
+3. itemId يجب أن يكون من القائمة أدناه فقط — لا تختره
+4. feedback: ${feedbackValues.join(' | ')}
 
-══ قواعد الأيتم/الدواء — مهم جداً ══
-- إذا ذُكر أي اسم دواء أو منتج في التسجيل (حتى لو النطق غير مضبوط أو باللهجة العراقية أو باللغة العامية)، يجب عليك:
-  1. البحث عن أقرب مطابقة في قائمة الأيتمات أدناه (بالاسم أو النطق أو المعنى)
-  2. إرجاع itemId الصحيح من القائمة وitemName الدقيق كما هو مكتوب في القائمة
-  3. يُمنع منعاً باتاً إرجاع itemName من خارج القائمة
-  4. الأدوية قد تُنطق بطرق مختلفة — مثلاً "اليانت" قد يكون "إليانت" أو "Elyante"، وهكذا
-  5. إذا لم يُذكر أي دواء إطلاقاً → أرجع itemId: null وitemName: ""
+قائمة الأيتمات للمطابقة فقط:
+${itemNames}
 
-══ قائمة الأطباء المحفوظة (طابق اسم الطبيب معها) ══
-${doctorNames || '(لا يوجد)'}
-
-══ قائمة الأيتمات/الأدوية — يجب الاختيار الإلزامي منها ══
-${itemNames || '(لا يوجد)'}
-
-قائمة المناطق:
-${areaNames || '(لا يوجد)'}
-
-أرجع JSON فقط بدون أي نص آخر:
-{"visits":[{"doctorName":"...","itemId":456,"itemName":"الاسم الدقيق من القائمة","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
+أرجع JSON فقط:
+{"visits":[{"doctorName":"...","itemId":null,"itemName":"...","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
@@ -1470,118 +1367,34 @@ ${areaNames || '(لا يوجد)'}
     if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
 
     const parsed = JSON.parse(jsonMatch[0]);
-
-    // ── Arabic normalization helpers ──────────────────────────
-    const normAr = s => String(s ?? '').trim().toLowerCase()
-      .replace(/\s+/g, ' ')
-      .replace(/ة/g, 'ه')
-      .replace(/[أإآ]/g, 'ا')
-      .replace(/ى/g, 'ي');
-
-    const stripAreaPrefix = s => String(s ?? '').trim()
-      .replace(/^(منطقة|منطقه|زون|zone|حي|ناحية|ناحيه)\s+/i, '').trim();
-    const stripDrPrefix = s => String(s ?? '').trim()
-      .replace(/^(دكتور|دكتوره|دكتورة|dr\.?)\s+/i, '').trim();
-
-    // Fuzzy match against a list of {name,...} objects using normAr
-    const fuzzyFind = (raw, list) => {
-      if (!raw?.trim()) return null;
-      const n = normAr(raw);
-      let f = list.find(x => normAr(x.name) === n);                                  if (f) return f;
-      f = list.find(x => normAr(x.name).startsWith(n) || n.startsWith(normAr(x.name))); if (f) return f;
-      f = list.find(x => normAr(x.name).includes(n) || n.includes(normAr(x.name)));    return f || null;
-    };
-
-    // Enhanced item matching with bigram similarity fallback
     const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const bigramSet = s => {
-      const bg = new Set();
-      for (let i = 0; i < s.length - 1; i++) bg.add(s.slice(i, i + 2));
-      return bg;
-    };
-    const bigramSim = (a, b) => {
-      const na = normAr(a), nb = normAr(b);
-      if (!na || !nb) return 0;
-      if (na === nb) return 1;
-      const ba = bigramSet(na), bb = bigramSet(nb);
-      let shared = 0;
-      for (const bg of ba) if (bb.has(bg)) shared++;
-      return (2 * shared) / (ba.size + bb.size);
-    };
-    const findItem = rawName => {
-      if (!rawName?.trim()) return null;
-      const n  = normalize(rawName);
-      const nn = normAr(rawName);
-      let f = allItems.find(i => normalize(i.name) === n);       if (f) return f;
-      f = allItems.find(i => normAr(i.name) === nn);             if (f) return f;
-      f = allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name))); if (f) return f;
-      f = allItems.find(i => normAr(i.name).includes(nn) || nn.includes(normAr(i.name)));     if (f) return f;
-      // Token-level: check if all significant tokens of the spoken name appear in catalog name
-      const nnToks = nn.split(' ').filter(t => t.length >= 2);
-      if (nnToks.length > 0) {
-        f = allItems.find(i => {
-          const iNorm = normAr(i.name);
-          return nnToks.every(t => iNorm.includes(t));
-        });
-        if (f) return f;
+    const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
+    const findItem  = rawName => {
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (itemMap.has(n)) return itemMap.get(n);
+      for (const [key, item] of itemMap) {
+        if (key.includes(n) || n.includes(key)) return item;
       }
-      // Bigram similarity fallback: 0.5 threshold
-      let best = null, bestScore = 0.5;
-      for (const item of allItems) {
-        const score = bigramSim(rawName, item.name);
-        if (score > bestScore) { bestScore = score; best = item; }
-      }
-      return best;
+      return null;
     };
 
     const visits = (parsed.visits || []).map(v => {
-      // Item matching
       let itemId   = v.itemId || null;
       let itemName = v.itemName || '';
       if (itemName && !itemId) {
         const match = findItem(itemName);
         if (match) { itemId = match.id; itemName = match.name; }
       }
-
-      // Doctor matching — exact match auto-applied, fuzzy match returned as suggestion
-      const rawDrName      = v.doctorName || '';
-      const strippedDrName = stripDrPrefix(rawDrName);
-      const matchedDoctor  = fuzzyFind(rawDrName, allDoctors) || fuzzyFind(strippedDrName, allDoctors);
-      const normQuery      = normAr(strippedDrName || rawDrName);
-      // Consider it an exact match if the stripped name equals the stripped DB name (handles "رعد محمد" ↔ "دكتور رعد محمد")
-      const isExactMatch   = matchedDoctor && (
-        normAr(matchedDoctor.name) === normQuery ||
-        normAr(stripDrPrefix(matchedDoctor.name)) === normQuery ||
-        normAr(matchedDoctor.name) === normAr(rawDrName)
-      );
-      const autoDoc        = isExactMatch ? matchedDoctor : null;
-      const suggestedDoc   = (!isExactMatch && matchedDoctor) ? matchedDoctor : null;
-
-      // Area matching with prefix stripping
-      const rawAreaName      = stripAreaPrefix(v.areaName || '');
-      const matchedArea      = fuzzyFind(rawAreaName, allAreas);
-      const resolvedAreaName = matchedArea ? matchedArea.name : rawAreaName;
-
-      // Merge: only exact-matched doctor data is auto-applied
-      const specialty    = autoDoc?.specialty    || v.specialty    || '';
-      const pharmacyName = autoDoc?.pharmacyName || v.pharmacyName || '';
-      const areaName     = autoDoc?.area?.name   || resolvedAreaName || '';
-
       return {
-        entryId:      null,
-        doctorId:     autoDoc ? autoDoc.id : null,
-        doctorName:   rawDrName,
-        suggestedName:         suggestedDoc?.name         ?? null,
-        suggestedDoctorId:     suggestedDoc?.id           ?? null,
-        suggestedSpecialty:    suggestedDoc?.specialty    ?? null,
-        suggestedPharmacyName: suggestedDoc?.pharmacyName ?? null,
-        suggestedAreaName:     suggestedDoc?.area?.name   ?? null,
+        entryId:      null,    // no plan — always null
+        doctorName:   v.doctorName   || '',
         itemId, itemName,
         feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
-        notes:        v.notes || '',
-        specialty,
-        pharmacyName,
-        areaName,
+        notes:        v.notes        || '',
+        specialty:    v.specialty    || '',
+        pharmacyName: v.pharmacyName || '',
+        areaName:     v.areaName     || '',
       };
     });
 
@@ -1660,34 +1473,30 @@ ${areaNames}
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Normalize + fuzzy-match items and areas (with Arabic normalization)
+    // Normalize + fuzzy-match items
     const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const normAr = s => normalize(s).replace(/ة/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي');
-    const stripAreaPrefix = s => String(s ?? '').trim().replace(/^(منطقة|منطقه|زون|zone|حي|ناحية|ناحيه)\s+/i, '').trim();
-    const stripPharmPrefix = s => String(s ?? '').trim().replace(/^(صيدلية|صيدليه|فارماسي|pharmacy)\s+/i, '').trim();
-
     const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
     const areaMap   = new Map(allAreas.map(a => [normalize(a.name), a]));
 
     const findItem = rawName => {
-      if (!rawName?.trim()) return null;
-      const n = normalize(rawName); const nn = normAr(rawName);
-      let f = itemMap.get(n);                                                                      if (f) return f;
-      f = allItems.find(i => normAr(i.name) === nn);                                              if (f) return f;
-      f = allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name)));     if (f) return f;
-      f = allItems.find(i => normAr(i.name).includes(nn) || nn.includes(normAr(i.name)));         return f || null;
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (itemMap.has(n)) return itemMap.get(n);
+      for (const [key, item] of itemMap) {
+        if (key.includes(n) || n.includes(key)) return item;
+      }
+      return null;
     };
     const findArea = rawName => {
-      if (!rawName?.trim()) return null;
-      const stripped = stripAreaPrefix(rawName);
-      const n = normalize(stripped); const nn = normAr(stripped);
-      let f = areaMap.get(n);                                                                      if (f) return f;
-      f = allAreas.find(a => normAr(a.name) === nn);                                              if (f) return f;
-      f = allAreas.find(a => normalize(a.name).includes(n) || n.includes(normalize(a.name)));     if (f) return f;
-      f = allAreas.find(a => normAr(a.name).includes(nn) || nn.includes(normAr(a.name)));         return f || null;
+      const n = normalize(rawName);
+      if (!n) return null;
+      if (areaMap.has(n)) return areaMap.get(n);
+      for (const [key, area] of areaMap) {
+        if (key.includes(n) || n.includes(key)) return area;
+      }
+      return null;
     };
 
-    const cleanPharmacyName = stripPharmPrefix(parsed.pharmacyName || '');
     const matchedArea = findArea(parsed.areaName || '');
     const items = (parsed.items || []).map(it => {
       const matched = it.itemId ? allItems.find(i => i.id === it.itemId) : findItem(it.itemName || '');
@@ -1698,40 +1507,10 @@ ${areaNames}
       };
     });
 
-    // If no area was matched from voice, look up from previous visits for this pharmacy
-    let finalArea = matchedArea;
-    const finalPharmacyName = cleanPharmacyName || parsed.pharmacyName || '';
-    if (!finalArea && finalPharmacyName.trim()) {
-      const normalizePharm = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-      const pn = normalizePharm(finalPharmacyName);
-      const prevVisits = await prisma.pharmacyVisit.findMany({
-        where: { ...(userId ? { userId } : {}), areaId: { not: null } },
-        select: { pharmacyName: true, area: { select: { id: true, name: true } } },
-        orderBy: { visitDate: 'desc' },
-      });
-      const prevMatch = prevVisits.find(pv => {
-        const pvn = normalizePharm(pv.pharmacyName);
-        return pvn === pn || pvn.includes(pn) || pn.includes(pvn);
-      });
-      if (prevMatch?.area) finalArea = prevMatch.area;
-      // Also check doctors table if still no match
-      if (!finalArea) {
-        const doctors = await prisma.doctor.findMany({
-          where: { ...(userId ? { userId } : {}), pharmacyName: { not: null } },
-          select: { pharmacyName: true, area: { select: { id: true, name: true } } },
-        });
-        const docMatch = doctors.find(d => {
-          const dn = normalizePharm(d.pharmacyName);
-          return dn === pn || dn.includes(pn) || pn.includes(dn);
-        });
-        if (docMatch?.area) finalArea = docMatch.area;
-      }
-    }
-
     res.json({
-      pharmacyName: finalPharmacyName,
-      areaName:     finalArea ? finalArea.name : (stripAreaPrefix(parsed.areaName || '') || parsed.areaName || ''),
-      areaId:       finalArea ? finalArea.id : null,
+      pharmacyName: parsed.pharmacyName || '',
+      areaName:     parsed.areaName     || '',
+      areaId:       matchedArea ? matchedArea.id : null,
       items,
       raw: responseText,
     });
@@ -1919,21 +1698,6 @@ app.post('/api/pharmacy-visits/:id/like', async (req, res) => {
     }
     const likes = await prisma.pharmacyVisitLike.findMany({ where: { visitId }, select: { id: true, userId: true, user: { select: { id: true, username: true } } } });
     res.json({ liked: !existing, likes });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/pharmacy-visits/:id — delete a pharmacy visit (admin / manager only)
-app.delete('/api/pharmacy-visits/:id', requireAuth, async (req, res) => {
-  try {
-    const role    = req.user?.role;
-    const ALLOWED = ['admin', 'manager', 'company_manager'];
-    if (!ALLOWED.includes(role)) return res.status(403).json({ error: 'غير مصرح' });
-    const id = parseInt(req.params.id);
-    await prisma.pharmacyVisitLike.deleteMany({ where: { visitId: id } });
-    await prisma.pharmacyVisit.delete({ where: { id } });
-    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
