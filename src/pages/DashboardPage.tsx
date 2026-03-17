@@ -389,7 +389,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
-          if (data.pharmacyName) setClPharmacyName(data.pharmacyName);
+          if (data.pharmacyName) {
+            setClPharmacyName(data.pharmacyName);
+            // Check if pharmacy is new or existing
+            try {
+              const cr = await fetch(`/api/pharmacies/suggestions?q=${encodeURIComponent(data.pharmacyName.trim())}`, { headers: authH() });
+              const cnames: string[] = await cr.json();
+              const exactMatch = cnames.some(n => n.toLowerCase() === data.pharmacyName.trim().toLowerCase());
+              setClPharmacyIsNew(!exactMatch);
+            } catch { setClPharmacyIsNew(true); }
+          }
           if (data.areaId) {
             setClPharmacyAreaId(String(data.areaId)); setClPharmacyAreaName(data.areaName || '');
           } else if (data.areaName) {
@@ -877,6 +886,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     // ── Pharmacy call path ─────────────────────────────────
     if (callType === 'pharmacy') {
       if (!clPharmacyName.trim()) { setClError('الرجاء إدخال اسم الصيدلية'); return; }
+      if (!clPharmacyAreaName.trim()) { setClError('حقل المنطقة إجباري — الرجاء إدخال المنطقة'); return; }
       const validItems = clPharmacyItems.filter(it => it.itemId || it.itemName.trim());
       if (validItems.length === 0) { setClError('الرجاء إدخال ايتم واحد على الأقل'); return; }
       if (clGpsStatus !== 'got') {
@@ -2330,7 +2340,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   </div>
                   {/* Area */}
                   <div style={{ marginBottom: '14px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📍 المنطقة</label>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
                     <div style={{ position: 'relative' }}>
                       <input
                         type="text"
@@ -2964,7 +2974,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       ? (activePlan
                           ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
                           : (!clOtherDocId && !clDoctor.trim()))
-                      : (!clPharmacyName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim()))
+                      : (!clPharmacyName.trim() || !clPharmacyAreaName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim()))
                   )}
                   style={{
                     padding: '8px 24px', background: '#059669', border: 'none', borderRadius: '8px',
@@ -2973,7 +2983,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       ? (activePlan
                           ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
                           : (!clOtherDocId && !clDoctor.trim()))
-                      : (!clPharmacyName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim())))) ? 0.5 : 1,
+                      : (!clPharmacyName.trim() || !clPharmacyAreaName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim())))) ? 0.5 : 1,
                   }}
                 >
                   {clSaving ? '⏳ جاري الحفظ...' : '✅ تسجيل الزيارة'}
