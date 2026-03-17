@@ -989,6 +989,7 @@ model MasterSurveyPharmacy {
   surveyId      Int
   name          String
   ownerName     String?
+  pharmacyName  String?
   phone         String?
   address       String?
   areaName      String?

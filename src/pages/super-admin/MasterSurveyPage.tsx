@@ -5,7 +5,7 @@ import { parseExcelFile } from '../../services/excelParser';
 
 // ── Types ────────────────────────────────────────────────────
 interface DocImportRow { name: string; specialty: string; areaName: string; pharmacyName: string; className: string; zoneName: string; phone: string; notes: string; }
-interface PharmaImportRow { name: string; ownerName: string; phone: string; address: string; areaName: string; notes: string; }
+interface PharmaImportRow { name: string; ownerName: string; pharmacyName: string; phone: string; address: string; areaName: string; notes: string; }
 interface Survey {
   id: number; name: string; description?: string; isActive: boolean;
   createdAt: string;
@@ -17,7 +17,7 @@ interface SurveyDoctor {
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
 interface SurveyPharmacy {
-  id: number; surveyId: number; name: string; ownerName?: string; phone?: string;
+  id: number; surveyId: number; name: string; ownerName?: string; pharmacyName?: string; phone?: string;
   address?: string; areaName?: string; notes?: string;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
@@ -46,12 +46,13 @@ const DOC_FIELD_KEYWORDS: Array<[DocField, string[]]> = [
   ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
 ];
 const PHARMA_FIELD_KEYWORDS: Array<[PharmaField, string[]]> = [
-  ['name',      ['اسم الصيدلية','الصيدلية','صيدلية','اسم الدكان','الدكان','اسم','name','pharmacy']],
-  ['ownerName', ['صاحب الصيدلية','صاحب الدكان','المالك','صاحب','المدير','owner','ownername']],
-  ['phone',     ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','phone','mobile']],
-  ['address',   ['العنوان','عنوان','الموقع','address','location']],
-  ['areaName',  ['المنطقة','المنطقه','منطقة','اسم المنطقة','area','region']],
-  ['notes',     ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
+  ['name',         ['اسم الصيدلية','اسم الدكان','الدكان','الاسم الكامل','اسم','name']],
+  ['ownerName',    ['صاحب الصيدلية','صاحب الدكان','المالك','صاحب','المدير','owner','ownername']],
+  ['pharmacyName', ['الصيدلية','صيدلية','تسمية الصيدلية','pharmacy','pharmacyname']],
+  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','phone','mobile']],
+  ['address',      ['العنوان','عنوان','الموقع','address','location']],
+  ['areaName',     ['المنطقة','المنطقه','منطقة','اسم المنطقة','area','region']],
+  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
 ];
 
 function normalizeHdr(h: string): string {
@@ -104,7 +105,7 @@ function smartMapDocRow(row: Record<string,unknown>, headerMap: Record<string, D
   return r;
 }
 function smartMapPharmaRow(row: Record<string,unknown>, headerMap: Record<string, PharmaField>): PharmaImportRow {
-  const r: PharmaImportRow = { name:'', ownerName:'', phone:'', address:'', areaName:'', notes:'' };
+  const r: PharmaImportRow = { name:'', ownerName:'', pharmacyName:'', phone:'', address:'', areaName:'', notes:'' };
   for (const [header, field] of Object.entries(headerMap)) {
     const v = row[header];
     if (v != null && v !== '') r[field] = String(v).trim();
@@ -114,7 +115,7 @@ function smartMapPharmaRow(row: Record<string,unknown>, headerMap: Record<string
 function downloadTemplate(type: 'doctors' | 'pharmacies') {
   const [headers, example] = type === 'doctors'
     ? [['اسم الطبيب','الاختصاص','المنطقة','اسم الصيدلية','الكلاس','الزون','الهاتف','ملاحظات'], ['د. أحمد محمد','قلبية','الكرخ','صيدلية النور','A','Z1','07701234567','']]
-    : [['اسم الصيدلية','صاحب الصيدلية','الهاتف','العنوان','المنطقة','ملاحظات'], ['صيدلية النور','أحمد علي','07701234567','شارع السعدون','الرصافة','']];
+    : [['اسم الصيدلية','صاحب الصيدلية','الصيدلية','الهاتف','العنوان','المنطقة','ملاحظات'], ['صيدلية النور','أحمد علي','مجموعة الرافدين','07701234567','شارع السعدون','الرصافة','']];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, example]), type === 'doctors' ? 'أطباء' : 'صيدليات');
   XLSX.writeFile(wb, type === 'doctors' ? 'نموذج_أطباء.xlsx' : 'نموذج_صيدليات.xlsx');
@@ -269,7 +270,7 @@ export default function MasterSurveyPage() {
     const rows = await parseExcelFile(file);
     if (!rows.length) return;
     const headerMap = buildPharmaHeaderMap(rows[0] as Record<string,unknown>);
-    const PHARMA_LABELS: Record<PharmaField, string> = { name:'الاسم', ownerName:'صاحب الصيدلية', phone:'الهاتف', address:'العنوان', areaName:'المنطقة', notes:'ملاحظات' };
+    const PHARMA_LABELS: Record<PharmaField, string> = { name:'الاسم', ownerName:'صاحب الصيدلية', pharmacyName:'الصيدلية', phone:'الهاتف', address:'العنوان', areaName:'المنطقة', notes:'ملاحظات' };
     const humanMap: Record<string,string> = {};
     for (const [h, f] of Object.entries(headerMap)) humanMap[h] = PHARMA_LABELS[f];
     setDetectedPharmaMapping(humanMap);
@@ -364,7 +365,7 @@ export default function MasterSurveyPage() {
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: '#f8fafc' }}>
-              {['الاسم','صاحب الصيدلية','الهاتف','العنوان','المنطقة'].map(h => (
+              {['الاسم','صاحب الصيدلية','الصيدلية','الهاتف','العنوان','المنطقة'].map(h => (
                 <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
               ))}
             </tr></thead>
@@ -373,6 +374,7 @@ export default function MasterSurveyPage() {
                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '7px 10px', fontWeight: 600, color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.ownerName || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.pharmacyName || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.phone || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.address || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.areaName || '—'}</td>
@@ -490,6 +492,7 @@ export default function MasterSurveyPage() {
   function PharmacyForm() {
     const [form, setForm] = useState({
       name: editingPharma?.name ?? '', ownerName: editingPharma?.ownerName ?? '',
+      pharmacyName: editingPharma?.pharmacyName ?? '',
       phone: editingPharma?.phone ?? '', address: editingPharma?.address ?? '',
       areaName: editingPharma?.areaName ?? '', notes: editingPharma?.notes ?? '',
     });
@@ -511,7 +514,7 @@ export default function MasterSurveyPage() {
       <ModalOverlay onClose={() => { setShowPharmaForm(false); setEditingPharma(null); }}>
         <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>{editingPharma ? '✏️ تعديل صيدلية' : '➕ إضافة صيدلية'}</h3>
         {[
-          ['الاسم *', 'name'], ['صاحب الصيدلية', 'ownerName'], ['الهاتف', 'phone'],
+          ['الاسم *', 'name'], ['صاحب الصيدلية', 'ownerName'], ['الصيدلية', 'pharmacyName'], ['الهاتف', 'phone'],
           ['العنوان', 'address'], ['المنطقة', 'areaName'],
         ].map(([label, key]) => (
           <div key={key} style={{ marginBottom: 12 }}>
@@ -728,7 +731,7 @@ export default function MasterSurveyPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
-                    {['الاسم','صاحب الصيدلية','الهاتف','العنوان','المنطقة','آخر تعديل',''].map(h => (
+                    {['الاسم','صاحب الصيدلية','الصيدلية','الهاتف','العنوان','المنطقة','آخر تعديل',''].map(h => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -740,6 +743,7 @@ export default function MasterSurveyPage() {
                       onMouseLeave={e => (e.currentTarget.style.background = '')}>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>{p.name}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.ownerName || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.pharmacyName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.phone || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.address || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.areaName || '—'}</td>

@@ -134,12 +134,12 @@ export async function addPharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     await assertVisible(surveyId, req.user, res);
-    const { name, ownerName, phone, address, areaName, notes } = req.body;
+    const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الصيدلية مطلوب' });
     const ph = await prisma.masterSurveyPharmacy.create({
       data: {
         surveyId,
-        name: name.trim(), ownerName, phone, address, areaName, notes,
+        name: name.trim(), ownerName, pharmacyName, phone, address, areaName, notes,
         lastEditedById: req.user.id,
         lastEditedAt:   new Date(),
       },
@@ -157,14 +157,15 @@ export async function updatePharmacy(req, res, next) {
     await assertVisible(surveyId, req.user, res);
     const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
     if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-    const { name, ownerName, phone, address, areaName, notes } = req.body;
+    const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     const data = { lastEditedById: req.user.id, lastEditedAt: new Date() };
-    if (name      !== undefined) data.name      = name.trim();
-    if (ownerName !== undefined) data.ownerName = ownerName;
-    if (phone     !== undefined) data.phone     = phone;
-    if (address   !== undefined) data.address   = address;
-    if (areaName  !== undefined) data.areaName  = areaName;
-    if (notes     !== undefined) data.notes     = notes;
+    if (name         !== undefined) data.name         = name.trim();
+    if (ownerName    !== undefined) data.ownerName    = ownerName;
+    if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
+    if (phone        !== undefined) data.phone        = phone;
+    if (address      !== undefined) data.address      = address;
+    if (areaName     !== undefined) data.areaName     = areaName;
+    if (notes        !== undefined) data.notes        = notes;
     const updated = await prisma.masterSurveyPharmacy.update({ where: { id: pharmaId }, data });
     await logEntry(surveyId, 'pharmacy', pharmaId, 'update', old, updated, req.user.id);
     res.json({ success: true, data: updated });
