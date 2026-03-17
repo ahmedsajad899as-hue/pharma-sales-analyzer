@@ -1924,6 +1924,21 @@ app.post('/api/pharmacy-visits/:id/like', async (req, res) => {
   }
 });
 
+// DELETE /api/pharmacy-visits/:id — delete a pharmacy visit (admin / manager only)
+app.delete('/api/pharmacy-visits/:id', requireAuth, async (req, res) => {
+  try {
+    const role    = req.user?.role;
+    const ALLOWED = ['admin', 'manager', 'company_manager'];
+    if (!ALLOWED.includes(role)) return res.status(403).json({ error: 'غير مصرح' });
+    const id = parseInt(req.params.id);
+    await prisma.pharmacyVisitLike.deleteMany({ where: { visitId: id } });
+    await prisma.pharmacyVisit.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Catch-all: serve index.html for React Router (production) ─
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res, next) => {

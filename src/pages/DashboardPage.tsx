@@ -58,7 +58,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // Pre-fetched rep list for managers — shown in dropdown even when today has no visits
   const [dashReps, setDashReps] = useState<{ id: number; name: string }[]>([]);
   const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
-  const [likingVisit, setLikingVisit]   = useState<number | null>(null);
+  const [likingVisit, setLikingVisit]         = useState<number | null>(null);
+  const [deletingPharmVisit, setDeletingPharmVisit] = useState<number | null>(null);
   const [showLikersId, setShowLikersId] = useState<number | null>(null);
   const [showItemNotesId, setShowItemNotesId] = useState<number | null>(null);
   const likeTimer = useRef<any>(null);
@@ -239,6 +240,21 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setCallsData(prev => prev ? { ...prev, visits: prev.visits.map(v => (v as any)._visitType === 'pharmacy' && v.id === visitId ? { ...v, likes } : v) } : prev);
       }
     } finally { setLikingVisit(null); }
+  };
+
+  const deletePharmVisit = async (visitId: number) => {
+    if (!window.confirm('حذف هذه الكولة نهائياً؟')) return;
+    if (deletingPharmVisit === visitId) return;
+    setDeletingPharmVisit(visitId);
+    try {
+      const res = await fetch(`/api/pharmacy-visits/${visitId}`, { method: 'DELETE', headers: authH() });
+      if (res.ok) {
+        setCallsData(prev => prev ? { ...prev, visits: prev.visits.filter(v => !((v as any)._visitType === 'pharmacy' && v.id === visitId)), total: prev.total - 1 } : prev);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'فشل الحذف');
+      }
+    } finally { setDeletingPharmVisit(null); }
   };
 
   useEffect(() => { loadDailyCalls(todayStr, todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1976,6 +1992,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                   </div>
                                 );
                               })()}
+                              {isPharm && (user?.role === 'admin' || user?.role === 'manager' || user?.role === 'company_manager') && (
+                                <button
+                                  title="حذف الكولة"
+                                  disabled={deletingPharmVisit === v.id}
+                                  onClick={() => deletePharmVisit(v.id)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', padding: '1px', lineHeight: 1, color: '#ef4444', opacity: deletingPharmVisit === v.id ? 0.4 : 1 }}
+                                >🗑</button>
+                              )}
                             </div>
                           </td>
                         </tr>
