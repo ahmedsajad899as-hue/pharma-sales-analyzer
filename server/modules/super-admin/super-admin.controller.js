@@ -264,3 +264,106 @@ export async function bulkDeleteVisits(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+// ── List pharmacy visits (master only) ────────────────────────────────────
+export async function listPharmacyVisits(req, res) {
+  try {
+    const { page = 1, limit = 50, search, dateFrom, dateTo, officeId, companyId } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const where = {};
+    if (officeId || companyId) {
+      where.user = {};
+      if (officeId)  where.user.officeId           = parseInt(officeId);
+      if (companyId) where.user.companyAssignments  = { some: { companyId: parseInt(companyId) } };
+    }
+    if (dateFrom || dateTo) {
+      where.visitDate = {};
+      if (dateFrom) where.visitDate.gte = new Date(dateFrom);
+      if (dateTo)   where.visitDate.lte = new Date(dateTo + 'T23:59:59');
+    }
+    if (search) {
+      where.OR = [
+        { pharmacyName:  { contains: search } },
+        { areaName:      { contains: search } },
+        { scientificRep: { name: { contains: search } } },
+        { user:          { username: { contains: search } } },
+        { notes:         { contains: search } },
+        { area:          { name: { contains: search } } },
+      ];
+    }
+
+    const [visits, total] = await Promise.all([
+      prisma.pharmacyVisit.findMany({
+        where,
+        skip,
+        take: parseInt(limit),
+        orderBy: { visitDate: 'desc' },
+        include: {
+          area:          { select: { id: true, name: true } },
+          scientificRep: { select: { id: true, name: true } },
+          user:          { select: { id: true, username: true, displayName: true, office: { select: { id: true, name: true } }, companyAssignments: { select: { company: { select: { id: true, name: true } } } } } },
+          items:         { include: { item: { select: { id: true, name: true } } } },
+        },
+      }),
+      prisma.pharmacyVisit.count({ where }),
+    ]);
+
+    res.json({ success: true, data: visits, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Update a pharmacy visit (master only) ─────────────────────────────────
+export async function updatePharmacyVisit(req, res) {
+  try {
+    const id = parseInt(req.params.id);
+    const { visitDate, notes, isDoubleVisit, pharmacyName } = req.body;
+
+    const data = {};
+    if (visitDate     !== undefined) data.visitDate     = new Date(visitDate);
+    if (notes         !== undefined) data.notes         = notes;
+    if (isDoubleVisit !== undefined) data.isDoubleVisit = Boolean(isDoubleVisit);
+    if (pharmacyName  !== undefined) data.pharmacyName  = pharmacyName;
+
+    const visit = await prisma.pharmacyVisit.update({
+      where: { id },
+      data,
+      include: {
+        area:          { select: { id: true, name: true } },
+        scientificRep: { select: { id: true, name: true } },
+        user:          { select: { id: true, username: true, displayName: true } },
+        items:         { include: { item: { select: { id: true, name: true } } } },
+      },
+    });
+    res.json({ success: true, data: visit });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Delete a pharmacy visit (master only) ─────────────────────────────────
+export async function deletePharmacyVisit(req, res) {
+  try {
+    const id = parseInt(req.params.id);
+    await prisma.pharmacyVisit.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Bulk delete pharmacy visits ────────────────────────────────────────────
+export async function bulkDeletePharmacyVisits(req, res) {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0)
+      return res.status(400).json({ error: 'ids required' });
+
+    await prisma.pharmacyVisit.deleteMany({ where: { id: { in: ids.map(Number) } } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
