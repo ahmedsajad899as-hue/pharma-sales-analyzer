@@ -110,13 +110,15 @@ export async function deleteSuperAdmin(req, res) {
 // ── List all doctor visits (master only) ──────────────────────────────────
 export async function listVisits(req, res) {
   try {
-    const { page = 1, limit = 50, repId, userId, doctorId, search, dateFrom, dateTo } = req.query;
+    const { page = 1, limit = 50, repId, userId, doctorId, search, dateFrom, dateTo, officeId, companyId } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
-    if (repId)    where.scientificRepId = parseInt(repId);
-    if (userId)   where.userId          = parseInt(userId);
-    if (doctorId) where.doctorId        = parseInt(doctorId);
+    if (repId)     where.scientificRepId = parseInt(repId);
+    if (userId)    where.userId          = parseInt(userId);
+    if (doctorId)  where.doctorId        = parseInt(doctorId);
+    if (officeId)  where.user            = { officeId: parseInt(officeId) };
+    if (companyId) where.item            = { scientificCompanyId: parseInt(companyId) };
     if (dateFrom || dateTo) {
       where.visitDate = {};
       if (dateFrom) where.visitDate.gte = new Date(dateFrom);
@@ -140,8 +142,8 @@ export async function listVisits(req, res) {
         include: {
           doctor:        { select: { id: true, name: true } },
           scientificRep: { select: { id: true, name: true } },
-          user:          { select: { id: true, username: true, displayName: true } },
-          item:          { select: { id: true, name: true } },
+          user:          { select: { id: true, username: true, displayName: true, office: { select: { id: true, name: true } } } },
+          item:          { select: { id: true, name: true, scientificCompany: { select: { id: true, name: true } } } },
         },
       }),
       prisma.doctorVisit.count({ where }),
@@ -215,6 +217,46 @@ export async function impersonateUser(req, res) {
     );
 
     res.json({ success: true, token, user: { id: user.id, username: user.username, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── List scientific offices for filter dropdowns ───────────────────────────
+export async function listOfficesForFilter(req, res) {
+  try {
+    const offices = await prisma.scientificOffice.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ success: true, data: offices });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── List scientific companies for filter dropdowns ─────────────────────────
+export async function listCompaniesForFilter(req, res) {
+  try {
+    const companies = await prisma.scientificCompany.findMany({
+      select: { id: true, name: true, office: { select: { id: true, name: true } } },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ success: true, data: companies });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ── Bulk delete doctor visits ──────────────────────────────────────────────
+export async function bulkDeleteVisits(req, res) {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0)
+      return res.status(400).json({ error: 'ids required' });
+
+    await prisma.doctorVisit.deleteMany({ where: { id: { in: ids.map(Number) } } });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
