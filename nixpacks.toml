@@ -5,7 +5,7 @@ NODE_VERSION = "20"
 cmds = ["npm install --include=dev"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["node_modules/.bin/prisma generate", "npm run build"]
 
 [start]
-cmd = "(node_modules/.bin/prisma db push --accept-data-loss --skip-generate || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
+cmd = "(node_modules/.bin/prisma db push --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
