@@ -151,7 +151,7 @@ export async function bulkImportDoctors(req, res, next) {
       }));
     const result = await prisma.masterSurveyDoctor.createMany({ data, skipDuplicates: false });
     res.status(201).json({ success: true, count: result.count });
-  } catch (e) { next(e); }
+  } catch (e) { console.error('[bulkImportDoctors]', e.message, e.code); next(e); }
 }
 
 // ── Survey Pharmacies ────────────────────────────────────────

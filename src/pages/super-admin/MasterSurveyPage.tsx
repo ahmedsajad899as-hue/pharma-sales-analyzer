@@ -300,7 +300,7 @@ export default function MasterSurveyPage() {
         const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk`, {
           method: 'POST', headers: H(), body: JSON.stringify({ doctors: chunk }),
         });
-        if (!r.ok) { const d = await r.json(); throw new Error(d.error || `خطأ ${r.status}`); }
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || d.message || `خطأ ${r.status}`); }
       }
       setShowDoctorsImport(false); setImportDoctorsPreview([]);
       fetchSurvey(selectedSurvey.id);
@@ -322,7 +322,7 @@ export default function MasterSurveyPage() {
         const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
           method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: chunk }),
         });
-        if (!r.ok) { const d = await r.json(); throw new Error(d.error || `خطأ ${r.status}`); }
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || d.message || `خطأ ${r.status}`); }
       }
       setShowPharmasImport(false); setImportPharmasPreview([]);
       fetchSurvey(selectedSurvey.id);
