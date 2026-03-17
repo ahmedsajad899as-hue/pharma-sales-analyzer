@@ -12,6 +12,17 @@ function visibleWhere(user) {
   };
 }
 
+// ── Area filter helper ──────────────────────────────────────
+// Returns the area names assigned to a user via UserAreaAssignment.
+// Returns empty array if no areas assigned (→ no filtering applied).
+async function getUserAssignedAreaNames(userId) {
+  const assignments = await prisma.userAreaAssignment.findMany({
+    where: { userId },
+    include: { area: { select: { name: true } } },
+  });
+  return assignments.map(a => a.area.name.trim());
+}
+
 // ── Log helper ───────────────────────────────────────────────
 function logEntry(surveyId, entryType, entryId, action, oldData, newData, editedById) {
   return prisma.masterSurveyEditLog.create({
@@ -37,6 +48,24 @@ export async function listSurveys(req, res, next) {
         _count: { select: { doctors: true, pharmacies: true } },
       },
     });
+
+    // If user has assigned areas, replace counts with area-filtered counts
+    const userAreaNames = await getUserAssignedAreaNames(req.user.id);
+    if (userAreaNames.length > 0) {
+      await Promise.all(surveys.map(async survey => {
+        const [dc, pc] = await Promise.all([
+          prisma.masterSurveyDoctor.count({
+            where: { surveyId: survey.id, areaName: { in: userAreaNames } },
+          }),
+          prisma.masterSurveyPharmacy.count({
+            where: { surveyId: survey.id, areaName: { in: userAreaNames } },
+          }),
+        ]);
+        survey._count.doctors    = dc;
+        survey._count.pharmacies = pc;
+      }));
+    }
+
     res.json({ success: true, data: surveys });
   } catch (e) { next(e); }
 }
@@ -45,14 +74,23 @@ export async function listSurveys(req, res, next) {
 export async function getSurvey(req, res, next) {
   try {
     const id = parseInt(req.params.id);
+
+    // Build area filter: only return doctors/pharmacies in the user's assigned areas
+    const userAreaNames = await getUserAssignedAreaNames(req.user.id);
+    const areaFilter = userAreaNames.length > 0
+      ? { areaName: { in: userAreaNames } }
+      : undefined; // no filter → user has no area restrictions (admin/manager)
+
     const survey = await prisma.masterSurvey.findFirst({
       where: { id, ...visibleWhere(req.user) },
       include: {
         doctors: {
+          where: areaFilter,
           orderBy: { createdAt: 'asc' },
           include: { lastEditedBy: { select: { id: true, username: true, displayName: true } } },
         },
         pharmacies: {
+          where: areaFilter,
           orderBy: { createdAt: 'asc' },
           include: { lastEditedBy: { select: { id: true, username: true, displayName: true } } },
         },
@@ -126,7 +164,13 @@ export async function importAllDoctors(req, res, next) {
     await assertVisible(surveyId, req.user, res);
     const userId = req.user.id;
 
-    const surveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
+    // Only import doctors from the user's assigned areas
+    const userAreaNames = await getUserAssignedAreaNames(userId);
+    const areaWhere = userAreaNames.length > 0
+      ? { surveyId, areaName: { in: userAreaNames } }
+      : { surveyId };
+
+    const surveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: areaWhere });
     const existingNames = new Set(
       (await prisma.doctor.findMany({ where: { userId }, select: { name: true } }))
         .map(d => d.name.toLowerCase().trim())
