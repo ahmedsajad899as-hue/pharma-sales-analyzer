@@ -816,9 +816,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       }
       return;
     }
-    // Plan exists — show plan matches immediately
+    // Plan exists — show plan matches immediately, startsWith first
+    const normQ = lv.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
     const planMatches = (activePlan.entries ?? [])
-      .filter((e: any) => e.doctor.name.toLowerCase().includes(lv))
+      .filter((e: any) => e.doctor.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').includes(normQ))
+      .sort((a: any, b: any) => {
+        const aN = a.doctor.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const bN = b.doctor.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const aS = aN.startsWith(normQ) ? 0 : 1;
+        const bS = bN.startsWith(normQ) ? 0 : 1;
+        return aS !== bS ? aS - bS : aN.localeCompare(bN, 'ar');
+      })
       .slice(0, 5)
       .map((e: any) => ({ ...e, _inPlan: true }));
     setClSuggestions(planMatches);

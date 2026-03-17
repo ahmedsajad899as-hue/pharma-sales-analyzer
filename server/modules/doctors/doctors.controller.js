@@ -237,7 +237,7 @@ export async function list(req, res, next) {
 
     if (areaId)    where.areaId   = parseInt(areaId);
     if (isActive !== undefined) where.isActive = isActive === 'true';
-    if (q?.trim())  where.name    = { contains: q.trim() };
+    if (q?.trim())  where.name    = { contains: q.trim(), mode: 'insensitive' };
 
     const doctors = await prisma.doctor.findMany({
       where,
@@ -245,10 +245,25 @@ export async function list(req, res, next) {
         area:       { select: { id: true, name: true } },
         targetItem: { select: { id: true, name: true } },
       },
-      take: q?.trim() ? 10 : undefined,
+      take: q?.trim() ? 50 : undefined,
       orderBy: { name: 'asc' },
     });
-    res.json(doctors);
+
+    // Sort: names that START with the query come first, then the rest
+    if (q?.trim()) {
+      const qNorm = q.trim().toLowerCase()
+        .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+      doctors.sort((a, b) => {
+        const aN = a.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const bN = b.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const aStarts = aN.startsWith(qNorm) ? 0 : 1;
+        const bStarts = bN.startsWith(qNorm) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return aN.localeCompare(bN, 'ar');
+      });
+    }
+
+    res.json(doctors.slice(0, 10));
   } catch (e) { next(e); }
 }
 

@@ -1789,7 +1789,7 @@ export async function availableDoctors(req, res, next) {
       where: {
         userId:   plan.userId,
         isActive: true,
-        ...(q ? { name: { contains: String(q) } } : {}),
+        ...(q ? { name: { contains: String(q), mode: 'insensitive' } } : {}),
         id: { notIn: usedIds },
       },
       select: {
@@ -1797,10 +1797,25 @@ export async function availableDoctors(req, res, next) {
         areaId: true,
         area: { select: { name: true } },
       },
-      take: 10,
+      take: 50,
       orderBy: { name: 'asc' },
     });
-    res.json(doctors);
+
+    // Sort: startsWith the query first, then contains
+    if (q?.trim()) {
+      const qNorm = String(q).trim().toLowerCase()
+        .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+      doctors.sort((a, b) => {
+        const aN = a.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const bN = b.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const aS = aN.startsWith(qNorm) ? 0 : 1;
+        const bS = bN.startsWith(qNorm) ? 0 : 1;
+        if (aS !== bS) return aS - bS;
+        return aN.localeCompare(bN, 'ar');
+      });
+    }
+
+    res.json(doctors.slice(0, 10));
   } catch (e) { next(e); }
 }
 
