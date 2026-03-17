@@ -1436,7 +1436,12 @@ ${areaNames || '(لا يوجد)'}
       const strippedDrName = stripDrPrefix(rawDrName);
       const matchedDoctor  = fuzzyFind(rawDrName, allDoctors) || fuzzyFind(strippedDrName, allDoctors);
       const normQuery      = normAr(strippedDrName || rawDrName);
-      const isExactMatch   = matchedDoctor && normAr(matchedDoctor.name) === normQuery;
+      // Consider it an exact match if the stripped name equals the stripped DB name (handles "رعد محمد" ↔ "دكتور رعد محمد")
+      const isExactMatch   = matchedDoctor && (
+        normAr(matchedDoctor.name) === normQuery ||
+        normAr(stripDrPrefix(matchedDoctor.name)) === normQuery ||
+        normAr(matchedDoctor.name) === normAr(rawDrName)
+      );
       const autoDoc        = isExactMatch ? matchedDoctor : null;
       const suggestedDoc   = (!isExactMatch && matchedDoctor) ? matchedDoctor : null;
 
