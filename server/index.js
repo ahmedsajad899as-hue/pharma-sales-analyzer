@@ -1301,7 +1301,8 @@ app.post('/api/doctor-visits', async (req, res) => {
     // Resolve itemId by name if not provided
     let resolvedItemId = itemId ? parseInt(itemId) : null;
     if (!resolvedItemId && itemName?.trim()) {
-      const n = String(itemName).trim().toLowerCase();
+      const rawName = String(itemName).trim();
+      const n = rawName.toLowerCase();
       let candidates;
       if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
         const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId }, include: { item: { select: { id: true, name: true } } } });
@@ -1311,7 +1312,26 @@ app.post('/api/doctor-visits', async (req, res) => {
       }
       const match = candidates.find(it => it.name.toLowerCase() === n)
                  || candidates.find(it => it.name.toLowerCase().includes(n) || n.includes(it.name.toLowerCase()));
-      if (match) resolvedItemId = match.id;
+      if (match) {
+        resolvedItemId = match.id;
+      } else {
+        // Free-text item not found — upsert it so the name is never lost in reports
+        const upserted = await prisma.item.upsert({
+          where:  { name_userId: { name: rawName, userId } },
+          create: { name: rawName, userId },
+          update: {},
+          select: { id: true },
+        });
+        resolvedItemId = upserted.id;
+        // Link to the rep's item list so it appears in future suggestions
+        if (['scientific_rep', 'team_leader', 'supervisor'].includes(role) && scientificRepId) {
+          await prisma.scientificRepItem.upsert({
+            where:  { scientificRepId_itemId: { scientificRepId, itemId: resolvedItemId } },
+            create: { scientificRepId, itemId: resolvedItemId },
+            update: {},
+          });
+        }
+      }
     }
 
     const visit = await prisma.doctorVisit.create({

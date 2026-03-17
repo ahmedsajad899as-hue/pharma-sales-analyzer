@@ -25,6 +25,14 @@ export async function visitsByArea(req, res, next) {
       const linkedRepId = userRow?.linkedRepId;
       console.log('[visitsByArea] fieldRep userId:', userId, 'linkedRepId:', linkedRepId);
 
+      // جلب المناطق المُعيَّنة للمندوب — لإظهار أطباء السيرفي حتى لو لم يُسجَّلوا بحسابه
+      const repAreaIds = linkedRepId
+        ? (await prisma.scientificRepArea.findMany({
+            where: { scientificRepId: linkedRepId },
+            select: { areaId: true },
+          })).map(a => a.areaId)
+        : [];
+
       // جلب كل الزيارات بدون فلتر شهر — لتحديد قائمة الأطباء الكاملة
       const allVisitsEver = await prisma.doctorVisit.findMany({
         where: { scientificRepId: linkedRepId ?? -1 },
@@ -53,13 +61,17 @@ export async function visitsByArea(req, res, next) {
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // جلب كل أطباء المندوب (مسجّلون بحسابه) + كل من زاره في أي وقت
+      // جلب كل أطباء المندوب:
+      //  1) المسجَّلون بحسابه (userId)
+      //  2) من زارهم في أي وقت (everVisitedIds)
+      //  3) أطباء السيرفي في مناطقه المُعيَّنة (repAreaIds) — الإصلاح الرئيسي
       const extraIds = [...everVisitedIds];
       const allDoctors = await prisma.doctor.findMany({
         where: {
           OR: [
             { userId },
-            ...(extraIds.length > 0 ? [{ id: { in: extraIds } }] : []),
+            ...(extraIds.length > 0    ? [{ id:     { in: extraIds   } }] : []),
+            ...(repAreaIds.length > 0  ? [{ areaId: { in: repAreaIds } }] : []),
           ],
         },
         include: {

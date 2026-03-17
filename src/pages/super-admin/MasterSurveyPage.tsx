@@ -191,6 +191,9 @@ export default function MasterSurveyPage() {
   const [logs,       setLogs]       = useState<EditLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
+  // doctor search filter
+  const [docSearch, setDocSearch] = useState('');
+
   // excel import
   const [importDoctorsPreview, setImportDoctorsPreview] = useState<DocImportRow[]>([]);
   const [showDoctorsImport,    setShowDoctorsImport]    = useState(false);
@@ -730,16 +733,48 @@ export default function MasterSurveyPage() {
       {/* Doctors Tab */}
       {tab === 'doctors' && (
         <div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 14 }}>
-            <button onClick={() => downloadTemplate('doctors')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
-            <button onClick={() => docFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
-            <input ref={docFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleDocExcel} />
-            <button onClick={() => { setEditingDoc(null); setShowDocForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة طبيب</button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+            <input
+              value={docSearch}
+              onChange={e => setDocSearch(e.target.value)}
+              placeholder="🔍 بحث باسم الطبيب، الاختصاص، المنطقة، الصيدلية..."
+              style={{ flex: 1, minWidth: 220, padding: '9px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', direction: 'rtl' }}
+            />
+            {docSearch && (
+              <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {selectedSurvey.doctors.filter(d => {
+                  const q = docSearch.trim().toLowerCase();
+                  return (d.name?.toLowerCase().includes(q) || d.specialty?.toLowerCase().includes(q) || d.areaName?.toLowerCase().includes(q) || d.pharmacyName?.toLowerCase().includes(q) || d.zoneName?.toLowerCase().includes(q) || d.phone?.toLowerCase().includes(q));
+                }).length} نتيجة
+              </span>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
+              <button onClick={() => downloadTemplate('doctors')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
+              <button onClick={() => docFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
+              <input ref={docFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleDocExcel} />
+              <button onClick={() => { setEditingDoc(null); setShowDocForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة طبيب</button>
+            </div>
           </div>
           {selectedSurvey.doctors.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>لا يوجد أطباء في هذا السيرفي بعد</div>
-          ) : (
+          ) : (() => {
+            const q = docSearch.trim().toLowerCase();
+            const filtered = q
+              ? selectedSurvey.doctors.filter(d =>
+                  d.name?.toLowerCase().includes(q) ||
+                  d.specialty?.toLowerCase().includes(q) ||
+                  d.areaName?.toLowerCase().includes(q) ||
+                  d.pharmacyName?.toLowerCase().includes(q) ||
+                  d.zoneName?.toLowerCase().includes(q) ||
+                  d.phone?.toLowerCase().includes(q)
+                )
+              : selectedSurvey.doctors;
+            return (
             <div style={{ overflowX: 'auto' }}>
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج تطابق "{docSearch}"</div>
+              )}
+              {filtered.length > 0 && (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
@@ -749,7 +784,7 @@ export default function MasterSurveyPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedSurvey.doctors.map(d => (
+                  {filtered.map(d => (
                     <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9' }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}>
@@ -775,8 +810,10 @@ export default function MasterSurveyPage() {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 

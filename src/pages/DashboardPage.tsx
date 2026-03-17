@@ -2943,7 +2943,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => {
                       if (clItemShowSugg) { setClItemShowSugg(false); return; }
-                      setClItemSugg(clAllItems.slice(0, 50));
+                      // Plan target items at the top, then all rep items
+                      const planItems = (clSelectedEntry?.targetItems ?? []).map((ti: any) => ({ ...ti.item, _planItem: true }));
+                      const planIds   = new Set(planItems.map((i: any) => i.id));
+                      const rest      = clAllItems.filter((i: any) => !planIds.has(i.id)).slice(0, Math.max(20, 50 - planItems.length));
+                      const divider   = planItems.length > 0 ? [{ id: '__div__', name: '── كل الايتمات ──', _isDivider: true }] : [];
+                      setClItemSugg([...planItems, ...divider, ...rest]);
                       setClItemShowSugg(true);
                     }}
                     style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: '#6b7280', fontSize: '12px', lineHeight: 1 }}
@@ -2954,17 +2959,20 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </div>
                 {clItemShowSugg && clItemSugg.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden', maxHeight: '220px', overflowY: 'auto' }}>
-                    {clItemSugg.map((item: any) => (
-                      <div
-                        key={item.id}
-                        onMouseDown={() => { setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
-                        style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                      >
-                        {item.name}
-                      </div>
-                    ))}
+                    {clItemSugg.map((item: any) =>
+                      item._isDivider
+                        ? <div key={item.id} style={{ padding: '4px 14px', fontSize: '11px', color: '#94a3b8', background: '#f8fafc', fontWeight: 600, userSelect: 'none', borderBottom: '1px solid #f1f5f9' }}>{item.name}</div>
+                        : <div
+                            key={item.id}
+                            onMouseDown={() => { setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
+                            style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: item._planItem ? '#4338ca' : '#111827', background: item._planItem ? '#eef2ff' : '' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = item._planItem ? '#e0e7ff' : '#f8fafc')}
+                            onMouseLeave={e => (e.currentTarget.style.background = item._planItem ? '#eef2ff' : '')}
+                          >
+                            {item._planItem && <span style={{ marginLeft: '5px', fontSize: '11px', color: '#6366f1' }}>★</span>}
+                            {item.name}
+                          </div>
+                    )}
                   </div>
                 )}
               </div>
