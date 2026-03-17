@@ -19,8 +19,8 @@ interface Visit {
   isDoubleVisit: boolean;
   doctor:        { id: number; name: string };
   scientificRep: { id: number; name: string };
-  user?:         { id: number; username: string; displayName?: string; office?: { id: number; name: string } | null } | null;
-  item?:         { id: number; name: string; scientificCompany?: { id: number; name: string } | null } | null;
+  user?:         { id: number; username: string; displayName?: string; office?: { id: number; name: string } | null; companyAssignments?: { company: { id: number; name: string } }[] } | null;
+  item?:         { id: number; name: string } | null;
 }
 
 interface EditForm {
@@ -285,7 +285,7 @@ export default function VisitsPage() {
                         {v.user?.office?.name ?? '—'}
                       </td>
                       <td style={{ padding: '11px 14px', color: '#374151', fontSize: 13 }}>
-                        {v.item?.scientificCompany?.name ?? '—'}
+                        {v.user?.companyAssignments?.map(a => a.company.name).join('، ') || '—'}
                       </td>
                       <td style={{ padding: '11px 14px' }}>
                         <span style={{

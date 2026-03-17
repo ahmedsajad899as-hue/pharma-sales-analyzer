@@ -114,11 +114,14 @@ export async function listVisits(req, res) {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
-    if (repId)     where.scientificRepId = parseInt(repId);
-    if (userId)    where.userId          = parseInt(userId);
-    if (doctorId)  where.doctorId        = parseInt(doctorId);
-    if (officeId)  where.user            = { officeId: parseInt(officeId) };
-    if (companyId) where.item            = { scientificCompanyId: parseInt(companyId) };
+    if (repId)    where.scientificRepId = parseInt(repId);
+    if (userId)   where.userId          = parseInt(userId);
+    if (doctorId) where.doctorId        = parseInt(doctorId);
+    if (officeId || companyId) {
+      where.user = {};
+      if (officeId)  where.user.officeId            = parseInt(officeId);
+      if (companyId) where.user.companyAssignments  = { some: { companyId: parseInt(companyId) } };
+    }
     if (dateFrom || dateTo) {
       where.visitDate = {};
       if (dateFrom) where.visitDate.gte = new Date(dateFrom);
@@ -142,8 +145,8 @@ export async function listVisits(req, res) {
         include: {
           doctor:        { select: { id: true, name: true } },
           scientificRep: { select: { id: true, name: true } },
-          user:          { select: { id: true, username: true, displayName: true, office: { select: { id: true, name: true } } } },
-          item:          { select: { id: true, name: true, scientificCompany: { select: { id: true, name: true } } } },
+          user:          { select: { id: true, username: true, displayName: true, office: { select: { id: true, name: true } }, companyAssignments: { select: { company: { select: { id: true, name: true } } } } } },
+          item:          { select: { id: true, name: true } },
         },
       }),
       prisma.doctorVisit.count({ where }),
