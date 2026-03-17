@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
+import { parseExcelFile } from '../../services/excelParser';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
 interface Office   { id: number; name: string; }
@@ -8,6 +10,50 @@ interface Item     { id: number; name: string; scientificName?: string; dosage?:
 interface Line     { id: number; name?: string; isActive: boolean; lineItems: { item: Item }[]; }
 interface CompanyDetail extends Company { items: Item[]; lines: Line[]; }
 interface ItemForm { name: string; scientificName: string; dosage: string; form: string; price: string; scientificMessage: string; }
+interface ItemImportRow { name: string; scientificName: string; dosage: string; form: string; price: string; scientificMessage: string; }
+type ItemField = keyof ItemImportRow;
+
+// ── Smart Excel column detection for Items ────────────────────
+const ITEM_FIELD_KEYWORDS: Array<[ItemField, string[]]> = [
+  ['name',              ['اسم الايتم','اسم الدواء','اسم المنتج','الدواء','المنتج','الايتم','الاسم التجاري','الاسم','اسم','item name','item','name','trade name','product name','drug name','medicine']],
+  ['scientificName',    ['الاسم العلمي','الاسم الدوائي','اسم علمي','اسم دوائي','scientific name','scientificname','scientific','generic name','generic','chemical name']],
+  ['dosage',            ['الجرعة','الجرعه','جرعة','جرعه','التركيز','تركيز','dosage','dose','concentration','strength']],
+  ['form',              ['الشكل','الشكل الدوائي','شكل دوائي','الصيغة','صيغة','نوع','form','dosage form','pharmaceutical form','type']],
+  ['price',             ['السعر','سعر','التكلفة','تكلفة','price','cost','unit price']],
+  ['scientificMessage', ['المسج العلمي','الرساله العلميه','الرسالة العلمية','المسج','الرسالة','ملاحظات','scientific message','scientificmessage','message','notes','remarks']],
+];
+function normalizeItemHdr(h: string): string {
+  return h.trim().toLowerCase()
+    .replace(/[_\-]/g, ' ').replace(/\s+/g, ' ')
+    .replace(/ة/g, 'ه').replace(/[\u064B-\u065F]/g, '');
+}
+function detectItemField(header: string): ItemField | null {
+  const h = normalizeItemHdr(header);
+  for (const [field, kws] of ITEM_FIELD_KEYWORDS) {
+    for (const kw of kws) {
+      const nkw = normalizeItemHdr(kw);
+      if (h === nkw || h.includes(nkw) || nkw.includes(h)) return field;
+    }
+  }
+  return null;
+}
+function buildItemHeaderMap(row: Record<string, unknown>): Record<string, ItemField> {
+  const map: Record<string, ItemField> = {};
+  const used = new Set<ItemField>();
+  for (const header of Object.keys(row)) {
+    const field = detectItemField(header);
+    if (field && !used.has(field)) { map[header] = field; used.add(field); }
+  }
+  return map;
+}
+function smartMapItemRow(row: Record<string, unknown>, headerMap: Record<string, ItemField>): ItemImportRow {
+  const r: ItemImportRow = { name: '', scientificName: '', dosage: '', form: '', price: '', scientificMessage: '' };
+  for (const [header, field] of Object.entries(headerMap)) {
+    const v = row[header];
+    if (v != null && v !== '') r[field] = String(v).trim();
+  }
+  return r;
+}
 
 // ─── Org-chart types ──────────────────────────────────────────────────────
 interface OrgUser {
@@ -133,11 +179,14 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
   const [error,     setError]     = useState('');
   const [itemForm,  setItemForm]  = useState<ItemForm | null>(null);
 
-  // ─── Excel import ──────────────────────────────────────────────────────
-  const [xlsxOpen,    setXlsxOpen]    = useState(false);
-  const [xlsxFile,    setXlsxFile]    = useState<File | null>(null);
-  const [xlsxLoading, setXlsxLoading] = useState(false);
-  const [xlsxResult,  setXlsxResult]  = useState<{ inserted: number; skipped: number; errors: { name: string; error: string }[] } | null>(null);
+  // ─── Smart Excel import ────────────────────────────────────────────────
+  const [itemImportPreview,  setItemImportPreview]  = useState<ItemImportRow[]>([]);
+  const [showItemImport,     setShowItemImport]      = useState(false);
+  const [importingItems,     setImportingItems]      = useState(false);
+  const [importItemProgress, setImportItemProgress]  = useState('');
+  const [detectedItemMapping,setDetectedItemMapping] = useState<Record<string, string>>({});
+  const [unknownItemCols,    setUnknownItemCols]      = useState<string[]>([]);
+  const itemFileRef = useRef<HTMLInputElement>(null);
 
   // ─── Org view ──────────────────────────────────────────────────────────
   const [orgData,    setOrgData]    = useState<OrgData | null>(null);
@@ -217,18 +266,46 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
 
   const blankItemForm = (): ItemForm => ({ name: '', scientificName: '', dosage: '', form: '', price: '', scientificMessage: '' });
 
-  const importFromExcel = async () => {
-    if (!detail || !xlsxFile) return;
-    setXlsxLoading(true); setXlsxResult(null); setError('');
-    const fd = new FormData();
-    fd.append('file', xlsxFile);
-    const res = await fetch(`/api/sa/companies/${detail.id}/items/import`, {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-    });
-    const d = await res.json();
-    setXlsxLoading(false);
-    if (d.success) { setXlsxResult(d.data); loadDetail(detail.id); }
-    else setError(d.error || 'خطأ في الاستيراد');
+  const handleItemExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const rows = await parseExcelFile(file);
+    if (!rows.length) return;
+    const headerMap = buildItemHeaderMap(rows[0] as Record<string, unknown>);
+    const ITEM_LABELS: Record<ItemField, string> = {
+      name: 'الاسم', scientificName: 'الاسم العلمي', dosage: 'الجرعة',
+      form: 'الشكل', price: 'السعر', scientificMessage: 'المسج العلمي',
+    };
+    const humanMap: Record<string, string> = {};
+    for (const [h, f] of Object.entries(headerMap)) humanMap[h] = ITEM_LABELS[f];
+    setDetectedItemMapping(humanMap);
+    const allHeaders = Object.keys(rows[0] as Record<string, unknown>);
+    setUnknownItemCols(allHeaders.filter(h => !(h in headerMap)));
+    setItemImportPreview(rows.map(r => smartMapItemRow(r as Record<string, unknown>, headerMap)).filter(r => r.name.trim()));
+    setShowItemImport(true);
+    e.target.value = '';
+  };
+
+  const confirmImportItems = async () => {
+    if (!detail || !itemImportPreview.length) return;
+    setImportingItems(true);
+    const BATCH = 500;
+    const total = itemImportPreview.length;
+    try {
+      for (let i = 0; i < total; i += BATCH) {
+        const chunk = itemImportPreview.slice(i, i + BATCH);
+        setImportItemProgress(`جاري الاستيراد... ${Math.min(i + BATCH, total)}/${total}`);
+        const r = await fetch(`/api/sa/companies/${detail.id}/items/bulk`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ items: chunk }),
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || `خطأ ${r.status}`); }
+      }
+      setShowItemImport(false); setItemImportPreview([]);
+      loadDetail(detail.id);
+    } catch (e: any) {
+      alert(`❌ فشل الاستيراد: ${e.message}`);
+    } finally {
+      setImportingItems(false); setImportItemProgress('');
+    }
   };
 
   const addItem = async () => {
@@ -436,7 +513,8 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#374151' }}>الايتمات ({detail.items.length})</h3>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setXlsxOpen(true); setXlsxFile(null); setXlsxResult(null); setError(''); }} style={btnStyle('#7c3aed', true)}>📊 استيراد من اكسل</button>
+            <button onClick={() => itemFileRef.current?.click()} style={btnStyle('#7c3aed', true)}>📊 استيراد من اكسل</button>
+            <input ref={itemFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleItemExcel} />
             <button onClick={() => { setItemForm(blankItemForm()); setError(''); }} style={btnStyle('#059669', true)}>+ إضافة ايتم</button>
           </div>
         </div>
@@ -478,45 +556,58 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
         {detail.lines.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 16 }}>لا توجد لاينات</div>}
       </div>
 
-      {/* Excel import modal */}
-      {xlsxOpen && (
-        <Modal onClose={() => { setXlsxOpen(false); setError(''); setXlsxResult(null); }} title="استيراد ايتمات من اكسل">
-          <div style={{ marginBottom: 14, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#475569', lineHeight: 1.7, border: '1px solid #e2e8f0' }}>
-            <strong style={{ display: 'block', marginBottom: 4, color: '#1e293b' }}>📋 تنسيق العمود المطلوب:</strong>
-            <code style={{ display: 'block', fontFamily: 'monospace', color: '#6366f1' }}>name | scientificName | dosage | form | price | scientificMessage</code>
-            <span style={{ color: '#94a3b8', marginTop: 4, display: 'block' }}>يمكن استخدام الأسماء العربية: الاسم / الاسم العلمي / الجرعة / الشكل / السعر / المسج</span>
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>اختر ملف Excel</label>
-            <input
-              type="file" accept=".xlsx,.xls"
-              onChange={e => { setXlsxFile(e.target.files?.[0] ?? null); setXlsxResult(null); }}
-              style={{ width: '100%', fontSize: 13, cursor: 'pointer' }}
-            />
-          </div>
-          {error && <ErrBox msg={error} />}
-          {xlsxResult && (
-            <div style={{ marginBottom: 14, padding: '12px 14px', background: xlsxResult.errors.length ? '#fff7ed' : '#f0fdf4', borderRadius: 8, border: `1px solid ${xlsxResult.errors.length ? '#fed7aa' : '#bbf7d0'}` }}>
-              <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600, marginBottom: 6 }}>نتيجة الاستيراد:</div>
-              <div style={{ fontSize: 13, color: '#16a34a' }}>✅ تم إضافة: <strong>{xlsxResult.inserted}</strong> ايتم</div>
-              <div style={{ fontSize: 13, color: '#64748b' }}>⏭️ تم تخطي: <strong>{xlsxResult.skipped}</strong> (موجود مسبقاً أو بدون اسم)</div>
-              {xlsxResult.errors.length > 0 && (
-                <div style={{ marginTop: 6 }}>
-                  <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>⚠️ أخطاء ({xlsxResult.errors.length}):</div>
-                  {xlsxResult.errors.slice(0, 5).map((e, i) => (
-                    <div key={i} style={{ fontSize: 11, color: '#b45309', marginTop: 2 }}>• {e.name}: {e.error}</div>
-                  ))}
-                </div>
-              )}
+      {/* Smart Excel import modal */}
+      {showItemImport && (
+        <Modal onClose={() => setShowItemImport(false)} title="استيراد ايتمات من Excel">
+          <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{itemImportPreview.length}</strong> ايتم — تأكد من البيانات ثم اضغط استيراد</p>
+          {Object.keys(detectedItemMapping).length > 0 && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, fontSize: 11 }}>
+              <div style={{ fontWeight: 700, color: '#166534', marginBottom: 5 }}>🔍 الأعمدة المكتشفة تلقائياً:</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {Object.entries(detectedItemMapping).map(([excel, field]) => (
+                  <span key={excel} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 8px', border: '1px solid #86efac' }}>
+                    {excel} → {field}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button onClick={() => { setXlsxOpen(false); setError(''); setXlsxResult(null); }} style={btnStyle('#6b7280', true)}>إغلاق</button>
-            {!xlsxResult && (
-              <button onClick={importFromExcel} disabled={xlsxLoading || !xlsxFile} style={btnStyle('#7c3aed', true)}>
-                {xlsxLoading ? '⏳ جاري الاستيراد...' : '📥 استيراد'}
-              </button>
-            )}
+          {unknownItemCols.length > 0 && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 11 }}>
+              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 5 }}>⚠️ أعمدة لم تُعرف (تحقق من أسمائها):</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {unknownItemCols.map(col => (
+                  <span key={col} style={{ background: '#fef3c7', color: '#92400e', borderRadius: 4, padding: '2px 8px', border: '1px solid #fcd34d' }}>{col}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ background: '#f8fafc' }}>
+                {['الاسم التجاري','الاسم العلمي','الجرعة','الشكل','السعر'].map(h => (
+                  <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {itemImportPreview.map((item, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '7px 10px', fontWeight: 600, color: '#1e293b' }}>{item.name}</td>
+                    <td style={{ padding: '7px 10px', color: '#6366f1' }}>{item.scientificName || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{item.dosage || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{item.form || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#059669' }}>{item.price || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+            {importItemProgress && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>{importItemProgress}</span>}
+            <button onClick={() => setShowItemImport(false)} disabled={importingItems} style={btnStyle('#6b7280', true)}>إلغاء</button>
+            <button onClick={confirmImportItems} disabled={importingItems || !itemImportPreview.length} style={btnStyle('#7c3aed', true)}>
+              {importingItems ? (importItemProgress || 'جاري الاستيراد...') : `✅ استيراد ${itemImportPreview.length} ايتم`}
+            </button>
           </div>
         </Modal>
       )}

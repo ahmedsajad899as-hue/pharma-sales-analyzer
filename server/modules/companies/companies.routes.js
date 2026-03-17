@@ -5,7 +5,7 @@ import {
   listLines, createLine, updateLine, deleteLine,
   setLineItems, getAllLines,
   createCompanyItem, deleteCompanyItem,
-  importCompanyItems,
+  importCompanyItems, importCompanyItemsJson,
   getCompanyOrg,
 } from './companies.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
@@ -28,6 +28,7 @@ router.delete('/:id',     deleteCompany);
 
 // Items within a company
 router.post('/:id/items',                  createCompanyItem);
+router.post('/:id/items/bulk',             importCompanyItemsJson);
 router.post('/:id/items/import',           memUpload.single('file'), importCompanyItems);
 router.delete('/:id/items/:itemId',        deleteCompanyItem);
 

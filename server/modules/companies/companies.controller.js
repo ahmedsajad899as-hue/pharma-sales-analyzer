@@ -257,6 +257,35 @@ export async function getCompanyOrg(req, res) {
   }
 }
 
+// ── Bulk-import items from pre-parsed JSON (smart frontend detection) ─────
+export async function importCompanyItemsJson(req, res) {
+  const companyId = parseInt(req.params.id);
+  const { items } = req.body;
+  if (!Array.isArray(items) || items.length === 0)
+    return res.status(400).json({ error: 'لا توجد بيانات' });
+
+  const existing = new Set(
+    (await prisma.item.findMany({ where: { scientificCompanyId: companyId }, select: { name: true } }))
+      .map(i => i.name.toLowerCase().trim())
+  );
+
+  const data = items
+    .filter(r => r.name?.trim() && !existing.has(r.name.trim().toLowerCase()))
+    .map(r => ({
+      name:              r.name.trim(),
+      scientificName:    r.scientificName    || null,
+      dosage:            r.dosage            || null,
+      form:              r.form              || null,
+      price:             r.price !== '' && r.price != null ? (parseFloat(r.price) || null) : null,
+      scientificMessage: r.scientificMessage || null,
+      scientificCompanyId: companyId,
+    }));
+
+  const result = await prisma.item.createMany({ data, skipDuplicates: true });
+  const skipped = items.length - result.count;
+  res.json({ success: true, data: { inserted: result.count, skipped } });
+}
+
 // ── Bulk-import items for a company from an Excel file ────────────────────
 export async function importCompanyItems(req, res) {
   const companyId = parseInt(req.params.id);
