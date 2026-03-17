@@ -382,6 +382,9 @@ tr:hover {
   padding: 14px;
   border-top: 1px solid rgba(255,255,255,0.08);
   text-align: center;
+  flex-shrink: 0;
+  overflow-y: auto;
+  max-height: 55vh;
 }
 
 .sidebar-footer-text { color: #64748b; font-size: 12px; }
