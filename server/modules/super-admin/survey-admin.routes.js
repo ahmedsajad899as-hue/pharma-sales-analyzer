@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import {
   listSurveys, getSurvey, createSurvey, updateSurvey, deleteSurvey,
-  addDoctor, updateDoctor, deleteDoctor,
-  addPharmacy, updatePharmacy, deletePharmacy,
+  addDoctor, updateDoctor, deleteDoctor, bulkImportDoctors,
+  addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies,
   getVisibility, hideUser, showUser, hideOffice, showOffice,
   getSurveyLogs,
 } from './survey-admin.controller.js';
@@ -21,12 +21,14 @@ router.put('/:id', updateSurvey);
 router.delete('/:id', deleteSurvey);
 
 // Doctors
-router.post('/:id/doctors',           addDoctor);
-router.put('/:id/doctors/:docId',     updateDoctor);
-router.delete('/:id/doctors/:docId',  deleteDoctor);
+router.post('/:id/doctors',              addDoctor);
+router.post('/:id/doctors/bulk',         bulkImportDoctors);
+router.put('/:id/doctors/:docId',        updateDoctor);
+router.delete('/:id/doctors/:docId',     deleteDoctor);
 
 // Pharmacies
 router.post('/:id/pharmacies',              addPharmacy);
+router.post('/:id/pharmacies/bulk',         bulkImportPharmacies);
 router.put('/:id/pharmacies/:pharmaId',     updatePharmacy);
 router.delete('/:id/pharmacies/:pharmaId',  deletePharmacy);
 

@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
+import { parseExcelFile } from '../../services/excelParser';
 
 // ── Types ────────────────────────────────────────────────────
+interface DocImportRow { name: string; specialty: string; areaName: string; pharmacyName: string; phone: string; notes: string; }
+interface PharmaImportRow { name: string; ownerName: string; phone: string; address: string; areaName: string; notes: string; }
 interface Survey {
   id: number; name: string; description?: string; isActive: boolean;
   createdAt: string;
@@ -25,6 +29,38 @@ interface EditLog {
   id: number; entryType: string; entryId: number; action: string;
   oldData?: string; newData?: string; editedAt: string;
   editedBy?: { username: string; displayName?: string };
+}
+
+// ── Excel helpers ─────────────────────────────────────────────
+function mapDocRow(row: Record<string,unknown>): DocImportRow {
+  const g = (...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && v !== '') return String(v).trim(); } return ''; };
+  return {
+    name: g('اسم الطبيب','الاسم','name','Name'),
+    specialty: g('الاختصاص','التخصص','specialty'),
+    areaName: g('المنطقة','المنطقه','areaName','area'),
+    pharmacyName: g('اسم الصيدلية','الصيدلية','pharmacyName'),
+    phone: g('الهاتف','رقم الهاتف','phone'),
+    notes: g('ملاحظات','notes'),
+  };
+}
+function mapPharmaRow(row: Record<string,unknown>): PharmaImportRow {
+  const g = (...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && v !== '') return String(v).trim(); } return ''; };
+  return {
+    name: g('اسم الصيدلية','الاسم','name','Name'),
+    ownerName: g('صاحب الصيدلية','المالك','ownerName'),
+    phone: g('الهاتف','رقم الهاتف','phone'),
+    address: g('العنوان','address'),
+    areaName: g('المنطقة','المنطقه','areaName'),
+    notes: g('ملاحظات','notes'),
+  };
+}
+function downloadTemplate(type: 'doctors' | 'pharmacies') {
+  const [headers, example] = type === 'doctors'
+    ? [['اسم الطبيب','الاختصاص','المنطقة','اسم الصيدلية','الهاتف','ملاحظات'], ['د. أحمد محمد','قلبية','الكرخ','صيدلية النور','07701234567','']]
+    : [['اسم الصيدلية','صاحب الصيدلية','الهاتف','العنوان','المنطقة','ملاحظات'], ['صيدلية النور','أحمد علي','07701234567','شارع السعدون','الرصافة','']];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, example]), type === 'doctors' ? 'أطباء' : 'صيدليات');
+  XLSX.writeFile(wb, type === 'doctors' ? 'نموذج_أطباء.xlsx' : 'نموذج_صيدليات.xlsx');
 }
 
 // ── Small helpers ─────────────────────────────────────────────
@@ -92,6 +128,15 @@ export default function MasterSurveyPage() {
   const [logs,       setLogs]       = useState<EditLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
+  // excel import
+  const [importDoctorsPreview, setImportDoctorsPreview] = useState<DocImportRow[]>([]);
+  const [showDoctorsImport,    setShowDoctorsImport]    = useState(false);
+  const [importPharmasPreview, setImportPharmasPreview] = useState<PharmaImportRow[]>([]);
+  const [showPharmasImport,    setShowPharmasImport]    = useState(false);
+  const [importing,            setImporting]            = useState(false);
+  const docFileRef    = useRef<HTMLInputElement>(null);
+  const pharmaFileRef = useRef<HTMLInputElement>(null);
+
   // ── Fetch surveys list ──
   const fetchSurveys = useCallback(async () => {
     setLoading(true);
@@ -141,6 +186,108 @@ export default function MasterSurveyPage() {
     if (tab === 'visibility') fetchVisibility(selectedSurvey.id);
     if (tab === 'logs')       fetchLogs(selectedSurvey.id);
   }, [tab, selectedSurvey?.id]);
+
+  // ── Excel import handlers ───────────────────────────────────
+  const handleDocExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const rows = await parseExcelFile(file);
+    setImportDoctorsPreview(rows.map(r => mapDocRow(r as Record<string,unknown>)).filter(r => r.name));
+    setShowDoctorsImport(true); e.target.value = '';
+  };
+  const handlePharmaExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const rows = await parseExcelFile(file);
+    setImportPharmasPreview(rows.map(r => mapPharmaRow(r as Record<string,unknown>)).filter(r => r.name));
+    setShowPharmasImport(true); e.target.value = '';
+  };
+  const confirmImportDoctors = async () => {
+    if (!selectedSurvey || !importDoctorsPreview.length) return;
+    setImporting(true);
+    await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk`, {
+      method: 'POST', headers: H(), body: JSON.stringify({ doctors: importDoctorsPreview }),
+    });
+    setShowDoctorsImport(false); setImportDoctorsPreview([]); fetchSurvey(selectedSurvey.id); setImporting(false);
+  };
+  const confirmImportPharmas = async () => {
+    if (!selectedSurvey || !importPharmasPreview.length) return;
+    setImporting(true);
+    await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
+      method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: importPharmasPreview }),
+    });
+    setShowPharmasImport(false); setImportPharmasPreview([]); fetchSurvey(selectedSurvey.id); setImporting(false);
+  };
+
+  // ── DocImportModal ───────────────────────────────────────────
+  function DocImportModal() {
+    return (
+      <ModalOverlay onClose={() => setShowDoctorsImport(false)}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>📥 استيراد أطباء من Excel</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{importDoctorsPreview.length}</strong> طبيب — تأكد من البيانات ثم اضغط استيراد</p>
+        <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr style={{ background: '#f8fafc' }}>
+              {['الاسم','الاختصاص','المنطقة','الصيدلية','الهاتف'].map(h => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {importDoctorsPreview.map((d, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '7px 10px', fontWeight: 600, color: '#1e293b' }}>{d.name}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.specialty || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.areaName || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.pharmacyName || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.phone || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={() => setShowDoctorsImport(false)} style={btnSecondary}>إلغاء</button>
+          <button onClick={confirmImportDoctors} disabled={importing} style={btnPrimary}>
+            {importing ? 'جاري الاستيراد...' : `✅ استيراد ${importDoctorsPreview.length} طبيب`}
+          </button>
+        </div>
+      </ModalOverlay>
+    );
+  }
+
+  // ── PharmaImportModal ────────────────────────────────────────
+  function PharmaImportModal() {
+    return (
+      <ModalOverlay onClose={() => setShowPharmasImport(false)}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>📥 استيراد صيدليات من Excel</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{importPharmasPreview.length}</strong> صيدلية — تأكد من البيانات ثم اضغط استيراد</p>
+        <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr style={{ background: '#f8fafc' }}>
+              {['الاسم','صاحب الصيدلية','الهاتف','العنوان','المنطقة'].map(h => (
+                <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {importPharmasPreview.map((p, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '7px 10px', fontWeight: 600, color: '#1e293b' }}>{p.name}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.ownerName || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.phone || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.address || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{p.areaName || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={() => setShowPharmasImport(false)} style={btnSecondary}>إلغاء</button>
+          <button onClick={confirmImportPharmas} disabled={importing} style={btnPrimary}>
+            {importing ? 'جاري الاستيراد...' : `✅ استيراد ${importPharmasPreview.length} صيدلية`}
+          </button>
+        </div>
+      </ModalOverlay>
+    );
+  }
 
   // ── Survey Form ──────────────────────────────────────────────
   function SurveyForm() {
@@ -400,7 +547,10 @@ export default function MasterSurveyPage() {
       {/* Doctors Tab */}
       {tab === 'doctors' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 14 }}>
+            <button onClick={() => downloadTemplate('doctors')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
+            <button onClick={() => docFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
+            <input ref={docFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleDocExcel} />
             <button onClick={() => { setEditingDoc(null); setShowDocForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة طبيب</button>
           </div>
           {selectedSurvey.doctors.length === 0 ? (
@@ -448,7 +598,10 @@ export default function MasterSurveyPage() {
       {/* Pharmacies Tab */}
       {tab === 'pharmacies' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 14 }}>
+            <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
+            <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
+            <input ref={pharmaFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handlePharmaExcel} />
             <button onClick={() => { setEditingPharma(null); setShowPharmaForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة صيدلية</button>
           </div>
           {selectedSurvey.pharmacies.length === 0 ? (
@@ -604,9 +757,11 @@ export default function MasterSurveyPage() {
         </div>
       )}
 
-      {showSurveyForm && <SurveyForm />}
-      {showDocForm    && <DoctorForm />}
-      {showPharmaForm && <PharmacyForm />}
+      {showSurveyForm     && <SurveyForm />}
+      {showDocForm        && <DoctorForm />}
+      {showPharmaForm     && <PharmacyForm />}
+      {showDoctorsImport  && <DocImportModal />}
+      {showPharmasImport  && <PharmaImportModal />}
     </div>
   );
 }
