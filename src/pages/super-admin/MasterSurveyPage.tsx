@@ -39,7 +39,7 @@ const DOC_FIELD_KEYWORDS: Array<[DocField, string[]]> = [
   ['name',         ['اسم الطبيب','الطبيب','الدكتور','الاسم الكامل','الاسم','اسم الدكتور','doctor','name','physician']],
   ['specialty',    ['الاختصاص','التخصص','تخصص','اختصاص','specialty','speciality','speciality_1','spec']],
   ['areaName',     ['المنطقه','منطقه','اسم المنطقه','area','region','area name']],
-  ['pharmacyName', ['اسم الصيدليه','الصيدليه','صيدليه','اسم الدكان','الدكان','دكان','pharmacy name','pharmacy_name','pharmacyname','pharmacy','clinic']],
+  ['pharmacyName', ['اسم الصيدليه','اسم الصيدلية','الصيدليه','الصيدلية','صيدليه','صيدلية','اسم الدكان','الدكان','دكان','pharmacy name','pharmacy_name','pharmacyname','pharmacy','pharmcy','pharmc','clinic']],
   ['className',    ['الكلاس','كلاس','التصنيف','تصنيف','الفئه','فئه','class','classification','cat','category']],
   ['zoneName',     ['الزون','زون','القطاع','قطاع','منطقه فرعيه','zone','sector','zone name','zone_name']],
   ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel','phone number','mobile number']],
