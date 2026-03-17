@@ -88,6 +88,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clManualAreaSugg, setClManualAreaSugg]   = useState<any[]>([]);
   const [clManualAreaShow, setClManualAreaShow]   = useState(false);
   const [clMissingFields, setClMissingFields]     = useState<string[]>([]);  // missing fields for existing doctor
+  const [clEditDocOpen, setClEditDocOpen]         = useState(false);
+  const [clEditDocSpecialty, setClEditDocSpecialty]   = useState('');
+  const [clEditDocSpecialtySugg, setClEditDocSpecialtySugg] = useState<string[]>([]);
+  const [clEditDocSpecialtyShow, setClEditDocSpecialtyShow] = useState(false);
+  const [clEditDocPharmacy, setClEditDocPharmacy]     = useState('');
+  const [clEditDocPharmacySugg, setClEditDocPharmacySugg] = useState<string[]>([]);
+  const [clEditDocPharmacyShow, setClEditDocPharmacyShow] = useState(false);
+  const [clEditDocAreaId, setClEditDocAreaId]         = useState('');
+  const [clEditDocAreaName, setClEditDocAreaName]     = useState('');
+  const [clEditDocAreaSugg, setClEditDocAreaSugg]     = useState<any[]>([]);
+  const [clEditDocAreaShow, setClEditDocAreaShow]     = useState(false);
+  const [clEditDocSaving, setClEditDocSaving]         = useState(false);
+  const [clEditDocError, setClEditDocError]           = useState('');
   const [clAreas, setClAreas]                 = useState<any[]>([]);
   const [clItemId, setClItemId]               = useState('');
   const [clItemName, setClItemName]           = useState('');
@@ -710,6 +723,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClManualSpecialtySugg([]); setClManualSpecialtyShow(false);
     setClManualPharmacySugg([]); setClManualPharmacyShow(false);
     setClManualAreaSugg([]); setClManualAreaShow(false);
+    setClEditDocOpen(false); setClEditDocSpecialty(''); setClEditDocPharmacy(''); setClEditDocAreaId(''); setClEditDocAreaName(''); setClEditDocError('');
     setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
     setClFeedback('pending'); setClNotes('');
     setClPharmacyName(''); setClPharmacyAreaId(''); setClPharmacyAreaName('');
@@ -2563,37 +2577,48 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </div>
                   </div>
                 )}
-                {/* Selected doctor badge */}
-                {clSelectedEntry && (
-                  <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 600 }}>✓ في البلان</span>
-                    {clSelectedEntry.doctor.specialty && <span style={{ fontSize: '12px', color: '#6b7280' }}>{clSelectedEntry.doctor.specialty}</span>}
-                    {(clSelectedEntry.doctor.pharmacyName || clSelectedEntry.doctor.area?.name) && (
-                      <span style={{ fontSize: '12px', color: '#9ca3af' }}>
-                        {[clSelectedEntry.doctor.pharmacyName, clSelectedEntry.doctor.area?.name].filter(Boolean).join(' — ')}
-                      </span>
-                    )}
-                  </div>
-                )}
+                {/* Unified doctor info row — shown for any selected known doctor */}
+                {(clSelectedEntry || (clOtherDocId && clOtherDoc)) && !clManualMode && (() => {
+                  const activeDoc = clSelectedEntry?.doctor ?? clOtherDoc;
+                  return (
+                    <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {clSelectedEntry && (
+                        <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: '6px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}>✓ في البلان</span>
+                      )}
+                      {activePlan && clNotInPlan && clOtherDoc && (
+                        <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: '6px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}>⚠️ خارج البلان</span>
+                      )}
+                      {activeDoc?.specialty && (
+                        <span style={{ background: '#eff6ff', color: '#1e40af', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                          🔬 {activeDoc.specialty}
+                        </span>
+                      )}
+                      {activeDoc?.pharmacyName && (
+                        <span style={{ background: '#f0fdf4', color: '#166534', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', border: '1px solid #bbf7d0', whiteSpace: 'nowrap' }}>
+                          🏪 {activeDoc.pharmacyName}
+                        </span>
+                      )}
+                      {activeDoc?.area?.name && (
+                        <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
+                          📍 {activeDoc.area.name}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClEditDocSpecialty(activeDoc?.specialty || '');
+                          setClEditDocPharmacy(activeDoc?.pharmacyName || '');
+                          setClEditDocAreaId(activeDoc?.areaId ? String(activeDoc.areaId) : '');
+                          setClEditDocAreaName(activeDoc?.area?.name || '');
+                          setClEditDocError('');
+                          setClEditDocOpen(true);
+                        }}
+                        style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '3px 10px', fontSize: '11px', color: '#475569', cursor: 'pointer', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}
+                      >✏️ تعديل</button>
+                    </div>
+                  );
+                })()}
               </div>
-
-              {/* Not-in-plan: catalog doctor found — show their details (only if a plan exists for this month) */}
-              {activePlan && clNotInPlan && clOtherDoc && (
-                <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: '#92400e', marginBottom: '16px' }}>
-                  <div style={{ fontWeight: 600, marginBottom: '6px' }}>⚠️ الطبيب خارج البلان — سيُضاف تلقائياً عند التسجيل</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', color: '#374151', fontSize: '12px' }}>
-                    {clOtherDoc.specialty && (
-                      <span style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '5px', padding: '2px 8px' }}>🔬 {clOtherDoc.specialty}</span>
-                    )}
-                    {clOtherDoc.pharmacyName && (
-                      <span style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '5px', padding: '2px 8px' }}>🏪 {clOtherDoc.pharmacyName}</span>
-                    )}
-                    {clOtherDoc.area?.name && (
-                      <span style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '5px', padding: '2px 8px' }}>📍 {clOtherDoc.area.name}</span>
-                    )}
-                  </div>
-                </div>
-              )}
 
               {/* Missing fields block for existing doctor (in-plan or catalog) */}
               {!clManualMode && clMissingFields.length > 0 && (clSelectedEntry || clOtherDoc) && (
@@ -3017,6 +3042,173 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             </div>
           </div>
         )}
+
+        {/* ── Edit Doctor Info Panel ── */}
+        {clEditDocOpen && (() => {
+          const activeDoctorId = clSelectedEntry?.doctor?.id ?? clOtherDocId;
+          const saveDocEdit = async () => {
+            if (!activeDoctorId) return;
+            setClEditDocSaving(true); setClEditDocError('');
+            try {
+              const body: any = {};
+              if (clEditDocSpecialty.trim()) body.specialty = clEditDocSpecialty.trim();
+              if (clEditDocPharmacy.trim()) body.pharmacyName = clEditDocPharmacy.trim();
+              if (clEditDocAreaId) body.areaId = parseInt(clEditDocAreaId);
+              else if (clEditDocAreaName.trim()) body.areaName = clEditDocAreaName.trim();
+              const res = await fetch(`/api/doctors/${activeDoctorId}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json', ...authH() },
+                body: JSON.stringify(body),
+              });
+              if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'فشل التحديث'); }
+              const updated = await res.json();
+              // Update local state so chips refresh immediately
+              if (clSelectedEntry) {
+                setClSelectedEntry((prev: any) => ({
+                  ...prev,
+                  doctor: {
+                    ...prev.doctor,
+                    specialty: updated.specialty ?? prev.doctor.specialty,
+                    pharmacyName: updated.pharmacyName ?? prev.doctor.pharmacyName,
+                    area: updated.area ?? prev.doctor.area,
+                    areaId: updated.areaId ?? prev.doctor.areaId,
+                  },
+                }));
+              } else if (clOtherDoc) {
+                setClOtherDoc((prev: any) => ({
+                  ...prev,
+                  specialty: updated.specialty ?? prev.specialty,
+                  pharmacyName: updated.pharmacyName ?? prev.pharmacyName,
+                  area: updated.area ?? prev.area,
+                  areaId: updated.areaId ?? prev.areaId,
+                }));
+              }
+              setClEditDocOpen(false);
+            } catch (err: any) {
+              setClEditDocError(err.message || 'حدث خطأ');
+            } finally {
+              setClEditDocSaving(false);
+            }
+          };
+          return (
+            <div
+              style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '16px' }}
+              onClick={e => { if (e.target === e.currentTarget) setClEditDocOpen(false); }}
+            >
+              <div style={{ background: '#fff', borderRadius: '16px', padding: '22px', width: '100%', maxWidth: '420px', direction: 'rtl', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#111827' }}>✏️ تعديل بيانات الطبيب</h3>
+                  <button onClick={() => setClEditDocOpen(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280' }}>×</button>
+                </div>
+
+                {/* Specialty */}
+                <div style={{ marginBottom: '12px', position: 'relative' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص</label>
+                  <div style={{ position: 'relative' }}>
+                    <input type="text" className="form-input" placeholder="اكتب الاختصاص..." value={clEditDocSpecialty} autoComplete="off"
+                      onChange={async e => {
+                        const v = e.target.value; setClEditDocSpecialty(v);
+                        if (!v.trim()) { setClEditDocSpecialtySugg([]); setClEditDocSpecialtyShow(false); return; }
+                        try { const r = await fetch(`/api/doctors/specialties?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClEditDocSpecialtySugg(list); setClEditDocSpecialtyShow(list.length > 0); } catch {}
+                      }}
+                      onFocus={() => { if (clEditDocSpecialtySugg.length > 0) setClEditDocSpecialtyShow(true); }}
+                      onBlur={() => setTimeout(() => setClEditDocSpecialtyShow(false), 200)}
+                      style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '30px' }}
+                    />
+                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={async () => {
+                      if (clEditDocSpecialtyShow) { setClEditDocSpecialtyShow(false); return; }
+                      try { const r = await fetch('/api/doctors/specialties', { headers: authH() }); const list: string[] = await r.json(); setClEditDocSpecialtySugg(list); setClEditDocSpecialtyShow(list.length > 0); } catch {}
+                    }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#9ca3af', fontSize: '10px', lineHeight: 1 }}>▼</button>
+                  </div>
+                  {clEditDocSpecialtyShow && clEditDocSpecialtySugg.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 500, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '180px', overflowY: 'auto' }}>
+                      {clEditDocSpecialtySugg.map((s, i) => (
+                        <div key={i} onMouseDown={() => { setClEditDocSpecialty(s); setClEditDocSpecialtyShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{s}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Pharmacy */}
+                <div style={{ marginBottom: '12px', position: 'relative' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية</label>
+                  <div style={{ position: 'relative' }}>
+                    <input type="text" className="form-input" placeholder="اكتب اسم الصيدلية..." value={clEditDocPharmacy} autoComplete="off"
+                      onChange={async e => {
+                        const v = e.target.value; setClEditDocPharmacy(v);
+                        if (!v.trim()) { setClEditDocPharmacySugg([]); setClEditDocPharmacyShow(false); return; }
+                        try { const r = await fetch(`/api/doctors/pharmacy-names?q=${encodeURIComponent(v.trim())}`, { headers: authH() }); const list: string[] = await r.json(); setClEditDocPharmacySugg(list); setClEditDocPharmacyShow(list.length > 0); } catch {}
+                      }}
+                      onFocus={() => { if (clEditDocPharmacySugg.length > 0) setClEditDocPharmacyShow(true); }}
+                      onBlur={() => setTimeout(() => setClEditDocPharmacyShow(false), 200)}
+                      style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '30px' }}
+                    />
+                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={async () => {
+                      if (clEditDocPharmacyShow) { setClEditDocPharmacyShow(false); return; }
+                      try { const r = await fetch('/api/doctors/pharmacy-names', { headers: authH() }); const list: string[] = await r.json(); setClEditDocPharmacySugg(list); setClEditDocPharmacyShow(list.length > 0); } catch {}
+                    }} style={{ position: 'absolute', left: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#9ca3af', fontSize: '10px', lineHeight: 1 }}>▼</button>
+                  </div>
+                  {clEditDocPharmacyShow && clEditDocPharmacySugg.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 500, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '180px', overflowY: 'auto' }}>
+                      {clEditDocPharmacySugg.map((s, i) => (
+                        <div key={i} onMouseDown={() => { setClEditDocPharmacy(s); setClEditDocPharmacyShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{s}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Area */}
+                <div style={{ marginBottom: '18px', position: 'relative' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة</label>
+                  <div style={{ position: 'relative' }}>
+                    <input type="text" className="form-input" placeholder="اكتب اسم المنطقة..." value={clEditDocAreaName} autoComplete="off"
+                      onChange={e => {
+                        const v = e.target.value; setClEditDocAreaName(v); setClEditDocAreaId('');
+                        if (!v.trim()) { setClEditDocAreaSugg([]); setClEditDocAreaShow(false); return; }
+                        const matches = clAreas.filter((a: any) => a.name.toLowerCase().includes(v.toLowerCase()));
+                        setClEditDocAreaSugg(matches.slice(0, 6)); setClEditDocAreaShow(matches.length > 0);
+                      }}
+                      onFocus={() => { if (clEditDocAreaSugg.length > 0) setClEditDocAreaShow(true); }}
+                      onBlur={() => setTimeout(() => setClEditDocAreaShow(false), 200)}
+                      style={{ width: '100%', boxSizing: 'border-box', paddingLeft: clEditDocAreaId ? '28px' : undefined }}
+                    />
+                    {clEditDocAreaId && (
+                      <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                    )}
+                    <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => {
+                      if (clEditDocAreaShow) { setClEditDocAreaShow(false); return; }
+                      setClEditDocAreaSugg(clAreas.slice(0, 50)); setClEditDocAreaShow(clAreas.length > 0);
+                    }} style={{ position: 'absolute', left: clEditDocAreaId ? '22px' : '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#9ca3af', fontSize: '10px', lineHeight: 1 }}>▼</button>
+                  </div>
+                  {clEditDocAreaShow && clEditDocAreaSugg.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 500, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden', maxHeight: '180px', overflowY: 'auto' }}>
+                      {clEditDocAreaSugg.map((a: any) => (
+                        <div key={a.id} onMouseDown={() => { setClEditDocAreaName(a.name); setClEditDocAreaId(String(a.id)); setClEditDocAreaShow(false); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>{a.name}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {clEditDocError && (
+                  <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '8px 12px', marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>⚠️ {clEditDocError}</div>
+                )}
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    disabled={clEditDocSaving}
+                    onClick={saveDocEdit}
+                    style={{ flex: 1, background: '#059669', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', opacity: clEditDocSaving ? 0.6 : 1 }}
+                  >{clEditDocSaving ? '⏳ جاري الحفظ...' : '💾 حفظ التعديلات'}</button>
+                  <button
+                    type="button"
+                    onClick={() => setClEditDocOpen(false)}
+                    style={{ background: '#f1f5f9', color: '#374151', border: 'none', borderRadius: '8px', padding: '10px 16px', fontSize: '13px', cursor: 'pointer' }}
+                  >إلغاء</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Floating Action Button: tap = call log / hold 2s = voice ── */}
         {hasFeature('call_log') && !showCallLog && (
