@@ -36,14 +36,14 @@ type DocField   = keyof DocImportRow;
 type PharmaField = keyof PharmaImportRow;
 
 const DOC_FIELD_KEYWORDS: Array<[DocField, string[]]> = [
-  ['name',         ['اسم الطبيب','الطبيب','الدكتور','الاسم الكامل','الاسم','اسم الدكتور','doctor','name']],
-  ['specialty',    ['الاختصاص','التخصص','تخصص','اختصاص','specialty','speciality']],
-  ['areaName',     ['المنطقة','المنطقه','منطقة','منطقه','اسم المنطقة','area','region']],
-  ['pharmacyName', ['اسم الصيدلية','الصيدلية','صيدلية','اسم الدكان','الدكان','pharmacyname','pharmacy']],
-  ['className',    ['الكلاس','كلاس','التصنيف','تصنيف','الفئة','فئة','class','classification']],
-  ['zoneName',     ['الزون','زون','القطاع','قطاع','منطقة فرعية','zone','sector']],
-  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel']],
-  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
+  ['name',         ['اسم الطبيب','الطبيب','الدكتور','الاسم الكامل','الاسم','اسم الدكتور','doctor','name','physician']],
+  ['specialty',    ['الاختصاص','التخصص','تخصص','اختصاص','specialty','speciality','speciality_1','spec']],
+  ['areaName',     ['المنطقه','منطقه','اسم المنطقه','area','region','area name']],
+  ['pharmacyName', ['اسم الصيدليه','الصيدليه','صيدليه','اسم الدكان','الدكان','دكان','pharmacy name','pharmacy_name','pharmacyname','pharmacy','clinic']],
+  ['className',    ['الكلاس','كلاس','التصنيف','تصنيف','الفئه','فئه','class','classification','cat','category']],
+  ['zoneName',     ['الزون','زون','القطاع','قطاع','منطقه فرعيه','zone','sector','zone name','zone_name']],
+  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel','phone number','mobile number']],
+  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note','remarks']],
 ];
 const PHARMA_FIELD_KEYWORDS: Array<[PharmaField, string[]]> = [
   ['name',         ['اسم الصيدلية','اسم الدكان','الدكان','الاسم الكامل','اسم','name']],
@@ -56,7 +56,11 @@ const PHARMA_FIELD_KEYWORDS: Array<[PharmaField, string[]]> = [
 ];
 
 function normalizeHdr(h: string): string {
-  return h.trim().toLowerCase().replace(/\s+/g, ' ');
+  return h.trim().toLowerCase()
+    .replace(/[_\-]/g, ' ')        // underscore/dash → space
+    .replace(/\s+/g, ' ')          // collapse spaces
+    .replace(/ة/g, 'ه')            // normalize ة → ه (Arabic taa marbuta)
+    .replace(/[\u064B-\u065F]/g,''); // strip Arabic diacritics
 }
 function detectDocField(header: string): DocField | null {
   const h = normalizeHdr(header);
