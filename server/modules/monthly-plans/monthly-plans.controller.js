@@ -223,11 +223,30 @@ export async function suggest(req, res, next) {
     }
 
     // Get scientific rep areas first (needed for both keepDoctors and newDoctors filtering)
-    const repAreas = await prisma.scientificRepArea.findMany({
+    // Primary source: ScientificRepArea (rep-level assignments)
+    // Fallback: UserAreaAssignment (user-level assignments saved by SA panel)
+    let repAreas = await prisma.scientificRepArea.findMany({
       where: { scientificRepId: repId },
       select: { areaId: true },
     });
-    const areaIds = repAreas.map(a => a.areaId);
+    let areaIds = repAreas.map(a => a.areaId);
+
+    if (areaIds.length === 0) {
+      // Look up the userId linked to this rep, then check user-level area assignments
+      const repRecord = await prisma.scientificRepresentative.findUnique({
+        where: { id: repId },
+        select: { userId: true },
+      });
+      const linkedUserId = repRecord?.userId ?? null;
+      if (linkedUserId) {
+        const userAreas = await prisma.userAreaAssignment.findMany({
+          where: { userId: linkedUserId },
+          select: { areaId: true },
+        });
+        areaIds = userAreas.map(a => a.areaId);
+      }
+    }
+
     const areaIdSet = new Set(areaIds);
 
     // Merge entries from all lookback plans (newest first → most recent feedback wins)
@@ -242,8 +261,9 @@ export async function suggest(req, res, next) {
 
     for (const { doctor, visits } of seenDoctorInPrev.values()) {
       if (usedDoctorIds.has(doctor.id)) continue;
-      // If area restriction is active, skip doctors outside the rep's assigned areas
-      if (useAreaRestriction && areaIds.length > 0 && doctor.areaId && !areaIdSet.has(doctor.areaId)) continue;
+      // If area restriction is active, skip doctors not in the rep's assigned areas
+      // Note: doctors with areaId=null (no area set) are excluded when restriction is on
+      if (useAreaRestriction && areaIds.length > 0 && !areaIdSet.has(doctor.areaId)) continue;
       const lastFeedback = visits[0]?.feedback ?? 'pending';
       if (KEEP_FEEDBACK.includes(lastFeedback)) {
         keepDoctors.push({ doctor, reason: lastFeedback });
