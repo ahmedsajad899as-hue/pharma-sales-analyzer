@@ -34,6 +34,7 @@ import adminUsersRoutes         from './modules/admin-users/admin-users.routes.j
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
 import trackingRoutes             from './modules/tracking/tracking.routes.js';
+import masterSurveyRoutes        from './modules/master-survey/master-survey.routes.js';
 
 dotenv.config();
 
@@ -121,6 +122,7 @@ app.use('/api/monthly-plans',     monthlyPlansRoutes);
 app.use('/api/ai-assistant',      aiAssistantRoutes);
 app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);
+app.use('/api/master-surveys',    masterSurveyRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────
