@@ -146,7 +146,7 @@ export default function MasterSurveyPage() {
       const r = await fetch('/api/super-admin/surveys', { headers: H() });
       const d = await r.json();
       if (d.success) setSurveys(d.data);
-      else setApiError(d.error || `خطأ ${r.status}`);
+      else setApiError(d.error || d.message || `خطأ ${r.status}`);
     } catch (e) {
       setApiError('تعذّر الاتصال بالخادم');
     } finally { setLoading(false); }

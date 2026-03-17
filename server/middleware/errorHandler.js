@@ -49,11 +49,13 @@ export function errorHandler(err, req, res, _next) {
     });
   }
 
-  // Unexpected errors - don't leak internals
+  // Unexpected errors
   console.error('[Unhandled Error]', err);
+  const isDev = process.env.NODE_ENV !== 'production';
   return res.status(500).json({
     success: false,
     code: 'INTERNAL_ERROR',
-    message: 'An unexpected error occurred.',
+    message: isDev ? (err?.message || 'An unexpected error occurred.') : 'An unexpected error occurred.',
+    ...(isDev && err?.code ? { prismaCode: err.code } : {}),
   });
 }
