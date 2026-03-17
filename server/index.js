@@ -27,12 +27,14 @@ import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
 import superAdminRoutes         from './modules/super-admin/super-admin.routes.js';
+import surveyAdminRoutes        from './modules/super-admin/survey-admin.routes.js';
 import officesRoutes            from './modules/offices/offices.routes.js';
 import companiesRoutes          from './modules/companies/companies.routes.js';
 import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
 import trackingRoutes             from './modules/tracking/tracking.routes.js';
+import masterSurveyRoutes         from './modules/master-survey/master-survey.routes.js';
 
 dotenv.config();
 
@@ -84,6 +86,7 @@ app.use('/api/auth', authRoutes);
 
 // ── Super Admin routes (own JWT — no requireAuth middleware) ──
 app.use('/api/super-admin',       superAdminRoutes);
+app.use('/api/super-admin/surveys', surveyAdminRoutes);
 app.use('/api/sa/offices',        officesRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/users',          adminUsersRoutes);
@@ -119,6 +122,7 @@ app.use('/api/monthly-plans',     monthlyPlansRoutes);
 app.use('/api/ai-assistant',      aiAssistantRoutes);
 app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);
+app.use('/api/master-surveys',    masterSurveyRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

@@ -74,6 +74,12 @@ model User {
   notifications       AppNotification[]       @relation("NotificationRecipient")
   sentNotifications   AppNotification[]       @relation("NotificationSender")
 
+  // Master Survey relations
+  surveyDoctorEdits   MasterSurveyDoctor[]    @relation("SurveyDoctorEditor")
+  surveyPharmacyEdits MasterSurveyPharmacy[]  @relation("SurveyPharmacyEditor")
+  surveyEditLogs      MasterSurveyEditLog[]   @relation("SurveyEditLogUser")
+  surveyHiddenFor     MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
+
   @@index([officeId])
   @@map("users")
 }
@@ -609,6 +615,8 @@ model SuperAdmin {
   createdBy     SuperAdmin?  @relation("AdminCreator", fields: [createdById], references: [id])
   createdAdmins SuperAdmin[] @relation("AdminCreator")
 
+  surveys MasterSurvey[] @relation("SurveyCreator")
+
   @@map("super_admins")
 }
 
@@ -626,6 +634,7 @@ model ScientificOffice {
   companies ScientificCompany[]
   users     User[]
   areas     Area[]              @relation("OfficeAreas")
+  surveyHiddenOffices MasterSurveyHiddenOffice[] @relation("SurveyHiddenOffice")
 
   @@map("scientific_offices")
 }
@@ -922,6 +931,125 @@ model CollectionRecord {
   @@index([collectedById])
   @@index([collectedAt])
   @@map("collection_records")
+}
+
+// ════════════════════════════════════════════════════════════
+// MASTER SURVEY — سيرفي الماستر (مشترك لجميع المستخدمين)
+// ════════════════════════════════════════════════════════════
+
+// ─── Master Survey (السيرفي الرئيسي) ────────────────────────
+model MasterSurvey {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdById Int?
+  createdBy   SuperAdmin? @relation("SurveyCreator", fields: [createdById], references: [id])
+
+  doctors      MasterSurveyDoctor[]
+  pharmacies   MasterSurveyPharmacy[]
+  editLogs     MasterSurveyEditLog[]
+  hiddenUsers  MasterSurveyHiddenUser[]
+  hiddenOffices MasterSurveyHiddenOffice[]
+
+  @@map("master_surveys")
+}
+
+// ─── Master Survey Doctor (طبيب داخل السيرفي) ───────────────
+model MasterSurveyDoctor {
+  id            Int      @id @default(autoincrement())
+  surveyId      Int
+  name          String
+  specialty     String?
+  areaName      String?
+  pharmacyName  String?
+  phone         String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lastEditedById Int?
+  lastEditedAt   DateTime?
+
+  survey       MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  lastEditedBy User?        @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
+
+  @@index([surveyId])
+  @@map("master_survey_doctors")
+}
+
+// ─── Master Survey Pharmacy (صيدلية داخل السيرفي) ───────────
+model MasterSurveyPharmacy {
+  id            Int      @id @default(autoincrement())
+  surveyId      Int
+  name          String
+  ownerName     String?
+  phone         String?
+  address       String?
+  areaName      String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  lastEditedById Int?
+  lastEditedAt   DateTime?
+
+  survey       MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  lastEditedBy User?        @relation("SurveyPharmacyEditor", fields: [lastEditedById], references: [id])
+
+  @@index([surveyId])
+  @@map("master_survey_pharmacies")
+}
+
+// ─── Master Survey Edit Log (سجل تعديلات السيرفي) ───────────
+model MasterSurveyEditLog {
+  id         Int      @id @default(autoincrement())
+  surveyId   Int
+  entryType  String   // "doctor" | "pharmacy"
+  entryId    Int
+  action     String   // "create" | "update" | "delete"
+  oldData    String?  // JSON snapshot قبل التعديل
+  newData    String?  // JSON snapshot بعد التعديل
+  editedAt   DateTime @default(now())
+
+  editedById Int?
+  editedBy   User? @relation("SurveyEditLogUser", fields: [editedById], references: [id])
+
+  survey MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+  @@index([editedById])
+  @@index([editedAt])
+  @@map("master_survey_edit_logs")
+}
+
+// ─── Master Survey Hidden User (إخفاء لمستخدم) ──────────────
+model MasterSurveyHiddenUser {
+  surveyId Int
+  userId   Int
+  hiddenAt DateTime @default(now())
+
+  survey MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  user   User         @relation("SurveyHiddenUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([surveyId, userId])
+  @@map("master_survey_hidden_users")
+}
+
+// ─── Master Survey Hidden Office (إخفاء لمكتب كامل) ─────────
+model MasterSurveyHiddenOffice {
+  surveyId Int
+  officeId Int
+  hiddenAt DateTime @default(now())
+
+  survey MasterSurvey     @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  office ScientificOffice @relation("SurveyHiddenOffice", fields: [officeId], references: [id], onDelete: Cascade)
+
+  @@id([surveyId, officeId])
+  @@map("master_survey_hidden_offices")
 }
 
 // ─── App Notification (إشعارات داخلية) ─────────────────────

@@ -18,6 +18,7 @@ const _importReports         = () => import('./pages/ReportsPage');
 const _importUsers           = () => import('./pages/UsersPage');
 const _importCommercial      = () => import('./pages/CommercialRepPage');
 const _importAI              = () => import('./components/AIAssistant');
+const _importSurvey          = () => import('./pages/SurveyPage');
 
 const DashboardPage       = lazy(_importDashboard);
 const RepAnalysisPage     = lazy(_importRepAnalysis);
@@ -30,6 +31,7 @@ const ReportsPage         = lazy(_importReports);
 const UsersPage           = lazy(_importUsers);
 const CommercialRepPage   = lazy(_importCommercial);
 const AIAssistant         = lazy(_importAI);
+const SurveyPage          = lazy(_importSurvey);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -38,7 +40,7 @@ function preloadAllChunks() {
     _importDashboard(); _importRepAnalysis(); _importUpload();
     _importRepresentatives(); _importScientificReps(); _importDoctors();
     _importMonthlyPlans(); _importReports(); _importUsers();
-    _importCommercial(); _importAI();
+    _importCommercial(); _importAI(); _importSurvey();
   });
 }
 
@@ -70,7 +72,8 @@ export type PageId =
   | 'reports'
   | 'users'
   | 'rep-analysis'
-  | 'commercial';
+  | 'commercial'
+  | 'master-survey';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -281,6 +284,7 @@ function AppInner() {
     { id: 'users',           node: <UsersPage /> },
     { id: 'rep-analysis',    node: <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
     { id: 'commercial',      node: <CommercialRepPage /> },
+    { id: 'master-survey',   node: <SurveyPage /> },
   ];
 
   return (
