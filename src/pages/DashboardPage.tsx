@@ -2447,8 +2447,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 )}
               </div>
 
-              {/* Not-in-plan: catalog doctor found — show their details */}
-              {clNotInPlan && clOtherDoc && (
+              {/* Not-in-plan: catalog doctor found — show their details (only if a plan exists for this month) */}
+              {activePlan && clNotInPlan && clOtherDoc && (
                 <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: '#92400e', marginBottom: '16px' }}>
                   <div style={{ fontWeight: 600, marginBottom: '6px' }}>⚠️ الطبيب خارج البلان — سيُضاف تلقائياً عند التسجيل</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', color: '#374151', fontSize: '12px' }}>
@@ -2544,7 +2544,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               )}
 
               {/* Not-in-plan: catalog suggestions still visible above manual fields */}
-              {clNotInPlan && !clOtherDoc && !clManualMode && (
+              {activePlan && clNotInPlan && !clOtherDoc && !clManualMode && (
                 <div style={{ marginBottom: '16px' }}>
                   {clSuggestions.filter((s: any) => !s._inPlan).length > 0 && (
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '8px' }}>
@@ -2686,7 +2686,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               )}
 
               {/* Item selector */}
-              {clNotInPlan && (
+              {activePlan && clNotInPlan && (
                 <div style={{ background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '8px 14px', marginBottom: '14px', fontSize: '13px', color: '#9a3412', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: 16 }}>⚠️</span>
                   <span><strong>الطبيب خارج الخطة</strong> — تأكد من تفاصيل الزيارة قبل الحفظ</span>
