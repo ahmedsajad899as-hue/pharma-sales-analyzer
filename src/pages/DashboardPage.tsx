@@ -2293,6 +2293,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             setClPharmacyNameShowSugg(names.length > 0);
                             const exactMatch = names.some(n => n.toLowerCase() === val.trim().toLowerCase());
                             setClPharmacyIsNew(!exactMatch);
+                            // Auto-fill area if exact match found and area not yet set
+                            if (exactMatch && !clPharmacyAreaId && !clPharmacyAreaName) {
+                              try {
+                                const ar = await fetch(`/api/pharmacy-area-lookup?name=${encodeURIComponent(val.trim())}`, { headers: authH() });
+                                const ad = await ar.json();
+                                if (ad.areaId) { setClPharmacyAreaId(String(ad.areaId)); setClPharmacyAreaName(ad.areaName); }
+                              } catch {}
+                            }
                           } catch {
                             setClPharmacyNameSugg([]); setClPharmacyIsNew(true);
                           }
