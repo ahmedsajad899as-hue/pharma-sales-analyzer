@@ -1714,9 +1714,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                             style={{ cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}
                                           >📝
                                             {showItemNotesId === v.id * 100 + i && (
-                                              <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}>
-                                                {pi.notes}
-                                              </div>
+                                              <>
+                                                <div onClick={() => setShowItemNotesId(null)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+                                                <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}>
+                                                  {pi.notes}
+                                                </div>
+                                              </>
                                             )}
                                           </span>
                                         )}
@@ -1734,9 +1737,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                     style={{ cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}
                                   >📝
                                     {showItemNotesId === -v.id && (
-                                      <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}>
-                                        {v.notes}
-                                      </div>
+                                      <>
+                                        <div onClick={() => setShowItemNotesId(null)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+                                        <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}>
+                                          {v.notes}
+                                        </div>
+                                      </>
                                     )}
                                   </span>
                                 )}
