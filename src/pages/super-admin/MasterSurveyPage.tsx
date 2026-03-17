@@ -46,13 +46,13 @@ const DOC_FIELD_KEYWORDS: Array<[DocField, string[]]> = [
   ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note','remarks']],
 ];
 const PHARMA_FIELD_KEYWORDS: Array<[PharmaField, string[]]> = [
-  ['name',         ['اسم الصيدلية','اسم الدكان','الدكان','الاسم الكامل','اسم','name']],
-  ['ownerName',    ['صاحب الصيدلية','صاحب الدكان','المالك','صاحب','المدير','owner','ownername']],
-  ['pharmacyName', ['الصيدلية','صيدلية','تسمية الصيدلية','pharmacy','pharmacyname']],
-  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','phone','mobile']],
-  ['address',      ['العنوان','عنوان','الموقع','address','location']],
-  ['areaName',     ['المنطقة','المنطقه','منطقة','اسم المنطقة','area','region']],
-  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
+  ['name',         ['اسم الصيدلية','اسم الدكان','الصيدلية','صيدلية','الدكان','دكان','الاسم الكامل','الاسم','اسم','pharmacy name','pharmacy_name','pharmacyname','pharmacy','name']],
+  ['ownerName',    ['صاحب الصيدلية','صاحب الدكان','المالك','صاحب','المدير','مدير','owner','ownername','owner name']],
+  ['pharmacyName', ['الفرع','فرع','الماركة','ماركة','السلسلة','chain','brand','branch']],
+  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel','phone number','mobile number']],
+  ['address',      ['العنوان','عنوان','الموقع','address','location','street']],
+  ['areaName',     ['المنطقة','المنطقه','منطقة','اسم المنطقة','area','region','area name']],
+  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note','remarks']],
 ];
 
 function normalizeHdr(h: string): string {
