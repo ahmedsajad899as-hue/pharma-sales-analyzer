@@ -1431,26 +1431,34 @@ ${areaNames || '(لا يوجد)'}
         if (match) { itemId = match.id; itemName = match.name; }
       }
 
-      // Doctor matching — look up in DB for auto-fill
+      // Doctor matching — exact match auto-applied, fuzzy match returned as suggestion
       const rawDrName      = v.doctorName || '';
       const strippedDrName = stripDrPrefix(rawDrName);
       const matchedDoctor  = fuzzyFind(rawDrName, allDoctors) || fuzzyFind(strippedDrName, allDoctors);
-      const canonicalName  = matchedDoctor ? matchedDoctor.name : rawDrName;
+      const normQuery      = normAr(strippedDrName || rawDrName);
+      const isExactMatch   = matchedDoctor && normAr(matchedDoctor.name) === normQuery;
+      const autoDoc        = isExactMatch ? matchedDoctor : null;
+      const suggestedDoc   = (!isExactMatch && matchedDoctor) ? matchedDoctor : null;
 
       // Area matching with prefix stripping
       const rawAreaName      = stripAreaPrefix(v.areaName || '');
       const matchedArea      = fuzzyFind(rawAreaName, allAreas);
       const resolvedAreaName = matchedArea ? matchedArea.name : rawAreaName;
 
-      // Merge: DB data takes priority, voice fills in remaining gaps
-      const specialty    = matchedDoctor?.specialty    || v.specialty    || '';
-      const pharmacyName = matchedDoctor?.pharmacyName || v.pharmacyName || '';
-      const areaName     = matchedDoctor?.area?.name   || resolvedAreaName || '';
+      // Merge: only exact-matched doctor data is auto-applied
+      const specialty    = autoDoc?.specialty    || v.specialty    || '';
+      const pharmacyName = autoDoc?.pharmacyName || v.pharmacyName || '';
+      const areaName     = autoDoc?.area?.name   || resolvedAreaName || '';
 
       return {
         entryId:      null,
-        doctorId:     matchedDoctor ? matchedDoctor.id : null,
-        doctorName:   canonicalName,
+        doctorId:     autoDoc ? autoDoc.id : null,
+        doctorName:   rawDrName,
+        suggestedName:         suggestedDoc?.name         ?? null,
+        suggestedDoctorId:     suggestedDoc?.id           ?? null,
+        suggestedSpecialty:    suggestedDoc?.specialty    ?? null,
+        suggestedPharmacyName: suggestedDoc?.pharmacyName ?? null,
+        suggestedAreaName:     suggestedDoc?.area?.name   ?? null,
         itemId, itemName,
         feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
         notes:        v.notes || '',

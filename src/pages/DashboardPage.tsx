@@ -76,6 +76,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clOtherDocId, setClOtherDocId]       = useState<number | null>(null);
   const [clOtherDoc, setClOtherDoc]           = useState<any>(null);     // catalog doctor full object
   const [clManualMode, setClManualMode]       = useState(false);         // no match anywhere
+  const [clDoctorSuggestion, setClDoctorSuggestion] = useState<{ name: string; id: number; specialty: string; pharmacyName: string; areaName: string } | null>(null);
   const [clManualSpecialty, setClManualSpecialty] = useState('');
   const [clManualSpecialtySugg, setClManualSpecialtySugg] = useState<string[]>([]);
   const [clManualSpecialtyShow, setClManualSpecialtyShow] = useState(false);
@@ -454,7 +455,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           };
 
           if (v.doctorId) {
-            // ── Doctor matched in DB — use stored+voice merged data ──────
+            // ── Exact DB match — auto-apply ──────────────────────────────
             setClOtherDocId(v.doctorId);
             setClManualMode(false);
             const missing: string[] = [];
@@ -465,21 +466,35 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             if (v.specialty)    setClManualSpecialty(v.specialty);
             if (v.pharmacyName) setClManualPharmacy(v.pharmacyName);
             if (v.areaName)     loadAndApplyArea();
+          } else if (v.suggestedName) {
+            // ── Fuzzy server match — show suggestion to user ─────────────
+            setClManualMode(true);
+            setClDoctorSuggestion({ name: v.suggestedName, id: v.suggestedDoctorId, specialty: v.suggestedSpecialty || '', pharmacyName: v.suggestedPharmacyName || '', areaName: v.suggestedAreaName || '' });
+            const missing: string[] = [];
+            if (!v.specialty)    missing.push('specialty');
+            if (!v.pharmacyName) missing.push('pharmacy');
+            if (!v.areaName)     missing.push('area');
+            setClMissingFields(missing);
+            if (v.specialty)    setClManualSpecialty(v.specialty);
+            if (v.pharmacyName) setClManualPharmacy(v.pharmacyName);
+            if (v.areaName)     loadAndApplyArea();
           } else {
-            // ── Try to match in already-loaded suggestions ───────────────
+            // ── No server match — check catalog suggestions ───────────────
             const lv = v.doctorName.toLowerCase().replace(/ة/g, 'ه');
             const catalog = clSuggestions.find((s: any) => !s._inPlan &&
               s.doctor.name.toLowerCase().replace(/ة/g, 'ه').includes(lv));
             if (catalog) {
-              setClOtherDocId(catalog.doctor.id); setClOtherDoc(catalog.doctor);
+              // Show as suggestion instead of auto-applying
+              setClManualMode(true);
+              setClDoctorSuggestion({ name: catalog.doctor.name, id: catalog.doctor.id, specialty: catalog.doctor.specialty || '', pharmacyName: catalog.doctor.pharmacyName || '', areaName: catalog.doctor.area?.name || '' });
               const missing: string[] = [];
-              if (!catalog.doctor.specialty    && !v.specialty)    missing.push('specialty');
-              if (!catalog.doctor.pharmacyName && !v.pharmacyName) missing.push('pharmacy');
-              if (!catalog.doctor.area?.name   && !v.areaName)     missing.push('area');
+              if (!v.specialty)    missing.push('specialty');
+              if (!v.pharmacyName) missing.push('pharmacy');
+              if (!v.areaName)     missing.push('area');
               setClMissingFields(missing);
-              if (v.specialty    && !catalog.doctor.specialty)    setClManualSpecialty(v.specialty);
-              if (v.pharmacyName && !catalog.doctor.pharmacyName) setClManualPharmacy(v.pharmacyName);
-              if (v.areaName     && !catalog.doctor.area?.name)   loadAndApplyArea();
+              if (v.specialty)    setClManualSpecialty(v.specialty);
+              if (v.pharmacyName) setClManualPharmacy(v.pharmacyName);
+              if (v.areaName)     loadAndApplyArea();
             } else {
               // ── New doctor — manual mode ─────────────────────────────────
               setClManualMode(true);
@@ -654,7 +669,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setCallType('doctor');
     setClDoctor(''); setClSelectedEntry(null); setClNotInPlan(false);
     setClAddToPlan(false); setClOtherDocId(null); setClOtherDoc(null);
-    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName(''); setClMissingFields([]);
+    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName(''); setClMissingFields([]); setClDoctorSuggestion(null);
     setClManualSpecialtySugg([]); setClManualSpecialtyShow(false);
     setClManualPharmacySugg([]); setClManualPharmacyShow(false);
     setClManualAreaSugg([]); setClManualAreaShow(false);
@@ -688,6 +703,30 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
   };
 
+  const confirmDoctorSuggestion = () => {
+    if (!clDoctorSuggestion) return;
+    const s = clDoctorSuggestion;
+    setClDoctor(s.name);
+    setClOtherDocId(s.id);
+    setClOtherDoc(null);
+    setClManualMode(false);
+    setClNotInPlan(true);
+    const missing: string[] = [];
+    if (!s.specialty)    missing.push('specialty');
+    if (!s.pharmacyName) missing.push('pharmacy');
+    if (!s.areaName)     missing.push('area');
+    setClMissingFields(missing);
+    if (s.specialty)    setClManualSpecialty(s.specialty);
+    if (s.pharmacyName) setClManualPharmacy(s.pharmacyName);
+    if (s.areaName) {
+      const lv = s.areaName.toLowerCase().replace(/ة/g, 'ه');
+      const matched = clAreas.find((a: any) => a.name.toLowerCase().replace(/ة/g, 'ه') === lv);
+      if (matched) { setClManualAreaId(String(matched.id)); setClManualAreaName(matched.name); }
+      else { setClManualAreaName(s.areaName); }
+    }
+    setClDoctorSuggestion(null);
+  };
+
   const handleClDoctorChange = (val: string) => {
     setClDoctor(val);
     setClSelectedEntry(null);
@@ -696,6 +735,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClOtherDocId(null);
     setClOtherDoc(null);
     setClManualMode(false);
+    setClDoctorSuggestion(null);
     if (!val.trim()) { setClSuggestions([]); setClShowSugg(false); return; }
     const lv = val.toLowerCase();
     if (!activePlan) {
@@ -2463,6 +2503,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* Doctor name suggestion from voice matching */}
+                {clDoctorSuggestion && !clSelectedEntry && !clOtherDocId && (
+                  <div style={{ marginTop: '8px', background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: '8px', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: '13px', color: '#1e40af' }}>
+                      هل تقصد: <strong>{clDoctorSuggestion.name}</strong>
+                      {clDoctorSuggestion.specialty && <span style={{ color: '#6b7280', fontWeight: 'normal', marginRight: '6px' }}> — {clDoctorSuggestion.specialty}</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      <button type="button" onClick={confirmDoctorSuggestion} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>نعم</button>
+                      <button type="button" onClick={() => setClDoctorSuggestion(null)} style={{ background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}>لا</button>
+                    </div>
                   </div>
                 )}
                 {/* Selected doctor badge */}
