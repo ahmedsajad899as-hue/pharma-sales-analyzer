@@ -108,6 +108,7 @@ export default function MasterSurveyPage() {
 
   const [surveys,        setSurveys]        = useState<Survey[]>([]);
   const [loading,        setLoading]        = useState(true);
+  const [apiError,       setApiError]       = useState<string | null>(null);
   const [selectedSurvey, setSelectedSurvey] = useState<(Survey & { doctors: SurveyDoctor[]; pharmacies: SurveyPharmacy[] }) | null>(null);
   const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'visibility' | 'logs'>('doctors');
 
@@ -140,10 +141,14 @@ export default function MasterSurveyPage() {
   // ── Fetch surveys list ──
   const fetchSurveys = useCallback(async () => {
     setLoading(true);
+    setApiError(null);
     try {
       const r = await fetch('/api/super-admin/surveys', { headers: H() });
       const d = await r.json();
       if (d.success) setSurveys(d.data);
+      else setApiError(d.error || `خطأ ${r.status}`);
+    } catch (e) {
+      setApiError('تعذّر الاتصال بالخادم');
     } finally { setLoading(false); }
   }, [H]);
 
@@ -301,11 +306,21 @@ export default function MasterSurveyPage() {
       setSaving(true);
       const url    = editingSurvey ? `/api/super-admin/surveys/${editingSurvey.id}` : '/api/super-admin/surveys';
       const method = editingSurvey ? 'PUT' : 'POST';
-      await fetch(url, { method, headers: H(), body: JSON.stringify({ name, description, isActive }) });
-      setShowSurveyForm(false);
-      setEditingSurvey(null);
-      fetchSurveys();
-      if (selectedSurvey && editingSurvey?.id === selectedSurvey.id) fetchSurvey(selectedSurvey.id);
+      try {
+        const r = await fetch(url, { method, headers: H(), body: JSON.stringify({ name, description, isActive }) });
+        const d = await r.json();
+        if (!r.ok || !d.success) {
+          alert(`❌ فشل الحفظ: ${d?.error || r.status}`);
+          setSaving(false);
+          return;
+        }
+        setShowSurveyForm(false);
+        setEditingSurvey(null);
+        fetchSurveys();
+        if (selectedSurvey && editingSurvey?.id === selectedSurvey.id) fetchSurvey(selectedSurvey.id);
+      } catch (e) {
+        alert('❌ تعذّر الاتصال بالخادم');
+      }
       setSaving(false);
     };
 
@@ -466,8 +481,10 @@ export default function MasterSurveyPage() {
         </div>
 
         {loading ? <Spinner /> : surveys.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 15 }}>
-            لا توجد سيرفيات بعد — أنشئ أول سيرفي الآن
+          <div style={{ textAlign: 'center', padding: 60, color: apiError ? '#ef4444' : '#94a3b8', fontSize: 15 }}>
+            {apiError
+              ? <><div style={{ fontSize: 18, marginBottom: 8 }}>⚠️</div><div>خطأ في الاتصال بالخادم:</div><div style={{ fontSize: 12, marginTop: 4, fontFamily: 'monospace', background: '#fef2f2', padding: '6px 12px', borderRadius: 8, display: 'inline-block', marginTop: 8 }}>{apiError}</div></>
+              : 'لا توجد سيرفيات بعد — أنشئ أول سيرفي الآن'}
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px,1fr))', gap: 16 }}>
