@@ -25,7 +25,7 @@ export async function visitsByArea(req, res, next) {
       const linkedRepId = userRow?.linkedRepId;
       console.log('[visitsByArea] fieldRep userId:', userId, 'linkedRepId:', linkedRepId);
 
-      // جلب المناطق المُعيَّنة للمندوب — لإظهار أطباء السيرفي حتى لو لم يُسجَّلوا بحسابه
+      // جلب المناطق المُعيَّنة للمندوب فقط
       const repAreaIds = linkedRepId
         ? (await prisma.scientificRepArea.findMany({
             where: { scientificRepId: linkedRepId },
@@ -33,14 +33,9 @@ export async function visitsByArea(req, res, next) {
           })).map(a => a.areaId)
         : [];
 
-      // جلب كل الزيارات بدون فلتر شهر — لتحديد قائمة الأطباء الكاملة
-      const allVisitsEver = await prisma.doctorVisit.findMany({
-        where: { scientificRepId: linkedRepId ?? -1 },
-        select: { doctorId: true },
-      });
-      const everVisitedIds = new Set(allVisitsEver.map(v => v.doctorId));
+      console.log('[visitsByArea] repAreaIds:', repAreaIds);
 
-      // جلب الزيارات المفلترة بالشهر (للإحصاءات فقط)
+      // جلب الزيارات المفلترة بالشهر — فقط للأطباء في مناطق المندوب
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
           scientificRepId: linkedRepId ?? -1,
@@ -54,26 +49,20 @@ export async function visitsByArea(req, res, next) {
         orderBy: { visitDate: 'desc' },
       });
 
-      // تجميع الزيارات المفلترة حسب doctorId
+      // تجميع الزيارات حسب doctorId
       const visitsByDoc = new Map();
       for (const v of allVisits) {
         if (!visitsByDoc.has(v.doctorId)) visitsByDoc.set(v.doctorId, []);
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // جلب كل أطباء المندوب:
-      //  1) المسجَّلون بحسابه (userId)
-      //  2) من زارهم في أي وقت (everVisitedIds)
-      //  3) أطباء السيرفي في مناطقه المُعيَّنة (repAreaIds) — الإصلاح الرئيسي
-      const extraIds = [...everVisitedIds];
+      // جلب أطباء المناطق المُعيَّنة للمندوب فقط — بدون OR إضافية
+      const doctorWhere = repAreaIds.length > 0
+        ? { areaId: { in: repAreaIds } }          // المناطق المحددة فقط
+        : { id: { in: [...new Set(allVisits.map(v => v.doctorId))] } }; // fallback: من زارهم
+
       const allDoctors = await prisma.doctor.findMany({
-        where: {
-          OR: [
-            { userId },
-            ...(extraIds.length > 0    ? [{ id:     { in: extraIds   } }] : []),
-            ...(repAreaIds.length > 0  ? [{ areaId: { in: repAreaIds } }] : []),
-          ],
-        },
+        where: doctorWhere,
         include: {
           area:       { select: { id: true, name: true } },
           targetItem: { select: { id: true, name: true } },
@@ -228,48 +217,28 @@ export async function list(req, res, next) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
 
-      const orConditions = [{ userId }]; // دائماً أطباؤه الخاصون
-
+      let repAreaIds = [];
       if (linkedRepId) {
-        // المناطق المحددة للمندوب، الزيارات السابقة، خطة المندوب
-        const [repAreas, visits, planEntries] = await Promise.all([
-          prisma.scientificRepArea.findMany({
-            where: { scientificRepId: linkedRepId },
-            select: { areaId: true },
-          }),
-          prisma.doctorVisit.findMany({
-            where: { scientificRepId: linkedRepId },
-            select: { doctorId: true },
-            distinct: ['doctorId'],
-          }),
-          prisma.planEntry.findMany({
-            where: { plan: { scientificRepId: linkedRepId } },
-            select: { doctorId: true },
-            distinct: ['doctorId'],
-          }),
-        ]);
-
-        const repAreaIds = repAreas.map(a => a.areaId);
-        const extraIds   = [...new Set([
-          ...visits.map(v => v.doctorId),
-          ...planEntries.map(e => e.doctorId),
-        ])];
-
-        // أطباء المناطق المحددة للمندوب (الأولوية الرئيسية)
-        if (repAreaIds.length > 0) orConditions.push({ areaId: { in: repAreaIds } });
-        // أطباء تمت زيارتهم أو في الخطة (احتياطياً)
-        if (extraIds.length > 0)   orConditions.push({ id: { in: extraIds } });
+        repAreaIds = (await prisma.scientificRepArea.findMany({
+          where: { scientificRepId: linkedRepId },
+          select: { areaId: true },
+        })).map(a => a.areaId);
       }
 
-      // فلاتر إضافية تُطبَّق بـ AND فوق شرط OR
+      // فلتر صارم: فقط المناطق المحددة للمندوب
+      const baseWhere = repAreaIds.length > 0
+        ? { areaId: { in: repAreaIds } }
+        : { userId }; // fallback إذا لم تُحدَّد مناطق
+
+      // فلاتر إضافية تُطبَّق بـ AND فوق الشرط الأساسي
       const andFilters = [];
       if (areaId)                 andFilters.push({ areaId: parseInt(areaId) });
       if (isActive !== undefined) andFilters.push({ isActive: isActive === 'true' });
       if (q?.trim())              andFilters.push({ name: { contains: q.trim(), mode: 'insensitive' } });
 
       where = andFilters.length > 0
-        ? { AND: [{ OR: orConditions }, ...andFilters] }
-        : { OR: orConditions };
+        ? { AND: [baseWhere, ...andFilters] }
+        : baseWhere;
 
     } else {
       // مدير: كل أطبائه
