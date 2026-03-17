@@ -1510,16 +1510,33 @@ export async function parseVoiceAudio(req, res, next) {
     });
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
-    // scientific_rep/team_leader/supervisor: items assigned via ScientificRepItem junction
+    // scientific_rep/team_leader/supervisor: items assigned via ScientificRepItem junction + assigned companies
     let allItems;
     if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
       const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
       if (rep) {
-        const repItems = await prisma.scientificRepItem.findMany({
-          where: { scientificRepId: rep.id },
-          include: { item: { select: { id: true, name: true } } },
-        });
-        allItems = repItems.map(ri => ri.item);
+        const [repItemRows, repCompanyRows] = await Promise.all([
+          prisma.scientificRepItem.findMany({
+            where: { scientificRepId: rep.id },
+            include: { item: { select: { id: true, name: true } } },
+          }),
+          prisma.scientificRepCompany.findMany({
+            where: { scientificRepId: rep.id },
+            select: { companyId: true },
+          }),
+        ]);
+        const explicitItems = repItemRows.map(ri => ri.item);
+        const companyIds = repCompanyRows.map(rc => rc.companyId);
+        let companyItems = [];
+        if (companyIds.length > 0) {
+          companyItems = await prisma.item.findMany({
+            where: { companyId: { in: companyIds } },
+            select: { id: true, name: true },
+          });
+        }
+        const seen = new Set();
+        allItems = [...explicitItems, ...companyItems]
+          .filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       } else {
         allItems = [];
       }

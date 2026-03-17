@@ -260,18 +260,36 @@ app.get('/api/items', async (req, res) => {
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
     const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } };
-    // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction
+    // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction + assigned companies
     if (['scientific_rep', 'team_leader', 'supervisor'].includes(userRole) && userId) {
       const rep = await prisma.scientificRepresentative.findFirst({
         where: { userId },
         select: { id: true },
       });
       if (rep) {
-        const repItems = await prisma.scientificRepItem.findMany({
-          where: { scientificRepId: rep.id },
-          include: { item: { select: itemSelect } },
-        });
-        items = repItems.map(ri => ri.item).sort((a, b) => a.name.localeCompare(b.name));
+        const [repItemRows, repCompanyRows] = await Promise.all([
+          prisma.scientificRepItem.findMany({
+            where: { scientificRepId: rep.id },
+            include: { item: { select: itemSelect } },
+          }),
+          prisma.scientificRepCompany.findMany({
+            where: { scientificRepId: rep.id },
+            select: { companyId: true },
+          }),
+        ]);
+        const explicitItems = repItemRows.map(ri => ri.item);
+        const companyIds = repCompanyRows.map(rc => rc.companyId);
+        let companyItems = [];
+        if (companyIds.length > 0) {
+          companyItems = await prisma.item.findMany({
+            where: { companyId: { in: companyIds } },
+            select: itemSelect,
+          });
+        }
+        const seen = new Set();
+        items = [...explicitItems, ...companyItems]
+          .filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; })
+          .sort((a, b) => a.name.localeCompare(b.name));
       } else {
         items = [];
       }
