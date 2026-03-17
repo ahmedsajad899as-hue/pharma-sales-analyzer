@@ -1332,25 +1332,43 @@ app.post('/api/doctor-visits/voice-record', upload.single('audio'), async (req, 
       allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
     }
 
+    // Load saved doctors + areas for smart auto-fill
+    const allDoctors = await prisma.doctor.findMany({
+      where: userId ? { userId } : {},
+      select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { id: true, name: true } } },
+    });
+    const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+
     const audioData   = fs.readFileSync(req.file.path);
     const audioBase64 = audioData.toString('base64');
     const mimeType    = req.file.mimetype || 'audio/webm';
     fs.unlinkSync(req.file.path);
 
-    const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
+    const itemNames    = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
+    const areaNames    = allAreas.map(a => a.name).join(', ');
+    const doctorNames  = allDoctors.map(d => d.name).join('\n');
     const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
 
-    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
-مهمتك: استخراج زيارة طبيب واحدة من التسجيل — بدون اختراع.
+    const prompt = `أنت مساعد ذكي لتحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
+مهمتك: استخرج بيانات زيارة طبيب واحدة من التسجيل.
 
-قواعد:
-1. إذا التسجيل فارغ أو غير واضح → أرجع {"visits":[]}
-2. اسم الطبيب إجباري — لا تختره إذا لم يُذكر صراحةً
-3. itemId يجب أن يكون من القائمة أدناه فقط — لا تختره
-4. feedback: ${feedbackValues.join(' | ')}
+تعليمات مهمة:
+- الكلام قد يكون غير مرتب أو عامي — استخرج المعلومات حتى لو جاءت بترتيب عشوائي
+- اسم الطبيب: اكتبه كما ذُكر بالضبط (مع "دكتور/دكتورة" إن قيلت أو بدونها)
+- اسم المنطقة: اكتب الاسم الصريح فقط — بدون كلمة "منطقة" أو "زون" أو "حي" (مثال: "الحارثية" لا "منطقة الحارثية")
+- اسم الصيدلية: اكتب الاسم الصريح فقط — بدون كلمة "صيدلية" أو "فارماسي" (مثال: "النموذجية" لا "صيدلية النموذجية")
+- الايتم: طابق ما ذُكر مع أقرب اسم من قائمة الأيتمات، حتى لو كان الاسم مختلفاً قليلاً
+- feedback: ${feedbackValues.join(' | ')}
+- إذا التسجيل غير واضح → أرجع {"visits":[]}
 
-قائمة الأيتمات للمطابقة فقط:
-${itemNames}
+قائمة الأطباء المحفوظة (طابق اسم الطبيب معها واكتب نفس الاسم المحفوظ إن تطابق):
+${doctorNames || '(لا يوجد)'}
+
+قائمة الأيتمات:
+${itemNames || '(لا يوجد)'}
+
+قائمة المناطق:
+${areaNames || '(لا يوجد)'}
 
 أرجع JSON فقط:
 {"visits":[{"doctorName":"...","itemId":null,"itemName":"...","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
@@ -1370,34 +1388,75 @@ ${itemNames}
     if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
 
     const parsed = JSON.parse(jsonMatch[0]);
+
+    // ── Arabic normalization helpers ──────────────────────────
+    const normAr = s => String(s ?? '').trim().toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/ة/g, 'ه')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ى/g, 'ي');
+
+    const stripAreaPrefix = s => String(s ?? '').trim()
+      .replace(/^(منطقة|منطقه|زون|zone|حي|ناحية|ناحيه)\s+/i, '').trim();
+    const stripDrPrefix = s => String(s ?? '').trim()
+      .replace(/^(دكتور|دكتوره|دكتورة|dr\.?)\s+/i, '').trim();
+
+    // Fuzzy match against a list of {name,...} objects using normAr
+    const fuzzyFind = (raw, list) => {
+      if (!raw?.trim()) return null;
+      const n = normAr(raw);
+      let f = list.find(x => normAr(x.name) === n);                                  if (f) return f;
+      f = list.find(x => normAr(x.name).startsWith(n) || n.startsWith(normAr(x.name))); if (f) return f;
+      f = list.find(x => normAr(x.name).includes(n) || n.includes(normAr(x.name)));    return f || null;
+    };
+
+    // Enhanced item matching
     const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
-    const findItem  = rawName => {
-      const n = normalize(rawName);
-      if (!n) return null;
-      if (itemMap.has(n)) return itemMap.get(n);
-      for (const [key, item] of itemMap) {
-        if (key.includes(n) || n.includes(key)) return item;
-      }
-      return null;
+    const findItem = rawName => {
+      if (!rawName?.trim()) return null;
+      const n  = normalize(rawName);
+      const nn = normAr(rawName);
+      let f = allItems.find(i => normalize(i.name) === n);       if (f) return f;
+      f = allItems.find(i => normAr(i.name) === nn);             if (f) return f;
+      f = allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name))); if (f) return f;
+      f = allItems.find(i => normAr(i.name).includes(nn) || nn.includes(normAr(i.name)));     return f || null;
     };
 
     const visits = (parsed.visits || []).map(v => {
+      // Item matching
       let itemId   = v.itemId || null;
       let itemName = v.itemName || '';
       if (itemName && !itemId) {
         const match = findItem(itemName);
         if (match) { itemId = match.id; itemName = match.name; }
       }
+
+      // Doctor matching — look up in DB for auto-fill
+      const rawDrName      = v.doctorName || '';
+      const strippedDrName = stripDrPrefix(rawDrName);
+      const matchedDoctor  = fuzzyFind(rawDrName, allDoctors) || fuzzyFind(strippedDrName, allDoctors);
+      const canonicalName  = matchedDoctor ? matchedDoctor.name : rawDrName;
+
+      // Area matching with prefix stripping
+      const rawAreaName      = stripAreaPrefix(v.areaName || '');
+      const matchedArea      = fuzzyFind(rawAreaName, allAreas);
+      const resolvedAreaName = matchedArea ? matchedArea.name : rawAreaName;
+
+      // Merge: DB data takes priority, voice fills in remaining gaps
+      const specialty    = matchedDoctor?.specialty    || v.specialty    || '';
+      const pharmacyName = matchedDoctor?.pharmacyName || v.pharmacyName || '';
+      const areaName     = matchedDoctor?.area?.name   || resolvedAreaName || '';
+
       return {
-        entryId:      null,    // no plan — always null
-        doctorName:   v.doctorName   || '',
+        entryId:      null,
+        doctorId:     matchedDoctor ? matchedDoctor.id : null,
+        doctorName:   canonicalName,
         itemId, itemName,
         feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
-        notes:        v.notes        || '',
-        specialty:    v.specialty    || '',
-        pharmacyName: v.pharmacyName || '',
-        areaName:     v.areaName     || '',
+        notes:        v.notes || '',
+        specialty,
+        pharmacyName,
+        areaName,
       };
     });
 
@@ -1476,30 +1535,34 @@ ${areaNames}
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Normalize + fuzzy-match items
+    // Normalize + fuzzy-match items and areas (with Arabic normalization)
     const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const normAr = s => normalize(s).replace(/ة/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي');
+    const stripAreaPrefix = s => String(s ?? '').trim().replace(/^(منطقة|منطقه|زون|zone|حي|ناحية|ناحيه)\s+/i, '').trim();
+    const stripPharmPrefix = s => String(s ?? '').trim().replace(/^(صيدلية|صيدليه|فارماسي|pharmacy)\s+/i, '').trim();
+
     const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
     const areaMap   = new Map(allAreas.map(a => [normalize(a.name), a]));
 
     const findItem = rawName => {
-      const n = normalize(rawName);
-      if (!n) return null;
-      if (itemMap.has(n)) return itemMap.get(n);
-      for (const [key, item] of itemMap) {
-        if (key.includes(n) || n.includes(key)) return item;
-      }
-      return null;
+      if (!rawName?.trim()) return null;
+      const n = normalize(rawName); const nn = normAr(rawName);
+      let f = itemMap.get(n);                                                                      if (f) return f;
+      f = allItems.find(i => normAr(i.name) === nn);                                              if (f) return f;
+      f = allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name)));     if (f) return f;
+      f = allItems.find(i => normAr(i.name).includes(nn) || nn.includes(normAr(i.name)));         return f || null;
     };
     const findArea = rawName => {
-      const n = normalize(rawName);
-      if (!n) return null;
-      if (areaMap.has(n)) return areaMap.get(n);
-      for (const [key, area] of areaMap) {
-        if (key.includes(n) || n.includes(key)) return area;
-      }
-      return null;
+      if (!rawName?.trim()) return null;
+      const stripped = stripAreaPrefix(rawName);
+      const n = normalize(stripped); const nn = normAr(stripped);
+      let f = areaMap.get(n);                                                                      if (f) return f;
+      f = allAreas.find(a => normAr(a.name) === nn);                                              if (f) return f;
+      f = allAreas.find(a => normalize(a.name).includes(n) || n.includes(normalize(a.name)));     if (f) return f;
+      f = allAreas.find(a => normAr(a.name).includes(nn) || nn.includes(normAr(a.name)));         return f || null;
     };
 
+    const cleanPharmacyName = stripPharmPrefix(parsed.pharmacyName || '');
     const matchedArea = findArea(parsed.areaName || '');
     const items = (parsed.items || []).map(it => {
       const matched = it.itemId ? allItems.find(i => i.id === it.itemId) : findItem(it.itemName || '');
@@ -1511,8 +1574,8 @@ ${areaNames}
     });
 
     res.json({
-      pharmacyName: parsed.pharmacyName || '',
-      areaName:     parsed.areaName     || '',
+      pharmacyName: cleanPharmacyName || parsed.pharmacyName || '',
+      areaName:     matchedArea ? matchedArea.name : (stripAreaPrefix(parsed.areaName || '') || parsed.areaName || ''),
       areaId:       matchedArea ? matchedArea.id : null,
       items,
       raw: responseText,

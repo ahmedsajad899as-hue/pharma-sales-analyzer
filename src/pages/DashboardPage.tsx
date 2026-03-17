@@ -434,32 +434,63 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           }
         } else if (v.doctorName) {
           setClDoctor(v.doctorName); setClNotInPlan(true); setClAddToPlan(true);
-          const lv = v.doctorName.toLowerCase();
-          const catalog = clSuggestions.find((s: any) => !s._inPlan && s.doctor.name.toLowerCase().includes(lv));
-          if (catalog) { setClOtherDocId(catalog.doctor.id); setClOtherDoc(catalog.doctor); }
-          else {
-            setClManualMode(true);
+
+          const applyAreaFromVoice = (areas: any[]) => {
+            if (!v.areaName) return;
+            const vn = (v.areaName as string).toLowerCase().replace(/ة/g, 'ه');
+            const matched = areas.find((a: any) => {
+              const an = a.name.toLowerCase().replace(/ة/g, 'ه');
+              return an === vn || an.includes(vn) || vn.includes(an);
+            });
+            if (matched) { setClManualAreaId(String(matched.id)); setClManualAreaName(matched.name); }
+            else { setClManualAreaName(v.areaName as string); }
+          };
+          const loadAndApplyArea = () => {
+            if (clAreas.length > 0) { applyAreaFromVoice(clAreas); return; }
+            fetch('/api/areas', { headers: authH() }).then(r => r.json()).then(json => {
+              const areas = Array.isArray(json.data) ? json.data : [];
+              setClAreas(areas); applyAreaFromVoice(areas);
+            }).catch(() => {});
+          };
+
+          if (v.doctorId) {
+            // ── Doctor matched in DB — use stored+voice merged data ──────
+            setClOtherDocId(v.doctorId);
+            setClManualMode(false);
+            const missing: string[] = [];
+            if (!v.specialty)    missing.push('specialty');
+            if (!v.pharmacyName) missing.push('pharmacy');
+            if (!v.areaName)     missing.push('area');
+            setClMissingFields(missing);
             if (v.specialty)    setClManualSpecialty(v.specialty);
             if (v.pharmacyName) setClManualPharmacy(v.pharmacyName);
-            if (v.areaName) {
-              const matchArea = (areas: any[]) => {
-                const vn = (v.areaName as string).toLowerCase();
-                const matched = areas.find((a: any) => a.name.toLowerCase().includes(vn) || vn.includes(a.name.toLowerCase()));
-                if (matched) { setClManualAreaId(String(matched.id)); setClManualAreaName(matched.name); }
-                else { setClManualAreaName(v.areaName as string); }
-              };
-              if (clAreas.length > 0) {
-                matchArea(clAreas);
-              } else {
-                fetch('/api/areas', { headers: authH() })
-                  .then(r => r.json())
-                  .then(json => {
-                    const areas = Array.isArray(json.data) ? json.data : [];
-                    setClAreas(areas);
-                    matchArea(areas);
-                  })
-                  .catch(() => {});
-              }
+            if (v.areaName)     loadAndApplyArea();
+          } else {
+            // ── Try to match in already-loaded suggestions ───────────────
+            const lv = v.doctorName.toLowerCase().replace(/ة/g, 'ه');
+            const catalog = clSuggestions.find((s: any) => !s._inPlan &&
+              s.doctor.name.toLowerCase().replace(/ة/g, 'ه').includes(lv));
+            if (catalog) {
+              setClOtherDocId(catalog.doctor.id); setClOtherDoc(catalog.doctor);
+              const missing: string[] = [];
+              if (!catalog.doctor.specialty    && !v.specialty)    missing.push('specialty');
+              if (!catalog.doctor.pharmacyName && !v.pharmacyName) missing.push('pharmacy');
+              if (!catalog.doctor.area?.name   && !v.areaName)     missing.push('area');
+              setClMissingFields(missing);
+              if (v.specialty    && !catalog.doctor.specialty)    setClManualSpecialty(v.specialty);
+              if (v.pharmacyName && !catalog.doctor.pharmacyName) setClManualPharmacy(v.pharmacyName);
+              if (v.areaName     && !catalog.doctor.area?.name)   loadAndApplyArea();
+            } else {
+              // ── New doctor — manual mode ─────────────────────────────────
+              setClManualMode(true);
+              const missing: string[] = [];
+              if (!v.specialty)    missing.push('specialty');
+              if (!v.pharmacyName) missing.push('pharmacy');
+              if (!v.areaName)     missing.push('area');
+              setClMissingFields(missing);
+              if (v.specialty)    setClManualSpecialty(v.specialty);
+              if (v.pharmacyName) setClManualPharmacy(v.pharmacyName);
+              if (v.areaName)     loadAndApplyArea();
             }
           }
           if (v.itemName && !FEEDBACK_AR_WORDS.has(v.itemName.trim())) {
