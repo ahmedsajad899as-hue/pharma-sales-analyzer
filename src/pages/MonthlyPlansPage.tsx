@@ -68,6 +68,8 @@ interface Doctor {
 interface VisitLike { id: number; userId: number; user: { id: number; username: string }; }
 interface VisitComment { id: number; visitId: number; userId: number; content: string; createdAt: string; user: { id: number; username: string }; }
 interface DoctorVisit { id: number; feedback: string; visitDate: string; notes?: string | null; item?: { id: number; name: string } | null; latitude?: number | null; longitude?: number | null; likes?: VisitLike[]; comments?: VisitComment[]; }
+interface PharmVisitItem { id: number; pharmacyVisitId: number; itemId?: number | null; itemName?: string | null; notes?: string | null; item?: { id: number; name: string } | null; }
+interface PharmVisit { id: number; pharmacyName: string; areaId?: number | null; areaName?: string | null; area?: { id: number; name: string } | null; scientificRepId: number; visitDate: string; notes?: string | null; isDoubleVisit: boolean; latitude?: number | null; longitude?: number | null; items: PharmVisitItem[]; likes: VisitLike[]; }
 interface PlanEntry {
   id: number; doctorId: number; targetVisits: number;
   doctor: Doctor; visits: DoctorVisit[];
@@ -125,6 +127,8 @@ export default function MonthlyPlansPage() {
 
   // Active plan view
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
+  const [pharmVisits, setPharmVisits]         = useState<PharmVisit[]>([]);
+  const [pharmVisitsLoading, setPharmVisitsLoading] = useState(false);
 
   // Create plan
   const [showCreate, setShowCreate] = useState(false);
@@ -386,6 +390,19 @@ export default function MonthlyPlansPage() {
       localStorage.removeItem('lastPlanId');
     }
   }, [activePlan?.id]);
+
+  // Fetch pharmacy visits for the active plan's rep + month
+  useEffect(() => {
+    if (!activePlan) { setPharmVisits([]); return; }
+    let cancelled = false;
+    setPharmVisitsLoading(true);
+    fetch(`${API}/api/monthly-plans/${activePlan.id}/pharmacy-visits`, { headers: H() })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (!cancelled) setPharmVisits(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setPharmVisits([]); })
+      .finally(() => { if (!cancelled) setPharmVisitsLoading(false); });
+    return () => { cancelled = true; };
+  }, [activePlan?.id, H]);
 
   // Mobile back button: inside a plan → go back to plan list
   useEffect(() => {
@@ -1158,7 +1175,8 @@ export default function MonthlyPlansPage() {
 
   // ── Computed stats for active plan ──────────────────────────
   const planStats = useMemo(() => activePlan ? (() => {
-    const totalVisits  = activePlan.entries.reduce((s, e) => s + e.visits.length, 0);
+    const doctorVisitCount = activePlan.entries.reduce((s, e) => s + e.visits.length, 0);
+    const totalVisits  = doctorVisitCount + pharmVisits.length;
     const visitedOnce  = activePlan.entries.filter(e => e.visits.length > 0).length;
     const feedbackCount: Record<string, number> = {};
     const feedbackDoctors: Record<string, { name: string; entryId: number }[]> = {};
@@ -1175,8 +1193,8 @@ export default function MonthlyPlansPage() {
         itemCallMap[itemKey].doctors.push({ name: e.doctor.name, entryId: e.id });
     }));
     const itemCallStats = Object.values(itemCallMap).sort((a, b) => b.count - a.count);
-    return { totalVisits, visitedOnce, feedbackCount, feedbackDoctors, itemCallStats };
-  })() : null, [activePlan]);
+    return { totalVisits, doctorVisitCount, visitedOnce, feedbackCount, feedbackDoctors, itemCallStats };
+  })() : null, [activePlan, pharmVisits]);
 
   const filteredPlans = useMemo(
     () => filterRep === 'all' ? plans : plans.filter(p => String(p.scientificRepId) === filterRep),
@@ -3161,6 +3179,78 @@ export default function MonthlyPlansPage() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* ── Pharmacy Visits Section ── */}
+            <div style={{ margin: '18px 0 0', padding: '0 2px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 16 }}>🏪</span>
+                <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f766e' }}>
+                  زيارات الصيدليات
+                </p>
+                <span style={{ background: '#ccfbf1', color: '#0f766e', borderRadius: 20, padding: '1px 10px', fontSize: 12, fontWeight: 700 }}>
+                  {pharmVisitsLoading ? '...' : pharmVisits.length}
+                </span>
+              </div>
+
+              {pharmVisitsLoading && (
+                <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: '10px 0' }}>جاري التحميل...</p>
+              )}
+
+              {!pharmVisitsLoading && pharmVisits.length === 0 && (
+                <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1', fontStyle: 'italic', textAlign: 'center', padding: '8px 0' }}>لا توجد زيارات صيدليات مسجلة لهذا الشهر</p>
+              )}
+
+              {!pharmVisitsLoading && pharmVisits.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {pharmVisits.map((pv, pi) => {
+                    const itemLabels = pv.items.map(i => i.item?.name ?? i.itemName ?? '').filter(Boolean);
+                    return (
+                      <div key={pv.id} style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10, padding: '8px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {/* # */}
+                          <span style={{ fontSize: 10, fontWeight: 800, color: '#5eead4', background: '#ccfbf1', borderRadius: 4, padding: '1px 5px' }}>#{pi + 1}</span>
+                          {/* Pharmacy name */}
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#0f766e' }}>{pv.pharmacyName}</span>
+                          {/* Area */}
+                          {(pv.area?.name || pv.areaName) && (
+                            <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', borderRadius: 6, padding: '1px 7px' }}>
+                              📍 {pv.area?.name ?? pv.areaName}
+                            </span>
+                          )}
+                          {/* Date */}
+                          <span style={{ fontSize: 11, color: '#6b7280', marginRight: 'auto' }}>
+                            {pv.visitDate ? new Date(pv.visitDate).toLocaleDateString('ar-IQ') : '—'}
+                          </span>
+                          {/* Double visit badge */}
+                          {pv.isDoubleVisit && (
+                            <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '1px 7px', border: '1px solid #fde68a' }}>مزدوجة</span>
+                          )}
+                          {/* Map link */}
+                          {pv.latitude && pv.longitude ? (
+                            <a href={`https://www.google.com/maps?q=${pv.latitude},${pv.longitude}`} target="_blank" rel="noopener noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', fontSize: 13, textDecoration: 'none', border: '1px solid #bbf7d0' }}>
+                              📍
+                            </a>
+                          ) : null}
+                        </div>
+                        {/* Items */}
+                        {itemLabels.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                            {itemLabels.map((name, ii) => (
+                              <span key={ii} style={{ fontSize: 11, fontWeight: 600, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 8, padding: '1px 8px' }}>{name}</span>
+                            ))}
+                          </div>
+                        )}
+                        {/* Notes */}
+                        {pv.notes && (
+                          <p style={{ margin: '5px 0 0', fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>{pv.notes}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </>
         )}

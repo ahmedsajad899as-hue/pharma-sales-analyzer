@@ -12,6 +12,9 @@ router.post('/',                       ctrl.create);
 router.put('/:id',                     ctrl.update);
 router.delete('/:id',                  ctrl.remove);
 
+// Pharmacy visits for a plan (same rep + month)
+router.get('/:id/pharmacy-visits',     ctrl.getPharmacyVisits);
+
 // Plan transfer (manager → rep user)
 router.get('/:id/transfer-targets',    ctrl.getTransferTargets);
 router.get('/:id/available-doctors',   ctrl.availableDoctors);

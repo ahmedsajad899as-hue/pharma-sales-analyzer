@@ -1913,3 +1913,39 @@ export async function revokePlanTransfer(req, res, next) {
     res.json({ success: true });
   } catch (e) { next(e); }
 }
+
+// ── Get pharmacy visits for a plan's rep/month ────────────────
+// GET /api/monthly-plans/:id/pharmacy-visits
+export async function getPharmacyVisits(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const uid    = req.user.id;
+    const role   = req.user.role;
+
+    const REP_ROLES = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
+    const accessWhere = REP_ROLES.has(role)
+      ? { id: planId, OR: [{ assignedUserId: uid }, { userId: uid }] }
+      : { id: planId, userId: uid };
+
+    const plan = await prisma.monthlyPlan.findFirst({ where: accessWhere, select: { scientificRepId: true, month: true, year: true } });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود.' });
+
+    const monthStart = new Date(plan.year, plan.month - 1, 1);
+    const monthEnd   = new Date(plan.year, plan.month, 1);
+
+    const visits = await prisma.pharmacyVisit.findMany({
+      where: {
+        scientificRepId: plan.scientificRepId,
+        visitDate: { gte: monthStart, lt: monthEnd },
+      },
+      include: {
+        area:  { select: { id: true, name: true } },
+        items: { include: { item: { select: { id: true, name: true } } } },
+        likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } },
+      },
+      orderBy: { visitDate: 'asc' },
+    });
+
+    res.json(visits);
+  } catch (e) { next(e); }
+}

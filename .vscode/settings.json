@@ -1,0 +1,38 @@
+{
+  "editor.minimap.enabled": false,
+  "editor.wordBasedSuggestions": "off",
+  "editor.quickSuggestions": {
+    "other": "off",
+    "comments": "off",
+    "strings": "off"
+  },
+  "editor.renderWhitespace": "none",
+  "editor.cursorSmoothCaretAnimation": "off",
+  "editor.smoothScrolling": false,
+  "editor.hover.delay": 1000,
+  "editor.occurrencesHighlight": "off",
+  "editor.selectionHighlight": false,
+  "editor.renderControlCharacters": false,
+  "editor.autoClosingBrackets": "never",
+  "editor.autoClosingQuotes": "never",
+  "editor.formatOnType": false,
+  "editor.codeLens": false,
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.cache/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true
+  },
+  "typescript.suggest.enabled": false,
+  "typescript.validate.enable": false,
+  "javascript.validate.enable": false,
+  "css.validate": false,
+  "html.validate.scripts": false,
+  "html.validate.styles": false
+}
