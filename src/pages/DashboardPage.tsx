@@ -390,8 +390,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const data = await r.json();
           if (data.pharmacyName) setClPharmacyName(data.pharmacyName);
-          if (data.areaId)       { setClPharmacyAreaId(String(data.areaId)); setClPharmacyAreaName(data.areaName || ''); }
-          else if (data.areaName){ setClPharmacyAreaName(data.areaName); }
+          if (data.areaId) {
+            setClPharmacyAreaId(String(data.areaId)); setClPharmacyAreaName(data.areaName || '');
+          } else if (data.areaName) {
+            setClPharmacyAreaName(data.areaName);
+          } else if (data.pharmacyName) {
+            // No area from voice — look up from previous visits
+            try {
+              const lr = await fetch(`/api/pharmacy-area-lookup?name=${encodeURIComponent(data.pharmacyName.trim())}`, { headers: authH() });
+              const ld = await lr.json();
+              if (ld.areaId) { setClPharmacyAreaId(String(ld.areaId)); setClPharmacyAreaName(ld.areaName); }
+            } catch {}
+          }
           if (Array.isArray(data.items) && data.items.length > 0) {
             const parsed = data.items.map((it: any, idx: number) => ({
               tempId:   clPharmacyItemCounter.current + idx,

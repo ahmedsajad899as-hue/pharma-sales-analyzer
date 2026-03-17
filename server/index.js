@@ -1581,10 +1581,40 @@ ${areaNames}
       };
     });
 
+    // If no area was matched from voice, look up from previous visits for this pharmacy
+    let finalArea = matchedArea;
+    const finalPharmacyName = cleanPharmacyName || parsed.pharmacyName || '';
+    if (!finalArea && finalPharmacyName.trim()) {
+      const normalizePharm = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const pn = normalizePharm(finalPharmacyName);
+      const prevVisits = await prisma.pharmacyVisit.findMany({
+        where: { ...(userId ? { userId } : {}), areaId: { not: null } },
+        select: { pharmacyName: true, area: { select: { id: true, name: true } } },
+        orderBy: { visitDate: 'desc' },
+      });
+      const prevMatch = prevVisits.find(pv => {
+        const pvn = normalizePharm(pv.pharmacyName);
+        return pvn === pn || pvn.includes(pn) || pn.includes(pvn);
+      });
+      if (prevMatch?.area) finalArea = prevMatch.area;
+      // Also check doctors table if still no match
+      if (!finalArea) {
+        const doctors = await prisma.doctor.findMany({
+          where: { ...(userId ? { userId } : {}), pharmacyName: { not: null } },
+          select: { pharmacyName: true, area: { select: { id: true, name: true } } },
+        });
+        const docMatch = doctors.find(d => {
+          const dn = normalizePharm(d.pharmacyName);
+          return dn === pn || dn.includes(pn) || pn.includes(dn);
+        });
+        if (docMatch?.area) finalArea = docMatch.area;
+      }
+    }
+
     res.json({
-      pharmacyName: cleanPharmacyName || parsed.pharmacyName || '',
-      areaName:     matchedArea ? matchedArea.name : (stripAreaPrefix(parsed.areaName || '') || parsed.areaName || ''),
-      areaId:       matchedArea ? matchedArea.id : null,
+      pharmacyName: finalPharmacyName,
+      areaName:     finalArea ? finalArea.name : (stripAreaPrefix(parsed.areaName || '') || parsed.areaName || ''),
+      areaId:       finalArea ? finalArea.id : null,
       items,
       raw: responseText,
     });
