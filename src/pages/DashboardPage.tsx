@@ -1673,9 +1673,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             ) : (
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
                                 <strong style={{ fontSize: '15px' }}>{v.doctor.name}</strong>
-                                {(v as any)._outOfPlan && (
-                                  <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
-                                )}
                                 {(v as any)._isDoubleVisit && (
                                   <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
                                 )}
@@ -2424,10 +2421,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </div>
                             )}
                           </div>
-                          {entry._inPlan
-                            ? <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ في البلان</span>
-                            : <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>خارج البلان</span>
-                          }
+                          {entry._inPlan && (
+                            <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ في البلان</span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -3185,9 +3181,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <td>
                           <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
                             <strong>{v.doctor.name}</strong>
-                            {(v as any)._outOfPlan && (
-                              <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
-                            )}
                           </div>
                           {v.doctor.specialty && (
                             <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
