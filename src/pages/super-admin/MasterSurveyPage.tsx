@@ -4,7 +4,7 @@ import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { parseExcelFile } from '../../services/excelParser';
 
 // ── Types ────────────────────────────────────────────────────
-interface DocImportRow { name: string; specialty: string; areaName: string; pharmacyName: string; className: string; phone: string; notes: string; }
+interface DocImportRow { name: string; specialty: string; areaName: string; pharmacyName: string; className: string; zoneName: string; phone: string; notes: string; }
 interface PharmaImportRow { name: string; ownerName: string; phone: string; address: string; areaName: string; notes: string; }
 interface Survey {
   id: number; name: string; description?: string; isActive: boolean;
@@ -13,7 +13,7 @@ interface Survey {
 }
 interface SurveyDoctor {
   id: number; surveyId: number; name: string; specialty?: string; areaName?: string;
-  pharmacyName?: string; className?: string; phone?: string; notes?: string;
+  pharmacyName?: string; className?: string; zoneName?: string; phone?: string; notes?: string;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
 interface SurveyPharmacy {
@@ -40,6 +40,7 @@ function mapDocRow(row: Record<string,unknown>): DocImportRow {
     areaName: g('المنطقة','المنطقه','areaName','area'),
     pharmacyName: g('اسم الصيدلية','الصيدلية','pharmacyName'),
     className: g('الكلاس','التصنيف','className','class'),
+    zoneName: g('الزون','المنطقة الفرعية','zoneName','zone'),
     phone: g('الهاتف','رقم الهاتف','phone'),
     notes: g('ملاحظات','notes'),
   };
@@ -57,7 +58,7 @@ function mapPharmaRow(row: Record<string,unknown>): PharmaImportRow {
 }
 function downloadTemplate(type: 'doctors' | 'pharmacies') {
   const [headers, example] = type === 'doctors'
-    ? [['اسم الطبيب','الاختصاص','المنطقة','اسم الصيدلية','الكلاس','الهاتف','ملاحظات'], ['د. أحمد محمد','قلبية','الكرخ','صيدلية النور','A','07701234567','']]
+    ? [['اسم الطبيب','الاختصاص','المنطقة','اسم الصيدلية','الكلاس','الزون','الهاتف','ملاحظات'], ['د. أحمد محمد','قلبية','الكرخ','صيدلية النور','A','Z1','07701234567','']]
     : [['اسم الصيدلية','صاحب الصيدلية','الهاتف','العنوان','المنطقة','ملاحظات'], ['صيدلية النور','أحمد علي','07701234567','شارع السعدون','الرصافة','']];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headers, example]), type === 'doctors' ? 'أطباء' : 'صيدليات');
@@ -232,7 +233,7 @@ export default function MasterSurveyPage() {
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: '#f8fafc' }}>
-              {['الاسم','الاختصاص','المنطقة','الصيدلية','الكلاس','الهاتف'].map(h => (
+              {['الاسم','الاختصاص','المنطقة','الصيدلية','الكلاس','الزون','الهاتف'].map(h => (
                 <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
               ))}
             </tr></thead>
@@ -244,6 +245,7 @@ export default function MasterSurveyPage() {
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.areaName || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.pharmacyName || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.className || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.zoneName || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.phone || '—'}</td>
                 </tr>
               ))}
@@ -352,7 +354,8 @@ export default function MasterSurveyPage() {
     const [form, setForm] = useState({
       name: editingDoc?.name ?? '', specialty: editingDoc?.specialty ?? '',
       areaName: editingDoc?.areaName ?? '', pharmacyName: editingDoc?.pharmacyName ?? '',
-      className: editingDoc?.className ?? '', phone: editingDoc?.phone ?? '', notes: editingDoc?.notes ?? '',
+      className: editingDoc?.className ?? '', zoneName: editingDoc?.zoneName ?? '',
+      phone: editingDoc?.phone ?? '', notes: editingDoc?.notes ?? '',
     });
     const [saving, setSaving] = useState(false);
     const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -373,7 +376,7 @@ export default function MasterSurveyPage() {
         <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>{editingDoc ? '✏️ تعديل طبيب' : '➕ إضافة طبيب'}</h3>
         {[
           ['الاسم *', 'name'], ['الاختصاص', 'specialty'], ['المنطقة', 'areaName'],
-          ['اسم الصيدلية', 'pharmacyName'], ['الكلاس', 'className'], ['الهاتف', 'phone'],
+          ['اسم الصيدلية', 'pharmacyName'], ['الكلاس', 'className'], ['الزون', 'zoneName'], ['الهاتف', 'phone'],
         ].map(([label, key]) => (
           <div key={key} style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>{label}</label>
@@ -579,7 +582,7 @@ export default function MasterSurveyPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
-                    {['الاسم','الاختصاص','المنطقة','الصيدلية','الكلاس','الهاتف','آخر تعديل',''].map(h => (
+                    {['الاسم','الاختصاص','المنطقة','الصيدلية','الكلاس','الزون','الهاتف','آخر تعديل',''].map(h => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -594,6 +597,7 @@ export default function MasterSurveyPage() {
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{d.areaName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{d.pharmacyName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{d.className || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: '#64748b' }}>{d.zoneName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{d.phone || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#94a3b8', fontSize: 11 }}>
                         {d.lastEditedBy ? (

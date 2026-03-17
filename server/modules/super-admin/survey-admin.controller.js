@@ -86,10 +86,10 @@ export async function deleteSurvey(req, res, next) {
 export async function addDoctor(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
-    const { name, specialty, areaName, pharmacyName, className, phone, notes } = req.body;
+    const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
     const doc = await prisma.masterSurveyDoctor.create({
-      data: { surveyId, name: name.trim(), specialty, areaName, pharmacyName, className, phone, notes },
+      data: { surveyId, name: name.trim(), specialty, areaName, pharmacyName, className, zoneName, phone, notes },
     });
     await logEntry(surveyId, 'doctor', doc.id, 'create', null, doc, req.superAdmin?.id ? null : null);
     res.status(201).json({ success: true, data: doc });
@@ -102,13 +102,14 @@ export async function updateDoctor(req, res, next) {
     const docId    = parseInt(req.params.docId);
     const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
     if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-    const { name, specialty, areaName, pharmacyName, className, phone, notes } = req.body;
+    const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     const data = {};
     if (name         !== undefined) data.name         = name.trim();
     if (specialty    !== undefined) data.specialty    = specialty;
     if (areaName     !== undefined) data.areaName     = areaName;
     if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
     if (className    !== undefined) data.className    = className;
+    if (zoneName     !== undefined) data.zoneName     = zoneName;
     if (phone        !== undefined) data.phone        = phone;
     if (notes        !== undefined) data.notes        = notes;
     const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
@@ -146,6 +147,7 @@ export async function bulkImportDoctors(req, res, next) {
             areaName: d.areaName || null,
             pharmacyName: d.pharmacyName || null,
             className: d.className || null,
+            zoneName: d.zoneName || null,
             phone: d.phone || null,
             notes: d.notes || null,
           },
