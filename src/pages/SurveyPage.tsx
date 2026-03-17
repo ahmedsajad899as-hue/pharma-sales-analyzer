@@ -19,6 +19,7 @@ interface SurveyPharmacy {
 interface SurveyDetail extends Survey {
   doctors: SurveyDoctor[];
   pharmacies: SurveyPharmacy[];
+  userAreaNames?: string[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -276,13 +277,30 @@ export default function SurveyPage() {
   return (
     <div style={{ padding: '0 0 80px', direction: 'rtl' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: selectedSurvey.userAreaNames?.length ? 12 : 20 }}>
         <button onClick={() => setSelectedSurvey(null)} style={btnBack}>← رجوع</button>
         <div>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>{selectedSurvey.name}</h2>
           {selectedSurvey.description && <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{selectedSurvey.description}</p>}
         </div>
       </div>
+
+      {/* Assigned Areas Banner */}
+      {selectedSurvey.userAreaNames && selectedSurvey.userAreaNames.length > 0 && (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+          background: '#f0f4ff', border: '1.5px solid #c7d7fd', borderRadius: 12,
+          padding: '10px 14px', marginBottom: 20, direction: 'rtl',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#3b5bdb', whiteSpace: 'nowrap' }}>📍 مناطقك المحددة:</span>
+          {selectedSurvey.userAreaNames.map(area => (
+            <span key={area} style={{
+              background: '#dbe4ff', color: '#364fc7', fontSize: 12, fontWeight: 700,
+              padding: '3px 10px', borderRadius: 20, border: '1px solid #bac8ff',
+            }}>{area}</span>
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #f1f5f9', marginBottom: 20 }}>

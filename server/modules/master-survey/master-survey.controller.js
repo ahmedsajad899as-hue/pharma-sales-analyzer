@@ -97,7 +97,7 @@ export async function getSurvey(req, res, next) {
       },
     });
     if (!survey) return res.status(404).json({ success: false, error: 'لم يُعثر على السيرفي أو غير مسموح' });
-    res.json({ success: true, data: survey });
+    res.json({ success: true, data: { ...survey, userAreaNames } });
   } catch (e) { next(e); }
 }
 
