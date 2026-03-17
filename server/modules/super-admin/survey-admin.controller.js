@@ -149,7 +149,7 @@ export async function bulkImportDoctors(req, res, next) {
         phone:        d.phone        || null,
         notes:        d.notes        || null,
       }));
-    const result = await prisma.masterSurveyDoctor.createMany({ data, skipDuplicates: false });
+    const result = await prisma.masterSurveyDoctor.createMany({ data });
     res.status(201).json({ success: true, count: result.count });
   } catch (e) { console.error('[bulkImportDoctors]', e.message, e.code); next(e); }
 }
@@ -219,7 +219,7 @@ export async function bulkImportPharmacies(req, res, next) {
         areaName:     p.areaName     || null,
         notes:        p.notes        || null,
       }));
-    const result = await prisma.masterSurveyPharmacy.createMany({ data, skipDuplicates: false });
+    const result = await prisma.masterSurveyPharmacy.createMany({ data });
     res.status(201).json({ success: true, count: result.count });
   } catch (e) { next(e); }
 }
