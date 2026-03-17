@@ -1793,8 +1793,9 @@ export async function availableDoctors(req, res, next) {
   try {
     const planId = parseInt(req.params.id);
     const { q }  = req.query;
+    const { id: userId, role } = req.user;
 
-    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
+    const plan = await findAccessiblePlan(planId, userId, role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const usedIds = (await prisma.planEntry.findMany({
@@ -1802,12 +1803,31 @@ export async function availableDoctors(req, res, next) {
       select: { doctorId: true },
     })).map(e => e.doctorId);
 
+    // For field reps: restrict to their assigned areas only
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    let areaFilter = {};
+    if (FIELD_ROLES.includes(role)) {
+      const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      const linkedRepId = dbUser?.linkedRepId ?? null;
+      const [userAreaRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+          : Promise.resolve([]),
+      ]);
+      const repAreaIds = [...new Set([...userAreaRows.map(a => a.areaId), ...repAreaRows.map(a => a.areaId)])];
+      if (repAreaIds.length > 0) {
+        areaFilter = { areaId: { in: repAreaIds } };
+      }
+    }
+
     const doctors = await prisma.doctor.findMany({
       where: {
         userId:   plan.userId,
         isActive: true,
         ...(q ? { name: { contains: String(q), mode: 'insensitive' } } : {}),
         id: { notIn: usedIds },
+        ...areaFilter,
       },
       select: {
         id: true, name: true, specialty: true, pharmacyName: true,
