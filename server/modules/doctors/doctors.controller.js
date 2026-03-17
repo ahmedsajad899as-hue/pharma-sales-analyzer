@@ -276,14 +276,19 @@ export async function create(req, res, next) {
     const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
 
-    // Resolve areaId from areaName if only text was provided
+    // Resolve areaId from areaName if only text was provided (create new area if not found)
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
       const found = await prisma.area.findFirst({
         where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
         select: { id: true },
       });
-      if (found) resolvedAreaId = found.id;
+      if (found) {
+        resolvedAreaId = found.id;
+      } else {
+        const newArea = await prisma.area.create({ data: { name: areaName.trim(), userId } });
+        resolvedAreaId = newArea.id;
+      }
     }
 
     const doctor = await prisma.doctor.create({
@@ -311,7 +316,12 @@ export async function update(req, res, next) {
     let resolvedAreaId = areaId !== undefined ? (areaId ? parseInt(areaId) : null) : undefined;
     if (resolvedAreaId === undefined && areaName?.trim()) {
       const found = await prisma.area.findFirst({ where: { name: { equals: areaName.trim(), mode: 'insensitive' } }, select: { id: true } });
-      if (found) resolvedAreaId = found.id;
+      if (found) {
+        resolvedAreaId = found.id;
+      } else {
+        const newArea = await prisma.area.create({ data: { name: areaName.trim(), userId } });
+        resolvedAreaId = newArea.id;
+      }
     }
 
     // التحقق من وجود الطبيب أولاً (يمكن أن يكون مسجّلاً بحساب آخر لكن زاره المندوب)

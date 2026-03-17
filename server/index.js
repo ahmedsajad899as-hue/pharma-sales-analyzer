@@ -1230,14 +1230,19 @@ app.post('/api/doctor-visits', async (req, res) => {
     let scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
     if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
 
-    // Resolve areaId from areaName if only text was provided
+    // Resolve areaId from areaName if only text was provided (create new area if not found)
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
       const found = await prisma.area.findFirst({
         where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
         select: { id: true },
       });
-      if (found) resolvedAreaId = found.id;
+      if (found) {
+        resolvedAreaId = found.id;
+      } else {
+        const newArea = await prisma.area.create({ data: { name: areaName.trim(), userId } });
+        resolvedAreaId = newArea.id;
+      }
     }
 
     // Resolve or create doctor
