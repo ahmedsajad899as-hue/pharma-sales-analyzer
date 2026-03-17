@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -575,11 +575,11 @@ export default function DoctorsPage() {
     finally { setImporting(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
-  const filtered = doctors.filter(d => {
+  const filtered = useMemo(() => doctors.filter(d => {
     const matchSearch = !search || d.name.includes(search) || (d.specialty ?? '').includes(search) || (d.pharmacyName ?? '').includes(search);
     const matchArea   = filterArea === 'all' || d.area?.id?.toString() === filterArea;
     return matchSearch && matchArea;
-  });
+  }), [doctors, search, filterArea]);
 
   const toggleArea = (key: string) => setExpandedAreas(prev => {
     const next = new Set(prev);
@@ -721,7 +721,7 @@ export default function DoctorsPage() {
           value={search}
           onChange={setSearch}
           placeholder="🔍 بحث..."
-          suggestions={doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean)}
+          suggestions={useMemo(() => doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean), [doctors])}
           style={{ maxWidth: 260, minWidth: 180 }}
         />
         <select value={filterArea} onChange={e => setFilterArea(e.target.value)} style={{ ...inputStyle, maxWidth: 180 }}>

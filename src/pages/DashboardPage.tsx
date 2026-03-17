@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense, useMemo } from 'react';
 import type { PageId } from '../App';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
@@ -1336,7 +1336,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   ];
 
   // Filtered visits (shared between both dashboard views)
-  const filteredVisits = (callsData?.visits ?? []).filter(v => {
+  const filteredVisits = useMemo(() => (callsData?.visits ?? []).filter(v => {
     if (fType === 'doctor' && (v as any)._visitType === 'pharmacy') return false;
     if (fType === 'pharmacy' && (v as any)._visitType !== 'pharmacy') return false;
     if (fDouble && !(v as any)._isDoubleVisit) return false;
@@ -1352,7 +1352,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       if (!hit) return false;
     }
     return true;
-  });
+  }), [callsData?.visits, fType, fDouble, fSearch]);
 
   // ── Commercial Rep dashboard: monthly invoices stats ──────
   if (isCommercialRep) {

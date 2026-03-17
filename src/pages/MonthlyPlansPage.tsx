@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import voiceStartSrc from '../assets/voice-start.mp3';
@@ -1157,7 +1157,7 @@ export default function MonthlyPlansPage() {
   };
 
   // ── Computed stats for active plan ──────────────────────────
-  const planStats = activePlan ? (() => {
+  const planStats = useMemo(() => activePlan ? (() => {
     const totalVisits  = activePlan.entries.reduce((s, e) => s + e.visits.length, 0);
     const visitedOnce  = activePlan.entries.filter(e => e.visits.length > 0).length;
     const feedbackCount: Record<string, number> = {};
@@ -1176,11 +1176,14 @@ export default function MonthlyPlansPage() {
     }));
     const itemCallStats = Object.values(itemCallMap).sort((a, b) => b.count - a.count);
     return { totalVisits, visitedOnce, feedbackCount, feedbackDoctors, itemCallStats };
-  })() : null;
+  })() : null, [activePlan]);
 
-  const filteredPlans = filterRep === 'all' ? plans : plans.filter(p => String(p.scientificRepId) === filterRep);
+  const filteredPlans = useMemo(
+    () => filterRep === 'all' ? plans : plans.filter(p => String(p.scientificRepId) === filterRep),
+    [plans, filterRep]
+  );
 
-  const filteredEntries = activePlan ? (() => {
+  const filteredEntries = useMemo(() => activePlan ? (() => {
     let entries = activePlan.entries;
     if (visitFilter === 'done')        entries = entries.filter(e => e.visits.length >= e.targetVisits);
     if (visitFilter === 'not_done')    entries = entries.filter(e => e.visits.length < e.targetVisits);
@@ -1197,7 +1200,7 @@ export default function MonthlyPlansPage() {
       if (entry.visits.some(v => v.item?.name?.toLowerCase().includes(q))) return true;
       return false;
     });
-  })() : [];
+  })() : [], [activePlan, visitFilter, voiceNewEntries, searchQuery]);
 
   return (
     <div className="mp-shell" style={{ flexDirection: 'column', height: '100%' }}>
