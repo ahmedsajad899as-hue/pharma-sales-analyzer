@@ -199,6 +199,8 @@ export default function MasterSurveyPage() {
   const [importing,            setImporting]            = useState(false);
   const [detectedDocMapping,   setDetectedDocMapping]   = useState<Record<string,string>>({});
   const [detectedPharmaMapping,setDetectedPharmaMapping] = useState<Record<string,string>>({});
+  const [unknownDocCols,       setUnknownDocCols]        = useState<string[]>([]);
+  const [unknownPharmaCols,    setUnknownPharmaCols]     = useState<string[]>([]);
   const docFileRef    = useRef<HTMLInputElement>(null);
   const pharmaFileRef = useRef<HTMLInputElement>(null);
 
@@ -266,6 +268,8 @@ export default function MasterSurveyPage() {
     const humanMap: Record<string,string> = {};
     for (const [h, f] of Object.entries(headerMap)) humanMap[h] = DOC_LABELS[f];
     setDetectedDocMapping(humanMap);
+    const allHeaders = Object.keys(rows[0] as Record<string,unknown>);
+    setUnknownDocCols(allHeaders.filter(h => !(h in headerMap)));
     setImportDoctorsPreview(rows.map(r => smartMapDocRow(r as Record<string,unknown>, headerMap)).filter(r => r.name));
     setShowDoctorsImport(true); e.target.value = '';
   };
@@ -278,6 +282,8 @@ export default function MasterSurveyPage() {
     const humanMap: Record<string,string> = {};
     for (const [h, f] of Object.entries(headerMap)) humanMap[h] = PHARMA_LABELS[f];
     setDetectedPharmaMapping(humanMap);
+    const allHeaders = Object.keys(rows[0] as Record<string,unknown>);
+    setUnknownPharmaCols(allHeaders.filter(h => !(h in headerMap)));
     setImportPharmasPreview(rows.map(r => smartMapPharmaRow(r as Record<string,unknown>, headerMap)).filter(r => r.name));
     setShowPharmasImport(true); e.target.value = '';
   };
@@ -311,6 +317,18 @@ export default function MasterSurveyPage() {
               {Object.entries(detectedDocMapping).map(([excel, field]) => (
                 <span key={excel} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 8px', border: '1px solid #86efac' }}>
                   {excel} → {field}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {unknownDocCols.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 11 }}>
+            <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 5 }}>⚠️ أعمدة لم تُعرف (تحقق من اسمائها):</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {unknownDocCols.map(col => (
+                <span key={col} style={{ background: '#fef3c7', color: '#92400e', borderRadius: 4, padding: '2px 8px', border: '1px solid #fcd34d' }}>
+                  {col}
                 </span>
               ))}
             </div>
@@ -361,6 +379,18 @@ export default function MasterSurveyPage() {
               {Object.entries(detectedPharmaMapping).map(([excel, field]) => (
                 <span key={excel} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 8px', border: '1px solid #86efac' }}>
                   {excel} → {field}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {unknownPharmaCols.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 11 }}>
+            <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 5 }}>⚠️ أعمدة لم تُعرف (تحقق من أسمائها):</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {unknownPharmaCols.map(col => (
+                <span key={col} style={{ background: '#fef3c7', color: '#92400e', borderRadius: 4, padding: '2px 8px', border: '1px solid #fcd34d' }}>
+                  {col}
                 </span>
               ))}
             </div>
