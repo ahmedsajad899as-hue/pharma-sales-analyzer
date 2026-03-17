@@ -31,30 +31,85 @@ interface EditLog {
   editedBy?: { username: string; displayName?: string };
 }
 
-// ── Excel helpers ─────────────────────────────────────────────
-function mapDocRow(row: Record<string,unknown>): DocImportRow {
-  const g = (...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && v !== '') return String(v).trim(); } return ''; };
-  return {
-    name: g('اسم الطبيب','الاسم','name','Name'),
-    specialty: g('الاختصاص','التخصص','specialty'),
-    areaName: g('المنطقة','المنطقه','areaName','area'),
-    pharmacyName: g('اسم الصيدلية','الصيدلية','pharmacyName'),
-    className: g('الكلاس','التصنيف','className','class'),
-    zoneName: g('الزون','المنطقة الفرعية','zoneName','zone'),
-    phone: g('الهاتف','رقم الهاتف','phone'),
-    notes: g('ملاحظات','notes'),
-  };
+// ── Smart Excel column detection ──────────────────────────────
+type DocField   = keyof DocImportRow;
+type PharmaField = keyof PharmaImportRow;
+
+const DOC_FIELD_KEYWORDS: Array<[DocField, string[]]> = [
+  ['name',         ['اسم الطبيب','الطبيب','الدكتور','الاسم الكامل','الاسم','اسم الدكتور','doctor','name']],
+  ['specialty',    ['الاختصاص','التخصص','تخصص','اختصاص','specialty','speciality']],
+  ['areaName',     ['المنطقة','المنطقه','منطقة','منطقه','اسم المنطقة','area','region']],
+  ['pharmacyName', ['اسم الصيدلية','الصيدلية','صيدلية','اسم الدكان','الدكان','pharmacyname','pharmacy']],
+  ['className',    ['الكلاس','كلاس','التصنيف','تصنيف','الفئة','فئة','class','classification']],
+  ['zoneName',     ['الزون','زون','القطاع','قطاع','منطقة فرعية','zone','sector']],
+  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel']],
+  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
+];
+const PHARMA_FIELD_KEYWORDS: Array<[PharmaField, string[]]> = [
+  ['name',      ['اسم الصيدلية','الصيدلية','صيدلية','اسم الدكان','الدكان','اسم','name','pharmacy']],
+  ['ownerName', ['صاحب الصيدلية','صاحب الدكان','المالك','صاحب','المدير','owner','ownername']],
+  ['phone',     ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','phone','mobile']],
+  ['address',   ['العنوان','عنوان','الموقع','address','location']],
+  ['areaName',  ['المنطقة','المنطقه','منطقة','اسم المنطقة','area','region']],
+  ['notes',     ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note']],
+];
+
+function normalizeHdr(h: string): string {
+  return h.trim().toLowerCase().replace(/\s+/g, ' ');
 }
-function mapPharmaRow(row: Record<string,unknown>): PharmaImportRow {
-  const g = (...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && v !== '') return String(v).trim(); } return ''; };
-  return {
-    name: g('اسم الصيدلية','الاسم','name','Name'),
-    ownerName: g('صاحب الصيدلية','المالك','ownerName'),
-    phone: g('الهاتف','رقم الهاتف','phone'),
-    address: g('العنوان','address'),
-    areaName: g('المنطقة','المنطقه','areaName'),
-    notes: g('ملاحظات','notes'),
-  };
+function detectDocField(header: string): DocField | null {
+  const h = normalizeHdr(header);
+  for (const [field, kws] of DOC_FIELD_KEYWORDS) {
+    for (const kw of kws) {
+      const nkw = normalizeHdr(kw);
+      if (h === nkw || h.includes(nkw) || nkw.includes(h)) return field;
+    }
+  }
+  return null;
+}
+function detectPharmaField(header: string): PharmaField | null {
+  const h = normalizeHdr(header);
+  for (const [field, kws] of PHARMA_FIELD_KEYWORDS) {
+    for (const kw of kws) {
+      const nkw = normalizeHdr(kw);
+      if (h === nkw || h.includes(nkw) || nkw.includes(h)) return field;
+    }
+  }
+  return null;
+}
+function buildDocHeaderMap(row: Record<string,unknown>): Record<string, DocField> {
+  const map: Record<string, DocField> = {};
+  const used = new Set<DocField>();
+  for (const header of Object.keys(row)) {
+    const field = detectDocField(header);
+    if (field && !used.has(field)) { map[header] = field; used.add(field); }
+  }
+  return map;
+}
+function buildPharmaHeaderMap(row: Record<string,unknown>): Record<string, PharmaField> {
+  const map: Record<string, PharmaField> = {};
+  const used = new Set<PharmaField>();
+  for (const header of Object.keys(row)) {
+    const field = detectPharmaField(header);
+    if (field && !used.has(field)) { map[header] = field; used.add(field); }
+  }
+  return map;
+}
+function smartMapDocRow(row: Record<string,unknown>, headerMap: Record<string, DocField>): DocImportRow {
+  const r: DocImportRow = { name:'', specialty:'', areaName:'', pharmacyName:'', className:'', zoneName:'', phone:'', notes:'' };
+  for (const [header, field] of Object.entries(headerMap)) {
+    const v = row[header];
+    if (v != null && v !== '') r[field] = String(v).trim();
+  }
+  return r;
+}
+function smartMapPharmaRow(row: Record<string,unknown>, headerMap: Record<string, PharmaField>): PharmaImportRow {
+  const r: PharmaImportRow = { name:'', ownerName:'', phone:'', address:'', areaName:'', notes:'' };
+  for (const [header, field] of Object.entries(headerMap)) {
+    const v = row[header];
+    if (v != null && v !== '') r[field] = String(v).trim();
+  }
+  return r;
 }
 function downloadTemplate(type: 'doctors' | 'pharmacies') {
   const [headers, example] = type === 'doctors'
@@ -137,6 +192,8 @@ export default function MasterSurveyPage() {
   const [importPharmasPreview, setImportPharmasPreview] = useState<PharmaImportRow[]>([]);
   const [showPharmasImport,    setShowPharmasImport]    = useState(false);
   const [importing,            setImporting]            = useState(false);
+  const [detectedDocMapping,   setDetectedDocMapping]   = useState<Record<string,string>>({});
+  const [detectedPharmaMapping,setDetectedPharmaMapping] = useState<Record<string,string>>({});
   const docFileRef    = useRef<HTMLInputElement>(null);
   const pharmaFileRef = useRef<HTMLInputElement>(null);
 
@@ -198,13 +255,25 @@ export default function MasterSurveyPage() {
   const handleDocExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const rows = await parseExcelFile(file);
-    setImportDoctorsPreview(rows.map(r => mapDocRow(r as Record<string,unknown>)).filter(r => r.name));
+    if (!rows.length) return;
+    const headerMap = buildDocHeaderMap(rows[0] as Record<string,unknown>);
+    const DOC_LABELS: Record<DocField, string> = { name:'الاسم', specialty:'الاختصاص', areaName:'المنطقة', pharmacyName:'الصيدلية', className:'الكلاس', zoneName:'الزون', phone:'الهاتف', notes:'ملاحظات' };
+    const humanMap: Record<string,string> = {};
+    for (const [h, f] of Object.entries(headerMap)) humanMap[h] = DOC_LABELS[f];
+    setDetectedDocMapping(humanMap);
+    setImportDoctorsPreview(rows.map(r => smartMapDocRow(r as Record<string,unknown>, headerMap)).filter(r => r.name));
     setShowDoctorsImport(true); e.target.value = '';
   };
   const handlePharmaExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const rows = await parseExcelFile(file);
-    setImportPharmasPreview(rows.map(r => mapPharmaRow(r as Record<string,unknown>)).filter(r => r.name));
+    if (!rows.length) return;
+    const headerMap = buildPharmaHeaderMap(rows[0] as Record<string,unknown>);
+    const PHARMA_LABELS: Record<PharmaField, string> = { name:'الاسم', ownerName:'صاحب الصيدلية', phone:'الهاتف', address:'العنوان', areaName:'المنطقة', notes:'ملاحظات' };
+    const humanMap: Record<string,string> = {};
+    for (const [h, f] of Object.entries(headerMap)) humanMap[h] = PHARMA_LABELS[f];
+    setDetectedPharmaMapping(humanMap);
+    setImportPharmasPreview(rows.map(r => smartMapPharmaRow(r as Record<string,unknown>, headerMap)).filter(r => r.name));
     setShowPharmasImport(true); e.target.value = '';
   };
   const confirmImportDoctors = async () => {
@@ -229,7 +298,19 @@ export default function MasterSurveyPage() {
     return (
       <ModalOverlay onClose={() => setShowDoctorsImport(false)}>
         <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>📥 استيراد أطباء من Excel</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{importDoctorsPreview.length}</strong> طبيب — تأكد من البيانات ثم اضغط استيراد</p>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{importDoctorsPreview.length}</strong> طبيب — تأكد من البيانات ثم اضغط استيراد</p>
+        {Object.keys(detectedDocMapping).length > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, fontSize: 11 }}>
+            <div style={{ fontWeight: 700, color: '#166534', marginBottom: 5 }}>🔍 الأعمدة المكتشفة تلقائياً:</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {Object.entries(detectedDocMapping).map(([excel, field]) => (
+                <span key={excel} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 8px', border: '1px solid #86efac' }}>
+                  {excel} → {field}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: '#f8fafc' }}>
@@ -267,7 +348,19 @@ export default function MasterSurveyPage() {
     return (
       <ModalOverlay onClose={() => setShowPharmasImport(false)}>
         <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>📥 استيراد صيدليات من Excel</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{importPharmasPreview.length}</strong> صيدلية — تأكد من البيانات ثم اضغط استيراد</p>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b' }}>تم العثور على <strong>{importPharmasPreview.length}</strong> صيدلية — تأكد من البيانات ثم اضغط استيراد</p>
+        {Object.keys(detectedPharmaMapping).length > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, fontSize: 11 }}>
+            <div style={{ fontWeight: 700, color: '#166534', marginBottom: 5 }}>🔍 الأعمدة المكتشفة تلقائياً:</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {Object.entries(detectedPharmaMapping).map(([excel, field]) => (
+                <span key={excel} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 8px', border: '1px solid #86efac' }}>
+                  {excel} → {field}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: '#f8fafc' }}>
