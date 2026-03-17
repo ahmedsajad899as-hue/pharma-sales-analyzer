@@ -1706,7 +1706,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                   {(v as any).pharmItems.map((pi: any, i: number) => {
                                     const hasNotes = !!pi.notes;
                                     return (
-                                      <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap', overflow: 'visible' }}>
                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pi.item?.name ?? pi.itemName ?? '—'}</span>
                                         {hasNotes && (
                                           <span
