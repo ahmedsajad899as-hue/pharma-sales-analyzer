@@ -754,9 +754,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         .catch(() => {});
     }
     if (clAllItems.length === 0) {
+      // Seed from plan target items immediately (no network needed)
+      const planSeed: any[] = [];
+      const seenIds = new Set<number>();
+      for (const e of ((activePlan as any)?.entries ?? [])) {
+        for (const ti of ((e as any).targetItems ?? [])) {
+          if (!seenIds.has(ti.item.id)) { seenIds.add(ti.item.id); planSeed.push(ti.item); }
+        }
+      }
+      if (planSeed.length > 0) setClAllItems(planSeed);
+      // Then fetch from API and override if non-empty
       fetch('/api/items', { headers: authH() })
         .then(r => r.json())
-        .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
+        .then(json => { const d = Array.isArray(json.data) ? json.data : []; if (d.length > 0) setClAllItems(d); })
         .catch(() => {});
     }
   };
@@ -2921,9 +2931,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       setClItemId('');
                       if (!v.trim()) { setClItemSugg([]); setClItemShowSugg(false); return; }
                       const lv = v.toLowerCase();
-                      const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 8);
+                      // Search API items; fall back to plan target items when clAllItems is empty
+                      const searchBase = clAllItems.length > 0 ? clAllItems : (() => {
+                        const seen = new Set<number>(); const r: any[] = [];
+                        for (const e of ((activePlan as any)?.entries ?? [])) for (const ti of ((e as any).targetItems ?? []))
+                          if (!seen.has(ti.item.id)) { seen.add(ti.item.id); r.push(ti.item); }
+                        return r;
+                      })();
+                      const matches = searchBase.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 8);
                       setClItemSugg(matches);
-                      setClItemShowSugg(true);
+                      setClItemShowSugg(matches.length > 0);
                     }}
                     onBlur={() => setTimeout(() => {
                       setClItemShowSugg(false);
@@ -2943,12 +2960,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => {
                       if (clItemShowSugg) { setClItemShowSugg(false); return; }
-                      // Plan target items at the top, then all rep items
-                      const planItems = (clSelectedEntry?.targetItems ?? []).map((ti: any) => ({ ...ti.item, _planItem: true }));
-                      const planIds   = new Set(planItems.map((i: any) => i.id));
-                      const rest      = clAllItems.filter((i: any) => !planIds.has(i.id)).slice(0, Math.max(20, 50 - planItems.length));
-                      const divider   = planItems.length > 0 ? [{ id: '__div__', name: '── كل الايتمات ──', _isDivider: true }] : [];
-                      setClItemSugg([...planItems, ...divider, ...rest]);
+                      // Collect ALL plan target items as the priority list
+                      const seen = new Set<number>(); const allPlanItems: any[] = [];
+                      for (const e of ((activePlan as any)?.entries ?? []))
+                        for (const ti of ((e as any).targetItems ?? []))
+                          if (!seen.has(ti.item.id)) { seen.add(ti.item.id); allPlanItems.push({ ...ti.item, _planItem: true }); }
+                      const planIds = new Set(allPlanItems.map((i: any) => i.id));
+                      const rest    = clAllItems.filter((i: any) => !planIds.has(i.id)).slice(0, Math.max(20, 50 - allPlanItems.length));
+                      const divider = allPlanItems.length > 0 && rest.length > 0 ? [{ id: '__div__', name: '── كل الايتمات ──', _isDivider: true }] : [];
+                      setClItemSugg([...allPlanItems, ...divider, ...rest]);
                       setClItemShowSugg(true);
                     }}
                     style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: '#6b7280', fontSize: '12px', lineHeight: 1 }}
@@ -2958,7 +2978,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   )}
                 </div>
                 {clItemShowSugg && clItemSugg.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden', maxHeight: '220px', overflowY: 'auto' }}>
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '6px', overflow: 'hidden', maxHeight: '220px', overflowY: 'auto' }}>
                     {clItemSugg.map((item: any) =>
                       item._isDivider
                         ? <div key={item.id} style={{ padding: '4px 14px', fontSize: '11px', color: '#94a3b8', background: '#f8fafc', fontWeight: 600, userSelect: 'none', borderBottom: '1px solid #f1f5f9' }}>{item.name}</div>
