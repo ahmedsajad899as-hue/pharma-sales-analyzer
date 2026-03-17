@@ -136,24 +136,21 @@ export async function bulkImportDoctors(req, res, next) {
     const { doctors } = req.body;
     if (!Array.isArray(doctors) || doctors.length === 0)
       return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
-    const records = await prisma.$transaction(
-      doctors
-        .filter(d => d.name?.trim())
-        .map(d => prisma.masterSurveyDoctor.create({
-          data: {
-            surveyId,
-            name: d.name.trim(),
-            specialty: d.specialty || null,
-            areaName: d.areaName || null,
-            pharmacyName: d.pharmacyName || null,
-            className: d.className || null,
-            zoneName: d.zoneName || null,
-            phone: d.phone || null,
-            notes: d.notes || null,
-          },
-        }))
-    );
-    res.status(201).json({ success: true, count: records.length });
+    const data = doctors
+      .filter(d => d.name?.trim())
+      .map(d => ({
+        surveyId,
+        name:         d.name.trim(),
+        specialty:    d.specialty    || null,
+        areaName:     d.areaName     || null,
+        pharmacyName: d.pharmacyName || null,
+        className:    d.className    || null,
+        zoneName:     d.zoneName     || null,
+        phone:        d.phone        || null,
+        notes:        d.notes        || null,
+      }));
+    const result = await prisma.masterSurveyDoctor.createMany({ data, skipDuplicates: false });
+    res.status(201).json({ success: true, count: result.count });
   } catch (e) { next(e); }
 }
 
@@ -210,23 +207,20 @@ export async function bulkImportPharmacies(req, res, next) {
     const { pharmacies } = req.body;
     if (!Array.isArray(pharmacies) || pharmacies.length === 0)
       return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
-    const records = await prisma.$transaction(
-      pharmacies
-        .filter(p => p.name?.trim())
-        .map(p => prisma.masterSurveyPharmacy.create({
-          data: {
-            surveyId,
-            name: p.name.trim(),
-            ownerName:    p.ownerName    || null,
-            pharmacyName: p.pharmacyName || null,
-            phone:        p.phone        || null,
-            address:      p.address      || null,
-            areaName:     p.areaName     || null,
-            notes:        p.notes        || null,
-          },
-        }))
-    );
-    res.status(201).json({ success: true, count: records.length });
+    const data = pharmacies
+      .filter(p => p.name?.trim())
+      .map(p => ({
+        surveyId,
+        name:         p.name.trim(),
+        ownerName:    p.ownerName    || null,
+        pharmacyName: p.pharmacyName || null,
+        phone:        p.phone        || null,
+        address:      p.address      || null,
+        areaName:     p.areaName     || null,
+        notes:        p.notes        || null,
+      }));
+    const result = await prisma.masterSurveyPharmacy.createMany({ data, skipDuplicates: false });
+    res.status(201).json({ success: true, count: result.count });
   } catch (e) { next(e); }
 }
 

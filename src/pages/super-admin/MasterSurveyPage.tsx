@@ -197,6 +197,7 @@ export default function MasterSurveyPage() {
   const [importPharmasPreview, setImportPharmasPreview] = useState<PharmaImportRow[]>([]);
   const [showPharmasImport,    setShowPharmasImport]    = useState(false);
   const [importing,            setImporting]            = useState(false);
+  const [importProgress,       setImportProgress]       = useState('');
   const [detectedDocMapping,   setDetectedDocMapping]   = useState<Record<string,string>>({});
   const [detectedPharmaMapping,setDetectedPharmaMapping] = useState<Record<string,string>>({});
   const [unknownDocCols,       setUnknownDocCols]        = useState<string[]>([]);
@@ -290,18 +291,46 @@ export default function MasterSurveyPage() {
   const confirmImportDoctors = async () => {
     if (!selectedSurvey || !importDoctorsPreview.length) return;
     setImporting(true);
-    await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk`, {
-      method: 'POST', headers: H(), body: JSON.stringify({ doctors: importDoctorsPreview }),
-    });
-    setShowDoctorsImport(false); setImportDoctorsPreview([]); fetchSurvey(selectedSurvey.id); setImporting(false);
+    const BATCH = 500;
+    const total = importDoctorsPreview.length;
+    try {
+      for (let i = 0; i < total; i += BATCH) {
+        const chunk = importDoctorsPreview.slice(i, i + BATCH);
+        setImportProgress(`جاري الاستيراد... ${Math.min(i + BATCH, total)}/${total}`);
+        const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ doctors: chunk }),
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || `خطأ ${r.status}`); }
+      }
+      setShowDoctorsImport(false); setImportDoctorsPreview([]);
+      fetchSurvey(selectedSurvey.id);
+    } catch (e: any) {
+      alert(`❌ فشل الاستيراد: ${e.message}`);
+    } finally {
+      setImporting(false); setImportProgress('');
+    }
   };
   const confirmImportPharmas = async () => {
     if (!selectedSurvey || !importPharmasPreview.length) return;
     setImporting(true);
-    await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
-      method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: importPharmasPreview }),
-    });
-    setShowPharmasImport(false); setImportPharmasPreview([]); fetchSurvey(selectedSurvey.id); setImporting(false);
+    const BATCH = 500;
+    const total = importPharmasPreview.length;
+    try {
+      for (let i = 0; i < total; i += BATCH) {
+        const chunk = importPharmasPreview.slice(i, i + BATCH);
+        setImportProgress(`جاري الاستيراد... ${Math.min(i + BATCH, total)}/${total}`);
+        const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: chunk }),
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || `خطأ ${r.status}`); }
+      }
+      setShowPharmasImport(false); setImportPharmasPreview([]);
+      fetchSurvey(selectedSurvey.id);
+    } catch (e: any) {
+      alert(`❌ فشل الاستيراد: ${e.message}`);
+    } finally {
+      setImporting(false); setImportProgress('');
+    }
   };
 
   // ── DocImportModal ───────────────────────────────────────────
@@ -356,10 +385,11 @@ export default function MasterSurveyPage() {
             </tbody>
           </table>
         </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={() => setShowDoctorsImport(false)} style={btnSecondary}>إلغاء</button>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {importProgress && <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>{importProgress}</span>}
+          <button onClick={() => setShowDoctorsImport(false)} disabled={importing} style={btnSecondary}>إلغاء</button>
           <button onClick={confirmImportDoctors} disabled={importing} style={btnPrimary}>
-            {importing ? 'جاري الاستيراد...' : `✅ استيراد ${importDoctorsPreview.length} طبيب`}
+            {importing ? (importProgress || 'جاري الاستيراد...') : `✅ استيراد ${importDoctorsPreview.length} طبيب`}
           </button>
         </div>
       </ModalOverlay>
@@ -417,10 +447,11 @@ export default function MasterSurveyPage() {
             </tbody>
           </table>
         </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={() => setShowPharmasImport(false)} style={btnSecondary}>إلغاء</button>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+          {importProgress && <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>{importProgress}</span>}
+          <button onClick={() => setShowPharmasImport(false)} disabled={importing} style={btnSecondary}>إلغاء</button>
           <button onClick={confirmImportPharmas} disabled={importing} style={btnPrimary}>
-            {importing ? 'جاري الاستيراد...' : `✅ استيراد ${importPharmasPreview.length} صيدلية`}
+            {importing ? (importProgress || 'جاري الاستيراد...') : `✅ استيراد ${importPharmasPreview.length} صيدلية`}
           </button>
         </div>
       </ModalOverlay>
