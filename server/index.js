@@ -1353,29 +1353,36 @@ app.post('/api/doctor-visits/voice-record', upload.single('audio'), async (req, 
     const doctorNames  = allDoctors.map(d => d.name).join('\n');
     const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
 
-    const prompt = `أنت مساعد ذكي لتحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
-مهمتك: استخرج بيانات زيارة طبيب واحدة من التسجيل.
+    const prompt = `أنت مساعد ذكي متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية في العراق.
+مهمتك: استخرج بيانات زيارة طبيب واحدة من التسجيل بدقة تامة.
 
-تعليمات مهمة:
-- الكلام قد يكون غير مرتب أو عامي — استخرج المعلومات حتى لو جاءت بترتيب عشوائي
-- اسم الطبيب: اكتبه كما ذُكر بالضبط (مع "دكتور/دكتورة" إن قيلت أو بدونها)
-- اسم المنطقة: اكتب الاسم الصريح فقط — بدون كلمة "منطقة" أو "زون" أو "حي" (مثال: "الحارثية" لا "منطقة الحارثية")
-- اسم الصيدلية: اكتب الاسم الصريح فقط — بدون كلمة "صيدلية" أو "فارماسي" (مثال: "النموذجية" لا "صيدلية النموذجية")
-- الايتم: طابق ما ذُكر مع أقرب اسم من قائمة الأيتمات، حتى لو كان الاسم مختلفاً قليلاً
+══ تعليمات عامة ══
+- الكلام قد يكون غير مرتب أو عامي أو فيه ضوضاء — استخرج المعلومات حتى لو جاءت بترتيب عشوائي
+- اسم الطبيب: ابحث عن أقرب تطابق في قائمة الأطباء المحفوظة وأرجع الاسم الدقيق من القائمة. الأطباء قد يُنادون بألقاب (دكتور/أبو/حاج) — تجاهل اللقب وطابق الاسم.
+- اسم المنطقة: أرجع الاسم الصريح فقط بدون كلمة "منطقة/زون/حي"
+- اسم الصيدلية: أرجع الاسم الصريح بدون كلمة "صيدلية/فارماسي/كلينيك"
 - feedback: ${feedbackValues.join(' | ')}
-- إذا التسجيل غير واضح → أرجع {"visits":[]}
+- إذا التسجيل غير واضح تماماً → أرجع {"visits":[]}
 
-قائمة الأطباء المحفوظة (طابق اسم الطبيب معها واكتب نفس الاسم المحفوظ إن تطابق):
+══ قواعد الأيتم/الدواء — مهم جداً ══
+- إذا ذُكر أي اسم دواء أو منتج في التسجيل (حتى لو النطق غير مضبوط أو باللهجة العراقية أو باللغة العامية)، يجب عليك:
+  1. البحث عن أقرب مطابقة في قائمة الأيتمات أدناه (بالاسم أو النطق أو المعنى)
+  2. إرجاع itemId الصحيح من القائمة وitemName الدقيق كما هو مكتوب في القائمة
+  3. يُمنع منعاً باتاً إرجاع itemName من خارج القائمة
+  4. الأدوية قد تُنطق بطرق مختلفة — مثلاً "اليانت" قد يكون "إليانت" أو "Elyante"، وهكذا
+  5. إذا لم يُذكر أي دواء إطلاقاً → أرجع itemId: null وitemName: ""
+
+══ قائمة الأطباء المحفوظة (طابق اسم الطبيب معها) ══
 ${doctorNames || '(لا يوجد)'}
 
-قائمة الأيتمات:
+══ قائمة الأيتمات/الأدوية — يجب الاختيار الإلزامي منها ══
 ${itemNames || '(لا يوجد)'}
 
 قائمة المناطق:
 ${areaNames || '(لا يوجد)'}
 
-أرجع JSON فقط:
-{"visits":[{"doctorName":"...","itemId":null,"itemName":"...","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
+أرجع JSON فقط بدون أي نص آخر:
+{"visits":[{"doctorName":"...","itemId":456,"itemName":"الاسم الدقيق من القائمة","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
@@ -1414,8 +1421,22 @@ ${areaNames || '(لا يوجد)'}
       f = list.find(x => normAr(x.name).includes(n) || n.includes(normAr(x.name)));    return f || null;
     };
 
-    // Enhanced item matching
+    // Enhanced item matching with bigram similarity fallback
     const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const bigramSet = s => {
+      const bg = new Set();
+      for (let i = 0; i < s.length - 1; i++) bg.add(s.slice(i, i + 2));
+      return bg;
+    };
+    const bigramSim = (a, b) => {
+      const na = normAr(a), nb = normAr(b);
+      if (!na || !nb) return 0;
+      if (na === nb) return 1;
+      const ba = bigramSet(na), bb = bigramSet(nb);
+      let shared = 0;
+      for (const bg of ba) if (bb.has(bg)) shared++;
+      return (2 * shared) / (ba.size + bb.size);
+    };
     const findItem = rawName => {
       if (!rawName?.trim()) return null;
       const n  = normalize(rawName);
@@ -1423,7 +1444,23 @@ ${areaNames || '(لا يوجد)'}
       let f = allItems.find(i => normalize(i.name) === n);       if (f) return f;
       f = allItems.find(i => normAr(i.name) === nn);             if (f) return f;
       f = allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name))); if (f) return f;
-      f = allItems.find(i => normAr(i.name).includes(nn) || nn.includes(normAr(i.name)));     return f || null;
+      f = allItems.find(i => normAr(i.name).includes(nn) || nn.includes(normAr(i.name)));     if (f) return f;
+      // Token-level: check if all significant tokens of the spoken name appear in catalog name
+      const nnToks = nn.split(' ').filter(t => t.length >= 2);
+      if (nnToks.length > 0) {
+        f = allItems.find(i => {
+          const iNorm = normAr(i.name);
+          return nnToks.every(t => iNorm.includes(t));
+        });
+        if (f) return f;
+      }
+      // Bigram similarity fallback: 0.5 threshold
+      let best = null, bestScore = 0.5;
+      for (const item of allItems) {
+        const score = bigramSim(rawName, item.name);
+        if (score > bestScore) { bestScore = score; best = item; }
+      }
+      return best;
     };
 
     const visits = (parsed.visits || []).map(v => {

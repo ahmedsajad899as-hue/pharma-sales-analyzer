@@ -507,6 +507,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           if (v.doctorId) {
             // ── Exact DB match — auto-apply ──────────────────────────────
             setClOtherDocId(v.doctorId);
+            setClOtherDoc({
+              id: v.doctorId,
+              name: v.doctorName,
+              specialty: v.specialty || null,
+              pharmacyName: v.pharmacyName || null,
+              area: v.areaName ? { name: v.areaName } : null,
+            });
             setClManualMode(false);
             const missing: string[] = [];
             if (!v.specialty)    missing.push('specialty');
@@ -759,7 +766,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     const s = clDoctorSuggestion;
     setClDoctor(s.name);
     setClOtherDocId(s.id);
-    setClOtherDoc(null);
+    setClOtherDoc({
+      id: s.id,
+      name: s.name,
+      specialty: s.specialty || null,
+      pharmacyName: s.pharmacyName || null,
+      area: s.areaName ? { name: s.areaName } : null,
+    });
     setClManualMode(false);
     setClNotInPlan(true);
     const missing: string[] = [];

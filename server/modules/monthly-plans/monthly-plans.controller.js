@@ -1541,7 +1541,7 @@ export async function parseVoiceAudio(req, res, next) {
       'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'pending',
     };
 
-    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
+    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية في العراق.
 مهمتك: استخراج زيارات الأطباء المذكورة صوتياً فقط — بدقة تامة ودون أي اختراع.
 
 ══ قواعد صارمة يجب اتباعها ══
@@ -1549,38 +1549,33 @@ export async function parseVoiceAudio(req, res, next) {
 [الاستخراج العام]
 1. إذا التسجيل فارغ أو غير واضح أو لا يُفهم → أرجع {"visits": []} فوراً
 2. لا تخترع أو تستنتج أي زيارة لم تُذكر صراحةً بالصوت
-3. قوائم الأطباء والأيتمات أدناه للمطابقة فقط، وليست للاقتراح أو الاستنتاج
+3. قائمة الأطباء أدناه للمطابقة فقط — أرجع entryId الصحيح. الأطباء قد يُنادون بألقاب أو تختلف طريقة النطق — طابق بذكاء.
 4. إذا ذُكر طبيب بدون فيدباك واضح → feedback = "pending"
 
-[الاختصاص والصيدلية والمنطقة — قواعد حرفية لا استثناء فيها]
-5. specialty: اكتبه فقط إذا نطق المندوب بكلمة الاختصاص صراحةً في هذا التسجيل
-   ✗ لا تستنتج الاختصاص من اسم الطبيب
-   ✗ لا تأخذه من قائمة البلان أو من معرفتك العامة بالطبيب
-   ✓ فقط إذا قال المندوب مثلاً: "طبيب قلب" أو "أخصائي أطفال"
-   → إذا لم يُقَل صوتياً: specialty = "" (فراغ تام)
-6. pharmacyName: اكتبه فقط إذا ذكر المندوب اسم الصيدلية أو العيادة بصوته صراحةً
-   ✗ لا تستنتج اسم الصيدلية من أي شيء آخر
-   → إذا لم يُقَل صوتياً: pharmacyName = "" (فراغ تام)
-7. areaName: اكتبه فقط إذا ذكر المندوب اسم المنطقة أو الحي بصوته صراحةً
-   → إذا لم يُقَل صوتياً: areaName = "" (فراغ تام)
+[الاختصاص والصيدلية والمنطقة]
+5. specialty: اكتبه فقط إذا نطق المندوب بكلمة الاختصاص صراحةً. إذا لم يُقَل: specialty = ""
+6. pharmacyName: اكتبه فقط إذا ذكر المندوب اسم الصيدلية صراحةً. إذا لم يُقَل: pharmacyName = ""
+7. areaName: اكتبه فقط إذا ذكر المندوب المنطقة صراحةً. إذا لم يُقَل: areaName = ""
 
-[الأدوية]
-8. لا تكتب اسم دواء غير موجود في قائمة الأيتمات أدناه
-9. لا تعتبر كلمات الفيدباك (يكتب، مهتم، نزل...) أسماء أدوية
+[الأدوية/الأيتمات — قواعد صارمة]
+8. يُمنع منعاً باتاً إرجاع itemName من خارج قائمة الأيتمات أدناه
+9. إذا ذُكر أي اسم دواء أو منتج (حتى لو النطق غير مضبوط أو باللهجة العراقية):
+   - ابحث عن أقرب مطابقة في قائمة الأيتمات بالمعنى والنطق وليس الكتابة الحرفية فقط
+   - أرجع itemId الصحيح وitemName الدقيق كما هو مكتوب في القائمة
+   - مثال: "اليانت" ← ابحث عن ما يشبهه في القائمة وأرجع ذلك
+10. كلمات الفيدباك (يكتب، مهتم، نزل...) لا تُعتبر أسماء أدوية
 
-══ قائمة الأطباء في البلان (للمطابقة فقط) ══
+══ قائمة الأطباء في البلان (للمطابقة — أرجع entryId) ══
 ${doctorNames}
 
-══ قائمة الأيتمات/الأدوية (للمطابقة فقط) ══
+══ قائمة الأيتمات/الأدوية (يجب الاختيار الإلزامي منها) ══
 ${itemNames}
 
 قيم الفيدباك: ${feedbackValues.join(', ')}
 المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
 
 أرجع JSON فقط بدون أي نص آخر:
-{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}
-
-تأكيد نهائي: specialty وpharmacyName وareaName يجب أن تكون "" إلا إذا نطق بها المندوب بصوته صراحةً في هذا التسجيل بالذات`;
+{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "الاسم الدقيق من القائمة", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
@@ -1603,17 +1598,38 @@ ${itemNames}
 
     // Reuse same fuzzy item-matching logic
     const normalize  = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const normAr2    = s => String(s ?? '').trim().toLowerCase().replace(/أ|إ|آ/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ');
     const itemMap    = new Map(allItems.map(it => [normalize(it.name), it]));
+    const bigramSet2 = s => {
+      const bg = new Set();
+      for (let i = 0; i < s.length - 1; i++) bg.add(s.slice(i, i + 2));
+      return bg;
+    };
+    const bigramSim2 = (a, b) => {
+      const na = normAr2(a), nb = normAr2(b);
+      if (!na || !nb) return 0;
+      if (na === nb) return 1;
+      const ba = bigramSet2(na), bb = bigramSet2(nb);
+      let shared = 0;
+      for (const bg of ba) if (bb.has(bg)) shared++;
+      return (2 * shared) / (ba.size + bb.size);
+    };
     const findItem   = (rawName) => {
       const n = normalize(rawName);
+      const nn = normAr2(rawName);
       if (!n) return null;
       if (itemMap.has(n)) return itemMap.get(n);
-      let best = null, bestScore = 0;
+      let f = allItems.find(i => normAr2(i.name) === nn);    if (f) return f;
+      f = allItems.find(i => normAr2(i.name).includes(nn) || nn.includes(normAr2(i.name))); if (f) return f;
+      const nnToks = nn.split(' ').filter(t => t.length >= 2);
+      if (nnToks.length > 0) {
+        f = allItems.find(i => nnToks.every(t => normAr2(i.name).includes(t)));
+        if (f) return f;
+      }
+      let best = null, bestScore = 0.5;
       for (const [key, item] of itemMap) {
-        if (key.includes(n) || n.includes(key)) {
-          const score = key.length;
-          if (score > bestScore) { bestScore = score; best = item; }
-        }
+        const score = bigramSim2(rawName, item.name);
+        if (score > bestScore) { bestScore = score; best = item; }
       }
       return best;
     };
