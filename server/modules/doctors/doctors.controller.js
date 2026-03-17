@@ -23,17 +23,19 @@ export async function visitsByArea(req, res, next) {
     if (isFieldRep) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
-      console.log('[visitsByArea] fieldRep userId:', userId, 'linkedRepId:', linkedRepId);
 
-      // جلب المناطق المُعيَّنة للمندوب فقط
-      const repAreaIds = linkedRepId
-        ? (await prisma.scientificRepArea.findMany({
-            where: { scientificRepId: linkedRepId },
-            select: { areaId: true },
-          })).map(a => a.areaId)
-        : [];
-
-      console.log('[visitsByArea] repAreaIds:', repAreaIds);
+      // جلب المناطق من كلا المصدرين: UserAreaAssignment (الأدمن) + ScientificRepArea (مدير المناطق)
+      const [userAreaRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+          : Promise.resolve([]),
+      ]);
+      const repAreaIds = [...new Set([
+        ...userAreaRows.map(a => a.areaId),
+        ...repAreaRows.map(a => a.areaId),
+      ])];
+      console.log('[visitsByArea] userId:', userId, 'linkedRepId:', linkedRepId, 'repAreaIds:', repAreaIds);
 
       // جلب الزيارات المفلترة بالشهر — فقط للأطباء في مناطق المندوب
       const allVisits = await prisma.doctorVisit.findMany({
@@ -213,17 +215,20 @@ export async function list(req, res, next) {
     let where;
 
     if (isFieldRep) {
-      // جلب linkedRepId والمناطق المُعيَّنة للمندوب
+      // جلب المناطق من كلا المصدرين: UserAreaAssignment (الأدمن) + ScientificRepArea (مدير المناطق)
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
 
-      let repAreaIds = [];
-      if (linkedRepId) {
-        repAreaIds = (await prisma.scientificRepArea.findMany({
-          where: { scientificRepId: linkedRepId },
-          select: { areaId: true },
-        })).map(a => a.areaId);
-      }
+      const [userAreaRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+          : Promise.resolve([]),
+      ]);
+      const repAreaIds = [...new Set([
+        ...userAreaRows.map(a => a.areaId),
+        ...repAreaRows.map(a => a.areaId),
+      ])];
 
       // فلتر صارم: فقط المناطق المحددة للمندوب
       const baseWhere = repAreaIds.length > 0

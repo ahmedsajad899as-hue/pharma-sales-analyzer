@@ -184,19 +184,27 @@ app.get('/api/areas', async (req, res) => {
     let areas;
 
     if (isFieldRep && userId) {
-      // جلب المناطق المُعيَّنة للمندوب فقط عبر scientificRepArea
+      // جلب المناطق من كلا المصدرين: UserAreaAssignment (الأدمن) + ScientificRepArea (لمديري المناطق)
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
 
-      if (linkedRepId) {
-        const repAreas = await prisma.scientificRepArea.findMany({
-          where: { scientificRepId: linkedRepId },
+      const [userAreaRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({
+          where: { userId },
           select: { area: { select: { id: true, name: true } } },
-        });
-        areas = repAreas.map(r => r.area).sort((a, b) => a.name.localeCompare(b.name));
-      } else {
-        areas = [];
-      }
+        }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({
+              where: { scientificRepId: linkedRepId },
+              select: { area: { select: { id: true, name: true } } },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      // دمج المناطق وإزالة التكرار
+      const areaMap = new Map();
+      [...userAreaRows, ...repAreaRows].forEach(r => areaMap.set(r.area.id, r.area));
+      areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name));
     } else {
       // مدير: كل مناطقه
       areas = await prisma.area.findMany({
