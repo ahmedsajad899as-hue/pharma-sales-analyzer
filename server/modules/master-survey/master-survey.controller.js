@@ -107,6 +107,57 @@ export async function updateDoctor(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── Helper: find or create Area by name for a user ──────────
+async function resolveAreaId(areaName, userId) {
+  if (!areaName?.trim()) return null;
+  const found = await prisma.area.findFirst({
+    where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
+    select: { id: true },
+  });
+  if (found) return found.id;
+  const created = await prisma.area.create({ data: { name: areaName.trim(), userId } });
+  return created.id;
+}
+
+// ── POST /api/master-surveys/:id/doctors/import-all ──────────
+export async function importAllDoctors(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    await assertVisible(surveyId, req.user, res);
+    const userId = req.user.id;
+
+    const surveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
+    const existingNames = new Set(
+      (await prisma.doctor.findMany({ where: { userId }, select: { name: true } }))
+        .map(d => d.name.toLowerCase().trim())
+    );
+
+    const newDoctors = surveyDoctors.filter(d => d.name?.trim() && !existingNames.has(d.name.toLowerCase().trim()));
+    if (newDoctors.length === 0)
+      return res.json({ success: true, count: 0, message: 'جميع الأطباء موجودون مسبقاً في قائمتك' });
+
+    // Resolve unique area names → area IDs
+    const uniqueAreaNames = [...new Set(newDoctors.map(d => d.areaName?.trim()).filter(Boolean))];
+    const areaIdMap = new Map();
+    for (const an of uniqueAreaNames) {
+      const id = await resolveAreaId(an, userId);
+      if (id) areaIdMap.set(an.toLowerCase(), id);
+    }
+
+    const data = newDoctors.map(d => ({
+      name:         d.name.trim(),
+      specialty:    d.specialty    ?? null,
+      pharmacyName: d.pharmacyName ?? null,
+      notes:        d.notes        ?? null,
+      areaId:       d.areaName?.trim() ? (areaIdMap.get(d.areaName.trim().toLowerCase()) ?? null) : null,
+      userId,
+    }));
+
+    const result = await prisma.doctor.createMany({ data, skipDuplicates: true });
+    res.json({ success: true, count: result.count, message: `تم استيراد ${result.count} طبيب بنجاح` });
+  } catch (e) { next(e); }
+}
+
 // ── POST /api/master-surveys/:id/doctors/:docId/import ───────
 export async function importDoctor(req, res, next) {
   try {
@@ -120,12 +171,14 @@ export async function importDoctor(req, res, next) {
       where: { name: src.name, userId: req.user.id },
     });
     if (existing) return res.json({ success: true, data: existing, message: 'الطبيب موجود مسبقاً في قائمتك' });
+    const resolvedAreaId = await resolveAreaId(src.areaName, req.user.id);
     const newDoc = await prisma.doctor.create({
       data: {
         name:         src.name,
         specialty:    src.specialty    ?? null,
         pharmacyName: src.pharmacyName ?? null,
         notes:        src.notes        ?? null,
+        areaId:       resolvedAreaId,
         userId:       req.user.id,
       },
     });

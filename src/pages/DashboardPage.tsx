@@ -2542,10 +2542,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </div>
                             )}
                           </div>
-                          {entry._inPlan
-                            ? <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ في البلان</span>
-                            : <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>خارج البلان</span>
-                          }
+                          {entry._inPlan && (
+                            <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ في البلان</span>
+                          )}
                         </div>
                       </div>
                     ))}

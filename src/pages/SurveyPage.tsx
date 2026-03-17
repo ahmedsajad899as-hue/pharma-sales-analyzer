@@ -105,6 +105,20 @@ export default function SurveyPage() {
   };
 
   // ── Import helpers ──
+  const [importingAll, setImportingAll] = useState(false);
+
+  const importAllDoctors = async () => {
+    if (!selectedSurvey) return;
+    setImportingAll(true);
+    try {
+      const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/import-all`, { method: 'POST', headers: H() });
+      const d = await r.json();
+      showToast(d.success ? `✅ ${d.message}` : `❌ ${d.error ?? 'خطأ'}`);
+    } catch {
+      showToast('❌ حدث خطأ أثناء الاستيراد');
+    } finally { setImportingAll(false); }
+  };
+
   const importDoctor = async (docId: number) => {
     if (!selectedSurvey) return;
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import`, { method: 'POST', headers: H() });
@@ -285,9 +299,18 @@ export default function SurveyPage() {
         ))}
         <div style={{ marginRight: 'auto', display: 'flex', gap: 8, paddingBottom: 4 }}>
           {tab === 'doctors' && (
-            <button onClick={() => setAddingDoc(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>
-              ➕ إضافة طبيب
-            </button>
+            <>
+              <button
+                onClick={importAllDoctors}
+                disabled={importingAll || selectedSurvey.doctors.length === 0}
+                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAll ? 0.6 : 1 }}
+              >
+                {importingAll ? 'جاري...' : '📥 استيرد الكل'}
+              </button>
+              <button onClick={() => setAddingDoc(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>
+                ➕ إضافة طبيب
+              </button>
+            </>
           )}
           {tab === 'pharmacies' && (
             <button onClick={() => setAddingPharma(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>

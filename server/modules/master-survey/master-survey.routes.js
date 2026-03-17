@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   listSurveys, getSurvey,
-  addDoctor, updateDoctor, importDoctor,
+  addDoctor, updateDoctor, importAllDoctors, importDoctor,
   addPharmacy, updatePharmacy, importPharmacy,
 } from './master-survey.controller.js';
 
@@ -15,6 +15,7 @@ router.get('/:id', getSurvey);
 // Doctors
 router.post('/:id/doctors',                      addDoctor);
 router.put('/:id/doctors/:docId',                updateDoctor);
+router.post('/:id/doctors/import-all',           importAllDoctors);
 router.post('/:id/doctors/:docId/import',        importDoctor);
 
 // Pharmacies
