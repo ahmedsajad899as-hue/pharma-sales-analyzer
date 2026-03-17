@@ -115,13 +115,17 @@ export async function importDoctor(req, res, next) {
     await assertVisible(surveyId, req.user, res);
     const src = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
     if (!src || src.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
+    // Check duplicate
+    const existing = await prisma.doctor.findFirst({
+      where: { name: src.name, userId: req.user.id },
+    });
+    if (existing) return res.json({ success: true, data: existing, message: 'الطبيب موجود مسبقاً في قائمتك' });
     const newDoc = await prisma.doctor.create({
       data: {
         name:         src.name,
-        specialty:    src.specialty ?? null,
+        specialty:    src.specialty    ?? null,
         pharmacyName: src.pharmacyName ?? null,
-        phone:        src.phone ?? null,
-        notes:        src.notes ?? null,
+        notes:        src.notes        ?? null,
         userId:       req.user.id,
       },
     });
@@ -179,8 +183,11 @@ export async function importPharmacy(req, res, next) {
     const pharmaId = parseInt(req.params.pharmaId);
     await assertVisible(surveyId, req.user, res);
     const src = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
-    if (!src || src.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-    const newPh = await prisma.pharmacy.create({
+    if (!src || src.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });    // Upsert to handle duplicates gracefully
+    const existing = await prisma.pharmacy.findFirst({
+      where: { name: src.name, userId: req.user.id },
+    });
+    if (existing) return res.json({ success: true, data: existing, message: 'الصيدلية موجودة مسبقاً في قائمتك' });    const newPh = await prisma.pharmacy.create({
       data: {
         name:      src.name,
         ownerName: src.ownerName ?? null,

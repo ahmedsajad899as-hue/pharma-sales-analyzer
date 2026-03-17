@@ -109,14 +109,14 @@ export default function SurveyPage() {
     if (!selectedSurvey) return;
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import`, { method: 'POST', headers: H() });
     const d = await r.json();
-    showToast(d.success ? '✅ أُضيف الطبيب لقائمة أطبائك' : d.error ?? 'خطأ');
+    showToast(d.success ? `✅ ${d.message || 'أُضيف الطبيب لقائمة أطبائك'}` : `❌ ${d.error ?? 'خطأ'}`);
   };
 
   const importPharmacy = async (pharmaId: number) => {
     if (!selectedSurvey) return;
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/pharmacies/${pharmaId}/import`, { method: 'POST', headers: H() });
     const d = await r.json();
-    showToast(d.success ? '✅ أُضيفت الصيدلية لقائمتك' : d.error ?? 'خطأ');
+    showToast(d.success ? `✅ ${d.message || 'أُضيفت الصيدلية لقائمتك'}` : `❌ ${d.error ?? 'خطأ'}`);
   };
 
   // ── Edit Doctor Form ──
