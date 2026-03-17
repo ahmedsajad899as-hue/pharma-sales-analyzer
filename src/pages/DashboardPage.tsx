@@ -2728,39 +2728,52 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* Item selector */}
               <div style={{ marginBottom: '16px', position: 'relative' }}>
                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📦 الايتم</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="ابحث باسم الايتم..."
-                  value={clItemName}
-                  autoComplete="off"
-                  onChange={e => {
-                    const v = e.target.value;
-                    setClItemName(v);
-                    setClItemId('');
-                    if (!v.trim()) { setClItemSugg([]); setClItemShowSugg(false); return; }
-                    const lv = v.toLowerCase();
-                    const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 8);
-                    setClItemSugg(matches);
-                    setClItemShowSugg(true);
-                  }}
-                  onBlur={() => setTimeout(() => {
-                    setClItemShowSugg(false);
-                    // Auto-resolve: if text set but no ID yet, pick the first exact/partial match
-                    if (!clItemId && clItemName.trim()) {
-                      const lv = clItemName.trim().toLowerCase();
-                      const first = clItemSugg[0] ?? clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
-                      if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
-                    }
-                  }, 200)}
-                  onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                />
-                {clItemId && (
-                  <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(4px)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
-                )}
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ابحث باسم الايتم..."
+                    value={clItemName}
+                    autoComplete="off"
+                    onChange={e => {
+                      const v = e.target.value;
+                      setClItemName(v);
+                      setClItemId('');
+                      if (!v.trim()) { setClItemSugg([]); setClItemShowSugg(false); return; }
+                      const lv = v.toLowerCase();
+                      const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 8);
+                      setClItemSugg(matches);
+                      setClItemShowSugg(true);
+                    }}
+                    onBlur={() => setTimeout(() => {
+                      setClItemShowSugg(false);
+                      // Auto-resolve: if text set but no ID yet, pick the first exact/partial match
+                      if (!clItemId && clItemName.trim()) {
+                        const lv = clItemName.trim().toLowerCase();
+                        const first = clItemSugg[0] ?? clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
+                        if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
+                      }
+                    }, 200)}
+                    onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
+                    style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '36px' }}
+                  />
+                  {/* Dropdown arrow button */}
+                  <button
+                    type="button"
+                    onMouseDown={e => {
+                      e.preventDefault();
+                      if (clItemShowSugg) { setClItemShowSugg(false); return; }
+                      setClItemSugg(clAllItems.slice(0, 50));
+                      setClItemShowSugg(true);
+                    }}
+                    style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', color: '#6b7280', fontSize: '12px', lineHeight: 1 }}
+                  >▼</button>
+                  {clItemId && (
+                    <span style={{ position: 'absolute', left: '30px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
+                  )}
+                </div>
                 {clItemShowSugg && clItemSugg.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden', maxHeight: '220px', overflowY: 'auto' }}>
                     {clItemSugg.map((item: any) => (
                       <div
                         key={item.id}
