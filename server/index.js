@@ -176,11 +176,36 @@ app.post('/api/ors/route', async (req, res) => {
 app.get('/api/areas', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
-    const areas = await prisma.area.findMany({
-      where: userId ? { userId } : {},
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
-    });
+    const role   = req.user?.role ?? '';
+
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const isFieldRep  = FIELD_ROLES.includes(role);
+
+    let areas;
+
+    if (isFieldRep && userId) {
+      // جلب المناطق المُعيَّنة للمندوب فقط عبر scientificRepArea
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      const linkedRepId = userRow?.linkedRepId;
+
+      if (linkedRepId) {
+        const repAreas = await prisma.scientificRepArea.findMany({
+          where: { scientificRepId: linkedRepId },
+          select: { area: { select: { id: true, name: true } } },
+        });
+        areas = repAreas.map(r => r.area).sort((a, b) => a.name.localeCompare(b.name));
+      } else {
+        areas = [];
+      }
+    } else {
+      // مدير: كل مناطقه
+      areas = await prisma.area.findMany({
+        where: userId ? { userId } : {},
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      });
+    }
+
     res.json({ success: true, data: areas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
