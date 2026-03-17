@@ -1,11 +1,12 @@
 [variables]
 NODE_VERSION = "20"
+NIXPACKS_NO_CACHE = "1"
 
 [phases.install]
-cmds = ["npm install --include=dev"]
+cmds = ["npm install --include=dev", "node_modules/.bin/prisma generate"]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
-cmd = "(node_modules/.bin/prisma generate && node_modules/.bin/prisma db push --accept-data-loss || echo 'db sync failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
+cmd = "(node_modules/.bin/prisma db push --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
