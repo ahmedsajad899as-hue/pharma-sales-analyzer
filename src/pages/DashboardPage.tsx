@@ -488,15 +488,32 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         // ── Step B: if not found in plan, search catalog ──
         if (!matchedFromPlan && transcribedName) {
           try {
-            // Fetch without server-side ?q= filter: Postgres ILIKE doesn't normalize Arabic
-            // (e.g. "أحمد" ≠ "احمد" in ILIKE). Fetch up to 50 catalog doctors and
-            // do all matching client-side with our Arabic-normalized fuzzy logic.
-            const endpoint = activePlan
-              ? `/api/monthly-plans/${activePlan.id}/available-doctors`
-              : `/api/doctors?q=${encodeURIComponent(cleanN(transcribedName).split(' ').filter(t => t.length >= 2)[0] ?? transcribedName)}`;
-            const dr = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-            const docList: any[] = await dr.json().catch(() => []);
-            const docs: any[] = Array.isArray(docList) ? docList : [];
+            // Strategy: run two parallel fetches — one with the original first token
+            // (catches DB entries stored WITH hamzas), one with the normalized token
+            // (catches DB entries stored WITHOUT hamzas). Merge and deduplicate results.
+            const normalizedTokens = cleanN(transcribedName).split(' ').filter(t => t.length >= 2);
+            const origTokens = transcribedName.trim().split(/\s+/).filter(t => t.length >= 2);
+            const normQ = normalizedTokens[0] ?? '';
+            const origQ = origTokens[0] ?? '';
+
+            const mkUrl = (q: string) => activePlan
+              ? `/api/monthly-plans/${activePlan.id}/available-doctors?q=${encodeURIComponent(q)}`
+              : `/api/doctors?q=${encodeURIComponent(q)}`;
+
+            const headers = { Authorization: `Bearer ${token}` };
+            const queries = normQ === origQ ? [normQ] : [normQ, origQ];
+            const results = await Promise.all(
+              queries.map(q => fetch(mkUrl(q), { headers }).then(r => r.json()).catch(() => []))
+            );
+            // Merge and deduplicate by doctor id
+            const seen = new Set<number>();
+            const docs: any[] = [];
+            for (const list of results) {
+              if (!Array.isArray(list)) continue;
+              for (const d of list) {
+                if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
+              }
+            }
 
             let exactDoc: any = null;
             let partialDoc: any = null;
