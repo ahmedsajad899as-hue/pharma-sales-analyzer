@@ -82,9 +82,10 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 1. query_visits            → استعلام زيارات أطباء أو صيدليات بمرونة تامة
 2. query_doctors           → الحصول على قائمة أسماء الأطباء (بدون زيارات)
 3. query_unvisited_doctors → أطباء لم تتم زيارتهم في فترة محددة أو منذ البداية
-4. navigate                → الانتقال لصفحة
-5. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
-6. unknown                 → لا يمكن فهم الطلب
+4. query_stats             → إحصائيات وملخص سريع للزيارات (كم زيارة، أكثر ايتم، أكثر منطقة...)
+5. navigate                → الانتقال لصفحة
+6. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
+7. unknown                 → لا يمكن فهم الطلب
 
 ═══ متى تستخدم query_unvisited_doctors ═══
 • "من لم يتم زيارته" / "أطباء ما تزاروا" / "الأطباء غير المزارين" → query_unvisited_doctors
@@ -94,6 +95,13 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 • "من لم يزره مندوب X" / "أطباء ما زارهم سعد" → query_unvisited_doctors + repName
 • إذا ذُكر تاريخ محدد → يعني ما تتم زيارتهم في تلك الفترة فقط
 • إذا لم يُذكر تاريخ → يعني ما تمت زيارتهم إطلاقاً
+
+═══ متى تستخدم query_stats ═══
+• "كم زيارة" / "كمية الزيارات" / "إحصائيات" / "ملخص الزيارات" / "تقرير سريع" → query_stats
+• "أكثر إيتم مزار" / "أكثر منطقة فيها زيارات" / "أكثر مندوب زيارة" → query_stats + groupBy مناسب
+• "إحصائيات هذا الشهر" / "ملخص شهر X" / "كم زيارة لإيتم X" → query_stats
+• "نسبة الزيارات" / "توزيع الزيارات" / "إجمالي" → query_stats
+• استخدم query_stats عند السؤال عن أعداد وإحصائيات لا عن قائمة تفصيلية
 
 ═══ متى تستخدم query_doctors بدلاً من query_visits ═══
 • "شنو الأطباء في منطقة X" / "من هم أطباء منطقة X" / "اسماء أطباء X" → query_doctors
@@ -163,18 +171,32 @@ limit     : عدد النتائج (افتراضي 100)
 
 ═══ فلاتر query_visits ═══
 visitType    : "doctor" | "pharmacy" | null  (دائماً "doctor" ما لم يذكر صيدلية/صيدليات)
-areaName     : اسم المنطقة (مثل: الحارثية, المعيقلية...) أو null
+areaName     : اسم منطقة واحدة (مثل: الحارثية, المعيقلية...) أو null
+areaNames    : مصفوفة أسماء مناطق للبحث في أكثر من منطقة — مثال: ["الحارثية","المعيقلية"] أو null
 repName      : اسم المندوب أو null
 doctorName   : اسم الطبيب أو null (للأطباء فقط)
 pharmacyName : اسم الصيدلية أو null (للصيدليات فقط)
 itemName     : اسم الإيتم أو null
+specialty    : تخصص الطبيب (مثل: قلب، عيون، جلدية، عام، أطفال...) أو null
 feedback     : مصفوفة من القيم أو قيمة واحدة أو null — مثال: ["writing","interested"] أو "stocked" أو null
                القيم المتاحة: writing | stocked | interested | not_interested | unavailable | pending
                (للأطباء فقط)
 day          : رقم اليوم 1-31 أو null
 month        : رقم الشهر 1-12 أو null
 year         : السنة أو null
+dateRelative : "today" | "tomorrow" | "yesterday" | "this_week" | null — يُستخدم بدلاً من day/month/year للتواريخ النسبية
 isDoubleVisit: true | false | null
+
+═══ فلاتر query_stats ═══
+visitType    : "doctor" | "pharmacy" | "all" | null
+repName      : اسم المندوب أو null
+areaName     : اسم منطقة أو null
+itemName     : اسم إيتم أو null
+day          : رقم اليوم أو null
+month        : رقم الشهر أو null
+year         : السنة أو null
+dateRelative : "today" | "tomorrow" | "yesterday" | "this_week" | null
+groupBy (لـ query_stats): "area" | "item" | "rep" | "feedback" | "date" | null
 
 ═══ groupBy خيارات ═══
 null        → قائمة مباشرة
@@ -190,11 +212,17 @@ null        → قائمة مباشرة
 • "صيدلية"/"صيدليات"/"فارماسي"/"صيدلانية" → visitType:"pharmacy"
 • أي اسم منطقة مذكور (مثل الحارثية, المعيقلية...) → areaName:"اسم المنطقة"
 • إذا ذُكرت منطقة فقط (بدون طبيب بعينه) → groupBy:"doctor" تلقائياً
+• إذا ذُكرت منطقتان أو أكثر → areaNames:["منطقة1","منطقة2"]
+• إذا ذُكر تخصص طبيب → specialty:"التخصص"
 • صيدليات + منطقة → visitType:"pharmacy", areaName:"...", groupBy:"pharmacy"
 • "يوم 10" / "في العاشر" → day:10, month:${curMonth}
 • "هذا الشهر" / "الشهر الحالي" → month:${curMonth}, year:${curYear}
 • "الشهر الماضي" → month:${curMonth === 1 ? 12 : curMonth - 1}, year:${curMonth === 1 ? curYear - 1 : curYear}
-• "اليوم" → day:${curDay}, month:${curMonth}, year:${curYear}
+• "اليوم" / "اليوم الحالي" / "هاليوم" → dateRelative:"today"
+• "غدا" / "غداً" / "بكرا" / "بكره" / "اليوم التالي" / "اليوم القادم" → dateRelative:"tomorrow"
+• "أمس" / "البارحة" / "أمسية" / "اليوم الماضي" → dateRelative:"yesterday"
+• "هذا الأسبوع" / "الأسبوع الحالي" / "هالأسبوع" → dateRelative:"this_week"
+• إذا ذُكر يوم بدون تاريخ نسبي → استخدم day+month (month الحالي هو ${curMonth})
 • "حسب الأيتمات"/"لكل إيتم" → groupBy:"item"
 • "حسب الأطباء"/"لكل طبيب" → groupBy:"doctor"
 • "حسب المندوبين"/"لكل مندوب" → groupBy:"rep"
@@ -218,7 +246,7 @@ null        → قائمة مباشرة
 
 ═══ صيغة الرد (JSON فقط) ═══
 {
-  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "navigate" | "page_action" | "unknown",
+  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "navigate" | "page_action" | "unknown",
   "navigatePage": null,
   "pageAction": null,
   "pageActionParam": null,
@@ -230,11 +258,13 @@ null        → قائمة مباشرة
     "doctorName": null,
     "pharmacyName": null,
     "itemName": null,
+    "specialty": null,
     "feedback": null,
     "feedbackList": null,
     "day": null,
     "month": null,
     "year": null,
+    "dateRelative": null,
     "isDoubleVisit": null
   },
   "groupBy": null,
@@ -249,6 +279,46 @@ null        → قائمة مباشرة
 // ── Date filter builder ───────────────────────────────────────
 function buildDateFilter(filters) {
   const now = new Date();
+
+  // Handle relative dates first
+  if (filters.dateRelative) {
+    switch (filters.dateRelative) {
+      case 'today': {
+        return {
+          gte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0),
+          lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59),
+        };
+      }
+      case 'tomorrow': {
+        const tom = new Date(now);
+        tom.setDate(tom.getDate() + 1);
+        return {
+          gte: new Date(tom.getFullYear(), tom.getMonth(), tom.getDate(), 0, 0, 0),
+          lte: new Date(tom.getFullYear(), tom.getMonth(), tom.getDate(), 23, 59, 59),
+        };
+      }
+      case 'yesterday': {
+        const yes = new Date(now);
+        yes.setDate(yes.getDate() - 1);
+        return {
+          gte: new Date(yes.getFullYear(), yes.getMonth(), yes.getDate(), 0, 0, 0),
+          lte: new Date(yes.getFullYear(), yes.getMonth(), yes.getDate(), 23, 59, 59),
+        };
+      }
+      case 'this_week': {
+        const day = now.getDay(); // 0=Sun
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - day);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        return {
+          gte: new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate(), 0, 0, 0),
+          lte: new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate(), 23, 59, 59),
+        };
+      }
+    }
+  }
+
   const yr  = filters.year  || now.getFullYear();
   const mo  = filters.month ?? null;
   const dy  = filters.day   ?? null;
@@ -269,7 +339,14 @@ async function executeDoctorQuery(spec, userId, areasList) {
   if (userId) where.userId = userId;
 
   // areaName filter — resolve to doctor.areaId via nested filter
-  if (filters.areaName) {
+  if (filters.areaNames && Array.isArray(filters.areaNames) && filters.areaNames.length > 0) {
+    const areaIds = [];
+    for (const name of filters.areaNames) {
+      const area = fuzzyFind(areasList, 'name', name);
+      if (area) areaIds.push(area.id);
+    }
+    if (areaIds.length > 0) where.doctor = { areaId: { in: areaIds } };
+  } else if (filters.areaName) {
     const area = fuzzyFind(areasList, 'name', filters.areaName);
     if (!area) return { found: false, message: `\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u0639\u062b\u0648\u0631 \u0639\u0644\u0649 \u0645\u0646\u0637\u0642\u0629 "\u200f${filters.areaName}\u200f"` };
     where.doctor = { areaId: area.id };
@@ -306,6 +383,11 @@ async function executeDoctorQuery(spec, userId, areasList) {
     const found = fuzzyFind(list, 'name', filters.itemName);
     if (!found) return { found: false, message: `\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u0639\u062b\u0648\u0631 \u0639\u0644\u0649 \u0625\u064a\u062a\u0645 "\u200f${filters.itemName}\u200f"` };
     where.itemId = found.id;
+  }
+
+  // specialty filter — filter by doctor's specialty
+  if (filters.specialty) {
+    where.doctor = { ...( where.doctor ?? {}), specialty: { contains: filters.specialty } };
   }
 
   // feedback — supports single string or array
@@ -375,6 +457,195 @@ async function executeDoctorQuery(spec, userId, areasList) {
   }
 
   return { found: true, type: 'visits_list', visitType: 'doctor', totalVisits: visits.length, visits: visits.map(mapVisit) };
+}
+
+// ── Execute: Stats Summary ────────────────────────────────────
+async function executeStatsQuery(spec, userId) {
+  const { filters = {}, groupBy } = spec;
+  const areasList = await prisma.area.findMany({
+    where: userId ? { userId } : {},
+    select: { id: true, name: true },
+    take: 200,
+  }).catch(() => []);
+
+  const dateFilter = buildDateFilter(filters);
+  const baseWhere = {};
+  if (userId) baseWhere.userId = userId;
+
+  // Area filter
+  if (filters.areaName) {
+    const area = fuzzyFind(areasList, 'name', filters.areaName);
+    if (area) baseWhere.doctor = { areaId: area.id };
+  }
+
+  // Rep filter
+  let repId = null;
+  if (filters.repName) {
+    const list = await prisma.scientificRepresentative.findMany({
+      where: userId ? { userId } : {},
+      select: { id: true, name: true },
+    });
+    const found = fuzzyFind(list, 'name', filters.repName);
+    if (found) { repId = found.id; baseWhere.scientificRepId = found.id; }
+  }
+
+  // Item filter
+  let itemId = null;
+  if (filters.itemName) {
+    const list = await prisma.item.findMany({
+      where: userId ? { userId } : {},
+      select: { id: true, name: true },
+    });
+    const found = fuzzyFind(list, 'name', filters.itemName);
+    if (found) { itemId = found.id; baseWhere.itemId = found.id; }
+  }
+
+  if (dateFilter) baseWhere.visitDate = dateFilter;
+
+  const visitType = filters.visitType || 'doctor';
+
+  // Count doctor visits
+  let doctorTotal = 0;
+  let doctorByGroup = [];
+  if (visitType !== 'pharmacy') {
+    doctorTotal = await prisma.doctorVisit.count({ where: baseWhere }).catch(() => 0);
+
+    if (groupBy === 'area') {
+      const rows = await prisma.doctorVisit.groupBy({
+        by: ['doctorId'],
+        where: baseWhere,
+        _count: { _all: true },
+        orderBy: { _count: { doctorId: 'desc' } },
+        take: 100,
+      }).catch(() => []);
+      // Aggregate by area
+      const doctorIds = rows.map(r => r.doctorId);
+      const doctors = await prisma.doctor.findMany({
+        where: { id: { in: doctorIds } },
+        include: { area: { select: { name: true } } },
+      }).catch(() => []);
+      const docMap = new Map(doctors.map(d => [d.id, d.area?.name || 'بدون منطقة']));
+      const areaCount = new Map();
+      for (const r of rows) {
+        const aName = docMap.get(r.doctorId) || 'بدون منطقة';
+        areaCount.set(aName, (areaCount.get(aName) || 0) + r._count._all);
+      }
+      doctorByGroup = Array.from(areaCount.entries())
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+    } else if (groupBy === 'item') {
+      const rows = await prisma.doctorVisit.groupBy({
+        by: ['itemId'],
+        where: baseWhere,
+        _count: { _all: true },
+        orderBy: { _count: { itemId: 'desc' } },
+        take: 10,
+      }).catch(() => []);
+      const itemIds = rows.map(r => r.itemId).filter(Boolean);
+      const items = await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, name: true } }).catch(() => []);
+      const itemMap = new Map(items.map(i => [i.id, i.name]));
+      doctorByGroup = rows.map(r => ({ key: itemMap.get(r.itemId) || 'بدون إيتم', count: r._count._all })).sort((a, b) => b.count - a.count);
+    } else if (groupBy === 'rep') {
+      const rows = await prisma.doctorVisit.groupBy({
+        by: ['scientificRepId'],
+        where: baseWhere,
+        _count: { _all: true },
+        orderBy: { _count: { scientificRepId: 'desc' } },
+        take: 10,
+      }).catch(() => []);
+      const repIds = rows.map(r => r.scientificRepId).filter(Boolean);
+      const reps = await prisma.scientificRepresentative.findMany({ where: { id: { in: repIds } }, select: { id: true, name: true } }).catch(() => []);
+      const repMap = new Map(reps.map(r => [r.id, r.name]));
+      doctorByGroup = rows.map(r => ({ key: repMap.get(r.scientificRepId) || 'غير محدد', count: r._count._all })).sort((a, b) => b.count - a.count);
+    } else if (groupBy === 'feedback') {
+      const rows = await prisma.doctorVisit.groupBy({
+        by: ['feedback'],
+        where: baseWhere,
+        _count: { _all: true },
+        orderBy: { _count: { feedback: 'desc' } },
+      }).catch(() => []);
+      doctorByGroup = rows.map(r => ({ key: FEEDBACK_AR[r.feedback] || r.feedback, count: r._count._all })).sort((a, b) => b.count - a.count);
+    } else if (groupBy === 'date') {
+      const visits = await prisma.doctorVisit.findMany({
+        where: baseWhere,
+        select: { visitDate: true },
+        orderBy: { visitDate: 'asc' },
+        take: 500,
+      }).catch(() => []);
+      const dateCount = new Map();
+      for (const v of visits) {
+        const d = new Date(v.visitDate);
+        const key = `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+        dateCount.set(key, (dateCount.get(key) || 0) + 1);
+      }
+      doctorByGroup = Array.from(dateCount.entries()).map(([key, count]) => ({ key, count }));
+    } else {
+      // Default: top 5 by area, item, rep
+      const [byArea, byItem, byRep, byFeedback] = await Promise.all([
+        prisma.doctorVisit.groupBy({ by: ['doctorId'], where: baseWhere, _count: { _all: true }, take: 200 }).catch(() => []),
+        prisma.doctorVisit.groupBy({ by: ['itemId'], where: baseWhere, _count: { _all: true }, orderBy: { _count: { itemId: 'desc' } }, take: 5 }).catch(() => []),
+        prisma.doctorVisit.groupBy({ by: ['scientificRepId'], where: baseWhere, _count: { _all: true }, orderBy: { _count: { scientificRepId: 'desc' } }, take: 5 }).catch(() => []),
+        prisma.doctorVisit.groupBy({ by: ['feedback'], where: baseWhere, _count: { _all: true }, orderBy: { _count: { feedback: 'desc' } } }).catch(() => []),
+      ]);
+
+      // Enrich areas
+      const dIds = byArea.map(r => r.doctorId);
+      const docs = await prisma.doctor.findMany({ where: { id: { in: dIds } }, include: { area: { select: { name: true } } } }).catch(() => []);
+      const dMap = new Map(docs.map(d => [d.id, d.area?.name || 'بدون منطقة']));
+      const areaCountMap = new Map();
+      for (const r of byArea) {
+        const a = dMap.get(r.doctorId) || 'بدون منطقة';
+        areaCountMap.set(a, (areaCountMap.get(a) || 0) + r._count._all);
+      }
+      const topAreas = Array.from(areaCountMap.entries()).map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+
+      // Enrich items
+      const iIds = byItem.map(r => r.itemId).filter(Boolean);
+      const items = await prisma.item.findMany({ where: { id: { in: iIds } }, select: { id: true, name: true } }).catch(() => []);
+      const iMap = new Map(items.map(i => [i.id, i.name]));
+      const topItems = byItem.map(r => ({ key: iMap.get(r.itemId) || 'بدون إيتم', count: r._count._all }));
+
+      // Enrich reps
+      const rIds = byRep.map(r => r.scientificRepId).filter(Boolean);
+      const repsList = await prisma.scientificRepresentative.findMany({ where: { id: { in: rIds } }, select: { id: true, name: true } }).catch(() => []);
+      const rMap = new Map(repsList.map(r => [r.id, r.name]));
+      const topReps = byRep.map(r => ({ key: rMap.get(r.scientificRepId) || 'غير محدد', count: r._count._all }));
+
+      const feedbackBreakdown = byFeedback.map(r => ({ key: FEEDBACK_AR[r.feedback] || r.feedback, count: r._count._all }));
+
+      return {
+        found: true,
+        type: 'stats_summary',
+        visitType: 'doctor',
+        totalVisits: doctorTotal,
+        topAreas,
+        topItems,
+        topReps,
+        feedbackBreakdown,
+      };
+    }
+  }
+
+  // Pharmacy stats (if needed)
+  let pharmTotal = 0;
+  if (visitType === 'pharmacy' || visitType === 'all') {
+    const pharmWhere = {};
+    if (userId) pharmWhere.userId = userId;
+    if (dateFilter) pharmWhere.visitDate = dateFilter;
+    pharmTotal = await prisma.pharmacyVisit.count({ where: pharmWhere }).catch(() => 0);
+  }
+
+  return {
+    found: true,
+    type: 'stats_summary',
+    visitType,
+    totalVisits: doctorTotal + pharmTotal,
+    doctorVisits: visitType !== 'pharmacy' ? doctorTotal : undefined,
+    pharmacyVisits: visitType !== 'doctor' ? pharmTotal : undefined,
+    breakdown: doctorByGroup,
+    groupBy,
+  };
 }
 
 // ── Execute: Pharmacy Visits ─────────────────────────────────
@@ -1217,6 +1488,8 @@ export async function handleCommand(req, res) {
       queryResult = await executeDoctorListQuery(parsed, userId);
     } else if (parsed.action === 'query_unvisited_doctors') {
       queryResult = await executeUnvisitedDoctorsQuery(parsed, userId);
+    } else if (parsed.action === 'query_stats') {
+      queryResult = await executeStatsQuery(parsed, userId);
     }
 
     const validPages = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis'];

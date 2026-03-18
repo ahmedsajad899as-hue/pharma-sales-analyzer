@@ -49,15 +49,24 @@ interface QueryResult {
        | 'invoices_list' | 'invoices_grouped'
        | 'sales_list' | 'sales_grouped'
        | 'returns_list'
-       | 'survey_list' | 'survey_grouped';
-  visitType?: 'doctor' | 'pharmacy';
+       | 'survey_list' | 'survey_grouped'
+       | 'stats_summary';
+  visitType?: 'doctor' | 'pharmacy' | 'all';
   groupBy?: string;
   totalVisits?: number;
+  doctorVisits?: number;
+  pharmacyVisits?: number;
   totalDoctors?: number;
   allVisited?: boolean;
   groups?: any[];
   visits?: (VisitRow | PharmacyVisitRow)[];
   doctors?: DoctorListRow[];
+  // stats
+  topAreas?: { key: string; count: number }[];
+  topItems?: { key: string; count: number }[];
+  topReps?: { key: string; count: number }[];
+  feedbackBreakdown?: { key: string; count: number }[];
+  breakdown?: { key: string; count: number }[];
   // invoices
   summary?: any;
   invoices?: any[];
@@ -514,6 +523,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                       {h.result.action === 'query_visits' ? '📊 نتائج زيارات'
                         : h.result.action === 'query_doctors' ? '🩺 قائمة أطباء'
                         : h.result.action === 'query_unvisited_doctors' ? '⚠️ أطباء لم تتم زيارتهم'
+                        : h.result.action === 'query_stats' ? '📈 إحصائيات'
                         : h.result.action === 'navigate' ? `🔀 انتقال: ${h.result.navigatePage}`
                         : h.result.action === 'page_action' ? `⚡ إجراء: ${h.result.pageAction}`
                         : '💡 رد'}
@@ -1107,6 +1117,98 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         </div>
                       ))}
                     </div>
+                  </div>
+                );
+              }
+
+              // ── stats_summary ─────────────────────────────────────────
+              if (qr?.type === 'stats_summary') {
+                const statColors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+                const renderBar = (items: { key: string; count: number }[], color: string) => {
+                  if (!items || items.length === 0) return null;
+                  const max = Math.max(...items.map(i => i.count), 1);
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {items.map((it, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: '#374151', minWidth: 90, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.key}</div>
+                          <div style={{ flex: 1, height: 14, background: '#f1f5f9', borderRadius: 7, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${(it.count / max) * 100}%`, background: color, borderRadius: 7, transition: 'width 0.4s ease' }} />
+                          </div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color, minWidth: 24, textAlign: 'left' }}>{it.count}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                };
+
+                const hasBreakdown = qr.breakdown && qr.breakdown.length > 0;
+                const groupLabel = qr.groupBy === 'area' ? 'المنطقة'
+                  : qr.groupBy === 'item' ? 'الإيتم'
+                  : qr.groupBy === 'rep' ? 'المندوب'
+                  : qr.groupBy === 'feedback' ? 'التفاعل'
+                  : qr.groupBy === 'date' ? 'التاريخ' : null;
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Total count card */}
+                    <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', borderRadius: 12, padding: '14px 16px', color: '#fff', textAlign: 'center' }}>
+                      <div style={{ fontSize: 32, fontWeight: 800 }}>{qr.totalVisits ?? 0}</div>
+                      <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>
+                        {qr.visitType === 'pharmacy' ? 'إجمالي زيارات الصيدليات' : 'إجمالي الزيارات'}
+                      </div>
+                      {qr.doctorVisits !== undefined && qr.pharmacyVisits !== undefined && (
+                        <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
+                          🩺 أطباء: {qr.doctorVisits} · 🏪 صيدليات: {qr.pharmacyVisits}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Breakdown if grouped */}
+                    {hasBreakdown && groupLabel && (
+                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #e0e7ff' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>
+                          📊 توزيع حسب {groupLabel}
+                        </div>
+                        {renderBar(qr.breakdown!, statColors[0])}
+                      </div>
+                    )}
+
+                    {/* Full breakdown for ungrouped stats */}
+                    {!hasBreakdown && (
+                      <>
+                        {qr.topAreas && qr.topAreas.length > 0 && (
+                          <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #e0e7ff' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>📍 أكثر المناطق زيارة</div>
+                            {renderBar(qr.topAreas, '#6366f1')}
+                          </div>
+                        )}
+                        {qr.topItems && qr.topItems.length > 0 && (
+                          <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #a7f3d0' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8 }}>💊 أكثر الإيتمات زيارة</div>
+                            {renderBar(qr.topItems, '#10b981')}
+                          </div>
+                        )}
+                        {qr.topReps && qr.topReps.length > 0 && (
+                          <div style={{ background: '#fffbeb', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #fde68a' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>👤 أكثر المندوبين زيارة</div>
+                            {renderBar(qr.topReps, '#f59e0b')}
+                          </div>
+                        )}
+                        {qr.feedbackBreakdown && qr.feedbackBreakdown.length > 0 && (
+                          <div style={{ background: '#fdf2f8', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #f9a8d4' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#9d174d', marginBottom: 8 }}>📝 توزيع التفاعل</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {qr.feedbackBreakdown.map((fb, i) => (
+                                <div key={i} style={{ background: '#fff', border: '1px solid #f9a8d4', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600, color: '#9d174d' }}>
+                                  {fb.key}: <strong>{fb.count}</strong>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 );
               }
