@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { cachedFetch, invalidateCache, getCached } from '../utils/apiCache';
 import * as XLSX from 'xlsx';
 import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
@@ -123,7 +124,8 @@ export default function MonthlyPlansPage() {
   const [plans, setPlans]         = useState<Plan[]>([]);
   const [reps, setReps]           = useState<ScientificRep[]>([]);
   const [items, setItems]         = useState<NamedItem[]>([]);
-  const [loading, setLoading]     = useState(true);
+  // Start with loading=false if we already have cached data so no spinner flashes
+  const [loading, setLoading]     = useState(() => !getCached('/api/monthly-plans') || !getCached('/api/scientific-reps'));
   const [error, setError]         = useState('');
 
   // Active plan view
@@ -312,41 +314,41 @@ export default function MonthlyPlansPage() {
     }, 50);
   };
 
+  const applyPlanData = useCallback((plJson: any, reJson: any, itJson: any) => {
+    if (plJson && !plJson.error) setPlans(Array.isArray(plJson) ? plJson : (Array.isArray(plJson?.data) ? plJson.data : []));
+    if (reJson && !reJson.error) setReps(Array.isArray(reJson) ? reJson : (Array.isArray(reJson?.data) ? reJson.data : []));
+    if (itJson) setItems(Array.isArray(itJson) ? itJson : (Array.isArray(itJson?.data) ? itJson.data : []));
+  }, []);
+
   const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
     setError('');
+    const h = H();
     try {
-      const h = H();
-      const [pl, re, it] = await Promise.all([
-        fetch(`${API}/api/monthly-plans`,   { headers: h }),
-        fetch(`${API}/api/scientific-reps`, { headers: h }),
-        fetch(`${API}/api/items`,           { headers: h }),
+      // stale-while-revalidate: serve cache immediately, refresh in background
+      const [plJson, reJson, itJson] = await Promise.all([
+        cachedFetch(`${API}/api/monthly-plans`,   { headers: h }, d => setPlans(Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []))),
+        cachedFetch(`${API}/api/scientific-reps`, { headers: h }, d => setReps(Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []))),
+        cachedFetch(`${API}/api/items`,           { headers: h }, d => setItems(Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []))),
       ]);
-      const plJson = await pl.json();
-      const reJson = await re.json();
-      const itJson = it.ok ? await it.json() : { data: [] };
-      if (!pl.ok) throw new Error(plJson.error ?? `خطأ ${pl.status}`);
-      if (!re.ok) throw new Error(reJson.error ?? `خطأ ${re.status}`);
-      setPlans(Array.isArray(plJson) ? plJson : (Array.isArray(plJson?.data) ? plJson.data : []));
-      setReps(Array.isArray(reJson) ? reJson : (Array.isArray(reJson?.data) ? reJson.data : []));
-      setItems(Array.isArray(itJson) ? itJson : (Array.isArray(itJson?.data) ? itJson.data : []));
-      // Restore last open plan after refresh
+      applyPlanData(plJson, reJson, itJson);
+      // Restore last open plan
       const savedPlanId = localStorage.getItem('lastPlanId');
       if (savedPlanId) {
         const id = parseInt(savedPlanId);
         if (!isNaN(id)) {
           try {
-            const r2 = await fetch(`${API}/api/monthly-plans/${id}`, { headers: h });
-            if (r2.ok) { const j2: Plan = await r2.json(); setActivePlan(j2); }
-            else { localStorage.removeItem('lastPlanId'); }
+            const planData = await cachedFetch(`${API}/api/monthly-plans/${id}`, { headers: h }, d => setActivePlan(d));
+            setActivePlan(planData);
           } catch { localStorage.removeItem('lastPlanId'); }
         }
       }
     } catch (e: any) { if (!silent) setError(e.message ?? 'خطأ في التحميل'); }
     finally { if (!silent) setLoading(false); }
-  }, [H]);
+  }, [H, applyPlanData]);
 
   useEffect(() => { load(); }, [load]);
+  // After cache-based load resolves, always clear spinner
+  useEffect(() => { setLoading(false); }, [plans]);
 
   // Listen for AI assistant page actions
   useEffect(() => {
@@ -493,8 +495,8 @@ export default function MonthlyPlansPage() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'فشل الإنشاء');
+      invalidateCache('/api/monthly-plans');
       await load();
-      setShowCreate(false);
     } catch (e: any) { alert(e.message); }
     finally { setCreating(false); }
   };
@@ -801,6 +803,7 @@ export default function MonthlyPlansPage() {
       const j = await r.json();
       setUploadResult(j);
       setUploadedFileName(file.name);
+      invalidateCache('/api/monthly-plans');
       await load();
     } catch (e: any) { alert(e.message); }
     finally { setUploading(false); }
@@ -1349,7 +1352,7 @@ export default function MonthlyPlansPage() {
 
         <button onClick={() => setShowCreate(true)} style={btnStyle('#3b82f6', true)}>+ جديد</button>
         <button
-          onClick={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+          onClick={async () => { setRefreshing(true); invalidateCache('/api/monthly-plans'); await load(); setRefreshing(false); }}
           disabled={refreshing}
           title="تحديث البيانات من الخادم"
           style={{ ...btnStyle('#64748b', true), padding: '6px 10px', minWidth: 36 }}>

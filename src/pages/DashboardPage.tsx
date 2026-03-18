@@ -5,6 +5,7 @@ import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
 const RepTrackingMap = lazy(() => import('../components/RepTrackingMap'));
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { cachedFetch, invalidateCache } from '../utils/apiCache';
 
 interface Stats { sciRepsCount: number; filesCount: number; areasCount: number; totalSales: number; totalReturns: number; }
 interface UploadedFile { id: number; originalName: string; rowCount: number; uploadedAt: string; _count?: { sales: number }; }
@@ -1108,6 +1109,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
       if (isScientificRep) lastCallTimeRef.current = Date.now(); // extend 30-min window
       // Refresh plan entries
+      invalidateCache('/api/monthly-plans');
       fetch(`/api/monthly-plans`, { headers: authH() })
         .then(r => r.json())
         .then(plans => {
@@ -1136,11 +1138,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
   // Load dashboard stats
   useEffect(() => {
-    fetch(`/api/dashboard/stats`, { headers: authH() })
-      .then(r => r.json())
+    cachedFetch(`/api/dashboard/stats`, { headers: authH() },
+      // background refresh → update stats silently
+      json => { if (json.success) setStats(json.data); setLoading(false); }
+    )
       .then(json => { if (json.success) setStats(json.data); })
       .catch(() => {})
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load active-files monetary stats whenever activeFileIds changes

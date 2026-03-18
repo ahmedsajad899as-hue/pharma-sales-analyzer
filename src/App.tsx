@@ -245,6 +245,19 @@ function AppInner() {
   const [mountedPages, setMountedPages] = useState<Set<PageId>>(() => new Set([activePage]));
   const prevActivePage = activePage;
 
+  // Pre-mount ALL pages in background after initial render so navigation is instant.
+  // Pages render hidden (display:none) and fetch their data silently.
+  // By the time the user taps a page icon, data is already loaded.
+  const allPageIds: PageId[] = [
+    'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
+    'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey',
+  ];
+  useEffect(() => {
+    const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 2000));
+    idle(() => setMountedPages(new Set(allPageIds)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const navigateTo = useCallback((page: PageId) => {
     localStorage.setItem('lastPage', page);
     // Only push a new history entry when moving to a different page.
