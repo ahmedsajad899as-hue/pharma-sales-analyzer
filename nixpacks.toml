@@ -3,10 +3,10 @@ NODE_VERSION = "20"
 NIXPACKS_NO_CACHE = "1"
 
 [phases.install]
-cmds = ["npm install --include=dev", "node_modules/.bin/prisma generate"]
+cmds = ["npm install --include=dev", "node_modules/.bin/prisma generate --schema prisma/schema.postgresql.prisma"]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
-cmd = "(node_modules/.bin/prisma db push --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
+cmd = "(node_modules/.bin/prisma db push --schema prisma/schema.postgresql.prisma --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
