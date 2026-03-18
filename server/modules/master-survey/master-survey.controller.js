@@ -197,7 +197,7 @@ export async function importAllDoctors(req, res, next) {
       userId,
     }));
 
-    const result = await prisma.doctor.createMany({ data, skipDuplicates: true });
+    const result = await prisma.doctor.createMany({ data });
     res.json({ success: true, count: result.count, message: `تم استيراد ${result.count} طبيب بنجاح` });
   } catch (e) { next(e); }
 }
