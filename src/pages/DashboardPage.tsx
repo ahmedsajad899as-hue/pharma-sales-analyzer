@@ -430,17 +430,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const TITLE_RE = /^(دكتور|دكتوره|د\.|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
         const cleanN = (s: string) => normAr(s.replace(TITLE_RE, ''));
 
-        // Token overlap ratio — voice-coverage weighted (handles partial names like "احمد" vs "احمد صالح عبدالله")
+        // Token overlap ratio — voice-coverage weighted
+        // Hard rule: if voice has ≥2 tokens, the LAST token (family/tribal name)
+        // MUST appear in the candidate's tokens, otherwise score = 0.
+        // This prevents "احمد الخفاجي" matching "احمد التميمي".
         const tokenOverlap = (a: string, b: string): number => {
           const ta = cleanN(a).split(' ').filter(t => t.length >= 2);
           const tb = cleanN(b).split(' ').filter(t => t.length >= 2);
           if (ta.length === 0 || tb.length === 0) return 0;
+          // Family name hard rule (last token of voice must be in candidate)
+          if (ta.length >= 2) {
+            const voiceFamilyName = ta[ta.length - 1];
+            if (!tb.includes(voiceFamilyName)) return 0;
+          }
           const matched = ta.filter(t => tb.includes(t)).length;
-          // Voice coverage: fraction of spoken tokens found in catalog name (primary)
-          const voiceCoverage  = matched / ta.length;
-          // Catalog coverage: fraction of catalog tokens found in voice (secondary)
+          const voiceCoverage   = matched / ta.length;
           const catalogCoverage = matched / tb.length;
-          // Weight voice heavily — user intentionally said these words
           return voiceCoverage * 0.7 + catalogCoverage * 0.3;
         };
 
@@ -468,7 +473,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           for (const e of planEntries) {
             const score = tokenOverlap(transcribedName, e.doctor.name);
             if (score >= 0.99) { exactEntry = e; break; }
-            if (score >= 0.4 && score > partialScore) { partialScore = score; partialEntry = e; }
+            if (score >= 0.6 && score > partialScore) { partialScore = score; partialEntry = e; }
           }
 
           if (exactEntry) {
@@ -522,7 +527,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             for (const d of docs) {
               const score = tokenOverlap(transcribedName, d.name);
               if (score >= 0.99) { exactDoc = d; break; }
-              if (score >= 0.4 && score > partialScore) { partialScore = score; partialDoc = d; }
+              if (score >= 0.6 && score > partialScore) { partialScore = score; partialDoc = d; }
             }
 
             if (exactDoc) {

@@ -1778,14 +1778,16 @@ export async function availableDoctors(req, res, next) {
         isActive: true,
         ...(q ? { name: { contains: String(q), mode: 'insensitive' } } : {}),
         id: { notIn: usedIds },
-        ...areaFilter,
+        // When searching by name (q provided): skip area filter so all 4167 doctors
+        // under this account are searchable. Area filter only applies when browsing.
+        ...(q ? {} : areaFilter),
       },
       select: {
         id: true, name: true, specialty: true, pharmacyName: true,
         areaId: true,
         area: { select: { name: true } },
       },
-      take: 50,
+      take: q ? 20 : 50,
       orderBy: { name: 'asc' },
     });
 
