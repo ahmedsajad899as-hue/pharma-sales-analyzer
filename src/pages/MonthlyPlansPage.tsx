@@ -1177,7 +1177,7 @@ export default function MonthlyPlansPage() {
   // ── Computed stats for active plan ──────────────────────────
   const planStats = useMemo(() => activePlan ? (() => {
     const doctorVisitCount = activePlan.entries.reduce((s, e) => s + e.visits.length, 0);
-    const totalVisits  = doctorVisitCount + pharmVisits.length;
+    const totalVisits  = doctorVisitCount;
     const visitedOnce  = activePlan.entries.filter(e => e.visits.length > 0).length;
     const feedbackCount: Record<string, number> = {};
     const feedbackDoctors: Record<string, { name: string; entryId: number }[]> = {};
