@@ -430,13 +430,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const TITLE_RE = /^(دكتور|دكتوره|د\.|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
         const cleanN = (s: string) => normAr(s.replace(TITLE_RE, ''));
 
-        // Token overlap ratio between two normalized name strings (0–1)
+        // Token overlap ratio — voice-coverage weighted (handles partial names like "احمد" vs "احمد صالح عبدالله")
         const tokenOverlap = (a: string, b: string): number => {
           const ta = cleanN(a).split(' ').filter(t => t.length >= 2);
           const tb = cleanN(b).split(' ').filter(t => t.length >= 2);
           if (ta.length === 0 || tb.length === 0) return 0;
           const matched = ta.filter(t => tb.includes(t)).length;
-          return matched / Math.max(ta.length, tb.length);
+          // Voice coverage: fraction of spoken tokens found in catalog name (primary)
+          const voiceCoverage  = matched / ta.length;
+          // Catalog coverage: fraction of catalog tokens found in voice (secondary)
+          const catalogCoverage = matched / tb.length;
+          // Weight voice heavily — user intentionally said these words
+          return voiceCoverage * 0.7 + catalogCoverage * 0.3;
         };
 
         const voiceUrl = activePlan
@@ -483,10 +488,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         // ── Step B: if not found in plan, search catalog ──
         if (!matchedFromPlan && transcribedName) {
           try {
-            const qs = encodeURIComponent(transcribedName);
+            // Fetch without server-side ?q= filter: Postgres ILIKE doesn't normalize Arabic
+            // (e.g. "أحمد" ≠ "احمد" in ILIKE). Fetch up to 50 catalog doctors and
+            // do all matching client-side with our Arabic-normalized fuzzy logic.
             const endpoint = activePlan
-              ? `/api/monthly-plans/${activePlan.id}/available-doctors?q=${qs}`
-              : `/api/doctors?q=${qs}`;
+              ? `/api/monthly-plans/${activePlan.id}/available-doctors`
+              : `/api/doctors?q=${encodeURIComponent(cleanN(transcribedName).split(' ').filter(t => t.length >= 2)[0] ?? transcribedName)}`;
             const dr = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
             const docList: any[] = await dr.json().catch(() => []);
             const docs: any[] = Array.isArray(docList) ? docList : [];
