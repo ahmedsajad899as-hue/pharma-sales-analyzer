@@ -448,7 +448,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         const visits: any[] = data.visits ?? [];
-        if (visits.length === 0) { setVoiceError('لم يتم التعرف على بيانات الزيارة'); setVoiceOverlay(false); return; }
+        if (visits.length === 0) { setVoiceError('لم يتم التعرف على اسم الطبيب — ابدأ بذكر اسم الطبيب بوضوح ثم حاول مجدداً'); return; }
         const v = visits[0];
         const transcribedName: string = v.doctorName || '';
 
@@ -540,7 +540,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         if (v.notes)    setClNotes(v.notes);
         setVoiceOverlay(false);
         openCallLog_noReset();
-      } catch (e: any) { setVoiceError('خطأ في التحليل: ' + (e.message ?? '')); setVoiceOverlay(false); }
+      } catch (e: any) { setVoiceError('خطأ في التحليل: ' + (e.message ?? '')); }
       finally { setVoiceParsing(false); }
     };
     try {
@@ -2265,7 +2265,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 )}
 
                 {voiceError && (
-                  <p style={{ fontSize: 13, color: '#ef4444', marginTop: 10 }}>{voiceError}</p>
+                  <div style={{ marginTop: 14, textAlign: 'center' }}>
+                    <p style={{ fontSize: 13, color: '#ef4444', marginBottom: 12 }}>⚠️ {voiceError}</p>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                      <button
+                        onClick={() => { setVoiceError(''); setVoiceReady(true); }}
+                        style={{ background: '#f97316', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                      >🎤 حاول مجدداً</button>
+                      <button
+                        onClick={stopVoice}
+                        style={{ background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}
+                      >إغلاق</button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
