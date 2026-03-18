@@ -444,11 +444,12 @@ model MonthlyPlan {
 
 // ─── Plan Entry: طبيب في البلان ──────────────────────────────
 model PlanEntry {
-  id           Int      @id @default(autoincrement())
-  planId       Int
-  doctorId     Int
-  targetVisits Int      @default(2) // عادةً زيارتان
-  createdAt    DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  planId        Int
+  doctorId      Int
+  targetVisits  Int      @default(2) // عادةً زيارتان
+  isExtraVisit  Boolean  @default(false) // true = طبيب خارج البلان، أُضيف عند التسجيل
+  createdAt     DateTime @default(now())
 
   plan        MonthlyPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
   doctor      Doctor          @relation(fields: [doctorId], references: [id])

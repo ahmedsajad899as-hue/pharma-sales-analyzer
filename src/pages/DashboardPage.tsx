@@ -978,7 +978,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const addRes = await fetch(`/api/monthly-plans/${activePlan.id}/entries`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authH() },
-          body: JSON.stringify({ doctorId }),
+          body: JSON.stringify({ doctorId, isExtraVisit: true }),
         });
         if (!addRes.ok) { const e = await addRes.json().catch(() => ({})); throw new Error(e.error || 'فشل إضافة الطبيب للبلان'); }
         const newEntry = await addRes.json();

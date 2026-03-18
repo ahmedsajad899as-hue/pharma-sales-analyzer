@@ -72,6 +72,7 @@ interface PharmVisitItem { id: number; pharmacyVisitId: number; itemId?: number 
 interface PharmVisit { id: number; pharmacyName: string; areaId?: number | null; areaName?: string | null; area?: { id: number; name: string } | null; scientificRepId: number; visitDate: string; notes?: string | null; isDoubleVisit: boolean; latitude?: number | null; longitude?: number | null; items: PharmVisitItem[]; likes: VisitLike[]; }
 interface PlanEntry {
   id: number; doctorId: number; targetVisits: number;
+  isExtraVisit?: boolean;
   doctor: Doctor; visits: DoctorVisit[];
   targetItems?: { id: number; item: NamedItem }[];
 }
@@ -1202,7 +1203,7 @@ export default function MonthlyPlansPage() {
   );
 
   const filteredEntries = useMemo(() => activePlan ? (() => {
-    let entries = activePlan.entries;
+    let entries = activePlan.entries.filter(e => !e.isExtraVisit);
     if (visitFilter === 'done')        entries = entries.filter(e => e.visits.length >= e.targetVisits);
     if (visitFilter === 'not_done')    entries = entries.filter(e => e.visits.length < e.targetVisits);
     if (visitFilter === 'voice_added') entries = entries.filter(e => voiceNewEntries.has(e.id));
@@ -1219,6 +1220,20 @@ export default function MonthlyPlansPage() {
       return false;
     });
   })() : [], [activePlan, visitFilter, voiceNewEntries, searchQuery]);
+
+  const extraEntries = useMemo(() => {
+    if (!activePlan) return [];
+    const entries = activePlan.entries.filter(e => e.isExtraVisit);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter(entry => {
+      const doc = entry.doctor;
+      if (doc.name?.toLowerCase().includes(q)) return true;
+      if (doc.specialty?.toLowerCase().includes(q)) return true;
+      if (doc.area?.name?.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [activePlan, searchQuery]);
 
   return (
     <div className="mp-shell" style={{ flexDirection: 'column', height: '100%' }}>
@@ -2590,7 +2605,7 @@ export default function MonthlyPlansPage() {
               </div>
               {searchQuery && (
                 <p style={{ margin: '5px 4px 0', fontSize: 12, color: '#6366f1', fontWeight: 700 }}>
-                  {filteredEntries.length} نتيجة من أصل {activePlan.entries.length}
+                  {filteredEntries.length} نتيجة من أصل {activePlan.entries.filter(e => !e.isExtraVisit).length}
                 </p>
               )}
             </div>
@@ -3180,6 +3195,54 @@ export default function MonthlyPlansPage() {
                 );
               })}
             </div>
+
+            {/* ── خارج البلان Section ── */}
+            {extraEntries.length > 0 && (
+              <div style={{ margin: '16px 0 0', padding: '0 2px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '10px 14px', background: '#fef3c7', border: '1.5px solid #fbbf24', borderRadius: 12 }}>
+                  <span style={{ fontSize: 16 }}>⚠️</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: '#92400e' }}>خارج البلان</span>
+                  <span style={{ background: '#f59e0b', color: '#fff', borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{extraEntries.length}</span>
+                  <span style={{ fontSize: 12, color: '#92400e', marginRight: 'auto' }}>أطباء تمت زيارتهم خارج البلان المحدد</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {extraEntries.map((entry) => {
+                    const visitCount = entry.visits.length;
+                    const lastVisit = entry.visits[entry.visits.length - 1];
+                    const lastFb = FEEDBACK_LABELS[lastVisit?.feedback ?? 'pending'];
+                    return (
+                      <div key={entry.id} style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: '#92400e' }}>{entry.doctor.name}</span>
+                          {entry.doctor.specialty && (
+                            <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', borderRadius: 6, padding: '1px 7px' }}>{entry.doctor.specialty}</span>
+                          )}
+                          {entry.doctor.area?.name && (
+                            <span style={{ fontSize: 11, color: '#0f766e', background: '#f0fdfa', borderRadius: 6, padding: '1px 7px', border: '1px solid #99f6e4' }}>📍 {entry.doctor.area.name}</span>
+                          )}
+                          <span style={{ fontSize: 11, color: '#92400e', background: '#fef3c7', borderRadius: 6, padding: '1px 7px', border: '1px solid #fde68a', marginRight: 'auto', fontWeight: 700 }}>
+                            {visitCount} زيارة
+                          </span>
+                          {lastFb && (
+                            <span style={{ fontSize: 11, fontWeight: 700, background: lastFb.bg, color: lastFb.color, borderRadius: 6, padding: '1px 8px' }}>{lastFb.label}</span>
+                          )}
+                        </div>
+                        {entry.visits.length > 0 && (
+                          <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {entry.visits.map(v => (
+                              <span key={v.id} style={{ fontSize: 10, color: '#64748b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '1px 7px' }}>
+                                {new Date(v.visitDate).toLocaleDateString('ar-IQ')}
+                                {v.item?.name ? ` · ${v.item.name}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ── Pharmacy Visits Section ── */}
             <div style={{ margin: '18px 0 0', padding: '0 2px' }}>

@@ -547,14 +547,14 @@ export async function remove(req, res, next) {
 export async function addEntry(req, res, next) {
   try {
     const planId   = parseInt(req.params.id);
-    const { doctorId, targetVisits } = req.body;
+    const { doctorId, targetVisits, isExtraVisit } = req.body;
 
     // Verify plan belongs to user (only owners can add entries)
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
     const entry = await prisma.planEntry.create({
-      data: { planId, doctorId: parseInt(doctorId), targetVisits: targetVisits ?? 2 },
+      data: { planId, doctorId: parseInt(doctorId), targetVisits: targetVisits ?? 2, isExtraVisit: Boolean(isExtraVisit) },
       include: { doctor: { include: { area: true, targetItem: true } } },
     });
     res.status(201).json(entry);
