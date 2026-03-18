@@ -368,7 +368,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       {/* ── MOBILE BOTTOM NAV ── */}
       {!['commercial_rep','commercial_team_leader','commercial_supervisor'].includes(role) && (
       <nav className="mobile-bottom-nav">
-        {visibleItems.slice(0, 5).map(item => (
+        {visibleItems.filter(item => item.id !== 'master-survey').slice(0, 5).map(item => (
           <button
             key={item.id}
             onClick={() => handleMobileNavigate(item.id)}

@@ -65,7 +65,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
   // ── Quick Call Log ──────────────────────────────────────────
   const [showCallLog, setShowCallLog]         = useState(false);
-  const [callsCompact, setCallsCompact]        = useState(false);
+  const [callsCompact, setCallsCompact]        = useState(true);
   const [activePlan, setActivePlan]           = useState<any>(null);
   const [clDoctor, setClDoctor]               = useState('');
   const [clSuggestions, setClSuggestions]     = useState<any[]>([]);
