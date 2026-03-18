@@ -100,6 +100,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clManualAreaSugg, setClManualAreaSugg]   = useState<any[]>([]);
   const [clManualAreaShow, setClManualAreaShow]   = useState(false);
   const [clMissingFields, setClMissingFields]     = useState<string[]>([]);  // missing fields for existing doctor
+  const [clDidYouMean, setClDidYouMean]           = useState<{ candidate: any; _inPlan: boolean } | null>(null);
   const [clAreas, setClAreas]                 = useState<any[]>([]);
   const [clItemId, setClItemId]               = useState('');
   const [clItemName, setClItemName]           = useState('');
@@ -422,6 +423,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         }
 
         // ── Doctor voice path ───────────────────────────────
+        // Fuzzy matching helpers (Arabic normalization)
+        const normAr = (s: string) => String(s ?? '').trim().toLowerCase()
+          .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
+        const TITLE_RE = /^(دكتور|دكتوره|د\.|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
+        const cleanN = (s: string) => normAr(s.replace(TITLE_RE, ''));
+
+        // Token overlap ratio between two normalized name strings (0–1)
+        const tokenOverlap = (a: string, b: string): number => {
+          const ta = cleanN(a).split(' ').filter(t => t.length >= 2);
+          const tb = cleanN(b).split(' ').filter(t => t.length >= 2);
+          if (ta.length === 0 || tb.length === 0) return 0;
+          const matched = ta.filter(t => tb.includes(t)).length;
+          return matched / Math.max(ta.length, tb.length);
+        };
+
         const voiceUrl = activePlan
           ? `/api/monthly-plans/${activePlan.id}/voice-record`
           : '/api/doctor-visits/voice-record';
@@ -433,52 +450,91 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const visits: any[] = data.visits ?? [];
         if (visits.length === 0) { setVoiceError('لم يتم التعرف على بيانات الزيارة'); setVoiceOverlay(false); return; }
         const v = visits[0];
-        if (v.entryId) {
-          const entry = (activePlan.entries ?? []).find((e: any) => e.id === v.entryId);
-          if (entry) {
-            setClDoctor(entry.doctor.name); setClSelectedEntry({ ...entry, _inPlan: true }); setClNotInPlan(false); setClOtherDoc(null);
-            if (v.itemName && !FEEDBACK_AR_WORDS.has(v.itemName.trim())) {
-              if (v.itemId) { setClItemId(String(v.itemId)); }
-              setClItemName(v.itemName);
-            } else {
-              const its = entry.targetItems ?? [];
-              if (its.length > 0) { setClItemId(String(its[0].item.id)); setClItemName(its[0].item.name); }
+        const transcribedName: string = v.doctorName || '';
+
+        // ── Step A: fuzzy match against active plan entries ──
+        let matchedFromPlan = false;
+        if (activePlan && transcribedName) {
+          const planEntries: any[] = activePlan.entries ?? [];
+          let exactEntry: any = null;
+          let partialEntry: any = null;
+          let partialScore = 0;
+
+          for (const e of planEntries) {
+            const score = tokenOverlap(transcribedName, e.doctor.name);
+            if (score >= 0.99) { exactEntry = e; break; }
+            if (score >= 0.4 && score > partialScore) { partialScore = score; partialEntry = e; }
+          }
+
+          if (exactEntry) {
+            selectClEntry({ ...exactEntry, _inPlan: true });
+            matchedFromPlan = true;
+          } else if (partialEntry) {
+            setClDoctor(transcribedName);
+            setClSuggestions([]);
+            setClSelectedEntry(null);
+            setClNotInPlan(false);
+            setClManualMode(false);
+            setClDidYouMean({ candidate: { ...partialEntry, _inPlan: true }, _inPlan: true });
+            matchedFromPlan = true;
+          }
+        }
+
+        // ── Step B: if not found in plan, search catalog ──
+        if (!matchedFromPlan && transcribedName) {
+          try {
+            const qs = encodeURIComponent(transcribedName);
+            const endpoint = activePlan
+              ? `/api/monthly-plans/${activePlan.id}/available-doctors?q=${qs}`
+              : `/api/doctors?q=${qs}`;
+            const dr = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+            const docList: any[] = await dr.json().catch(() => []);
+            const docs: any[] = Array.isArray(docList) ? docList : [];
+
+            let exactDoc: any = null;
+            let partialDoc: any = null;
+            let partialScore = 0;
+
+            for (const d of docs) {
+              const score = tokenOverlap(transcribedName, d.name);
+              if (score >= 0.99) { exactDoc = d; break; }
+              if (score >= 0.4 && score > partialScore) { partialScore = score; partialDoc = d; }
             }
-          }
-        } else if (v.doctorName) {
-          setClDoctor(v.doctorName); setClNotInPlan(true); setClAddToPlan(true);
-          const lv = v.doctorName.toLowerCase();
-          const catalog = clSuggestions.find((s: any) => !s._inPlan && s.doctor.name.toLowerCase().includes(lv));
-          if (catalog) { setClOtherDocId(catalog.doctor.id); setClOtherDoc(catalog.doctor); }
-          else {
-            setClManualMode(true);
-            if (v.specialty)    setClManualSpecialty(v.specialty);
-            if (v.pharmacyName) setClManualPharmacy(v.pharmacyName);
-            if (v.areaName) {
-              const matchArea = (areas: any[]) => {
-                const vn = (v.areaName as string).toLowerCase();
-                const matched = areas.find((a: any) => a.name.toLowerCase().includes(vn) || vn.includes(a.name.toLowerCase()));
-                if (matched) { setClManualAreaId(String(matched.id)); setClManualAreaName(matched.name); }
-                else { setClManualAreaName(v.areaName as string); }
-              };
-              if (clAreas.length > 0) {
-                matchArea(clAreas);
-              } else {
-                fetch('/api/areas', { headers: authH() })
-                  .then(r => r.json())
-                  .then(json => {
-                    const areas = Array.isArray(json.data) ? json.data : [];
-                    setClAreas(areas);
-                    matchArea(areas);
-                  })
-                  .catch(() => {});
-              }
+
+            if (exactDoc) {
+              selectClEntry({ doctor: exactDoc, id: null, targetItems: [], _inPlan: false });
+              matchedFromPlan = true;
+            } else if (partialDoc) {
+              setClDoctor(transcribedName);
+              setClSuggestions([]);
+              setClSelectedEntry(null);
+              setClNotInPlan(false);
+              setClManualMode(false);
+              setClDidYouMean({ candidate: { doctor: partialDoc, id: null, targetItems: [], _inPlan: false }, _inPlan: false });
+              matchedFromPlan = true;
             }
-          }
-          if (v.itemName && !FEEDBACK_AR_WORDS.has(v.itemName.trim())) {
-            if (v.itemId) { setClItemId(String(v.itemId)); }
-            setClItemName(v.itemName);
-          }
+          } catch { /* network error — fall through to manual */ }
+        }
+
+        // ── Step C: no match anywhere → manual entry ──
+        if (!matchedFromPlan) {
+          setClDoctor(transcribedName);
+          setClSuggestions([]);
+          setClSelectedEntry(null);
+          setClNotInPlan(true);
+          setClManualMode(true);
+          setClManualSpecialty(v.specialty || '');
+          setClManualPharmacy(v.pharmacyName || '');
+          setClManualAreaId('');
+          setClManualAreaName(v.areaName || '');
+          setClMissingFields(['specialty', 'pharmacy', 'area']);
+          setClDidYouMean(null);
+        }
+
+        // ── Fill shared fields (item, feedback, notes) ──
+        if (v.itemName && !['مهتم','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود'].includes(v.itemName.trim())) {
+          if (v.itemId) setClItemId(String(v.itemId));
+          setClItemName(v.itemName);
         }
         if (v.feedback) setClFeedback(v.feedback);
         if (v.notes)    setClNotes(v.notes);
@@ -679,6 +735,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClOtherDocId(null);
     setClOtherDoc(null);
     setClManualMode(false);
+    setClDidYouMean(null);
     if (!val.trim()) { setClSuggestions([]); setClShowSugg(false); return; }
     const lv = val.toLowerCase();
     if (!activePlan) {
@@ -722,17 +779,27 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClDoctor(entry.doctor.name);
     setClSuggestions([]);
     setClShowSugg(false);
-    // Compute which fields are missing for this doctor
-    const missing: string[] = [];
-    if (!entry.doctor.specialty) missing.push('specialty');
-    if (!entry.doctor.pharmacyName) missing.push('pharmacy');
-    if (!entry.doctor.area?.name) missing.push('area');
-    setClMissingFields(missing);
-    setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName('');
+    setClDidYouMean(null);
+    setClManualMode(false);
+
     if (entry._inPlan) {
+      // ── In-plan doctor ──
       setClSelectedEntry(entry);
       setClNotInPlan(false);
+      setClAddToPlan(false);
       setClOtherDocId(null);
+      setClOtherDoc(null);
+      // Compute missing fields for in-plan doctor
+      const missing: string[] = [];
+      if (!entry.doctor.specialty) missing.push('specialty');
+      if (!entry.doctor.pharmacyName) missing.push('pharmacy');
+      if (!entry.doctor.area?.name) missing.push('area');
+      setClMissingFields(missing);
+      // Prefill any missing fields from existing data
+      setClManualSpecialty(entry.doctor.specialty || '');
+      setClManualPharmacy(entry.doctor.pharmacyName || '');
+      setClManualAreaId(entry.doctor.areaId ? String(entry.doctor.areaId) : '');
+      setClManualAreaName(entry.doctor.area?.name || '');
       // Auto-select first target item if assigned
       const items = entry.targetItems ?? [];
       if (items.length > 0) {
@@ -740,12 +807,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setClItemName(items[0].item.name);
       }
     } else {
+      // ── Catalog (out-of-plan) doctor ──
       setClSelectedEntry(null);
       setClNotInPlan(true);
       setClAddToPlan(true);
       setClOtherDocId(entry.doctor.id);
       setClOtherDoc(entry.doctor);
-      setClManualMode(false);
+      // Always show all 3 fields for confirmation/editing (even if they exist)
+      setClMissingFields(['specialty', 'pharmacy', 'area']);
+      setClManualSpecialty(entry.doctor.specialty || '');
+      setClManualPharmacy(entry.doctor.pharmacyName || '');
+      setClManualAreaId(entry.doctor.areaId ? String(entry.doctor.areaId) : '');
+      setClManualAreaName(entry.doctor.area?.name || '');
     }
   };
 
@@ -2655,11 +2728,37 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </div>
               )}
 
+              {/* ── "هل تقصد؟" block — shown after voice input when partial match found ── */}
+              {clDidYouMean && (
+                <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '18px' }}>🔍</span>
+                  <span style={{ fontSize: '13px', color: '#1e3a5f', flex: 1 }}>
+                    هل تقصد <strong style={{ color: '#1d4ed8' }}>{clDidYouMean.candidate.doctor.name}</strong>؟
+                    {clDidYouMean.candidate.doctor.specialty && <span style={{ color: '#6b7280', marginRight: '6px', fontSize: '12px' }}> — {clDidYouMean.candidate.doctor.specialty}</span>}
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onMouseDown={() => selectClEntry(clDidYouMean.candidate)}
+                      style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}
+                    >نعم ✓</button>
+                    <button
+                      type="button"
+                      onMouseDown={() => { setClDidYouMean(null); setClManualMode(true); setClNotInPlan(true); setClMissingFields(['specialty','pharmacy','area']); }}
+                      style={{ background: '#f1f5f9', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '5px 14px', fontSize: '13px', cursor: 'pointer' }}
+                    >لا، اسمه مختلف</button>
+                  </div>
+                </div>
+              )}
+
               {/* Missing fields block for existing doctor (in-plan or catalog) */}
-              {!clManualMode && clMissingFields.length > 0 && (clSelectedEntry || clOtherDoc) && (
-                <div style={{ background: '#fff7ed', border: '2px solid #fb923c', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
-                  <div style={{ fontWeight: 700, fontSize: '13px', color: '#c2410c', marginBottom: '10px' }}>
-                    ⚠️ بيانات الطبيب غير مكتملة — يرجى تعبئة الحقول التالية قبل الإرسال <span style={{ color: '#ef4444' }}>*</span>
+              {!clManualMode && !clDidYouMean && clMissingFields.length > 0 && (clSelectedEntry || clOtherDoc) && (
+                <div style={{ background: clNotInPlan && clOtherDoc ? '#f0f9ff' : '#fff7ed', border: `2px solid ${clNotInPlan && clOtherDoc ? '#7dd3fc' : '#fb923c'}`, borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '13px', color: clNotInPlan && clOtherDoc ? '#0369a1' : '#c2410c', marginBottom: '10px' }}>
+                    {clNotInPlan && clOtherDoc
+                      ? '📋 تفاصيل الطبيب — راجع وعدّل إذا لزم'
+                      : '⚠️ بيانات الطبيب غير مكتملة — يرجى تعبئة الحقول التالية قبل الإرسال'
+                    } <span style={{ color: '#ef4444' }}>*</span>
                   </div>
                   <div style={{ display: 'grid', gap: '10px' }}>
                     {clMissingFields.includes('specialty') && (

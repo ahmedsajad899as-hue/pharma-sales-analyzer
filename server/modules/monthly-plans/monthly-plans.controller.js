@@ -1581,41 +1581,35 @@ export async function parseVoiceAudio(req, res, next) {
       'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'pending',
     };
 
-    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية في العراق.
-مهمتك: استخراج زيارات الأطباء المذكورة صوتياً فقط — بدقة تامة ودون أي اختراع.
+    const prompt = `أنت متخصص في تحويل التسجيلات الصوتية لمناديب المبيعات الطبية إلى بيانات منظمة.
 
-══ قواعد صارمة يجب اتباعها ══
+══ القاعدة الذهبية ══
+اكتب ما سمعته بالضبط — لا تستبدل أي اسم بأسماء من أي قائمة.
 
-[الاستخراج العام]
-1. إذا التسجيل فارغ أو غير واضح أو لا يُفهم → أرجع {"visits": []} فوراً
-2. لا تخترع أو تستنتج أي زيارة لم تُذكر صراحةً بالصوت
-3. قائمة الأطباء أدناه للمطابقة فقط — أرجع entryId الصحيح. الأطباء قد يُنادون بألقاب أو تختلف طريقة النطق — طابق بذكاء.
-4. إذا ذُكر طبيب بدون فيدباك واضح → feedback = "pending"
+══ اسم الطبيب ══
+• doctorName: اكتب اسم الطبيب كما نُطق في التسجيل تماماً، حتى لو كان غير مكتمل أو باللهجة
+• لا تستبدل الاسم المنطوق بأي اسم من قائمة البلان أدناه مهما كان التشابه
+• entryId: اتركه null دائماً — الكلايانت يتولى المطابقة
 
-[الاختصاص والصيدلية والمنطقة]
-5. specialty: اكتبه فقط إذا نطق المندوب بكلمة الاختصاص صراحةً. إذا لم يُقَل: specialty = ""
-6. pharmacyName: اكتبه فقط إذا ذكر المندوب اسم الصيدلية صراحةً. إذا لم يُقَل: pharmacyName = ""
-7. areaName: اكتبه فقط إذا ذكر المندوب المنطقة صراحةً. إذا لم يُقَل: areaName = ""
+══ الأيتمات/الأدوية ══
+• itemName: اكتب اسم الدواء أو الايتم كما نُطق في التسجيل
+• itemId: أرجعه فقط إذا كنت متأكداً 100% أنه من القائمة أدناه — وإلا null
+• كلمات الفيدباك (يكتب، مهتم، نزل...) لا تُعتبر أسماء أدوية
 
-[الأدوية/الأيتمات — قواعد صارمة]
-8. يُمنع منعاً باتاً إرجاع itemName من خارج قائمة الأيتمات أدناه
-9. إذا ذُكر أي اسم دواء أو منتج (حتى لو النطق غير مضبوط أو باللهجة العراقية):
-   - ابحث عن أقرب مطابقة في قائمة الأيتمات بالمعنى والنطق وليس الكتابة الحرفية فقط
-   - أرجع itemId الصحيح وitemName الدقيق كما هو مكتوب في القائمة
-   - مثال: "اليانت" ← ابحث عن ما يشبهه في القائمة وأرجع ذلك
-10. كلمات الفيدباك (يكتب، مهتم، نزل...) لا تُعتبر أسماء أدوية
+══ باقي الحقول ══
+• feedback: ${feedbackValues.join(' | ')} — المقابلات: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(' | ')}
+• إذا لم يُذكر فيدباك → feedback = "pending"
+• specialty / pharmacyName / areaName: فقط إذا ذُكرت صراحةً — وإلا ""
+• إذا التسجيل فارغ أو غير مفهوم → أرجع {"visits": []}
 
-══ قائمة الأطباء في البلان (للمطابقة — أرجع entryId) ══
-${doctorNames}
+══ قائمة أطباء البلان (مرجع فقط — لا تبدّل الأسماء بها) ══
+${doctorNames || '(لا يوجد بلان)'}
 
-══ قائمة الأيتمات/الأدوية (يجب الاختيار الإلزامي منها) ══
-${itemNames}
-
-قيم الفيدباك: ${feedbackValues.join(', ')}
-المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
+══ قائمة الأيتمات (للمساعدة في itemId فقط) ══
+${itemNames || '(لا توجد أيتمات)'}
 
 أرجع JSON فقط بدون أي نص آخر:
-{"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "الاسم الدقيق من القائمة", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
+{"visits": [{"entryId": null, "doctorName": "الاسم كما نُطق", "itemId": null, "itemName": "الايتم كما نُطق", "feedback": "pending", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
@@ -1636,7 +1630,7 @@ ${itemNames}
     const FEEDBACK_AR_SET = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود']);
     const isFeedbackWord = name => FEEDBACK_AR_SET.has(String(name ?? '').trim());
 
-    // Reuse same fuzzy item-matching logic
+    // Fuzzy item-matching: normalize + bigram similarity
     const normalize  = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
     const normAr2    = s => String(s ?? '').trim().toLowerCase().replace(/أ|إ|آ/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ');
     const itemMap    = new Map(allItems.map(it => [normalize(it.name), it]));
@@ -1654,7 +1648,7 @@ ${itemNames}
       for (const bg of ba) if (bb.has(bg)) shared++;
       return (2 * shared) / (ba.size + bb.size);
     };
-    const findItem   = (rawName) => {
+    const findItem = (rawName) => {
       const n = normalize(rawName);
       const nn = normAr2(rawName);
       if (!n) return null;
@@ -1674,71 +1668,7 @@ ${itemNames}
       return best;
     };
 
-    // Build a set of valid entry IDs and a name→entryId map for fuzzy matching
-    const entryMap = new Map(); // normalized name → entryId
-    const validEntryIds = new Set(plan.entries.map(e => e.id));
-    // Title prefixes to strip before matching (doctor titles, etc.)
-    const TITLE_PREFIXES = /^(دكتور|دكتوره|د\.|دكتوراه|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
-
-    const normalizeAr = s => String(s ?? '').trim().toLowerCase()
-      .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
-
-    // Strip title AND normalize
-    const cleanName = s => normalizeAr(s.replace(TITLE_PREFIXES, ''));
-
-    for (const e of plan.entries) {
-      entryMap.set(cleanName(e.doctor.name), e.id);
-    }
-
-    const findEntry = (rawName, geminiEntryId) => {
-      const n = cleanName(rawName);
-      if (!n) return null;
-
-      // 1. Exact match by cleaned name
-      if (entryMap.has(n)) return entryMap.get(n);
-
-      // 2. If Gemini suggested entryId AND the cleaned names are exactly equal → accept
-      if (geminiEntryId && validEntryIds.has(geminiEntryId)) {
-        const matchedEntry = plan.entries.find(e => e.id === geminiEntryId);
-        if (matchedEntry && cleanName(matchedEntry.doctor.name) === n) {
-          return geminiEntryId;
-        }
-      }
-
-      // 3. Strict containment: one name fully contains the other AND
-      //    the shorter must have >= 2 words AND cover >= 70% of the longer
-      for (const [key, id] of entryMap) {
-        if (key === n) return id; // exact (already checked but safe)
-        if (key.includes(n) || n.includes(key)) {
-          const shorter = Math.min(key.length, n.length);
-          const longer  = Math.max(key.length, n.length);
-          const shorterStr = key.length < n.length ? key : n;
-          const wordCount  = shorterStr.split(' ').filter(t => t.length >= 2).length;
-          if (wordCount >= 2 && shorter / longer >= 0.7) {
-            return id;
-          }
-        }
-      }
-
-      // 4. ALL tokens from voice name must appear in plan name (and vice versa)
-      //    Both must have >= 2 words and ALL must match
-      const nWords = n.split(' ').filter(t => t.length >= 2);
-      if (nWords.length >= 2) {
-        for (const [key, id] of entryMap) {
-          const keyWords = key.split(' ').filter(t => t.length >= 2);
-          if (keyWords.length >= 2) {
-            const allVoiceInPlan = nWords.every(t => keyWords.includes(t));
-            const allPlanInVoice = keyWords.every(t => nWords.includes(t));
-            if (allVoiceInPlan || allPlanInVoice) return id;
-          }
-        }
-      }
-
-      // No confident match → return null (user picks from dropdown)
-      return null;
-    };
-
+    // entryId is always null — client handles doctor matching via fuzzy logic
     const visits = (parsed.visits || []).map(v => {
       let itemId = v.itemId || null;
       let itemName = v.itemName || '';
@@ -1748,10 +1678,8 @@ ${itemNames}
         const match = findItem(itemName);
         if (match) { itemId = match.id; itemName = match.name; }
       }
-      // Validate/resolve entryId — null means doctor is NOT in the plan
-      const resolvedEntryId = findEntry(v.doctorName, v.entryId || null);
       return {
-        entryId:      resolvedEntryId,
+        entryId:      null,            // always null — client does fuzzy matching
         doctorName:   v.doctorName    || '',
         itemId,
         itemName,

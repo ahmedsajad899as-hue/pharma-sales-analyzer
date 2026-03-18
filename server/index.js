@@ -1339,20 +1339,29 @@ app.post('/api/doctor-visits/voice-record', upload.single('audio'), async (req, 
     const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
     const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
 
-    const prompt = `أنت مساعد متخصص في تحليل التسجيلات الصوتية لمناديب المبيعات الطبية.
-مهمتك: استخراج زيارة طبيب واحدة من التسجيل — بدون اختراع.
+    const prompt = `أنت متخصص في تحويل التسجيلات الصوتية لمناديب المبيعات الطبية إلى بيانات منظمة.
 
-قواعد:
-1. إذا التسجيل فارغ أو غير واضح → أرجع {"visits":[]}
-2. اسم الطبيب إجباري — لا تختره إذا لم يُذكر صراحةً
-3. itemId يجب أن يكون من القائمة أدناه فقط — لا تختره
-4. feedback: ${feedbackValues.join(' | ')}
+القاعدة الذهبية: اكتب ما سمعته بالضبط — لا تستبدل أي اسم بأسماء من أي قائمة.
 
-قائمة الأيتمات للمطابقة فقط:
-${itemNames}
+[اسم الطبيب]
+• doctorName: اكتب الاسم كما نُطق في التسجيل تماماً — لا تستبدله بأسماء من أي قائمة
+• إذا لم يُذكر اسم طبيب → أرجع {"visits":[]}
+
+[الأيتمات]
+• itemName: اكتب اسم الدواء كما نُطق في التسجيل
+• itemId: أرجعه فقط إذا كنت متأكداً 100% أنه من قائمة الأيتمات أدناه — وإلا null
+
+[الفيدباك]
+• feedback: ${feedbackValues.join(' | ')}
+• إذا لم يُذكر فيدباك → "pending"
+• specialty / pharmacyName / areaName: فقط إذا ذُكرت صراحةً — وإلا ""
+• إذا التسجيل فارغ أو غير مفهوم → أرجع {"visits":[]}
+
+قائمة الأيتمات (للمساعدة في itemId فقط):
+${itemNames || '(لا توجد أيتمات)'}
 
 أرجع JSON فقط:
-{"visits":[{"doctorName":"...","itemId":null,"itemName":"...","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
+{"visits":[{"doctorName":"الاسم كما نُطق","itemId":null,"itemName":"الايتم كما نُطق","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
