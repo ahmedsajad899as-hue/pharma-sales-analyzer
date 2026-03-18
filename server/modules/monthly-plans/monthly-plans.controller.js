@@ -3,6 +3,16 @@ import XLSX from 'xlsx';
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// ── Helper: pick best available Gemini API key ──────────────
+function getGeminiApiKey() {
+  return process.env.GEMINI_API_KEY_1
+    || process.env.GEMINI_API_KEY_2
+    || process.env.GEMINI_API_KEY_3
+    || process.env.GEMINI_API_KEY
+    || process.env.GOOGLE_API_KEY
+    || '';
+}
+
 // ── Helper: find a plan the user has access to ──────────────
 // - owner (admin/manager): plans where userId = myId
 // - assigned rep (any rep role): plans where assignedUserId = myId
@@ -285,7 +295,7 @@ export async function suggest(req, res, next) {
 
     if (noteText) {
       try {
-        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        const apiKey = getGeminiApiKey();
         if (apiKey) {
           const { GoogleGenerativeAI } = await import('@google/generative-ai');
           const genAI = new GoogleGenerativeAI(apiKey);
@@ -1401,7 +1411,7 @@ export async function parseVoice(req, res, next) {
   أرجع JSON فقط بالشكل التالي بدون أي نص إضافي:
   {"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
 
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    const apiKey = getGeminiApiKey();
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -1611,7 +1621,7 @@ ${itemNames || '(لا توجد أيتمات)'}
 أرجع JSON فقط بدون أي نص آخر:
 {"visits": [{"entryId": null, "doctorName": "الاسم كما نُطق", "itemId": null, "itemName": "الايتم كما نُطق", "feedback": "pending", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
 
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    const apiKey = getGeminiApiKey();
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const genAI  = new GoogleGenerativeAI(apiKey);

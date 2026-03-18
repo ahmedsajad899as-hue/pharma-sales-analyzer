@@ -772,7 +772,7 @@ app.get('/api/dashboard/active-stats', async (req, res) => {
 });
 
 // ── Legacy AI Analysis Routes ────────────────────────────────
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GOOGLE_API_KEY || '');
 const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
 // رفع الملف وقراءة البيانات
@@ -972,7 +972,7 @@ app.post('/api/analyze', async (req, res) => {
     // محاولة التحليل بالذكاء الاصطناعي عبر Gemini
     let aiAnalysis = '';
     try {
-      if (process.env.GOOGLE_API_KEY) {
+      if (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY_1) {
         const columns = Object.keys(data[0] || {});
         
         const prompt = `أنت محلل بيانات مبيعات أدوية متخصص. قم بتحليل البيانات التالية وقدم تقريراً شاملاً ومفصلاً باللغة العربية.
@@ -1363,7 +1363,7 @@ ${itemNames || '(لا توجد أيتمات)'}
 أرجع JSON فقط:
 {"visits":[{"doctorName":"الاسم كما نُطق","itemId":null,"itemName":"الايتم كما نُطق","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
 
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -1469,7 +1469,7 @@ ${areaNames}
 
 ملاحظة: itemId يكون null إذا لم يُطابق أي صنف من القائمة`;
 
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+    const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const genAI  = new GoogleGenerativeAI(apiKey);
