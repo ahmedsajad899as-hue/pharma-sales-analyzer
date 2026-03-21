@@ -119,6 +119,7 @@ const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
 export default function MonthlyPlansPage() {
   const { token, isManagerOrAdmin, user: authUser } = useAuth();
   const isFieldRep = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'].includes(authUser?.role ?? '');
+  const isCompanyManager = authUser?.role === 'company_manager';
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [plans, setPlans]         = useState<Plan[]>([]);
@@ -168,6 +169,11 @@ export default function MonthlyPlansPage() {
   const [sFocusAreaDD, setSFocusAreaDD]       = useState(false);
   const [sUseWishList, setSUseWishList]       = useState<boolean>(_ss.useWishList ?? false);
 
+  // Area quota distribution
+  const [sAreaQuotasEnabled, setSAreaQuotasEnabled] = useState<boolean>(false);
+  const [sRepAreas, setSRepAreas]                   = useState<{id: number; name: string}[]>([]);
+  const [sAreaQuotas, setSAreaQuotas]               = useState<Record<string, number>>({});
+
   // Save suggest settings to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('suggestSettings', JSON.stringify({
@@ -186,6 +192,28 @@ export default function MonthlyPlansPage() {
   const [sWishExcluded, setSWishExcluded]     = useState<Set<number>>(new Set());
   const [showToolsMenu, setShowToolsMenu]   = useState(false);
 
+  // Fetch rep areas for quota UI whenever active plan's rep changes
+  useEffect(() => {
+    const repId = activePlan?.scientificRepId;
+    if (!repId) { setSRepAreas([]); setSAreaQuotas({}); return; }
+    fetch(`${API}/api/monthly-plans/suggest-areas?scientificRepId=${repId}`, { headers: H() })
+      .then(r => r.json())
+      .then((areas: {id: number; name: string}[]) => {
+        if (!Array.isArray(areas)) return;
+        setSRepAreas(areas);
+        // Set equal distribution as default
+        if (areas.length > 0) {
+          const base = Math.floor(sTargetDoctors / areas.length);
+          const rem  = sTargetDoctors % areas.length;
+          const q: Record<string, number> = {};
+          areas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
+          setSAreaQuotas(q);
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlan?.scientificRepId]);
+
   // Upload visits
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -196,6 +224,13 @@ export default function MonthlyPlansPage() {
   const [editingVisitItem, setEditingVisitItem] = useState<number | null>(null); // visitId
   const [editVisitItemVal, setEditVisitItemVal] = useState<string>('');
 
+  // Company manager: rep area restriction modal
+  const [repAreasModal, setRepAreasModal]         = useState<{ repId: number; repName: string } | null>(null);
+  const [repAllAreas, setRepAllAreas]             = useState<{ id: number; name: string }[]>([]);
+  const [repSelectedAreaIds, setRepSelectedAreaIds] = useState<Set<number>>(new Set());
+  const [repAreasLoading, setRepAreasLoading]     = useState(false);
+  const [repAreasSaving, setRepAreasSaving]       = useState(false);
+
   // Like & Comment on visits
   const [likingVisit, setLikingVisit]           = useState<number | null>(null); // visitId being liked
   const [showLikers, setShowLikers]             = useState<number | null>(null); // visitId whose likers panel is open
@@ -204,6 +239,7 @@ export default function MonthlyPlansPage() {
   const [savingComment, setSavingComment]        = useState(false);
   const longPressTimer                           = useRef<any>(null);
   const [entryItemMenuOpen, setEntryItemMenuOpen] = useState<number | null>(null); // entryId
+  const [itemMenuPos, setItemMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [showEntryItems, setShowEntryItems] = useState<Set<number>>(new Set()); // entryIds with items visible
   const [addingEntryItem, setAddingEntryItem]     = useState(false);
   const [newItemName, setNewItemName]             = useState(''); // name for creating a new item inline
@@ -224,6 +260,7 @@ export default function MonthlyPlansPage() {
   // Filter
   const [filterRep, setFilterRep] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchSuggestOpen, setSearchSuggestOpen] = useState(false);
   const [visitFilter, setVisitFilter] = useState<'all' | 'done' | 'not_done' | 'voice_added'>('all');
 
   // Voice input
@@ -293,9 +330,15 @@ export default function MonthlyPlansPage() {
 
   // Collapsible entries
   const [expandedEntries, setExpandedEntries] = useState<Set<number>>(new Set());
+  const [expandAnimDone, setExpandAnimDone] = useState<Set<number>>(new Set());
   const toggleEntry = (entryId: number) => setExpandedEntries(prev => {
     const s = new Set(prev);
-    s.has(entryId) ? s.delete(entryId) : s.add(entryId);
+    if (s.has(entryId)) {
+      s.delete(entryId);
+      setExpandAnimDone(p => { const n = new Set(p); n.delete(entryId); return n; });
+    } else {
+      s.add(entryId);
+    }
     return s;
   });
 
@@ -480,6 +523,37 @@ export default function MonthlyPlansPage() {
     setPlans(prev => prev.map(p => p.id === id ? j : p));
   };
 
+  // Company manager: open rep area restriction modal
+  const openRepAreasModal = async (repId: number, repName: string) => {
+    setRepAreasModal({ repId, repName });
+    setRepSelectedAreaIds(new Set());
+    setRepAreasLoading(true);
+    try {
+      const r = await fetch(`/api/company-members/by-rep/${repId}/areas`, { headers: H() });
+      const j = await r.json();
+      if (r.ok) {
+        setRepAllAreas(j.allAreas ?? []);
+        setRepSelectedAreaIds(new Set(j.assignedAreaIds ?? []));
+      }
+    } catch { /* ignore */ }
+    finally { setRepAreasLoading(false); }
+  };
+
+  const saveRepAreas = async () => {
+    if (!repAreasModal) return;
+    setRepAreasSaving(true);
+    try {
+      const r = await fetch(`/api/company-members/by-rep/${repAreasModal.repId}/areas`, {
+        method: 'PUT',
+        headers: H(),
+        body: JSON.stringify({ areaIds: [...repSelectedAreaIds] }),
+      });
+      if (!r.ok) { const j = await r.json(); throw new Error(j.error ?? 'فشل الحفظ'); }
+      setRepAreasModal(null);
+    } catch (e: any) { alert(e.message); }
+    finally { setRepAreasSaving(false); }
+  };
+
   // Create new plan
   const createPlan = async () => {
     if (!isManagerOrAdmin && !authUser?.linkedRepId) {
@@ -531,6 +605,7 @@ export default function MonthlyPlansPage() {
         ...(sFocusAreaIds.length > 0     && { focusAreaId:     sFocusAreaIds.map(x => x.id).join(',') }),
         ...(sUserNote.trim() && { userNote:        sUserNote.trim() }),
         ...(wishedDoctorIds  && { wishedDoctorIds }),
+        ...(sAreaQuotasEnabled && sRepAreas.length > 0 && { areaQuotas: JSON.stringify(sAreaQuotas) }),
       });
       const r = await fetch(`${API}/api/monthly-plans/suggest?${p}`, { headers: H() });
       const j: SuggestResult = await r.json();
@@ -1177,6 +1252,16 @@ export default function MonthlyPlansPage() {
     } catch {}
   };
 
+  const deletePlan = async (e: React.MouseEvent, planId: number) => {
+    e.stopPropagation();
+    if (!confirm('هل أنت متأكد من حذف هذا البلان بالكامل؟ لا يمكن التراجع عن هذا الإجراء.')) return;
+    try {
+      const res = await fetch(`${API}/api/monthly-plans/${planId}`, { method: 'DELETE', headers: H() });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); alert(j.error || 'فشل الحذف'); return; }
+      await load();
+    } catch { alert('حدث خطأ أثناء الحذف'); }
+  };
+
   // ── Computed stats for active plan ──────────────────────────
   const planStats = useMemo(() => activePlan ? (() => {
     const doctorVisitCount = activePlan.entries.reduce((s, e) => s + e.visits.length, 0);
@@ -1331,6 +1416,19 @@ export default function MonthlyPlansPage() {
           </select>
         )}
 
+        {/* Area restriction button: company_manager only, when a specific rep is selected */}
+        {isCompanyManager && filterRep !== 'all' && (() => {
+          const selectedRep = reps.find(r => String(r.id) === String(filterRep));
+          return selectedRep ? (
+            <button
+              onClick={() => openRepAreasModal(selectedRep.id, selectedRep.name)}
+              style={{ fontSize: 12, padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
+            >
+              📍 مناطق {selectedRep.name}
+            </button>
+          ) : null;
+        })()}
+
         <select
           value={activePlan?.id ?? ''}
           onChange={e => {
@@ -1445,6 +1543,11 @@ export default function MonthlyPlansPage() {
                               📤 تحويل للمندوب
                             </button>
                           )}
+                          <button
+                            style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600, marginTop: 6 }}
+                            onClick={e => deletePlan(e, p.id)}>
+                            🗑️ مسح البلان
+                          </button>
                         </div>
                       )}
                     </div>
@@ -2015,6 +2118,99 @@ export default function MonthlyPlansPage() {
                       );
                     })()}
 
+                    {/* ── Area quota distribution ── */}
+                    {sRepAreas.length > 0 && (
+                      <div style={{ marginBottom: 14, border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                        {/* Header row */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sAreaQuotasEnabled ? '#f0f9ff' : '#f8fafc' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 16 }}>📊</span>
+                            <div>
+                              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>توزيع الأطباء على المناطق</p>
+                              {sAreaQuotasEnabled && (() => {
+                                const quotaTotal = Object.values(sAreaQuotas).reduce((s, v) => s + (v || 0), 0);
+                                const isEqual = quotaTotal === sTargetDoctors;
+                                return (
+                                  <p style={{ margin: 0, fontSize: 11, color: isEqual ? '#0369a1' : '#92400e' }}>
+                                    المجموع: {quotaTotal} طبيب
+                                    {!isEqual && quotaTotal > 0 && (
+                                      <span style={{ marginRight: 4 }}>
+                                        → سيُوزَّع {sTargetDoctors} طبيب بنفس النسب
+                                      </span>
+                                    )}
+                                  </p>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                          <div onClick={() => setSAreaQuotasEnabled(v => !v)}
+                            style={{
+                              width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+                              background: sAreaQuotasEnabled ? '#0ea5e9' : '#e2e8f0', position: 'relative',
+                            }}>
+                            <div style={{
+                              position: 'absolute', top: 3, transition: 'left 0.2s',
+                              left: sAreaQuotasEnabled ? 23 : 3,
+                              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                            }} />
+                          </div>
+                        </div>
+                        {/* Area inputs */}
+                        {sAreaQuotasEnabled && (
+                          <div style={{ padding: '8px 12px 10px', background: '#fff' }}>
+                            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                              حدد عدد الأطباء المطلوب من كل منطقة — الإجمالي يحل محل &quot;عدد الأطباء المستهدف&quot;
+                            </p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {sRepAreas.map((area, i) => (
+                                <div key={area.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{
+                                    flex: 1, fontSize: 13, fontWeight: 600, color: '#1e293b',
+                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                  }}>
+                                    {area.name}
+                                  </span>
+                                  <input
+                                    type="number" min={0} max={500}
+                                    value={sAreaQuotas[String(area.id)] ?? 0}
+                                    onChange={e => {
+                                      const val = Math.max(0, parseInt(e.target.value) || 0);
+                                      setSAreaQuotas(prev => ({ ...prev, [String(area.id)]: val }));
+                                    }}
+                                    style={{
+                                      width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7,
+                                      border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700,
+                                      color: '#0369a1', background: '#f0f9ff', outline: 'none',
+                                    }}
+                                    onFocus={e => (e.target.style.borderColor = '#0ea5e9')}
+                                    onBlur={e  => (e.target.style.borderColor = '#cbd5e1')}
+                                  />
+                                  <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>طبيب</span>
+                                </div>
+                              ))}
+                            </div>
+                            {/* Reset to equal button */}
+                            <button
+                              onClick={() => {
+                                const base = Math.floor(sTargetDoctors / sRepAreas.length);
+                                const rem  = sTargetDoctors % sRepAreas.length;
+                                const q: Record<string, number> = {};
+                                sRepAreas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
+                                setSAreaQuotas(q);
+                              }}
+                              style={{
+                                marginTop: 10, padding: '5px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                background: '#f0f9ff', color: '#0369a1', border: '1.5px solid #bae6fd',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                              }}>
+                              ↺ توزيع متساوي ({Math.floor(sTargetDoctors / sRepAreas.length)}-{Math.ceil(sTargetDoctors / sRepAreas.length)} لكل منطقة)
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <button onClick={loadSuggest} disabled={suggestLoading}
                       style={{ ...btnStyle('#8b5cf6'), width: '100%', marginTop: 10 }}>
                       ✨ تطبيق وعرض الاقتراح
@@ -2567,31 +2763,73 @@ export default function MonthlyPlansPage() {
 
             {/* Search bar */}
             <div style={{ marginBottom: 12 }}>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="🔍  ابحث باسم الطبيب، الصيدلية، الاختصاص، الايتم، المنطقة..."
-                  style={{
-                    flex: 1, padding: '10px 16px 10px 36px', border: '2px solid #e2e8f0',
-                    borderRadius: 12, fontSize: 14, direction: 'rtl', boxSizing: 'border-box',
-                    outline: 'none', background: '#fff', color: '#1e293b',
-                    transition: 'border-color 0.15s',
-                  }}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
-                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    style={{
-                      position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-                      background: 'none', border: 'none', fontSize: 18, color: '#94a3b8',
-                      cursor: 'pointer', lineHeight: 1, padding: 0,
-                    }}>×</button>
-                )}
-              </div>
+              {(() => {
+                const q = searchQuery.trim().toLowerCase();
+                const suggestions = q.length >= 1
+                  ? activePlan.entries
+                      .map(e => e.doctor.name)
+                      .filter(n => n.toLowerCase().includes(q) && n.toLowerCase() !== q)
+                      .slice(0, 8)
+                  : [];
+                return (
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => { setSearchQuery(e.target.value); setSearchSuggestOpen(true); }}
+                        onFocus={() => setSearchSuggestOpen(true)}
+                        onBlur={() => setTimeout(() => setSearchSuggestOpen(false), 150)}
+                        placeholder="🔍  ابحث باسم الطبيب، الصيدلية، الاختصاص، الايتم، المنطقة..."
+                        style={{
+                          flex: 1, padding: '10px 16px 10px 36px', border: '2px solid #e2e8f0',
+                          borderRadius: searchSuggestOpen && suggestions.length > 0 ? '12px 12px 0 0' : 12,
+                          fontSize: 14, direction: 'rtl', boxSizing: 'border-box',
+                          outline: 'none', background: '#fff', color: '#1e293b',
+                          transition: 'border-color 0.15s',
+                        }}
+                        onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                        onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          style={{
+                            position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                            background: 'none', border: 'none', fontSize: 18, color: '#94a3b8',
+                            cursor: 'pointer', lineHeight: 1, padding: 0,
+                          }}>×</button>
+                      )}
+                    </div>
+                    {/* Autocomplete dropdown */}
+                    {searchSuggestOpen && suggestions.length > 0 && (
+                      <div style={{
+                        position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400,
+                        background: '#fff', border: '2px solid #6366f1', borderTop: 'none',
+                        borderRadius: '0 0 12px 12px',
+                        boxShadow: '0 6px 20px rgba(99,102,241,0.12)', overflow: 'hidden',
+                      }}>
+                        {suggestions.map(name => (
+                          <div
+                            key={name}
+                            onMouseDown={() => { setSearchQuery(name); setSearchSuggestOpen(false); }}
+                            style={{
+                              padding: '9px 16px', fontSize: 13, fontWeight: 600,
+                              color: '#1e293b', cursor: 'pointer', direction: 'rtl',
+                              borderBottom: '1px solid #f1f5f9',
+                              display: 'flex', alignItems: 'center', gap: 8,
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#eef2ff')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
+                            <span style={{ color: '#6366f1', fontSize: 14 }}>👨‍⚕️</span>
+                            {name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {searchQuery && (
                 <p style={{ margin: '5px 4px 0', fontSize: 12, color: '#6366f1', fontWeight: 700 }}>
                   {filteredEntries.length} نتيجة من أصل {activePlan.entries.length}
@@ -2841,11 +3079,13 @@ export default function MonthlyPlansPage() {
                     </div>
 
                     {/* Expandable Body */}
-                    <div style={{
-                      maxHeight: isExpanded ? '2000px' : '0',
-                      overflow: 'hidden',
-                      transition: 'max-height 0.35s ease-in-out',
-                    }}>
+                    <div
+                      onTransitionEnd={(e) => { if (e.propertyName === 'max-height' && isExpanded) setExpandAnimDone(prev => new Set(prev).add(entry.id)); }}
+                      style={{
+                        maxHeight: isExpanded ? '2000px' : '0',
+                        overflow: (isExpanded && expandAnimDone.has(entry.id)) ? 'visible' : 'hidden',
+                        transition: 'max-height 0.35s ease-in-out',
+                      }}>
                       {/* Actions bar */}
                       <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -2937,8 +3177,10 @@ export default function MonthlyPlansPage() {
                             ))}
                             {/* Add item dropdown */}
                             <div style={{ position: 'relative' }}>
-                              {entryItemMenuOpen === entry.id ? (
-                                <div style={{ position: 'absolute', bottom: '110%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 240, maxHeight: 300, overflowY: 'auto', direction: 'rtl' }}>
+                              {entryItemMenuOpen === entry.id && itemMenuPos ? (
+                                <>
+                                <div onClick={() => { setEntryItemMenuOpen(null); setNewItemName(''); }} style={{ position: 'fixed', inset: 0, zIndex: 9998 }} />
+                                <div style={{ position: 'fixed', top: itemMenuPos.top, left: itemMenuPos.left, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 240, maxHeight: 300, overflowY: 'auto', direction: 'rtl' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                                     <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#374151' }}>اختر ايتم</p>
                                     <button onClick={() => { setEntryItemMenuOpen(null); setNewItemName(''); }} style={{ background: 'none', border: 'none', fontSize: 16, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
@@ -2985,8 +3227,20 @@ export default function MonthlyPlansPage() {
                                     </div>
                                   </div>
                                 </div>
+                                </>
                               ) : (
-                                <button onClick={() => { setEntryItemMenuOpen(entry.id); setNewItemName(''); }}
+                                <button onClick={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const spaceAbove = rect.top;
+                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                  const menuH = Math.min(300, window.innerHeight * 0.4);
+                                  if (spaceAbove > menuH || spaceAbove > spaceBelow) {
+                                    setItemMenuPos({ top: rect.top - menuH - 4, left: rect.left });
+                                  } else {
+                                    setItemMenuPos({ top: rect.bottom + 4, left: rect.left });
+                                  }
+                                  setEntryItemMenuOpen(entry.id); setNewItemName('');
+                                }}
                                   style={{ background: 'none', color: '#2563eb', border: '1px dashed #93c5fd', borderRadius: 20, padding: '3px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                                   + إضافة
                                 </button>
@@ -3753,6 +4007,52 @@ export default function MonthlyPlansPage() {
                   {transferring ? '⏳...' : '📤 تحويل'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rep Areas Modal (company_manager) ── */}
+      {repAreasModal && (
+        <div style={overlayStyle} onClick={() => setRepAreasModal(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: '90%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', direction: 'rtl' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>📍 مناطق {repAreasModal.repName}</h2>
+            <p style={{ fontSize: 13, color: '#64748b', marginBottom: 14, marginTop: 0 }}>
+              حدد المناطق المسموح بها لاقتراح البلان. إذا لم تختر أي منطقة يشمل جميع المناطق.
+            </p>
+            {repAreasLoading ? (
+              <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>⏳ جاري التحميل...</div>
+            ) : repAllAreas.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>لا توجد مناطق متاحة</div>
+            ) : (
+              <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {repAllAreas.map(area => (
+                  <label key={area.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                    borderRadius: 8, cursor: 'pointer',
+                    background: repSelectedAreaIds.has(area.id) ? '#eef2ff' : '#f8fafc',
+                    border: `1px solid ${repSelectedAreaIds.has(area.id) ? '#c7d2fe' : '#e2e8f0'}`,
+                  }}>
+                    <input type="checkbox" checked={repSelectedAreaIds.has(area.id)}
+                      onChange={e => {
+                        setRepSelectedAreaIds(prev => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(area.id); else next.delete(area.id);
+                          return next;
+                        });
+                      }}
+                      style={{ width: 16, height: 16, accentColor: '#6366f1' }}
+                    />
+                    <span style={{ fontSize: 14 }}>📍 {area.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button onClick={() => setRepAreasModal(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
+              <button onClick={saveRepAreas} disabled={repAreasSaving} style={btnStyle('#6366f1')}>
+                {repAreasSaving ? '⏳...' : '💾 حفظ المناطق'}
+              </button>
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@ const upload  = multer({ dest: 'uploads/' });
 
 router.get('/',                        ctrl.list);
 router.get('/suggest',                 ctrl.suggest);
+router.get('/suggest-areas',           ctrl.suggestAreas);
 router.get('/:id',                     ctrl.getOne);
 router.post('/',                       ctrl.create);
 router.put('/:id',                     ctrl.update);

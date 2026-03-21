@@ -65,12 +65,17 @@ export default function SurveyPage() {
   const { user } = useAuth();
   const token = localStorage.getItem('auth_token');
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+  const isCompanyManager = user?.role === 'company_manager';
 
   const [surveys,        setSurveys]        = useState<Survey[]>([]);
   const [selectedSurvey, setSelectedSurvey] = useState<SurveyDetail | null>(null);
   const [tab,            setTab]            = useState<'doctors' | 'pharmacies'>('doctors');
   const [loading,        setLoading]        = useState(true);
   const [toast,          setToast]          = useState<string | null>(null);
+
+  // Rep selector (for company_manager)
+  const [reps,          setReps]          = useState<{ userId: number; name: string; linkedRepId: number }[]>([]);
+  const [selectedRepId, setSelectedRepId] = useState<number | null>(null); // linkedRepId (ScientificRepresentative.id)
 
   // Edit modal state
   const [editingDoc,     setEditingDoc]     = useState<SurveyDoctor | null>(null);
@@ -92,15 +97,42 @@ export default function SurveyPage() {
 
   useEffect(() => { fetchSurveys(); }, [fetchSurveys]);
 
+  // ── Fetch reps for company_manager ──
+  useEffect(() => {
+    if (!isCompanyManager) return;
+    fetch('/api/company-members', { headers: H() })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          const scientificReps = d.data
+            .filter((m: any) => m.role === 'scientific_rep' && m.linkedRepId)
+            .map((m: any) => ({ userId: m.id, name: m.linkedRep?.name || m.username, linkedRepId: m.linkedRepId }));
+          setReps(scientificReps);
+        }
+      });
+  }, [isCompanyManager, H]);
+
+  const repParam = selectedRepId ? `?repId=${selectedRepId}` : '';
+
   const openSurvey = async (id: number) => {
-    const r = await fetch(`/api/master-surveys/${id}`, { headers: H() });
+    const r = await fetch(`/api/master-surveys/${id}${repParam}`, { headers: H() });
     const d = await r.json();
     if (d.success) { setSelectedSurvey(d.data); setTab('doctors'); }
   };
 
   const reloadSurvey = async () => {
     if (!selectedSurvey) return;
-    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}`, { headers: H() });
+    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}${repParam}`, { headers: H() });
+    const d = await r.json();
+    if (d.success) setSelectedSurvey(d.data);
+  };
+
+  // When rep selection changes, reload the current survey
+  const handleRepChange = async (repId: number | null) => {
+    setSelectedRepId(repId);
+    if (!selectedSurvey) return;
+    const param = repId ? `?repId=${repId}` : '';
+    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}${param}`, { headers: H() });
     const d = await r.json();
     if (d.success) setSelectedSurvey(d.data);
   };
@@ -110,9 +142,13 @@ export default function SurveyPage() {
 
   const importAllDoctors = async () => {
     if (!selectedSurvey) return;
+    if (isCompanyManager && !selectedRepId) {
+      showToast('❌ الرجاء اختيار مندوب قبل الاستيراد');
+      return;
+    }
     setImportingAll(true);
     try {
-      const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/import-all`, { method: 'POST', headers: H() });
+      const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/import-all${repParam}`, { method: 'POST', headers: H() });
       const d = await r.json();
       showToast(d.success ? `✅ ${d.message}` : `❌ ${d.error ?? 'خطأ'}`);
     } catch {
@@ -122,14 +158,18 @@ export default function SurveyPage() {
 
   const importDoctor = async (docId: number) => {
     if (!selectedSurvey) return;
-    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import`, { method: 'POST', headers: H() });
+    if (isCompanyManager && !selectedRepId) {
+      showToast('❌ الرجاء اختيار مندوب قبل الاستيراد');
+      return;
+    }
+    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import${repParam}`, { method: 'POST', headers: H() });
     const d = await r.json();
     showToast(d.success ? `✅ ${d.message || 'أُضيف الطبيب لقائمة أطبائك'}` : `❌ ${d.error ?? 'خطأ'}`);
   };
 
   const importPharmacy = async (pharmaId: number) => {
     if (!selectedSurvey) return;
-    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/pharmacies/${pharmaId}/import`, { method: 'POST', headers: H() });
+    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/pharmacies/${pharmaId}/import${repParam}`, { method: 'POST', headers: H() });
     const d = await r.json();
     showToast(d.success ? `✅ ${d.message || 'أُضيفت الصيدلية لقائمتك'}` : `❌ ${d.error ?? 'خطأ'}`);
   };
@@ -299,6 +339,36 @@ export default function SurveyPage() {
               padding: '3px 10px', borderRadius: 20, border: '1px solid #bac8ff',
             }}>{area}</span>
           ))}
+        </div>
+      )}
+
+      {/* Rep Selector (company_manager only) */}
+      {isCompanyManager && reps.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12,
+          padding: '10px 14px', marginBottom: 20, direction: 'rtl',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#c2410c', whiteSpace: 'nowrap' }}>👤 استيراد لحساب:</span>
+          <select
+            value={selectedRepId ?? ''}
+            onChange={e => handleRepChange(e.target.value ? Number(e.target.value) : null)}
+            style={{
+              flex: 1, border: '1.5px solid #fed7aa', borderRadius: 8, padding: '6px 10px',
+              fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: '#fff',
+              color: '#1e293b', cursor: 'pointer', direction: 'rtl',
+            }}
+          >
+            <option value="">— اختر مندوباً —</option>
+            {reps.map(r => (
+              <option key={r.linkedRepId} value={r.linkedRepId}>{r.name}</option>
+            ))}
+          </select>
+          {selectedRepId && (
+            <span style={{ fontSize: 11, color: '#92400e', whiteSpace: 'nowrap' }}>
+              الأطباء المعروضون مفلتَرون بمناطق المندوب
+            </span>
+          )}
         </div>
       )}
 

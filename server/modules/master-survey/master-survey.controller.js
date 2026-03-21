@@ -75,8 +75,15 @@ export async function getSurvey(req, res, next) {
   try {
     const id = parseInt(req.params.id);
 
+    // If repId provided (company_manager viewing for a rep), filter by rep's areas
+    let filterUserId = req.user.id;
+    if (req.query.repId) {
+      const repUserId = await getRepLinkedUserId(req.query.repId);
+      if (repUserId) filterUserId = repUserId;
+    }
+
     // Build area filter: only return doctors/pharmacies in the user's assigned areas
-    const userAreaNames = await getUserAssignedAreaNames(req.user.id);
+    const userAreaNames = await getUserAssignedAreaNames(filterUserId);
     const areaFilter = userAreaNames.length > 0
       ? { areaName: { in: userAreaNames } }
       : undefined; // no filter → user has no area restrictions (admin/manager)
@@ -148,13 +155,22 @@ export async function updateDoctor(req, res, next) {
 // ── Helper: find or create Area by name for a user ──────────
 async function resolveAreaId(areaName, userId) {
   if (!areaName?.trim()) return null;
-  const found = await prisma.area.findFirst({
-    where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
-    select: { id: true },
-  });
+  const nameNorm = areaName.trim().toLowerCase();
+  // Find existing area by name for this user (case-insensitive JS comparison)
+  const userAreas = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
+  const found = userAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
   if (found) return found.id;
   const created = await prisma.area.create({ data: { name: areaName.trim(), userId } });
   return created.id;
+}
+
+// ── Helper: get linked userId for a rep ──────────────────────
+async function getRepLinkedUserId(repId) {
+  const rep = await prisma.scientificRepresentative.findUnique({
+    where: { id: parseInt(repId) },
+    select: { userId: true },
+  });
+  return rep?.userId ?? null;
 }
 
 // ── POST /api/master-surveys/:id/doctors/import-all ──────────
@@ -162,7 +178,13 @@ export async function importAllDoctors(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     await assertVisible(surveyId, req.user, res);
-    const userId = req.user.id;
+
+    // If repId provided (company_manager importing for a rep), use rep's userId
+    let userId = req.user.id;
+    if (req.query.repId) {
+      const repUserId = await getRepLinkedUserId(req.query.repId);
+      if (repUserId) userId = repUserId;
+    }
 
     // Only import doctors from the user's assigned areas
     const userAreaNames = await getUserAssignedAreaNames(userId);
@@ -208,14 +230,22 @@ export async function importDoctor(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const docId    = parseInt(req.params.docId);
     await assertVisible(surveyId, req.user, res);
+
+    // If repId provided (company_manager importing for a rep), use rep's userId
+    let targetUserId = req.user.id;
+    if (req.query.repId) {
+      const repUserId = await getRepLinkedUserId(req.query.repId);
+      if (repUserId) targetUserId = repUserId;
+    }
+
     const src = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
     if (!src || src.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     // Check duplicate
     const existing = await prisma.doctor.findFirst({
-      where: { name: src.name, userId: req.user.id },
+      where: { name: src.name, userId: targetUserId },
     });
     if (existing) return res.json({ success: true, data: existing, message: 'الطبيب موجود مسبقاً في قائمتك' });
-    const resolvedAreaId = await resolveAreaId(src.areaName, req.user.id);
+    const resolvedAreaId = await resolveAreaId(src.areaName, targetUserId);
     const newDoc = await prisma.doctor.create({
       data: {
         name:         src.name,
@@ -223,7 +253,7 @@ export async function importDoctor(req, res, next) {
         pharmacyName: src.pharmacyName ?? null,
         notes:        src.notes        ?? null,
         areaId:       resolvedAreaId,
-        userId:       req.user.id,
+        userId:       targetUserId,
       },
     });
     res.status(201).json({ success: true, data: newDoc, message: 'تمت الإضافة لقائمة أطبائك' });

@@ -152,6 +152,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
+  const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
   const load = () => {
@@ -199,7 +200,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       const p = JSON.parse(detail.permissions || '{}');
       setDraftDisabledFeats(p.disabledFeatures ?? []);
       setDraftRequireGps(p.requireGps !== false);
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); }
+      setDraftDoctorFilter({
+        byArea: p.doctorFilterByArea !== false,
+        planMode: p.doctorFilterPlanMode || 'plan_and_all',
+        surveyOnly: p.doctorFilterSurveyOnly === true,
+      });
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
   }, [detail?.id]);
 
   const loadDetail = (id: number) => {
@@ -266,7 +272,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setSaving(true);
     try {
       await fetch(`/api/sa/users/${detail.id}/features`, {
-        method: 'PUT', headers: H(), body: JSON.stringify({ disabledFeatures: draftDisabledFeats, requireGps: draftRequireGps }),
+        method: 'PUT', headers: H(), body: JSON.stringify({
+          disabledFeatures: draftDisabledFeats,
+          requireGps: draftRequireGps,
+          doctorFilterByArea: draftDoctorFilter.byArea,
+          doctorFilterPlanMode: draftDoctorFilter.planMode,
+          doctorFilterSurveyOnly: draftDoctorFilter.surveyOnly,
+        }),
       });
       loadDetail(detail.id);
     } finally {
@@ -492,6 +504,87 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   <span style={{ position: 'absolute', top: 4, left: draftRequireGps ? 28 : 4, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
                 </label>
               </div>
+
+              {/* ── Doctor Search Filter Card ─────────────────────── */}
+              <div style={{
+                borderRadius: 14, border: '2px solid #6366f1',
+                background: '#eef2ff',
+                padding: '14px 18px', marginBottom: 20,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                  <span style={{ fontSize: 28 }}>🔍</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>فلتر بحث الأطباء عند تسجيل الزيارة</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>تحديد أي أطباء تظهر في البحث لهذا المستخدم</div>
+                  </div>
+                </div>
+
+                {/* Filter by Area */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fff', borderRadius: 10, marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>📍</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فلتر حسب المناطق</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>عرض فقط أطباء المناطق المعيّنة للمستخدم</div>
+                    </div>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+                    <input type="checkbox" checked={draftDoctorFilter.byArea}
+                      onChange={e => setDraftDoctorFilter(p => ({ ...p, byArea: e.target.checked }))}
+                      style={{ opacity: 0, width: 0, height: 0 }} />
+                    <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.byArea ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
+                    <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.byArea ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                  </label>
+                </div>
+
+                {/* Plan Mode */}
+                <div style={{ padding: '10px 12px', background: '#fff', borderRadius: 10, marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 18 }}>📅</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فلتر البلان الشهري</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>تحديد علاقة نتائج البحث بالبلان الشهري</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 26 }}>
+                    {[
+                      { value: 'plan_only', label: 'فقط أطباء البلان', desc: 'يظهر فقط الأطباء الموجودين في البلان الشهري الحالي' },
+                      { value: 'plan_and_all', label: 'أطباء البلان + الباقي', desc: 'أطباء البلان أولاً ثم جميع الأطباء (الافتراضي)' },
+                      { value: 'all', label: 'جميع الأطباء', desc: 'عرض كل الأطباء بدون تمييز بلان' },
+                    ].map(opt => (
+                      <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: '6px 8px', borderRadius: 8, background: draftDoctorFilter.planMode === opt.value ? '#eef2ff' : 'transparent', border: draftDoctorFilter.planMode === opt.value ? '1px solid #c7d2fe' : '1px solid transparent' }}>
+                        <input type="radio" name="planMode" value={opt.value}
+                          checked={draftDoctorFilter.planMode === opt.value}
+                          onChange={() => setDraftDoctorFilter(p => ({ ...p, planMode: opt.value }))}
+                          style={{ marginTop: 2, accentColor: '#6366f1' }} />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: '#1e293b' }}>{opt.label}</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{opt.desc}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Survey Filter */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>🏥</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فقط أطباء السيرفي</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>عرض فقط الأطباء المسجلين في الماستر سيرفي</div>
+                    </div>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+                    <input type="checkbox" checked={draftDoctorFilter.surveyOnly}
+                      onChange={e => setDraftDoctorFilter(p => ({ ...p, surveyOnly: e.target.checked }))}
+                      style={{ opacity: 0, width: 0, height: 0 }} />
+                    <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.surveyOnly ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
+                    <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.surveyOnly ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                  </label>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {FEATURE_TREE.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role)).map(node => {
                   const parentOff = node.key ? draftDisabledFeats.includes(node.key) : false;

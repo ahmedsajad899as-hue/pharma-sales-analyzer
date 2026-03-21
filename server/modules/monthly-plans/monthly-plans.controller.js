@@ -27,6 +27,14 @@ async function findAccessiblePlan(planId, userId, role) {
   return prisma.monthlyPlan.findFirst({ where: { id: planId, userId } });
 }
 
+// ── Helper: recalculate targetCalls & targetDoctors from entries ──
+async function recalcTargetCalls(planId) {
+  const entries = await prisma.planEntry.findMany({ where: { planId }, select: { targetVisits: true } });
+  const targetCalls = entries.reduce((sum, e) => sum + (e.targetVisits || 2), 0);
+  const targetDoctors = entries.length;
+  await prisma.monthlyPlan.update({ where: { id: planId }, data: { targetCalls, targetDoctors } });
+}
+
 // ── List all plans ────────────────────────────────────────────
 export async function list(req, res, next) {
   try {
@@ -94,7 +102,7 @@ export async function getOne(req, res, next) {
         },
       },
     });
-    if (!plan) return res.status(404).json({ error: 'Not found' });
+    if (!plan) return res.status(404).json({ error: 'غير موجود' });
     res.json(plan);
   } catch (e) { next(e); }
 }
@@ -165,9 +173,10 @@ export async function suggest(req, res, next) {
       focusSpecialty = '',   // filter new doctors by specialty
       focusAreaId = '',      // override area filter for new doctors
       wishedDoctorIds = '',  // comma-separated doctor IDs from rep wishlist (قائمة الطلبات)
+      areaQuotas = '',       // JSON string e.g. '{"1":10,"4":5}' — per-area doctor quotas
     } = req.query;
     if (!scientificRepId || !month || !year)
-      return res.status(400).json({ error: 'scientificRepId, month, year required' });
+      return res.status(400).json({ error: 'الحقول المطلوبة: scientificRepId, month, year' });
 
     const repId  = parseInt(scientificRepId);
     const m      = parseInt(month);
@@ -241,21 +250,25 @@ export async function suggest(req, res, next) {
     });
     let areaIds = repAreas.map(a => a.areaId);
 
-    if (areaIds.length === 0) {
-      // Look up the userId linked to this rep, then check user-level area assignments
-      const repRecord = await prisma.scientificRepresentative.findUnique({
-        where: { id: repId },
-        select: { userId: true },
+    // Always look up the rep's linked userId (used for doctor query + area fallback)
+    const repRecord = await prisma.scientificRepresentative.findUnique({
+      where: { id: repId },
+      select: { userId: true },
+    });
+    const repLinkedUserId = repRecord?.userId ?? null;
+
+    if (areaIds.length === 0 && repLinkedUserId) {
+      // Look up user-level area assignments (set by company_manager or SA panel)
+      const userAreas = await prisma.userAreaAssignment.findMany({
+        where: { userId: repLinkedUserId },
+        select: { areaId: true },
       });
-      const linkedUserId = repRecord?.userId ?? null;
-      if (linkedUserId) {
-        const userAreas = await prisma.userAreaAssignment.findMany({
-          where: { userId: linkedUserId },
-          select: { areaId: true },
-        });
-        areaIds = userAreas.map(a => a.areaId);
-      }
+      areaIds = userAreas.map(a => a.areaId);
     }
+
+    // For doctor queries: use the rep's linked userId when available
+    // (managers create plans under their own userId, but doctors belong to the rep)
+    const doctorUserId = repLinkedUserId ?? userId;
 
     const areaIdSet = new Set(areaIds);
 
@@ -423,12 +436,25 @@ export async function suggest(req, res, next) {
         ? aiAreaOverride
         : (useAreaRestriction && areaIds.length > 0 ? areaIds : []);
 
+    // Parse areaQuotas: JSON like '{"1":10,"4":5}' — per-area doctor count
+    const parsedAreaQuotas = (() => {
+      const raw = String(areaQuotas ?? '').trim();
+      if (!raw) return null;
+      try {
+        const q = JSON.parse(raw);
+        if (typeof q === 'object' && q !== null && !Array.isArray(q)) return q;
+        return null;
+      } catch { return null; }
+    })();
+
     // forcedNewRatio: 0 = auto, >0 = force % of total target as new doctors
     const forcedNewRatio = Math.max(0, Math.min(100, parseInt(newRatio) || 0));
     const forcedNewCount = forcedNewRatio > 0 ? Math.round(target * forcedNewRatio / 100) : null;
-    const needed = forcedNewCount !== null
-      ? Math.max(0, forcedNewCount - priorityDoctors.length)
-      : Math.max(0, target - keepDoctors.length - priorityDoctors.length);
+    const needed = parsedAreaQuotas
+      ? Object.values(parsedAreaQuotas).reduce((s, v) => s + Math.max(0, parseInt(v) || 0), 0)
+      : forcedNewCount !== null
+        ? Math.max(0, forcedNewCount - priorityDoctors.length)
+        : Math.max(0, target - keepDoctors.length - priorityDoctors.length);
 
     // specialty & item filters (both may be comma-separated for multi-select)
     const focusSpecialtyList = String(focusSpecialty).trim()
@@ -442,12 +468,80 @@ export async function suggest(req, res, next) {
       : [];
     const itemFilter = focusItemIds.length > 0 ? { targetItemId: { in: focusItemIds } } : {};
 
+    // إذا كان منشئ البلان (userId) مختلفاً عن userId المندوب (doctorUserId)،
+    // نبحث في قاعدة بيانات الطرفين معاً (المندوب + المدير) بنفس فلتر المناطق.
+    const doctorUserFilter = (doctorUserId !== userId)
+      ? { userId: { in: [doctorUserId, userId] } }
+      : { userId: doctorUserId };
+
     let newDoctors = [];
-    if (needed > 0) {
+
+    if (parsedAreaQuotas && Object.keys(parsedAreaQuotas).length > 0) {
+      // ── Per-area quota fetch with proportional scaling ─────────────────────
+      // The user-entered quotas define RATIOS. They are always scaled so the
+      // total equals `target` (targetDoctors). This means:
+      //   - If user entered 30 across areas but target=40 → scale up by 40/30
+      //   - If user entered 50 across areas but target=40 → scale down by 40/50
+      const rawEntries = Object.entries(parsedAreaQuotas)
+        .map(([id, v]) => ({ id: parseInt(id), raw: Math.max(0, parseInt(v) || 0) }))
+        .filter(x => !isNaN(x.id) && x.raw > 0);
+
+      const quotaTotal = rawEntries.reduce((s, x) => s + x.raw, 0);
+
+      if (quotaTotal > 0) {
+        // Scale proportionally to target
+        const scaled = rawEntries.map(x => ({
+          id:    x.id,
+          quota: Math.round(x.raw / quotaTotal * target),
+        }));
+
+        // Fix rounding drift: distribute difference to largest-quota areas first
+        let scaledSum = scaled.reduce((s, x) => s + x.quota, 0);
+        let diff = target - scaledSum;
+        const sortedIdx = [...scaled.keys()].sort((a, b) => scaled[b].quota - scaled[a].quota);
+        for (let i = 0; Math.abs(diff) > 0 && i < sortedIdx.length; i++) {
+          const step = diff > 0 ? 1 : -1;
+          scaled[sortedIdx[i]].quota += step;
+          diff -= step;
+        }
+
+        for (const { id: aId, quota: scaledQuota } of scaled) {
+          if (scaledQuota <= 0) continue;
+
+          // Deduct doctors already kept from this area
+          const keptFromArea = keepDoctors.filter(k => k.doctor.areaId === aId).length
+            + priorityDoctors.filter(d => d.areaId === aId).length;
+          const newNeeded = Math.max(0, scaledQuota - keptFromArea);
+          if (newNeeded === 0) continue;
+
+          const fetchCount = sortBy === 'random' ? Math.min(newNeeded * 4, 500) : newNeeded;
+          let areaDocs = await prisma.doctor.findMany({
+            where: {
+              ...doctorUserFilter,
+              isActive: true,
+              id: { notIn: [...usedDoctorIds] },
+              areaId: aId,
+              ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+              ...itemFilter,
+            },
+            include: {
+              area:       { select: { id: true, name: true } },
+              targetItem: { select: { id: true, name: true } },
+            },
+            take: fetchCount,
+            orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+          });
+          if (sortBy === 'random') areaDocs = areaDocs.sort(() => Math.random() - 0.5).slice(0, newNeeded);
+          areaDocs.forEach(d => usedDoctorIds.add(d.id));
+          newDoctors.push(...areaDocs);
+        }
+      }
+    } else if (needed > 0) {
+      // ── Bulk fetch (original logic) ──────────────────────────
       const fetchCount = sortBy === 'random' ? Math.min(needed * 4, 500) : needed;
       newDoctors = await prisma.doctor.findMany({
         where: {
-          userId,
+          ...doctorUserFilter,
           isActive: true,
           id: { notIn: [...usedDoctorIds] },
           ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
@@ -482,6 +576,47 @@ export async function suggest(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── Get rep areas for suggest quota UI ───────────────────────
+export async function suggestAreas(req, res, next) {
+  try {
+    const { scientificRepId } = req.query;
+    if (!scientificRepId) return res.status(400).json({ error: 'scientificRepId مطلوب' });
+
+    const repId = parseInt(scientificRepId);
+
+    const repRecord = await prisma.scientificRepresentative.findUnique({
+      where: { id: repId },
+      select: { userId: true },
+    });
+    const repLinkedUserId = repRecord?.userId ?? null;
+
+    // Primary: ScientificRepArea
+    let repAreaRows = await prisma.scientificRepArea.findMany({
+      where: { scientificRepId: repId },
+      select: { areaId: true },
+    });
+    let areaIds = repAreaRows.map(a => a.areaId);
+
+    // Fallback: UserAreaAssignment
+    if (areaIds.length === 0 && repLinkedUserId) {
+      const userAreas = await prisma.userAreaAssignment.findMany({
+        where: { userId: repLinkedUserId },
+        select: { areaId: true },
+      });
+      areaIds = userAreas.map(a => a.areaId);
+    }
+
+    if (areaIds.length === 0) return res.json([]);
+
+    const areas = await prisma.area.findMany({
+      where: { id: { in: areaIds } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json(areas);
+  } catch (e) { next(e); }
+}
+
 // ── Create plan ───────────────────────────────────────────────
 export async function create(req, res, next) {
   try {
@@ -499,15 +634,15 @@ export async function create(req, res, next) {
     }
 
     if (!scientificRepId || !month || !year)
-      return res.status(400).json({ error: 'scientificRepId, month, year required' });
+      return res.status(400).json({ error: 'الحقول المطلوبة: scientificRepId, month, year' });
 
     const plan = await prisma.monthlyPlan.create({
       data: {
         scientificRepId: parseInt(scientificRepId),
         month: parseInt(month),
         year:  parseInt(year),
-        targetCalls:   targetCalls   ? parseInt(targetCalls)   : 150,
-        targetDoctors: targetDoctors ? parseInt(targetDoctors) : 75,
+        targetCalls:   targetCalls   ? parseInt(targetCalls)   : (doctorIds?.length ? doctorIds.length * 2 : 150),
+        targetDoctors: targetDoctors ? parseInt(targetDoctors) : (doctorIds?.length ?? 75),
         notes,
         userId,
         entries: doctorIds?.length ? {
@@ -537,7 +672,7 @@ export async function update(req, res, next) {
         ...(allowExtraVisits  !== undefined && { allowExtraVisits:  Boolean(allowExtraVisits) }),
       },
     });
-    if (result.count === 0) return res.status(404).json({ error: 'Not found' });
+    if (result.count === 0) return res.status(404).json({ error: 'غير موجود' });
     res.json({ success: true });
   } catch (e) { next(e); }
 }
@@ -548,7 +683,7 @@ export async function remove(req, res, next) {
     const result = await prisma.monthlyPlan.deleteMany({
       where: { id: parseInt(req.params.id), OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
     });
-    if (result.count === 0) return res.status(404).json({ error: 'Not found' });
+    if (result.count === 0) return res.status(404).json({ error: 'غير موجود' });
     res.json({ success: true });
   } catch (e) { next(e); }
 }
@@ -561,15 +696,16 @@ export async function addEntry(req, res, next) {
 
     // Verify plan belongs to user (only owners can add entries)
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const entry = await prisma.planEntry.create({
       data: { planId, doctorId: parseInt(doctorId), targetVisits: targetVisits ?? 2, isExtraVisit: Boolean(isExtraVisit) },
       include: { doctor: { include: { area: true, targetItem: true } } },
     });
+    await recalcTargetCalls(planId);
     res.status(201).json(entry);
   } catch (e) {
-    if (e.code === 'P2002') return res.status(409).json({ error: 'Doctor already in plan' });
+    if (e.code === 'P2002') return res.status(409).json({ error: 'الطبيب مضاف مسبقاً في البلان' });
     next(e);
   }
 }
@@ -581,9 +717,10 @@ export async function removeEntry(req, res, next) {
     const entryId  = parseInt(req.params.entryId);
 
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     await prisma.planEntry.delete({ where: { id: entryId } });
+    await recalcTargetCalls(planId);
     res.json({ success: true });
   } catch (e) { next(e); }
 }
@@ -595,16 +732,17 @@ export async function bulkRemoveEntries(req, res, next) {
     const { entryIds } = req.body;           // number[]
 
     if (!Array.isArray(entryIds) || entryIds.length === 0)
-      return res.status(400).json({ error: 'entryIds required' });
+      return res.status(400).json({ error: 'entryIds مطلوب' });
 
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const ids = entryIds.map(Number).filter(n => !isNaN(n));
 
     const result = await prisma.planEntry.deleteMany({
       where: { id: { in: ids }, planId },
     });
+    await recalcTargetCalls(planId);
     res.json({ success: true, deleted: result.count });
   } catch (e) { next(e); }
 }
@@ -616,12 +754,13 @@ export async function patchEntry(req, res, next) {
     const { targetVisits } = req.body;
 
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const entry = await prisma.planEntry.update({
       where: { id: entryId },
       data:  { targetVisits: parseInt(targetVisits) },
     });
+    await recalcTargetCalls(planId);
     res.json(entry);
   } catch (e) { next(e); }
 }
@@ -632,10 +771,10 @@ export async function addEntryItem(req, res, next) {
     const planId  = parseInt(req.params.id);
     const entryId = parseInt(req.params.entryId);
     const { itemId } = req.body;
-    if (!itemId) return res.status(400).json({ error: 'itemId required' });
+    if (!itemId) return res.status(400).json({ error: 'itemId مطلوب' });
 
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const record = await prisma.planEntryItem.create({
       data: { planEntryId: entryId, itemId: parseInt(itemId) },
@@ -643,7 +782,7 @@ export async function addEntryItem(req, res, next) {
     });
     res.status(201).json(record);
   } catch (e) {
-    if (e.code === 'P2002') return res.status(409).json({ error: 'Item already added' });
+    if (e.code === 'P2002') return res.status(409).json({ error: 'الايتم مضاف مسبقاً' });
     next(e);
   }
 }
@@ -656,7 +795,7 @@ export async function removeEntryItem(req, res, next) {
     const itemId  = parseInt(req.params.itemId);
 
     const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     await prisma.planEntryItem.deleteMany({
       where: { planEntryId: entryId, itemId },
@@ -679,10 +818,10 @@ export async function addVisit(req, res, next) {
     try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps !== false && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
 
     const plan = await findAccessiblePlan(planId, userId, role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const entry = await prisma.planEntry.findFirst({ where: { id: entryId, planId } });
-    if (!entry) return res.status(404).json({ error: 'Entry not found' });
+    if (!entry) return res.status(404).json({ error: 'الإدخال غير موجود' });
 
     // Resolve itemId: if not provided, look up by name among user/rep items
     let resolvedItemId = itemId ? parseInt(itemId) : null;
@@ -754,7 +893,7 @@ export async function deleteVisit(req, res, next) {
   try {
     const visitId = parseInt(req.params.visitId);
     const visit = await prisma.doctorVisit.findUnique({ where: { id: visitId } });
-    if (!visit) return res.status(404).json({ error: 'Visit not found' });
+    if (!visit) return res.status(404).json({ error: 'الزيارة غير موجودة' });
     await prisma.doctorVisit.delete({ where: { id: visitId } });
     res.json({ success: true });
   } catch (e) { next(e); }
@@ -767,7 +906,7 @@ export async function patchVisitItem(req, res, next) {
     const { itemId } = req.body;
 
     const visit = await prisma.doctorVisit.findUnique({ where: { id: visitId } });
-    if (!visit) return res.status(404).json({ error: 'Visit not found' });
+    if (!visit) return res.status(404).json({ error: 'الزيارة غير موجودة' });
 
     const updated = await prisma.doctorVisit.update({
       where: { id: visitId },
@@ -801,7 +940,7 @@ export async function addVisitComment(req, res, next) {
     const userId  = req.user.id;
     const visitId = parseInt(req.params.visitId);
     const { content } = req.body;
-    if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
+    if (!content?.trim()) return res.status(400).json({ error: 'المحتوى مطلوب' });
 
     const comment = await prisma.visitComment.create({
       data: { visitId, userId, content: content.trim() },
@@ -817,8 +956,8 @@ export async function deleteVisitComment(req, res, next) {
     const userId    = req.user.id;
     const commentId = parseInt(req.params.commentId);
     const comment   = await prisma.visitComment.findUnique({ where: { id: commentId } });
-    if (!comment) return res.status(404).json({ error: 'Comment not found' });
-    if (comment.userId !== userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!comment) return res.status(404).json({ error: 'التعليق غير موجود' });
+    if (comment.userId !== userId) return res.status(403).json({ error: 'غير مسموح' });
     await prisma.visitComment.delete({ where: { id: commentId } });
     res.json({ success: true });
   } catch (e) { next(e); }
@@ -830,11 +969,11 @@ export async function importPlanEntries(req, res, next) {
     const planId = parseInt(req.params.id);
     const { entries } = req.body; // [{ name: string, targetVisits?: number }]
     if (!Array.isArray(entries) || entries.length === 0)
-      return res.status(400).json({ error: 'entries array is required' });
+      return res.status(400).json({ error: 'مصفوفة entries مطلوبة' });
 
     const { id: userId, role } = req.user;
     const plan = await findAccessiblePlan(planId, userId, role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     // Get already-added entry doctor IDs to skip duplicates
     const existing = await prisma.planEntry.findMany({
@@ -880,6 +1019,8 @@ export async function importPlanEntries(req, res, next) {
     }
 
     res.json({ imported: imported.length, total: entries.length, unmatched, importedNames: imported });
+    // recalculate targets after bulk import
+    if (imported.length > 0) await recalcTargetCalls(planId);
   } catch (e) { next(e); }
 }
 
@@ -889,12 +1030,12 @@ export async function importPlanVisits(req, res, next) {
   try {
     const userId = req.user.id;
     const planId = parseInt(req.params.id);
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
 
     // Load the plan with entries + doctors (accessible by owner or assigned rep)
     const role = req.user.role;
     const planBase = await findAccessiblePlan(planId, userId, role);
-    if (!planBase) { fs.unlink(req.file.path, () => {}); return res.status(404).json({ error: 'Plan not found' }); }
+    if (!planBase) { fs.unlink(req.file.path, () => {}); return res.status(404).json({ error: 'البلان غير موجود' }); }
     const plan = await prisma.monthlyPlan.findFirst({
       where: { id: planId },
       include: {
@@ -1162,7 +1303,7 @@ export async function importPlanVisits(req, res, next) {
       const feedbackRaw = String(getCell(row, 'feedback') ?? '').trim();
       const notes      = String(getCell(row, 'notes')    ?? '').trim();
 
-      if (!doctorName) { errors.push({ row: i + 2, error: 'اسم الطبيب فارغ' }); continue; }
+      if (!doctorName) { errors.push({ row: i + 2, error: 'اسم الطبيب فارغ' }); continue; } // already Arabic
 
       let entry = findEntry(doctorName);
       if (!entry) {
@@ -1260,7 +1401,7 @@ export async function importPlanVisits(req, res, next) {
 export async function uploadVisits(req, res, next) {
   try {
     const userId = req.user.id;
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
 
     const workbook = XLSX.readFile(req.file.path);
     const sheet    = workbook.Sheets[workbook.SheetNames[0]];
@@ -1288,7 +1429,7 @@ export async function uploadVisits(req, res, next) {
       const notes       = String(row['notes']       || row['ملاحظات']    || '').trim();
 
       if (!doctorName || !repName || !visitDate) {
-        errors.push({ row: i + 2, error: 'missing required fields' });
+        errors.push({ row: i + 2, error: 'حقول مطلوبة مفقودة' });
         continue;
       }
 
@@ -1306,7 +1447,7 @@ export async function uploadVisits(req, res, next) {
       const rep = await prisma.scientificRepresentative.findFirst({
         where: { name: { contains: repName }, userId },
       });
-      if (!rep) { errors.push({ row: i + 2, error: `rep not found: ${repName}` }); continue; }
+      if (!rep) { errors.push({ row: i + 2, error: `المندوب غير موجود: ${repName}` }); continue; }
 
       // Find item
       let item = null;
@@ -1322,7 +1463,7 @@ export async function uploadVisits(req, res, next) {
         parsedDate = new Date(visitDate);
       }
       if (isNaN(parsedDate.getTime())) {
-        errors.push({ row: i + 2, error: `invalid date: ${visitDate}` });
+        errors.push({ row: i + 2, error: `تاريخ غير صحيح: ${visitDate}` });
         continue;
       }
 
@@ -1356,7 +1497,7 @@ export async function parseVoice(req, res, next) {
     if (!text || !text.trim()) return res.status(400).json({ error: 'لا يوجد نص' });
 
     const planAccess = await findAccessiblePlan(planId, userId, role);
-    if (!planAccess) return res.status(404).json({ error: 'Plan not found' });
+    if (!planAccess) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const plan = await prisma.monthlyPlan.findFirst({
       where: { id: planId },
@@ -1369,7 +1510,7 @@ export async function parseVoice(req, res, next) {
         },
       },
     });
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const allItems = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
 
@@ -1421,7 +1562,7 @@ export async function parseVoice(req, res, next) {
 
     // Extract JSON from response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الكلام', raw: responseText });
+    if (!jsonMatch) return res.status(422).json({ error: 'تعذَّر تحليل النص', raw: responseText });
 
     const parsed = JSON.parse(jsonMatch[0]);
     // --- Fuzzy correction for item names ---
@@ -1514,7 +1655,7 @@ export async function parseVoice(req, res, next) {
 
     res.json({ visits, raw: text });
   } catch (e) {
-    console.error('Voice parse error:', e);
+    console.error('خطأ في تحليل النص الصوتي:', e);
     next(e);
   }
 }
@@ -1528,7 +1669,7 @@ export async function parseVoiceAudio(req, res, next) {
     if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
 
     const planAccess = await findAccessiblePlan(planId, userId, role);
-    if (!planAccess) return res.status(404).json({ error: 'Plan not found' });
+    if (!planAccess) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const plan = await prisma.monthlyPlan.findFirst({
       where: { id: planId },
@@ -1541,7 +1682,7 @@ export async function parseVoiceAudio(req, res, next) {
         },
       },
     });
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     // scientific_rep/team_leader/supervisor: items assigned via ScientificRepItem junction + assigned companies
     let allItems;
@@ -1757,7 +1898,7 @@ export async function availableDoctors(req, res, next) {
     const { id: userId, role } = req.user;
 
     const plan = await findAccessiblePlan(planId, userId, role);
-    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
 
     const usedIds = (await prisma.planEntry.findMany({
       where:  { planId },
@@ -1786,7 +1927,7 @@ export async function availableDoctors(req, res, next) {
       where: {
         userId:   plan.userId,
         isActive: true,
-        ...(q ? { name: { contains: String(q), mode: 'insensitive' } } : {}),
+        ...(q ? { name: { contains: String(q) } } : {}),
         id: { notIn: usedIds },
         // When searching by name (q provided): skip area filter so all 4167 doctors
         // under this account are searchable. Area filter only applies when browsing.

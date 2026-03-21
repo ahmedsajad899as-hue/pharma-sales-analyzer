@@ -82,23 +82,23 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const role = user?.role ?? 'user';
 
   // Roles that see the merged "rep analysis" page instead of 4 separate pages
-  const REP_ANALYSIS_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor']);
+  const REP_ANALYSIS_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor', 'company_manager']);
 
   // roles: [] means "all roles"; roles with entries means restricted to those roles only
   const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
     { id: 'dashboard', label: role === 'commercial_rep' ? '💹 المبيع والارجاع' : t.nav.dashboard, icon: '📊', roles: [] },
-    // Merged page — shown only to rep roles
-    { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor'] },
-    // Individual pages — hidden for rep roles
-    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    // Merged page — shown to rep roles + company_manager
+    { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager'] },
+    // Individual pages — hidden for rep roles and company_manager
+    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
     { id: 'master-survey',   label: 'السيرفي',             icon: '🗂️', roles: [] },
-    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
-    { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager','company_manager'] },
+    { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager'] },
   ];
 
   // Feature-to-page mapping — pages hidden when feature is disabled

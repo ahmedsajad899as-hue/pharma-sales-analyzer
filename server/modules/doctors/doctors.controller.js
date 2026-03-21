@@ -209,6 +209,14 @@ export async function list(req, res, next) {
     const role   = req.user.role;
     const { areaId, isActive, q } = req.query;
 
+    // ── Parse user doctor-search-filter settings from permissions ──
+    const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true, linkedRepId: true } });
+    let perms = {};
+    try { perms = JSON.parse(userRecord?.permissions || '{}'); } catch {}
+    const filterByArea     = perms.doctorFilterByArea !== false;   // default true
+    const filterPlanMode   = perms.doctorFilterPlanMode || 'plan_and_all';
+    const filterSurveyOnly = perms.doctorFilterSurveyOnly === true;
+
     const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
@@ -216,45 +224,168 @@ export async function list(req, res, next) {
 
     if (isFieldRep) {
       // جلب المناطق من كلا المصدرين: UserAreaAssignment (الأدمن) + ScientificRepArea (مدير المناطق)
-      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-      const linkedRepId = userRow?.linkedRepId;
+      const linkedRepId = userRecord?.linkedRepId;
 
-      const [userAreaRows, repAreaRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-          : Promise.resolve([]),
-      ]);
-      const repAreaIds = [...new Set([
-        ...userAreaRows.map(a => a.areaId),
-        ...repAreaRows.map(a => a.areaId),
-      ])];
+      if (q?.trim()) {
+        // ── عند البحث بالاسم: استخدام userId لمدير الشركة بدلاً من فلتر المناطق ──
+        let managerUserId = userId; // fallback
+        if (linkedRepId) {
+          const repRecord = await prisma.scientificRepresentative.findUnique({
+            where: { id: linkedRepId },
+            select: { userId: true },
+          });
+          if (repRecord?.userId) managerUserId = repRecord.userId;
+        }
+        where = { userId: managerUserId, name: { contains: q.trim() } };
 
-      // فلتر صارم: فقط المناطق المحددة للمندوب
-      const baseWhere = repAreaIds.length > 0
-        ? { areaId: { in: repAreaIds } }
-        : { userId }; // fallback إذا لم تُحدَّد مناطق
+        // ── Apply area filter for field reps (restrict to assigned areas + unmatched) ──
+        if (filterByArea) {
+          const [userAreaRows, repAreaRows] = await Promise.all([
+            prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+            linkedRepId
+              ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+              : Promise.resolve([]),
+          ]);
+          const repAreaIds = [...new Set([
+            ...userAreaRows.map(a => a.areaId),
+            ...repAreaRows.map(a => a.areaId),
+          ])];
+          if (repAreaIds.length > 0) {
+            // Include assigned areas + doctors with no area (survey imports without matching Area record)
+            const areaFilter = { OR: [{ areaId: { in: repAreaIds } }, { areaId: null }] };
+            where = { AND: [where, areaFilter] };
+          }
+        }
 
-      // فلاتر إضافية تُطبَّق بـ AND فوق الشرط الأساسي
-      const andFilters = [];
-      if (areaId)                 andFilters.push({ areaId: parseInt(areaId) });
-      if (isActive !== undefined) andFilters.push({ isActive: isActive === 'true' });
-      if (q?.trim())              andFilters.push({ name: { contains: q.trim(), mode: 'insensitive' } });
+        if (areaId)                 where.areaId   = parseInt(areaId);
+        if (isActive !== undefined) where.isActive = (isActive === 'true');
+      } else {
+        // ── عند التصفح (بدون q): استخدام فلتر المناطق ──
+        const [userAreaRows, repAreaRows] = await Promise.all([
+          prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+          linkedRepId
+            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+            : Promise.resolve([]),
+        ]);
+        const repAreaIds = [...new Set([
+          ...userAreaRows.map(a => a.areaId),
+          ...repAreaRows.map(a => a.areaId),
+        ])];
 
-      where = andFilters.length > 0
-        ? { AND: [baseWhere, ...andFilters] }
-        : baseWhere;
+        const baseWhere = repAreaIds.length > 0
+          ? { areaId: { in: repAreaIds } }
+          : { userId }; // fallback إذا لم تُحدَّد مناطق
+
+        const andFilters = [];
+        if (areaId)                 andFilters.push({ areaId: parseInt(areaId) });
+        if (isActive !== undefined) andFilters.push({ isActive: isActive === 'true' });
+
+        where = andFilters.length > 0
+          ? { AND: [baseWhere, ...andFilters] }
+          : baseWhere;
+      }
 
     } else {
       // مدير: كل أطبائه
       where = { userId };
       if (areaId)                 where.areaId   = parseInt(areaId);
       if (isActive !== undefined) where.isActive = isActive === 'true';
-      if (q?.trim())              where.name     = { contains: q.trim(), mode: 'insensitive' };
+      if (q?.trim())              where.name     = { contains: q.trim() };
     }
 
-    const isSearch = Boolean(q?.trim());
+    // ── Step 1: Auto-import survey doctors into Doctor table (before any filters) ──
+    if (q?.trim().length >= 2) {
+      // Resolve owner userId for new Doctor creation
+      let ownerUserId = userId;
+      if (isFieldRep && userRecord?.linkedRepId) {
+        const repRow = await prisma.scientificRepresentative.findUnique({
+          where: { id: userRecord.linkedRepId }, select: { userId: true },
+        });
+        if (repRow?.userId) ownerUserId = repRow.userId;
+      }
 
+      const activeSurvey = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+      });
+      if (activeSurvey) {
+        const surveyMatches = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurvey.id, name: { contains: q.trim() } },
+          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
+          take: 30,
+        });
+        if (surveyMatches.length > 0) {
+          // Build area-name → areaId map from ALL areas (not just ownerUserId)
+          // Areas may belong to another userId but be assigned via UserAreaAssignment
+          const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+          const areaNameMap = new Map();
+          for (const a of allAreas) {
+            const key = a.name.trim().toLowerCase();
+            if (!areaNameMap.has(key)) areaNameMap.set(key, a.id);
+          }
+
+          // Check which survey doctors already exist in Doctor table (by name + owner)
+          const existingDocs = await prisma.doctor.findMany({
+            where: { userId: ownerUserId, name: { in: surveyMatches.map(s => s.name.trim()) } },
+            select: { id: true, name: true, areaId: true },
+          });
+          const existingByName = new Map(existingDocs.map(d => [d.name.trim().toLowerCase(), d]));
+
+          for (const sd of surveyMatches) {
+            const nameKey = sd.name.trim().toLowerCase();
+            const resolvedAreaId = sd.areaName?.trim()
+              ? (areaNameMap.get(sd.areaName.trim().toLowerCase()) || null)
+              : null;
+
+            const existing = existingByName.get(nameKey);
+            if (existing) {
+              // Fix null areaId on already-imported doctors if we can resolve it now
+              if (!existing.areaId && resolvedAreaId) {
+                await prisma.doctor.update({
+                  where: { id: existing.id },
+                  data: { areaId: resolvedAreaId },
+                });
+              }
+              continue;
+            }
+            await prisma.doctor.create({
+              data: {
+                name: sd.name.trim(),
+                specialty: sd.specialty || null,
+                pharmacyName: sd.pharmacyName || null,
+                areaId: resolvedAreaId,
+                userId: ownerUserId,
+              },
+            });
+            existingByName.set(nameKey, { id: 0, name: sd.name.trim(), areaId: resolvedAreaId });
+          }
+        }
+      }
+    }
+
+    // ── Step 2: Apply plan filter (plan_only mode) ──
+    if (filterPlanMode === 'plan_only' && q?.trim()) {
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear  = now.getFullYear();
+      const plan = await prisma.monthlyPlan.findFirst({
+        where: {
+          OR: [{ userId }, { assignedUserId: userId }],
+          month: currentMonth, year: currentYear,
+        },
+        select: { id: true },
+      });
+      if (plan) {
+        const planEntries = await prisma.planEntry.findMany({
+          where: { planId: plan.id }, select: { doctorId: true },
+        });
+        where = { AND: [where, { id: { in: planEntries.map(e => e.doctorId) } }] };
+      } else {
+        where = { AND: [where, { id: { in: [] } }] };
+      }
+    }
+
+    // ── Step 3: Fetch from Doctor table (with all where filters applied) ──
+    const isSearch = Boolean(q?.trim());
     const doctors = await prisma.doctor.findMany({
       where,
       include: {
@@ -265,11 +396,31 @@ export async function list(req, res, next) {
       orderBy: { name: 'asc' },
     });
 
+    // ── Step 4: Apply survey filter (post-query, name matching) ──
+    let finalDoctors = doctors;
+    if (filterSurveyOnly && isSearch) {
+      const activeSurvey = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+      });
+      if (activeSurvey) {
+        const surveyDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurvey.id }, select: { name: true },
+        });
+        const surveyNamesSet = new Set(surveyDocs.map(d =>
+          d.name.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+        ));
+        finalDoctors = doctors.filter(d => {
+          const norm = d.name.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+          return surveyNamesSet.has(norm);
+        });
+      }
+    }
+
     // Sort: names that START with the query come first, then the rest (autocomplete only)
     if (isSearch) {
       const qNorm = q.trim().toLowerCase()
         .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
-      doctors.sort((a, b) => {
+      finalDoctors.sort((a, b) => {
         const aN = a.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
         const bN = b.name.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
         const aStarts = aN.startsWith(qNorm) ? 0 : 1;
@@ -277,9 +428,9 @@ export async function list(req, res, next) {
         if (aStarts !== bStarts) return aStarts - bStarts;
         return aN.localeCompare(bN, 'ar');
       });
-      res.json(doctors.slice(0, 10));
+      res.json(finalDoctors.slice(0, 10));
     } else {
-      res.json(doctors);
+      res.json(finalDoctors);
     }
   } catch (e) { next(e); }
 }
@@ -311,10 +462,9 @@ export async function create(req, res, next) {
     // Resolve areaId from areaName if only text was provided (create new area if not found)
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
-      const found = await prisma.area.findFirst({
-        where: { name: { equals: areaName.trim(), mode: 'insensitive' } },
-        select: { id: true },
-      });
+      const nameNorm = areaName.trim().toLowerCase();
+      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+      const found = allAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
       if (found) {
         resolvedAreaId = found.id;
       } else {
@@ -347,7 +497,9 @@ export async function update(req, res, next) {
     const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes, isActive } = req.body;
     let resolvedAreaId = areaId !== undefined ? (areaId ? parseInt(areaId) : null) : undefined;
     if (resolvedAreaId === undefined && areaName?.trim()) {
-      const found = await prisma.area.findFirst({ where: { name: { equals: areaName.trim(), mode: 'insensitive' } }, select: { id: true } });
+      const nameNorm = areaName.trim().toLowerCase();
+      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+      const found = allAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
       if (found) {
         resolvedAreaId = found.id;
       } else {

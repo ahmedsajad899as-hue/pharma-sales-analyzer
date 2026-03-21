@@ -211,7 +211,7 @@ export async function setUserManagers(req, res) {
 // ── Set user features (enable/disable per-user features) ────────────────────
 export async function setUserFeatures(req, res) {
   const id = parseInt(req.params.id);
-  const { disabledFeatures = [], requireGps } = req.body;
+  const { disabledFeatures = [], requireGps, doctorFilterByArea, doctorFilterPlanMode, doctorFilterSurveyOnly } = req.body;
 
   const existing = await prisma.user.findUnique({ where: { id }, select: { permissions: true } });
   if (!existing) return res.status(404).json({ error: 'User not found' });
@@ -220,6 +220,9 @@ export async function setUserFeatures(req, res) {
   try { perms = JSON.parse(existing.permissions || '{}'); } catch {}
   perms.disabledFeatures = disabledFeatures;
   if (requireGps !== undefined) perms.requireGps = Boolean(requireGps);
+  if (doctorFilterByArea !== undefined)     perms.doctorFilterByArea     = Boolean(doctorFilterByArea);
+  if (doctorFilterPlanMode !== undefined)   perms.doctorFilterPlanMode   = String(doctorFilterPlanMode);
+  if (doctorFilterSurveyOnly !== undefined) perms.doctorFilterSurveyOnly = Boolean(doctorFilterSurveyOnly);
 
   const user = await prisma.user.update({
     where: { id },

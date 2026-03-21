@@ -36,6 +36,7 @@ interface AuthContextType {
   isManagerOrAdmin: boolean;
   hasFeature: (key: string) => boolean;
   requiresGps: () => boolean;
+  getDoctorFilterPlanMode: () => string;
   savedAccounts: SavedAccount[];
   switchAccount: (account: SavedAccount) => void;
   removeSavedAccount: (userId: number) => void;
@@ -176,8 +177,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch { return true; }
   };
 
+  const getDoctorFilterPlanMode = (): string => {
+    try {
+      const p = JSON.parse(user?.permissions || '{}');
+      return p.doctorFilterPlanMode || 'plan_and_all';
+    } catch { return 'plan_and_all'; }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, requiresGps, savedAccounts, switchAccount, removeSavedAccount }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, requiresGps, getDoctorFilterPlanMode, savedAccounts, switchAccount, removeSavedAccount }}>
       {children}
     </AuthContext.Provider>
   );

@@ -14,7 +14,7 @@ interface DailyRep { id: number; name: string; }
 interface DailyCallsData { visits: VisitPoint[]; reps: DailyRep[]; total: number; }
 
 export default function DashboardPage({ onNavigate, activeFileIds, onFileActivated }: { onNavigate: (p: PageId) => void; activeFileIds: number[]; onFileActivated: (id: number) => void }) {
-  const { token, user, hasFeature, requiresGps } = useAuth();
+  const { token, user, hasFeature, requiresGps, getDoctorFilterPlanMode } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [stats, setStats]         = useState<Stats>({ sciRepsCount: 0, filesCount: 0, areasCount: 0, totalSales: 0, totalReturns: 0 });
@@ -52,7 +52,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
-  const [showCallsSection, setShowCallsSection] = useState(() => localStorage.getItem('dash_calls_open') === 'true');
+  const isCompanyManager = user?.role === 'company_manager';
+  const [showCallsSection, setShowCallsSection] = useState(() =>
+    user?.role === 'company_manager' ? true : localStorage.getItem('dash_calls_open') === 'true'
+  );
   const [showCallStats, setShowCallStats] = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
   // Pre-fetched rep list for managers — shown in dropdown even when today has no visits
@@ -770,38 +773,44 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClDidYouMean(null);
     if (!val.trim()) { setClSuggestions([]); setClShowSugg(false); return; }
     const lv = val.toLowerCase();
-    if (!activePlan) {
-      // No plan — search all accessible doctors directly
-      if (val.trim().length >= 2) {
-        fetch(`/api/doctors?q=${encodeURIComponent(val)}`, { headers: authH() })
-          .then(r => r.json())
-          .then(docs => {
-            if (!Array.isArray(docs)) return;
-            setClSuggestions(docs.slice(0, 8).map((d: any) => ({ doctor: d, id: null, _inPlan: false })));
-            setClShowSugg(true);
-          })
-          .catch(() => {});
-      }
-      return;
-    }
-    // Plan exists — show plan matches immediately
-    const planMatches = (activePlan.entries ?? [])
+
+    // Build set of plan doctor IDs + their entry refs (for in-plan marking)
+    const planEntries: any[] = activePlan?.entries ?? [];
+    const planDocIds = new Set<number>(planEntries.map((e: any) => e.doctor.id));
+    const planById   = new Map<number, any>(planEntries.map((e: any) => [e.doctor.id, e]));
+
+    // Show plan matches immediately (local filter for instant feedback)
+    const planMatches = planEntries
       .filter((e: any) => e.doctor.name.toLowerCase().includes(lv))
       .slice(0, 5)
       .map((e: any) => ({ ...e, _inPlan: true }));
     setClSuggestions(planMatches);
-    setClShowSugg(true);
-    // Also search out-of-plan doctors from API (min 2 chars)
-    if (val.trim().length >= 2) {
-      fetch(`/api/monthly-plans/${activePlan.id}/available-doctors?q=${encodeURIComponent(val)}`, { headers: authH() })
+    setClShowSugg(planMatches.length > 0);
+
+    // Search all company doctors via API (fixed for field reps: uses manager's userId)
+    // Skip API call in plan_only mode (local plan matches are sufficient)
+    if (val.trim().length >= 2 && getDoctorFilterPlanMode() !== 'plan_only') {
+      fetch(`/api/doctors?q=${encodeURIComponent(val)}`, { headers: authH() })
         .then(r => r.json())
         .then(docs => {
           if (!Array.isArray(docs)) return;
+          const alreadyShownIds = new Set(planMatches.map((e: any) => e.doctor.id));
+          const apiResults = docs
+            .filter((d: any) => !alreadyShownIds.has(d.id))
+            .slice(0, 8)
+            .map((d: any) => {
+              if (planDocIds.has(d.id)) {
+                // Doctor is in plan — use the plan entry to get entry id
+                const entry = planById.get(d.id);
+                return entry ? { ...entry, _inPlan: true } : { doctor: d, id: null, _inPlan: true };
+              }
+              return { doctor: d, id: null, _inPlan: false };
+            });
           setClSuggestions(prev => {
-            const inPlan = prev.filter((x: any) => x._inPlan);
-            const outside = docs.slice(0, 5).map((d: any) => ({ doctor: d, id: null, _inPlan: false }));
-            return [...inPlan, ...outside];
+            const kept = prev.filter((x: any) => x._inPlan && alreadyShownIds.has(x.doctor.id));
+            return [...kept, ...apiResults];
           });
+          setClShowSugg(true);
         })
         .catch(() => {});
     }
@@ -1585,7 +1594,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   }
 
   // ── Scientific Rep dashboard: daily calls only ─────────────
-  if (isScientificRep) {
+  if (isScientificRep || isCompanyManager) {
     return (
       <div className="page">
         <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: '10px' }}>
@@ -1646,6 +1655,21 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 >اليوم</button>
               )}
           </div>
+
+          {/* Row 2: Rep filter — company_manager only */}
+          {isCompanyManager && dashReps.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start' }}>
+              <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>👤 المندوب:</span>
+              <select
+                value={callsRepId}
+                onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
+                style={{ fontSize: '11px', border: 'none', background: 'transparent', outline: 'none', cursor: 'pointer', color: '#374151', fontWeight: 600 }}
+              >
+                <option value="">كل المندوبين</option>
+                {dashReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          )}
 
         </div>
 

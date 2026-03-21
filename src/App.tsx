@@ -140,6 +140,12 @@ function AppInner() {
     try {
       const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
       if (u?.role === 'commercial_rep') return 'commercial';
+      // company_manager now uses the merged rep-analysis page
+      const companyMgrIndividualPages: string[] = ['upload', 'representatives', 'scientific-reps', 'reports'];
+      if (u?.role === 'company_manager') {
+        const saved = localStorage.getItem('lastPage');
+        if (saved && companyMgrIndividualPages.includes(saved)) return 'rep-analysis';
+      }
     } catch {}
     const saved = localStorage.getItem('lastPage') as PageId | null;
     return saved ?? 'dashboard';
