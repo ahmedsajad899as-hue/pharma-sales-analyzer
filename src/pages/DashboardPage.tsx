@@ -808,7 +808,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             });
           setClSuggestions(prev => {
             const kept = prev.filter((x: any) => x._inPlan && alreadyShownIds.has(x.doctor.id));
-            return [...kept, ...apiResults];
+            const merged = [...kept, ...apiResults];
+            // Always show in-plan doctors first, then out-of-plan
+            merged.sort((a: any, b: any) => (a._inPlan === b._inPlan ? 0 : a._inPlan ? -1 : 1));
+            return merged;
           });
           setClShowSugg(true);
         })
