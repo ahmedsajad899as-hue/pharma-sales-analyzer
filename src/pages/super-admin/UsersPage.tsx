@@ -141,7 +141,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [form,      setForm]      = useState<any | null>(null);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
-  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'features'>('info');
+  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'features'>(() => {
+    const saved = localStorage.getItem('sa_user_tab');
+    return (saved as any) || 'info';
+  });
   const [search,    setSearch]    = useState('');
 
   // ── Draft assignment states (must be at top level — Rules of Hooks) ──────
@@ -181,6 +184,27 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   useEffect(load, []);
 
+  // Persist detail user + tab to localStorage
+  useEffect(() => {
+    if (detail) localStorage.setItem('sa_user_detail_id', String(detail.id));
+    else localStorage.removeItem('sa_user_detail_id');
+  }, [detail?.id]);
+  useEffect(() => { localStorage.setItem('sa_user_tab', tab); }, [tab]);
+
+  // Restore detail view on mount (page refresh)
+  useEffect(() => {
+    const savedId = localStorage.getItem('sa_user_detail_id');
+    if (savedId && !jumpUserId) {
+      const id = parseInt(savedId);
+      if (id > 0) {
+        fetch(`/api/sa/users/${id}`, { headers: H() }).then(r => r.json()).then(d => {
+          if (d.success) setDetail(d.data);
+        });
+        loadRefs();
+      }
+    }
+  }, []);
+
   // Auto-open a user when navigated from another page
   useEffect(() => {
     if (!jumpUserId) return;
@@ -217,6 +241,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       if (d.success) {
         setDetail(d.data);
         setTab('info');
+        localStorage.setItem('sa_user_tab', 'info');
         // Scroll to top of detail view
         requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = 0; });
       }
@@ -226,6 +251,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   const goBack = () => {
     setDetail(null);
+    localStorage.removeItem('sa_user_detail_id');
     // Restore scroll position after list re-renders
     requestAnimationFrame(() => {
       const m = getMainEl();
@@ -457,6 +483,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'areas' && (
             <div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftAreaIds(areas.map(a => a.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftAreaIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {areas.map(a => (
                   <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
