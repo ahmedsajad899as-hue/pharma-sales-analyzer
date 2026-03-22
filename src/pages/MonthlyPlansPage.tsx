@@ -587,7 +587,7 @@ export default function MonthlyPlansPage() {
         body: JSON.stringify(body),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? 'فشل الإنشاء');
+      if (!r.ok) throw new Error(j.error ?? j.message ?? 'فشل الإنشاء');
       invalidateCache('/api/monthly-plans');
       await load();
       setCAreaIds([]);
