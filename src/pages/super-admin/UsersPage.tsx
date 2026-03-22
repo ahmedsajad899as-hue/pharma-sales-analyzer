@@ -459,7 +459,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'companies' && (
             <div>
-              <CheckList allItems={companies.map(c => ({ id: c.id, label: c.name }))} selIds={draftCompanyIds} onToggle={mkToggle(draftCompanyIds, setDraftCompanyIds)} />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftCompanyIds(companies.map(c => c.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftCompanyIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                {companies.map(c => (
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input type="checkbox" checked={draftCompanyIds.includes(c.id)} onChange={e => setDraftCompanyIds(e.target.checked ? [...draftCompanyIds, c.id] : draftCompanyIds.filter(x => x !== c.id))} />
+                    {c.name}
+                  </label>
+                ))}
+              </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('companies', draftCompanyIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
@@ -467,7 +478,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'lines' && (
             <div>
-              <CheckList allItems={lines.map(l => ({ id: l.id, label: l.name || `لاين #${l.id}` }))} selIds={draftLineIds} onToggle={mkToggle(draftLineIds, setDraftLineIds)} />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftLineIds(lines.map(l => l.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftLineIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                {lines.map(l => (
+                  <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input type="checkbox" checked={draftLineIds.includes(l.id)} onChange={e => setDraftLineIds(e.target.checked ? [...draftLineIds, l.id] : draftLineIds.filter(x => x !== l.id))} />
+                    {l.name || `لاين #${l.id}`}
+                  </label>
+                ))}
+              </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('lines', draftLineIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
@@ -475,7 +497,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'items' && (
             <div>
-              <CheckList allItems={items.map(i => ({ id: i.id, label: i.name }))} selIds={draftItemIds} onToggle={mkToggle(draftItemIds, setDraftItemIds)} />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftItemIds(items.map(i => i.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                {items.map(i => (
+                  <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input type="checkbox" checked={draftItemIds.includes(i.id)} onChange={e => setDraftItemIds(e.target.checked ? [...draftItemIds, i.id] : draftItemIds.filter(x => x !== i.id))} />
+                    {i.name}
+                  </label>
+                ))}
+              </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('items', draftItemIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
@@ -502,7 +535,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'managers' && (
             <div>
-              <CheckList allItems={users.filter(u => u.id !== detail.id).map(u => ({ id: u.id, label: `${u.displayName || u.username} (${ROLES.find(r => r.value === u.role)?.label || u.role})` }))} selIds={draftMgrIds} onToggle={mkToggle(draftMgrIds, setDraftMgrIds)} />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftMgrIds(users.filter(u => u.id !== detail.id).map(u => u.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftMgrIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                {users.filter(u => u.id !== detail.id).map(u => (
+                  <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input type="checkbox" checked={draftMgrIds.includes(u.id)} onChange={e => setDraftMgrIds(e.target.checked ? [...draftMgrIds, u.id] : draftMgrIds.filter(x => x !== u.id))} />
+                    {u.displayName || u.username} ({ROLES.find(r => r.value === u.role)?.label || u.role})
+                  </label>
+                ))}
+              </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('managers', draftMgrIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
