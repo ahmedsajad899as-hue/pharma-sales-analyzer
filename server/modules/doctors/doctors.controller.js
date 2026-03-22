@@ -238,7 +238,7 @@ export async function list(req, res, next) {
         }
         where = { userId: managerUserId, name: { contains: q.trim() } };
 
-        // ── Apply area filter for field reps (restrict to assigned areas + unmatched) ──
+        // ── Apply area filter for field reps (restrict to assigned areas) ──
         if (filterByArea) {
           const [userAreaRows, repAreaRows] = await Promise.all([
             prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
@@ -251,9 +251,11 @@ export async function list(req, res, next) {
             ...repAreaRows.map(a => a.areaId),
           ])];
           if (repAreaIds.length > 0) {
-            // Include assigned areas + doctors with no area (survey imports without matching Area record)
+            // Include assigned areas + null-area doctors (will be post-filtered by survey areaName)
             const areaFilter = { OR: [{ areaId: { in: repAreaIds } }, { areaId: null }] };
             where = { AND: [where, areaFilter] };
+            // Store for post-filtering null-area doctors by survey areaName
+            var _filterRepAreaIds = repAreaIds;
           }
         }
 
@@ -396,7 +398,7 @@ export async function list(req, res, next) {
       orderBy: { name: 'asc' },
     });
 
-    // ── Step 3b: Enrich null-area doctors with survey areaName ──
+    // ── Step 3b: Enrich null-area doctors with survey areaName + post-filter by rep areas ──
     if (isSearch) {
       const noAreaDocs = doctors.filter(d => !d.area);
       if (noAreaDocs.length > 0) {
@@ -416,6 +418,25 @@ export async function list(req, res, next) {
             const sArea = surveyAreaMap.get(d.name.trim().toLowerCase());
             if (sArea) d.area = { id: null, name: sArea };
           }
+        }
+      }
+
+      // Post-filter: if area filter active, remove null-area doctors whose survey area doesn't match rep's areas
+      if (_filterRepAreaIds && _filterRepAreaIds.length > 0) {
+        const repAreaNames = await prisma.area.findMany({
+          where: { id: { in: _filterRepAreaIds } }, select: { name: true },
+        });
+        const allowedAreaNames = new Set(repAreaNames.map(a => a.name.trim().toLowerCase()));
+        const toRemove = new Set();
+        for (const d of doctors) {
+          if (d.areaId) continue; // already matched by areaId filter
+          const areaName = d.area?.name;
+          if (!areaName || !allowedAreaNames.has(areaName.trim().toLowerCase())) {
+            toRemove.add(d.id);
+          }
+        }
+        if (toRemove.size > 0) {
+          doctors.splice(0, doctors.length, ...doctors.filter(d => !toRemove.has(d.id)));
         }
       }
     }
