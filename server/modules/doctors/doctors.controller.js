@@ -396,6 +396,30 @@ export async function list(req, res, next) {
       orderBy: { name: 'asc' },
     });
 
+    // ── Step 3b: Enrich null-area doctors with survey areaName ──
+    if (isSearch) {
+      const noAreaDocs = doctors.filter(d => !d.area);
+      if (noAreaDocs.length > 0) {
+        const activeSurveyForArea = await prisma.masterSurvey.findFirst({
+          where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+        });
+        if (activeSurveyForArea) {
+          const surveyRows = await prisma.masterSurveyDoctor.findMany({
+            where: { surveyId: activeSurveyForArea.id, name: { in: noAreaDocs.map(d => d.name.trim()) } },
+            select: { name: true, areaName: true },
+          });
+          const surveyAreaMap = new Map();
+          for (const s of surveyRows) {
+            if (s.areaName?.trim()) surveyAreaMap.set(s.name.trim().toLowerCase(), s.areaName.trim());
+          }
+          for (const d of noAreaDocs) {
+            const sArea = surveyAreaMap.get(d.name.trim().toLowerCase());
+            if (sArea) d.area = { id: null, name: sArea };
+          }
+        }
+      }
+    }
+
     // ── Step 4: Apply survey filter (post-query, name matching) ──
     let finalDoctors = doctors;
     if (filterSurveyOnly && isSearch) {
