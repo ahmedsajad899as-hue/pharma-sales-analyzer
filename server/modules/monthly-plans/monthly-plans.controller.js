@@ -59,6 +59,7 @@ export async function list(req, res, next) {
         scientificRep:  { select: { id: true, name: true } },
         user:           { select: { id: true, username: true } },
         assignedUser:   { select: { id: true, username: true } },
+        planAreas:      { include: { area: { select: { id: true, name: true } } } },
         entries: {
           include: {
             doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } }, targetItem: { select: { id: true, name: true } } } },
@@ -88,6 +89,7 @@ export async function getOne(req, res, next) {
       where: accessWhere,
       include: {
         scientificRep: { select: { id: true, name: true } },
+        planAreas:     { include: { area: { select: { id: true, name: true } } } },
         entries: {
           include: {
             doctor: {
@@ -623,7 +625,8 @@ export async function create(req, res, next) {
     const userId = req.user.id;
     const role   = req.user.role;
     const REP_ROLES_C = new Set(['user','scientific_rep','team_leader','supervisor','commercial_rep']);
-    let { scientificRepId, month, year, targetCalls, targetDoctors, notes, doctorIds } = req.body;
+    const MANAGER_ROLES = new Set(['admin','manager','company_manager','supervisor','product_manager','team_leader','office_manager']);
+    let { scientificRepId, month, year, targetCalls, targetDoctors, notes, doctorIds, areaIds } = req.body;
 
     // Reps can only create plans for themselves (their linkedRepId)
     if (REP_ROLES_C.has(role)) {
@@ -633,12 +636,21 @@ export async function create(req, res, next) {
       scientificRepId = dbUser.linkedRepId;
     }
 
-    if (!scientificRepId || !month || !year)
+    // Managers can create without a rep, but must provide areas
+    if (MANAGER_ROLES.has(role) && !scientificRepId) {
+      if (!areaIds || !areaIds.length)
+        return res.status(400).json({ error: 'يجب تحديد المناطق عند إنشاء بلان بدون مندوب.' });
+    }
+
+    // For reps, repId is required
+    if (!MANAGER_ROLES.has(role) && !scientificRepId)
       return res.status(400).json({ error: 'الحقول المطلوبة: scientificRepId, month, year' });
+    if (!month || !year)
+      return res.status(400).json({ error: 'الحقول المطلوبة: month, year' });
 
     const plan = await prisma.monthlyPlan.create({
       data: {
-        scientificRepId: parseInt(scientificRepId),
+        scientificRepId: scientificRepId ? parseInt(scientificRepId) : null,
         month: parseInt(month),
         year:  parseInt(year),
         targetCalls:   targetCalls   ? parseInt(targetCalls)   : (doctorIds?.length ? doctorIds.length * 2 : 150),
@@ -648,10 +660,14 @@ export async function create(req, res, next) {
         entries: doctorIds?.length ? {
           create: doctorIds.map(id => ({ doctorId: parseInt(id), targetVisits: 2 })),
         } : undefined,
+        planAreas: areaIds?.length ? {
+          create: areaIds.map(id => ({ areaId: parseInt(id) })),
+        } : undefined,
       },
       include: {
         scientificRep: { select: { id: true, name: true } },
         entries: { include: { doctor: true } },
+        planAreas: { include: { area: { select: { id: true, name: true } } } },
       },
     });
     res.status(201).json(plan);
@@ -661,7 +677,7 @@ export async function create(req, res, next) {
 // ── Update plan ───────────────────────────────────────────────
 export async function update(req, res, next) {
   try {
-    const { notes, status, targetCalls, targetDoctors, allowExtraVisits } = req.body;
+    const { notes, status, targetCalls, targetDoctors, allowExtraVisits, scientificRepId } = req.body;
     const result = await prisma.monthlyPlan.updateMany({
       where: { id: parseInt(req.params.id), OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
       data: {
@@ -670,6 +686,7 @@ export async function update(req, res, next) {
         ...(targetCalls       !== undefined && { targetCalls:       parseInt(targetCalls) }),
         ...(targetDoctors     !== undefined && { targetDoctors:     parseInt(targetDoctors) }),
         ...(allowExtraVisits  !== undefined && { allowExtraVisits:  Boolean(allowExtraVisits) }),
+        ...(scientificRepId   !== undefined && { scientificRepId:   scientificRepId ? parseInt(scientificRepId) : null }),
       },
     });
     if (result.count === 0) return res.status(404).json({ error: 'غير موجود' });
@@ -1996,14 +2013,17 @@ export async function transferPlan(req, res, next) {
       return res.status(400).json({ error: 'يمكن تحويل البلان إلى المندوبين فقط.' });
     }
     // Check link: either classic linkedRepId match OR the user is the userId of the ScientificRepresentative
-    const scientificRep = await prisma.scientificRepresentative.findUnique({
-      where: { id: plan.scientificRepId },
-      select: { userId: true },
-    });
-    const linkedByRepId  = targetUser.linkedRepId === plan.scientificRepId;
-    const linkedByUserId = scientificRep?.userId === targetUser.id;
-    if (!linkedByRepId && !linkedByUserId) {
-      return res.status(400).json({ error: 'حساب المستخدم المحدد غير مرتبط بنفس المندوب العلمي الخاص بهذا البلان.' });
+    // Skip check if plan has no rep assigned yet (unassigned plan)
+    if (plan.scientificRepId) {
+      const scientificRep = await prisma.scientificRepresentative.findUnique({
+        where: { id: plan.scientificRepId },
+        select: { userId: true },
+      });
+      const linkedByRepId  = targetUser.linkedRepId === plan.scientificRepId;
+      const linkedByUserId = scientificRep?.userId === targetUser.id;
+      if (!linkedByRepId && !linkedByUserId) {
+        return res.status(400).json({ error: 'حساب المستخدم المحدد غير مرتبط بنفس المندوب العلمي الخاص بهذا البلان.' });
+      }
     }
 
     // Perform the transfer

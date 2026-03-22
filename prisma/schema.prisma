@@ -126,6 +126,7 @@ model Area {
   userAreaAssignments UserAreaAssignment[]
   pharmacyVisits      PharmacyVisit[]
   pharmacies          Pharmacy[]
+  planAreas           PlanArea[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -415,7 +416,7 @@ model Doctor {
 // ─── Monthly Plan (البلان الشهري) ────────────────────────────
 model MonthlyPlan {
   id               Int      @id @default(autoincrement())
-  scientificRepId  Int
+  scientificRepId  Int?
   month            Int // 1-12
   year             Int
   targetCalls      Int      @default(150)
@@ -430,15 +431,30 @@ model MonthlyPlan {
   user           User?                    @relation(fields: [userId], references: [id])
   assignedUserId Int? // rep user this plan is transferred/assigned to
   assignedUser   User?                    @relation("AssignedPlans", fields: [assignedUserId], references: [id])
-  scientificRep  ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  scientificRep  ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
 
-  entries PlanEntry[]
+  entries   PlanEntry[]
+  planAreas PlanArea[]
 
   @@unique([scientificRepId, month, year, userId])
   @@index([userId])
   @@index([assignedUserId])
   @@index([scientificRepId])
   @@map("monthly_plans")
+}
+
+// ─── Plan ↔ Area (المناطق الخاصة بالبلان) ────────────────────
+model PlanArea {
+  id     Int @id @default(autoincrement())
+  planId Int
+  areaId Int
+
+  plan MonthlyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  area Area        @relation(fields: [areaId], references: [id])
+
+  @@unique([planId, areaId])
+  @@index([planId])
+  @@map("plan_areas")
 }
 
 // ─── Plan Entry: طبيب في البلان ──────────────────────────────

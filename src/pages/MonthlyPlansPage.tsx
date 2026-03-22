@@ -78,14 +78,15 @@ interface PlanEntry {
   targetItems?: { id: number; item: NamedItem }[];
 }
 interface Plan {
-  id: number; scientificRepId: number; month: number; year: number;
+  id: number; scientificRepId: number | null; month: number; year: number;
   targetCalls: number; targetDoctors: number; status: string; notes?: string;
   allowExtraVisits: boolean;
   userId?: number | null;
   user?: { id: number; username: string } | null;
   assignedUserId?: number | null;
   assignedUser?: { id: number; username: string } | null;
-  scientificRep: NamedItem; entries: PlanEntry[];
+  scientificRep: NamedItem | null; entries: PlanEntry[];
+  planAreas?: { id: number; area: NamedItem }[];
 }
 interface SuggestResult {
   keepDoctors: { doctor: Doctor; reason: string }[];
@@ -140,6 +141,9 @@ export default function MonthlyPlansPage() {
   const [cMonth, setCMonth]     = useState(new Date().getMonth() + 1);
   const [cYear,  setCYear]      = useState(new Date().getFullYear());
   const [creating, setCreating] = useState(false);
+  const [cAreaIds, setCAreaIds] = useState<number[]>([]);
+  const [allAreas, setAllAreas] = useState<NamedItem[]>([]);
+  const [areaDropdownPlanId, setAreaDropdownPlanId] = useState<number | null>(null);
 
   // Smart suggest
   const [suggest, setSuggest]       = useState<SuggestResult | null>(null);
@@ -374,6 +378,12 @@ export default function MonthlyPlansPage() {
         cachedFetch(`${API}/api/items`,           { headers: h }, d => setItems(Array.isArray(d) ? d : (Array.isArray(d?.data) ? d.data : []))),
       ]);
       applyPlanData(plJson, reJson, itJson);
+      // Load areas for create modal
+      try {
+        const arRes = await fetch(`${API}/api/areas`, { headers: h });
+        const arJson = await arRes.json();
+        if (Array.isArray(arJson)) setAllAreas(arJson);
+      } catch {}
       // Restore last open plan
       const savedPlanId = localStorage.getItem('lastPlanId');
       if (savedPlanId) {
@@ -560,17 +570,27 @@ export default function MonthlyPlansPage() {
       alert('حسابك غير مرتبط بمندوب علمي. تواصل مع المدير.');
       return;
     }
-    if (isManagerOrAdmin && !cRepId) { alert('اختر المندوب العلمي'); return; }
+    // Managers: if no rep selected, must have areas
+    if (isManagerOrAdmin && !cRepId && cAreaIds.length === 0) {
+      alert('يجب تحديد المناطق عند إنشاء بلان بدون مندوب.');
+      return;
+    }
     setCreating(true);
     try {
+      const body: any = { month: cMonth, year: cYear };
+      if (isManagerOrAdmin && cRepId) body.scientificRepId = cRepId;
+      else if (!isManagerOrAdmin) body.scientificRepId = authUser?.linkedRepId;
+      if (cAreaIds.length > 0) body.areaIds = cAreaIds;
       const r = await fetch(`${API}/api/monthly-plans`, {
         method: 'POST', headers: H(),
-        body: JSON.stringify({ scientificRepId: isManagerOrAdmin ? cRepId : authUser?.linkedRepId, month: cMonth, year: cYear }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'فشل الإنشاء');
       invalidateCache('/api/monthly-plans');
       await load();
+      setCAreaIds([]);
+      setShowCreate(false);
     } catch (e: any) { alert(e.message); }
     finally { setCreating(false); }
   };
@@ -578,6 +598,7 @@ export default function MonthlyPlansPage() {
   // Smart suggest
   const loadSuggest = async () => {
     if (!activePlan) return;
+    if (!activePlan.scientificRepId) { alert('يجب ربط البلان بمندوب أولاً لاستخدام الاقتراح الذكي.'); return; }
     setSuggestLoading(true); setSuggest(null); setShowSuggestSettings(false);
     try {
       // Read wished doctors from localStorage if feature is enabled
@@ -904,7 +925,7 @@ export default function MonthlyPlansPage() {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'البلان');
-    XLSX.writeFile(wb, `plan_${activePlan.scientificRep.name}_${MONTHS_AR[activePlan.month - 1]}_${activePlan.year}.xlsx`);
+    XLSX.writeFile(wb, `plan_${activePlan.scientificRep?.name ?? 'unassigned'}_${MONTHS_AR[activePlan.month - 1]}_${activePlan.year}.xlsx`);
   };
 
   // Import plan entries (doctors list) from Excel
@@ -1210,7 +1231,7 @@ export default function MonthlyPlansPage() {
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a'); a.href = url;
-    a.download = `template_${activePlan.scientificRep.name}_${activePlan.month}_${activePlan.year}.csv`;
+    a.download = `template_${activePlan.scientificRep?.name ?? 'plan'}_${activePlan.month}_${activePlan.year}.csv`;
     a.click(); URL.revokeObjectURL(url);
   };
 
@@ -1442,7 +1463,7 @@ export default function MonthlyPlansPage() {
             const totalV = p.entries.reduce((s, e) => s + e.visits.length, 0);
             return (
               <option key={p.id} value={p.id}>
-                {p.scientificRep.name} · {MONTHS_AR[p.month - 1]} {p.year} ({p.entries.length} طبيب | {totalV}/{p.targetCalls} زيارة)
+                {p.scientificRep?.name ?? 'بدون مندوب'} · {MONTHS_AR[p.month - 1]} {p.year} ({p.entries.length} طبيب | {totalV}/{p.targetCalls} زيارة)
               </option>
             );
           })}
@@ -1503,15 +1524,62 @@ export default function MonthlyPlansPage() {
                       onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.15)'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
-                          {p.scientificRep.name}
-                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, position: 'relative' }}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: p.scientificRep ? '#1e293b' : '#94a3b8' }}>
+                            {p.scientificRep?.name ?? 'بدون مندوب'}
+                          </p>
+                          {/* Area dropdown arrow */}
+                          {(p.planAreas?.length ?? 0) > 0 && (
+                            <span
+                              onClick={e => { e.stopPropagation(); setAreaDropdownPlanId(areaDropdownPlanId === p.id ? null : p.id); }}
+                              style={{ cursor: 'pointer', fontSize: 10, color: '#6366f1', userSelect: 'none', padding: '2px 4px', borderRadius: 4, background: areaDropdownPlanId === p.id ? '#eef2ff' : 'transparent' }}
+                              title="عرض المناطق">
+                              {areaDropdownPlanId === p.id ? '▲' : '▼'}
+                            </span>
+                          )}
+                          {/* Area dropdown popup */}
+                          {areaDropdownPlanId === p.id && (p.planAreas?.length ?? 0) > 0 && (
+                            <div onClick={e => e.stopPropagation()} style={{
+                              position: 'absolute', top: '100%', right: 0, zIndex: 50,
+                              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.1)', padding: '8px 12px',
+                              minWidth: 140, marginTop: 4,
+                            }}>
+                              <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>📍 مناطق البلان:</p>
+                              {p.planAreas!.map(pa => (
+                                <div key={pa.id} style={{ fontSize: 12, color: '#374151', padding: '2px 0' }}>• {pa.area.name}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         {p.user && (
                           <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '2px 7px', fontWeight: 600, whiteSpace: 'nowrap', marginRight: 4 }}>
                             👤 {p.user.username}
                           </span>
                         )}
                       </div>
+                      {/* Assign rep button for plans without a rep */}
+                      {isManagerOrAdmin && !p.scientificRepId && (
+                        <div style={{ marginBottom: 6 }} onClick={e => e.stopPropagation()}>
+                          <select
+                            defaultValue=""
+                            onChange={async e => {
+                              const repId = e.target.value;
+                              if (!repId) return;
+                              try {
+                                const r = await fetch(`${API}/api/monthly-plans/${p.id}`, {
+                                  method: 'PUT', headers: H(),
+                                  body: JSON.stringify({ scientificRepId: parseInt(repId) }),
+                                });
+                                if (r.ok) { invalidateCache('/api/monthly-plans'); await load(); }
+                              } catch {}
+                            }}
+                            style={{ width: '100%', fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca', cursor: 'pointer', fontWeight: 600 }}>
+                            <option value="">🔗 ربط بمندوب...</option>
+                            {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                          </select>
+                        </div>
+                      )}
                       <p style={{ margin: '2px 0 8px', fontSize: 13, color: '#64748b' }}>
                         {MONTHS_AR[p.month - 1]} {p.year}
                       </p>
@@ -2698,7 +2766,7 @@ export default function MonthlyPlansPage() {
             <div style={{ background: 'linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%)', borderRadius: 14, padding: '16px 20px', marginBottom: 20, color: '#fff', display: 'flex', flexWrap: 'wrap', gap: 0 }}>
               <div style={{ flex: 1, minWidth: 140, borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 16, marginLeft: 16 }}>
                 <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>👤 المندوب العلمي</p>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{activePlan.scientificRep.name}</p>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{activePlan.scientificRep?.name ?? 'بدون مندوب'}</p>
               </div>
               <div style={{ flex: 1, minWidth: 120, borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 16, marginLeft: 16 }}>
                 <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>📅 الشهر</p>
@@ -3536,7 +3604,7 @@ export default function MonthlyPlansPage() {
             {/* Plan info */}
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
               <p style={{ margin: 0, fontSize: 13, color: '#166534', fontWeight: 700 }}>
-                📅 {activePlan.scientificRep.name} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
+                📅 {activePlan.scientificRep?.name ?? 'بدون مندوب'} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
               </p>
               <p style={{ margin: '3px 0 0', fontSize: 12, color: '#15803d' }}>
                 {activePlan.entries.length} طبيب في البلان — الزيارات ستُطابق تلقائياً حسب اسم الطبيب
@@ -3879,9 +3947,9 @@ export default function MonthlyPlansPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               {isManagerOrAdmin ? (
                 <label style={{ ...labelStyle, gridColumn: 'span 3' }}>
-                  المندوب العلمي *
+                  المندوب العلمي <span style={{ fontSize: 11, color: '#94a3b8' }}>(اختياري)</span>
                   <select value={cRepId} onChange={e => setCRepId(e.target.value)} style={inputStyle}>
-                    <option value="">-- اختر مندوب --</option>
+                    <option value="">-- بدون مندوب --</option>
                     {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </label>
@@ -3892,6 +3960,34 @@ export default function MonthlyPlansPage() {
                     {reps.find(r => r.id === authUser?.linkedRepId)?.name ?? `مندوب #${authUser?.linkedRepId}`}
                   </div>
                 </label>
+              )}
+              {/* Area selection */}
+              {isManagerOrAdmin && (
+                <div style={{ gridColumn: 'span 3' }}>
+                  <label style={labelStyle}>
+                    المناطق {!cRepId && <span style={{ color: '#ef4444', fontSize: 12 }}>*</span>}
+                  </label>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                    <button onClick={() => setCAreaIds(allAreas.map(a => a.id))} type="button"
+                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>
+                      ✓ الكل
+                    </button>
+                    <button onClick={() => setCAreaIds([])} type="button"
+                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>
+                      ✗ إلغاء
+                    </button>
+                  </div>
+                  <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #e2e8f0', borderRadius: 8, padding: 8 }}>
+                    {allAreas.map(a => (
+                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '4px 6px', borderRadius: 6, background: cAreaIds.includes(a.id) ? '#eff6ff' : 'transparent' }}>
+                        <input type="checkbox" checked={cAreaIds.includes(a.id)}
+                          onChange={e => setCAreaIds(e.target.checked ? [...cAreaIds, a.id] : cAreaIds.filter(x => x !== a.id))} />
+                        {a.name}
+                      </label>
+                    ))}
+                    {allAreas.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد مناطق</span>}
+                  </div>
+                </div>
               )}
               <label style={labelStyle}>
                 الشهر
@@ -3981,7 +4077,7 @@ export default function MonthlyPlansPage() {
                 style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
             </div>
             <p style={{ margin: '0 0 14px', fontSize: 14, color: '#475569' }}>
-              البلان: <strong>{transferPlan.scientificRep.name}</strong> — {MONTHS_AR[transferPlan.month - 1]} {transferPlan.year}
+              البلان: <strong>{transferPlan.scientificRep?.name ?? 'بدون مندوب'}</strong> — {MONTHS_AR[transferPlan.month - 1]} {transferPlan.year}
             </p>
             {repUsers.length === 0 ? (
               <p style={{ color: '#ef4444', fontSize: 13, background: '#fee2e2', borderRadius: 8, padding: '10px 14px' }}>
