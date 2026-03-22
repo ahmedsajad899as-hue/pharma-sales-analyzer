@@ -592,7 +592,11 @@ export default function MonthlyPlansPage() {
       await load();
       setCAreaIds([]);
       setShowCreate(false);
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) {
+      alert(e.message);
+      invalidateCache('/api/monthly-plans');
+      await load();
+    }
     finally { setCreating(false); }
   };
 

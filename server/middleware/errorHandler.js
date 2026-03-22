@@ -25,10 +25,14 @@ export class AppError extends Error {
 export function errorHandler(err, req, res, _next) {
   // Prisma known errors
   if (err.code === 'P2002') {
+    const fields = err.meta?.target?.join(', ') ?? '';
+    const isMonthlyPlan = fields.includes('scientificRepId') && fields.includes('month');
     return res.status(409).json({
       success: false,
       code: 'DUPLICATE_ENTRY',
-      message: `Duplicate value on field: ${err.meta?.target?.join(', ')}`,
+      message: isMonthlyPlan
+        ? 'يوجد بالفعل بلان لنفس المندوب والشهر والسنة. حاول اختيار شهر مختلف أو مندوب مختلف.'
+        : `قيمة مكررة في الحقل: ${fields}`,
     });
   }
 
