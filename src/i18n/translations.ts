@@ -13,7 +13,7 @@ const translations = {
       scientificReps: 'علميون',
       reports: 'التقارير',
       users: 'المستخدمين',
-      doctors: 'السيرفي',
+      doctors: 'تحليل الكولات',
       monthlyPlans: 'البلان الشهري',
     },
     sidebar: {
