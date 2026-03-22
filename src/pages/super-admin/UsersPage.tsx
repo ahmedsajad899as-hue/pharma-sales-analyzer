@@ -457,7 +457,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'areas' && (
             <div>
-              <CheckList allItems={areas.map(a => ({ id: a.id, label: a.name }))} selIds={draftAreaIds} onToggle={mkToggle(draftAreaIds, setDraftAreaIds)} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                {areas.map(a => (
+                  <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+                    <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
+                    {a.name}
+                  </label>
+                ))}
+              </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('areas', draftAreaIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
