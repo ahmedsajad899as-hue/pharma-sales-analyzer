@@ -807,11 +807,20 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               return { doctor: d, id: null, _inPlan: false };
             });
           setClSuggestions(prev => {
-            const kept = prev.filter((x: any) => x._inPlan && alreadyShownIds.has(x.doctor.id));
-            const merged = [...kept, ...apiResults];
-            // Always show in-plan doctors first, then out-of-plan
-            merged.sort((a: any, b: any) => (a._inPlan === b._inPlan ? 0 : a._inPlan ? -1 : 1));
-            return merged;
+            // Merge: keep local plan matches + add new API results (deduplicated)
+            const seenIds = new Set<number>();
+            const all: any[] = [];
+            // First add all previous items (local plan matches)
+            for (const x of prev) {
+              if (!seenIds.has(x.doctor.id)) { seenIds.add(x.doctor.id); all.push(x); }
+            }
+            // Then add API results
+            for (const x of apiResults) {
+              if (!seenIds.has(x.doctor.id)) { seenIds.add(x.doctor.id); all.push(x); }
+            }
+            // Always: in-plan first, out-of-plan last
+            all.sort((a: any, b: any) => (a._inPlan === b._inPlan ? 0 : a._inPlan ? -1 : 1));
+            return all;
           });
           setClShowSugg(true);
         })
