@@ -466,8 +466,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const transcribedName: string = v.doctorName || '';
 
         // ── Step A: fuzzy match against active plan entries ──
+        const voicePlanMode = getDoctorFilterPlanMode();
         let matchedFromPlan = false;
-        if (activePlan && transcribedName) {
+        if (activePlan && transcribedName && voicePlanMode !== 'all') {
           const planEntries: any[] = activePlan.entries ?? [];
           let exactEntry: any = null;
           let partialEntry: any = null;
@@ -494,7 +495,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         }
 
         // ── Step B: if not found in plan, search catalog ──
-        if (!matchedFromPlan && transcribedName) {
+        if (!matchedFromPlan && transcribedName && voicePlanMode !== 'plan_only') {
           try {
             // Strategy: run two parallel fetches — one with the original first token
             // (catches DB entries stored WITH hamzas), one with the normalized token
@@ -504,9 +505,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             const normQ = normalizedTokens[0] ?? '';
             const origQ = origTokens[0] ?? '';
 
-            const mkUrl = (q: string) => activePlan
-              ? `/api/monthly-plans/${activePlan.id}/available-doctors?q=${encodeURIComponent(q)}`
-              : `/api/doctors?q=${encodeURIComponent(q)}`;
+            // Always use /api/doctors which has area+survey+plan filters applied
+            const mkUrl = (q: string) => `/api/doctors?q=${encodeURIComponent(q)}`;
 
             const headers = { Authorization: `Bearer ${token}` };
             const queries = normQ === origQ ? [normQ] : [normQ, origQ];
