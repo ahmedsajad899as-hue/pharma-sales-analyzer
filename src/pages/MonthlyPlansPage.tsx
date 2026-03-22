@@ -382,7 +382,8 @@ export default function MonthlyPlansPage() {
       try {
         const arRes = await fetch(`${API}/api/areas`, { headers: h });
         const arJson = await arRes.json();
-        if (Array.isArray(arJson)) setAllAreas(arJson);
+        const arList = Array.isArray(arJson) ? arJson : (Array.isArray(arJson?.data) ? arJson.data : []);
+        setAllAreas(arList);
       } catch {}
       // Restore last open plan
       const savedPlanId = localStorage.getItem('lastPlanId');
