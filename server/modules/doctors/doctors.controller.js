@@ -318,10 +318,14 @@ export async function list(req, res, next) {
         if (surveyMatches.length > 0) {
           // Build area-name → areaId map from ALL areas (not just ownerUserId)
           // Areas may belong to another userId but be assigned via UserAreaAssignment
+          // Uses Arabic normalization: ة→ه, أإآ→ا, ى→ي so "الحارثية" matches "الحارثيه"
+          const normAreaKey = s => String(s ?? '').trim().toLowerCase()
+            .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+            .replace(/[ًٌٍَُِّْ]/g, '');
           const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
           const areaNameMap = new Map();
           for (const a of allAreas) {
-            const key = a.name.trim().toLowerCase();
+            const key = normAreaKey(a.name);
             if (!areaNameMap.has(key)) areaNameMap.set(key, a.id);
           }
 
@@ -335,7 +339,7 @@ export async function list(req, res, next) {
           for (const sd of surveyMatches) {
             const nameKey = sd.name.trim().toLowerCase();
             const resolvedAreaId = sd.areaName?.trim()
-              ? (areaNameMap.get(sd.areaName.trim().toLowerCase()) || null)
+              ? (areaNameMap.get(normAreaKey(sd.areaName)) || null)
               : null;
 
             const existing = existingByName.get(nameKey);

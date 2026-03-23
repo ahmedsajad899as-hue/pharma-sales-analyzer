@@ -425,20 +425,23 @@ export async function suggest(req, res, next) {
           }
         }
 
-        // 3. Resolve AI-specified include areas
+        // Arabic normalization for area name matching (handles ة/ه, أإآ/ا, ى/ي)
+        const normAreaKey = s => String(s ?? '').trim().toLowerCase()
+          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, '');
+
+        // 3. Resolve AI-specified include areas (normalized match across all areas)
         if (aiParsed.includeAreaNames?.length) {
-          const areaMatches = await prisma.area.findMany({
-            where: { userId, name: { in: aiParsed.includeAreaNames } }, select: { id: true },
-          });
-          aiAreaOverride = areaMatches.map(a => a.id);
+          const allAreasAI = await prisma.area.findMany({ select: { id: true, name: true } });
+          const normInputs = new Set(aiParsed.includeAreaNames.map(normAreaKey));
+          aiAreaOverride = allAreasAI.filter(a => normInputs.has(normAreaKey(a.name))).map(a => a.id);
         }
 
-        // 4. Resolve AI-specified exclude areas
+        // 4. Resolve AI-specified exclude areas (normalized match across all areas)
         if (aiParsed.excludeAreaNames?.length) {
-          const exAreas = await prisma.area.findMany({
-            where: { userId, name: { in: aiParsed.excludeAreaNames } }, select: { id: true },
-          });
-          const exAreaIds = new Set(exAreas.map(a => a.id));
+          const allAreasEx = await prisma.area.findMany({ select: { id: true, name: true } });
+          const normExInputs = new Set(aiParsed.excludeAreaNames.map(normAreaKey));
+          const exAreaIds = new Set(allAreasEx.filter(a => normExInputs.has(normAreaKey(a.name))).map(a => a.id));
           // Exclude already-kept doctors from those areas
           keepDoctors = keepDoctors.filter(k => !exAreaIds.has(k.doctor.areaId));
           if (aiAreaOverride === null) {
