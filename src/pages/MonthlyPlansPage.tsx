@@ -144,6 +144,9 @@ export default function MonthlyPlansPage() {
   const [cAreaIds, setCAreaIds] = useState<number[]>([]);
   const [allAreas, setAllAreas] = useState<NamedItem[]>([]);
   const [areaDropdownPlanId, setAreaDropdownPlanId] = useState<number | null>(null);
+  const [editingPlanAreas, setEditingPlanAreas] = useState(false);
+  const [editAreaIds, setEditAreaIds] = useState<number[]>([]);
+  const [savingAreas, setSavingAreas] = useState(false);
 
   // Smart suggest
   const [suggest, setSuggest]       = useState<SuggestResult | null>(null);
@@ -603,7 +606,9 @@ export default function MonthlyPlansPage() {
   // Smart suggest
   const loadSuggest = async () => {
     if (!activePlan) return;
-    if (!activePlan.scientificRepId) { alert('يجب ربط البلان بمندوب أولاً لاستخدام الاقتراح الذكي.'); return; }
+    const hasRep = !!activePlan.scientificRepId;
+    const hasPlanAreas = activePlan.planAreas && activePlan.planAreas.length > 0;
+    if (!hasRep && !hasPlanAreas) { alert('يجب تحديد مناطق أو ربط مندوب أولاً لاستخدام الاقتراح الذكي.'); return; }
     setSuggestLoading(true); setSuggest(null); setShowSuggestSettings(false);
     try {
       // Read wished doctors from localStorage if feature is enabled
@@ -616,7 +621,6 @@ export default function MonthlyPlansPage() {
         } catch { /* ignore */ }
       }
       const p = new URLSearchParams({
-        scientificRepId:  String(activePlan.scientificRepId),
         month:            String(activePlan.month),
         year:             String(activePlan.year),
         targetDoctors:    String(sTargetDoctors),
@@ -626,6 +630,8 @@ export default function MonthlyPlansPage() {
         useNoteAnalysis:  String(sUseNoteAnalysis),
         lookbackList:     sLookbackList.length > 0 ? sLookbackList.join(',') : '',
         newRatio:         String(sNewRatio),
+        ...(hasRep && { scientificRepId: String(activePlan.scientificRepId) }),
+        ...(!hasRep && { planId: String(activePlan.id) }),
         ...(sFocusItemIds.length > 0     && { focusItemId:     sFocusItemIds.map(x => x.id).join(',') }),
         ...(sFocusSpecialties.length > 0 && { focusSpecialty:  sFocusSpecialties.join(',') }),
         ...(sFocusAreaIds.length > 0     && { focusAreaId:     sFocusAreaIds.map(x => x.id).join(',') }),
@@ -639,6 +645,23 @@ export default function MonthlyPlansPage() {
       setSelectedDoctors(new Set(j.keepDoctors.map(k => k.doctor.id)));
     } catch (e: any) { alert(e.message); }
     finally { setSuggestLoading(false); }
+  };
+
+  // Save edited plan areas
+  const savePlanAreas = async () => {
+    if (!activePlan) return;
+    setSavingAreas(true);
+    try {
+      const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/areas`, {
+        method: 'PUT', headers: H(),
+        body: JSON.stringify({ areaIds: editAreaIds }),
+      });
+      if (!r.ok) { const j = await r.json(); throw new Error(j.error ?? j.message ?? 'فشل التحديث'); }
+      setEditingPlanAreas(false);
+      invalidateCache('/api/monthly-plans');
+      await reloadPlan(activePlan.id);
+    } catch (e: any) { alert(e.message); }
+    finally { setSavingAreas(false); }
   };
 
   const applySuggestion = async () => {
@@ -1706,6 +1729,16 @@ export default function MonthlyPlansPage() {
                         padding: 6, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                         direction: 'rtl',
                       }} onClick={() => setShowToolsMenu(false)}>
+                        {/* Edit plan areas */}
+                        <button
+                          onClick={() => {
+                            setEditAreaIds(activePlan.planAreas?.map(pa => pa.area.id) ?? []);
+                            setEditingPlanAreas(true);
+                          }}
+                          style={menuItemStyle}>
+                          📍 تعديل المناطق
+                        </button>
+                        <hr style={{ margin: '4px 6px', border: 'none', borderTop: '1px solid #f1f5f9' }} />
                         {/* Import */}
                         <button
                           onClick={() => { setShowImportModal(true); setImportResult(null); }}
@@ -1732,6 +1765,55 @@ export default function MonthlyPlansPage() {
                         </button>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Edit plan areas modal */}
+                {editingPlanAreas && (
+                  <div
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setEditingPlanAreas(false)}>
+                    <div style={{ background: '#fff', borderRadius: 14, padding: 20, width: '92%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', direction: 'rtl' }}
+                      onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>📍 تعديل مناطق البلان</p>
+                        <button onClick={() => setEditingPlanAreas(false)}
+                          style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>×</button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                        <button onClick={() => setEditAreaIds(allAreas.map(a => a.id))} type="button"
+                          style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          ✓ الكل
+                        </button>
+                        <button onClick={() => setEditAreaIds([])} type="button"
+                          style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          ✕ إلغاء
+                        </button>
+                      </div>
+                      <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 8 }}>
+                        {allAreas.length === 0 && <p style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', margin: 8 }}>لا توجد مناطق</p>}
+                        {allAreas.map(a => (
+                          <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '4px 6px', borderRadius: 6, background: editAreaIds.includes(a.id) ? '#eff6ff' : 'transparent' }}>
+                            <input type="checkbox" checked={editAreaIds.includes(a.id)}
+                              onChange={e => {
+                                if (e.target.checked) setEditAreaIds(prev => [...prev, a.id]);
+                                else setEditAreaIds(prev => prev.filter(id => id !== a.id));
+                              }} />
+                            {a.name}
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                        <button onClick={savePlanAreas} disabled={savingAreas}
+                          style={{ flex: 1, background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                          {savingAreas ? 'جاري الحفظ...' : '💾 حفظ المناطق'}
+                        </button>
+                        <button onClick={() => setEditingPlanAreas(false)}
+                          style={{ flex: 0.5, background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 8, padding: '8px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 

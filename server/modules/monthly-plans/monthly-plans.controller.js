@@ -161,7 +161,7 @@ export async function suggest(req, res, next) {
   try {
     const userId = req.user.id;
     const {
-      scientificRepId, month, year,
+      scientificRepId, planId: qPlanId, month, year,
       targetDoctors = 75,
       keepFeedback,
       restrictToAreas = 'true',
@@ -177,10 +177,21 @@ export async function suggest(req, res, next) {
       wishedDoctorIds = '',  // comma-separated doctor IDs from rep wishlist (قائمة الطلبات)
       areaQuotas = '',       // JSON string e.g. '{"1":10,"4":5}' — per-area doctor quotas
     } = req.query;
-    if (!scientificRepId || !month || !year)
-      return res.status(400).json({ error: 'الحقول المطلوبة: scientificRepId, month, year' });
 
-    const repId  = parseInt(scientificRepId);
+    // ── NO-REP plan mode: use planId + planAreas ──────────────
+    const noRepMode = !scientificRepId && qPlanId;
+    let planAreaIds = [];
+    if (noRepMode) {
+      if (!month || !year) return res.status(400).json({ error: 'الحقول المطلوبة: planId, month, year' });
+      const pa = await prisma.planArea.findMany({ where: { planId: parseInt(qPlanId) }, select: { areaId: true } });
+      planAreaIds = pa.map(a => a.areaId);
+      if (planAreaIds.length === 0) return res.status(400).json({ error: 'لا توجد مناطق محددة لهذا البلان. أضف مناطق أولاً.' });
+    } else {
+      if (!scientificRepId || !month || !year)
+        return res.status(400).json({ error: 'الحقول المطلوبة: scientificRepId, month, year' });
+    }
+
+    const repId  = scientificRepId ? parseInt(scientificRepId) : null;
     const m      = parseInt(month);
     const y      = parseInt(year);
     const target = parseInt(targetDoctors);
@@ -213,64 +224,84 @@ export async function suggest(req, res, next) {
       prevMonthsList = [{ month: m === 1 ? 12 : m - 1, year: m === 1 ? y - 1 : y }];
     }
 
-    // Get previous plans for all lookback months
-    const prevPlans = await prisma.monthlyPlan.findMany({
-      where: {
-        scientificRepId: repId, userId,
-        OR: prevMonthsList.map(p => ({ month: p.month, year: p.year })),
-      },
-      include: {
-        entries: {
-          include: {
-            doctor: true,
-            visits: { orderBy: { visitDate: 'desc' } },
+    // Get previous plans for all lookback months (skip for no-rep plans)
+    let prevPlans = [];
+    if (!noRepMode) {
+      prevPlans = await prisma.monthlyPlan.findMany({
+        where: {
+          scientificRepId: repId, userId,
+          OR: prevMonthsList.map(p => ({ month: p.month, year: p.year })),
+        },
+        include: {
+          entries: {
+            include: {
+              doctor: true,
+              visits: { orderBy: { visitDate: 'desc' } },
+            },
           },
         },
-      },
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    });
+        orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      });
+    }
 
     let keepDoctors    = [];
     let replacedCount  = 0;
     const usedDoctorIds = new Set();
 
     // Exclude doctors already added to the CURRENT plan
-    const currentPlan = await prisma.monthlyPlan.findFirst({
-      where: { scientificRepId: repId, month: m, year: y, userId },
-      include: { entries: { select: { doctorId: true } } },
-    });
+    let currentPlan;
+    if (noRepMode) {
+      currentPlan = await prisma.monthlyPlan.findFirst({
+        where: { id: parseInt(qPlanId), userId },
+        include: { entries: { select: { doctorId: true } } },
+      });
+    } else {
+      currentPlan = await prisma.monthlyPlan.findFirst({
+        where: { scientificRepId: repId, month: m, year: y, userId },
+        include: { entries: { select: { doctorId: true } } },
+      });
+    }
     if (currentPlan) {
       currentPlan.entries.forEach(e => usedDoctorIds.add(e.doctorId));
     }
 
     // Get scientific rep areas first (needed for both keepDoctors and newDoctors filtering)
-    // Primary source: ScientificRepArea (rep-level assignments)
-    // Fallback: UserAreaAssignment (user-level assignments saved by SA panel)
-    let repAreas = await prisma.scientificRepArea.findMany({
-      where: { scientificRepId: repId },
-      select: { areaId: true },
-    });
-    let areaIds = repAreas.map(a => a.areaId);
-
-    // Always look up the rep's linked userId (used for doctor query + area fallback)
-    const repRecord = await prisma.scientificRepresentative.findUnique({
-      where: { id: repId },
-      select: { userId: true },
-    });
-    const repLinkedUserId = repRecord?.userId ?? null;
-
-    if (areaIds.length === 0 && repLinkedUserId) {
-      // Look up user-level area assignments (set by company_manager or SA panel)
-      const userAreas = await prisma.userAreaAssignment.findMany({
-        where: { userId: repLinkedUserId },
+    // For no-rep plans: use planAreas instead of rep areas
+    let areaIds;
+    let repLinkedUserId = null;
+    let doctorUserId;
+    if (noRepMode) {
+      areaIds = planAreaIds;
+      doctorUserId = userId;
+    } else {
+      // Primary source: ScientificRepArea (rep-level assignments)
+      // Fallback: UserAreaAssignment (user-level assignments saved by SA panel)
+      let repAreas = await prisma.scientificRepArea.findMany({
+        where: { scientificRepId: repId },
         select: { areaId: true },
       });
-      areaIds = userAreas.map(a => a.areaId);
-    }
+      areaIds = repAreas.map(a => a.areaId);
 
-    // For doctor queries: use the rep's linked userId when available
-    // (managers create plans under their own userId, but doctors belong to the rep)
-    const doctorUserId = repLinkedUserId ?? userId;
+      // Always look up the rep's linked userId (used for doctor query + area fallback)
+      const repRecord = await prisma.scientificRepresentative.findUnique({
+        where: { id: repId },
+        select: { userId: true },
+      });
+      repLinkedUserId = repRecord?.userId ?? null;
+
+      if (areaIds.length === 0 && repLinkedUserId) {
+        // Look up user-level area assignments (set by company_manager or SA panel)
+        const userAreas = await prisma.userAreaAssignment.findMany({
+          where: { userId: repLinkedUserId },
+          select: { areaId: true },
+        });
+        areaIds = userAreas.map(a => a.areaId);
+      }
+
+      // For doctor queries: use the rep's linked userId when available
+      // (managers create plans under their own userId, but doctors belong to the rep)
+      doctorUserId = repLinkedUserId ?? userId;
+    }
 
     const areaIdSet = new Set(areaIds);
 
@@ -1922,10 +1953,17 @@ export async function availableDoctors(req, res, next) {
       select: { doctorId: true },
     })).map(e => e.doctorId);
 
+    // Check if plan has planAreas — use them for area filtering
+    const planAreaRows = await prisma.planArea.findMany({ where: { planId }, select: { areaId: true } });
+    const planAreaIds = planAreaRows.map(a => a.areaId);
+
     // For field reps: restrict to their assigned areas only
     const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
     let areaFilter = {};
-    if (FIELD_ROLES.includes(role)) {
+    if (planAreaIds.length > 0) {
+      // Plan has explicit areas — use them (overrides rep area filter)
+      areaFilter = { areaId: { in: planAreaIds } };
+    } else if (FIELD_ROLES.includes(role)) {
       const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = dbUser?.linkedRepId ?? null;
       const [userAreaRows, repAreaRows] = await Promise.all([
@@ -1974,6 +2012,33 @@ export async function availableDoctors(req, res, next) {
     }
 
     res.json(doctors.slice(0, 10));
+  } catch (e) { next(e); }
+}
+
+// ── Update plan areas (add/remove) ───────────────────────────
+export async function updatePlanAreas(req, res, next) {
+  try {
+    const planId = parseInt(req.params.id);
+    const { areaIds } = req.body; // new full list of area IDs
+    if (!Array.isArray(areaIds)) return res.status(400).json({ error: 'areaIds must be an array' });
+
+    const plan = await findAccessiblePlan(planId, req.user.id, req.user.role);
+    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
+
+    // Delete all existing plan areas and recreate
+    await prisma.planArea.deleteMany({ where: { planId } });
+    if (areaIds.length > 0) {
+      await prisma.planArea.createMany({
+        data: areaIds.map(id => ({ planId, areaId: parseInt(id) })),
+        skipDuplicates: true,
+      });
+    }
+
+    const updated = await prisma.planArea.findMany({
+      where: { planId },
+      include: { area: { select: { id: true, name: true } } },
+    });
+    res.json(updated);
   } catch (e) { next(e); }
 }
 

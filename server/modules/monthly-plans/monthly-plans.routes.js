@@ -19,7 +19,8 @@ router.get('/:id/pharmacy-visits',     ctrl.getPharmacyVisits);
 // Plan transfer (manager → rep user)
 router.get('/:id/transfer-targets',    ctrl.getTransferTargets);
 router.get('/:id/available-doctors',   ctrl.availableDoctors);
-router.post('/:id/transfer',           ctrl.transferPlan);
+router.put('/:id/areas',              ctrl.updatePlanAreas);
+router.post('/:id/transfer',          ctrl.transferPlan);
 router.delete('/:id/transfer',         ctrl.revokePlanTransfer);
 
 // Entries (doctors in plan)
