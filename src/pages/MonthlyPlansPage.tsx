@@ -3521,77 +3521,7 @@ export default function MonthlyPlansPage() {
               })}
             </div>
 
-            {/* ── Pharmacy Visits Section ── */}
-            <div style={{ margin: '18px 0 0', padding: '0 2px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 16 }}>🏪</span>
-                <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f766e' }}>
-                  زيارات الصيدليات
-                </p>
-                <span style={{ background: '#ccfbf1', color: '#0f766e', borderRadius: 20, padding: '1px 10px', fontSize: 12, fontWeight: 700 }}>
-                  {pharmVisitsLoading ? '...' : pharmVisits.length}
-                </span>
-              </div>
-
-              {pharmVisitsLoading && (
-                <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: '10px 0' }}>جاري التحميل...</p>
-              )}
-
-              {!pharmVisitsLoading && pharmVisits.length === 0 && (
-                <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1', fontStyle: 'italic', textAlign: 'center', padding: '8px 0' }}>لا توجد زيارات صيدليات مسجلة لهذا الشهر</p>
-              )}
-
-              {!pharmVisitsLoading && pharmVisits.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {pharmVisits.map((pv, pi) => {
-                    const itemLabels = pv.items.map(i => i.item?.name ?? i.itemName ?? '').filter(Boolean);
-                    return (
-                      <div key={pv.id} style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10, padding: '8px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          {/* # */}
-                          <span style={{ fontSize: 10, fontWeight: 800, color: '#5eead4', background: '#ccfbf1', borderRadius: 4, padding: '1px 5px' }}>#{pi + 1}</span>
-                          {/* Pharmacy name */}
-                          <span style={{ fontSize: 12, fontWeight: 700, color: '#0f766e' }}>{pv.pharmacyName}</span>
-                          {/* Area */}
-                          {(pv.area?.name || pv.areaName) && (
-                            <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', borderRadius: 6, padding: '1px 7px' }}>
-                              📍 {pv.area?.name ?? pv.areaName}
-                            </span>
-                          )}
-                          {/* Date */}
-                          <span style={{ fontSize: 11, color: '#6b7280', marginRight: 'auto' }}>
-                            {pv.visitDate ? new Date(pv.visitDate).toLocaleDateString('ar-IQ') : '—'}
-                          </span>
-                          {/* Double visit badge */}
-                          {pv.isDoubleVisit && (
-                            <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '1px 7px', border: '1px solid #fde68a' }}>مزدوجة</span>
-                          )}
-                          {/* Map link */}
-                          {pv.latitude && pv.longitude ? (
-                            <a href={`https://www.google.com/maps?q=${pv.latitude},${pv.longitude}`} target="_blank" rel="noopener noreferrer"
-                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', fontSize: 13, textDecoration: 'none', border: '1px solid #bbf7d0' }}>
-                              📍
-                            </a>
-                          ) : null}
-                        </div>
-                        {/* Items */}
-                        {itemLabels.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
-                            {itemLabels.map((name, ii) => (
-                              <span key={ii} style={{ fontSize: 11, fontWeight: 600, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 8, padding: '1px 8px' }}>{name}</span>
-                            ))}
-                          </div>
-                        )}
-                        {/* Notes */}
-                        {pv.notes && (
-                          <p style={{ margin: '5px 0 0', fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>{pv.notes}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            {/* ── Pharmacy Visits Section removed ── */}
           </>
         )}
       </div>
