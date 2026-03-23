@@ -1285,9 +1285,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   const quickActions = [
-    { label: t.dashboard.uploadFile,   desc: t.dashboard.uploadFileDesc,   icon: '📤', page: 'upload'          as PageId, color: '#6366f1' },
-    { label: t.dashboard.manageReps,   desc: t.dashboard.manageRepsDesc,   icon: '👥', page: 'representatives' as PageId, color: '#0ea5e9' },
-    { label: t.dashboard.viewReports,  desc: t.dashboard.viewReportsDesc,  icon: '📋', page: 'reports'         as PageId, color: '#10b981' },
+    { label: 'تحليل ملفات المندوبين', desc: 'رفع البيانات وإدارة المندوبين', icon: '📂', page: 'rep-analysis' as PageId, color: '#6366f1' },
+    { label: t.dashboard.viewReports,  desc: t.dashboard.viewReportsDesc,  icon: '📋', page: 'reports'       as PageId, color: '#10b981' },
   ];
 
   const netValue = activeStats.totalSalesValue - activeStats.totalReturnsValue;
@@ -1317,7 +1316,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     ...moneyCards.map(c => ({ ...c, onClick: undefined as undefined | (() => void) })),
     {
       label: t.dashboard.sciReps, value: loading ? '...' : stats.sciRepsCount,
-      icon: '🔬', color: '#8b5cf6', bg: '#ede9fe', onClick: () => onNavigate('scientific-reps'),
+      icon: '🔬', color: '#8b5cf6', bg: '#ede9fe', onClick: () => onNavigate('rep-analysis'),
       type: undefined,
     },
     {

@@ -95,12 +95,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // roles: [] means "all roles"; roles with entries means restricted to those roles only
   const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
     { id: 'dashboard', label: role === 'commercial_rep' ? '💹 المبيع والارجاع' : t.nav.dashboard, icon: '📊', roles: [] },
-    // Merged page — shown to rep roles + company_manager
-    { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager'] },
-    // Individual pages — hidden for rep roles and company_manager
-    { id: 'upload',          label: t.nav.upload,          icon: '📤', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'representatives', label: t.nav.representatives, icon: '💰', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'scientific-reps', label: t.nav.scientificReps,  icon: '🔬', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    // Merged page — shown to ALL roles that deal with rep files (scientific_rep, managers, admin, etc.)
+    { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+    // Individual pages removed from sidebar — accessible only as tabs inside rep-analysis page
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
     { id: 'master-survey',   label: 'سيرفي اوردين',        icon: '🗂️', roles: [] },
