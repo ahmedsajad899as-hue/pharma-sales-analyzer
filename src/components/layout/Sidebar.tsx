@@ -42,23 +42,31 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const touchStartY = useRef<number>(0);
   const swipeBlocked = useRef<boolean>(false);
   useEffect(() => {
+    // Tags/roles that should NEVER trigger sidebar swipe
+    const INTERACTIVE = new Set(['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'LABEL']);
     const onTouchStart = (e: TouchEvent) => {
       touchStartX.current = e.touches[0].clientX;
       touchStartY.current = e.touches[0].clientY;
-      // Block sidebar swipe if touch starts inside a horizontally-scrollable area
-      swipeBlocked.current = !!(e.target as Element)?.closest('[data-no-sidebar-swipe]');
+      const target = e.target as Element;
+      // Block if: explicit opt-out attr, OR an interactive element, OR inside a scrollable container
+      swipeBlocked.current = !!(
+        target?.closest('[data-no-sidebar-swipe]') ||
+        INTERACTIVE.has((target as HTMLElement).tagName) ||
+        target?.closest('input, select, textarea, button, [role="slider"], [role="tab"], [role="tablist"]')
+      );
     };
     const onTouchEnd = (e: TouchEvent) => {
-      if (swipeBlocked.current) return; // touch started inside a scrollable card table
+      if (swipeBlocked.current) return;
       const dx = touchStartX.current - e.changedTouches[0].clientX;
       const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY);
-      if (dy >= 80) return; // ignore vertical swipes
+      // Require strictly horizontal gesture: dx must be dominant (dx > dy*2) and large enough
+      if (dy >= dx * 0.6 || Math.abs(dx) < 80) return;
       // Swipe left (dx > 0): open drawer
-      if (!mobileMenuOpen && dx > 60) {
+      if (!mobileMenuOpen && dx > 0) {
         setMobileMenuOpen(true);
       }
       // Swipe right (dx < 0): close drawer
-      if (mobileMenuOpen && dx < -60) {
+      if (mobileMenuOpen && dx < 0) {
         setMobileMenuOpen(false);
       }
     };
