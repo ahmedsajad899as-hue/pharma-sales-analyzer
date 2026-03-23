@@ -623,6 +623,7 @@ export default function MonthlyPlansPage() {
       const p = new URLSearchParams({
         month:            String(activePlan.month),
         year:             String(activePlan.year),
+        planId:           String(activePlan.id),
         targetDoctors:    String(sTargetDoctors),
         keepFeedback:     sKeepFeedback.join(','),
         restrictToAreas:  String(sRestrictAreas),

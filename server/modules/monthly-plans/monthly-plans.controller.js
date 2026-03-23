@@ -266,23 +266,42 @@ export async function suggest(req, res, next) {
     }
 
     // Get scientific rep areas first (needed for both keepDoctors and newDoctors filtering)
-    // For no-rep plans: use planAreas instead of rep areas
+    // ALWAYS prefer planAreas if the plan has them, regardless of whether there's a rep
     let areaIds;
     let repLinkedUserId = null;
     let doctorUserId;
-    if (noRepMode) {
-      areaIds = planAreaIds;
+
+    // Check plan-level areas first (from planAreas relation)
+    let planAreaIdsFromDb = planAreaIds; // already loaded for noRepMode
+    if (!noRepMode && qPlanId) {
+      const pa = await prisma.planArea.findMany({ where: { planId: parseInt(qPlanId) }, select: { areaId: true } });
+      planAreaIdsFromDb = pa.map(a => a.areaId);
+    }
+
+    if (planAreaIdsFromDb.length > 0) {
+      // Plan has explicit areas — use them
+      areaIds = planAreaIdsFromDb;
+      if (!noRepMode && repId) {
+        const repRecord = await prisma.scientificRepresentative.findUnique({
+          where: { id: repId },
+          select: { userId: true },
+        });
+        repLinkedUserId = repRecord?.userId ?? null;
+        doctorUserId = repLinkedUserId ?? userId;
+      } else {
+        doctorUserId = userId;
+      }
+    } else if (noRepMode) {
+      areaIds = [];
       doctorUserId = userId;
     } else {
-      // Primary source: ScientificRepArea (rep-level assignments)
-      // Fallback: UserAreaAssignment (user-level assignments saved by SA panel)
+      // Fall back to rep areas
       let repAreas = await prisma.scientificRepArea.findMany({
         where: { scientificRepId: repId },
         select: { areaId: true },
       });
       areaIds = repAreas.map(a => a.areaId);
 
-      // Always look up the rep's linked userId (used for doctor query + area fallback)
       const repRecord = await prisma.scientificRepresentative.findUnique({
         where: { id: repId },
         select: { userId: true },
@@ -290,7 +309,6 @@ export async function suggest(req, res, next) {
       repLinkedUserId = repRecord?.userId ?? null;
 
       if (areaIds.length === 0 && repLinkedUserId) {
-        // Look up user-level area assignments (set by company_manager or SA panel)
         const userAreas = await prisma.userAreaAssignment.findMany({
           where: { userId: repLinkedUserId },
           select: { areaId: true },
@@ -298,8 +316,6 @@ export async function suggest(req, res, next) {
         areaIds = userAreas.map(a => a.areaId);
       }
 
-      // For doctor queries: use the rep's linked userId when available
-      // (managers create plans under their own userId, but doctors belong to the rep)
       doctorUserId = repLinkedUserId ?? userId;
     }
 
