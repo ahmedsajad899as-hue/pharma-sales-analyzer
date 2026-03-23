@@ -413,7 +413,7 @@ export default function MonthlyPlansPage() {
       const detail = (e as CustomEvent).detail;
       const { action, param } = detail || {};
       switch (action) {
-        case 'open-suggest-settings': setShowSuggestSettings(true); break;
+        case 'open-suggest-settings': setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(true); break;
         case 'open-new-plan':         setShowCreate(true); break;
         case 'open-import-visits':    setShowImportModal(true); break;
         case 'open-plan': {
@@ -1696,7 +1696,7 @@ export default function MonthlyPlansPage() {
                     style={{ ...btnStyle('#8b5cf6'), borderRadius: '8px 0 0 8px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
                     {suggestLoading ? '⏳' : '✨'} اقتراح ذكي
                   </button>
-                  <button onClick={() => setShowSuggestSettings(v => !v)}
+                  <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
                     title="إعدادات الاقتراح"
                     style={{ ...btnStyle('#8b5cf6'), borderRadius: '0 8px 8px 0', padding: '8px 9px', fontSize: 14 }}>
                     ⚙️
@@ -1880,7 +1880,52 @@ export default function MonthlyPlansPage() {
                       </div>
                     </div>
 
-                    {/* Restrict to rep areas */}
+                    {/* Restrict to rep areas — OR — plan areas editable checklist */}
+                    {activePlan.planAreas && activePlan.planAreas.length > 0 ? (
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 مناطق البلان</p>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => setEditAreaIds(allAreas.map(a => a.id))} type="button"
+                              style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                              ✓ الكل
+                            </button>
+                            <button onClick={() => setEditAreaIds([])} type="button"
+                              style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                              ✕ إلغاء
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 6 }}>
+                          {allAreas.map(a => (
+                            <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '3px 6px', borderRadius: 6, background: editAreaIds.includes(a.id) ? '#eff6ff' : 'transparent' }}>
+                              <input type="checkbox" checked={editAreaIds.includes(a.id)}
+                                onChange={e => {
+                                  if (e.target.checked) setEditAreaIds(prev => [...prev, a.id]);
+                                  else setEditAreaIds(prev => prev.filter(id => id !== a.id));
+                                }} />
+                              {a.name}
+                            </label>
+                          ))}
+                        </div>
+                        <button onClick={async () => {
+                          setSavingAreas(true);
+                          try {
+                            const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/areas`, {
+                              method: 'PUT', headers: H(),
+                              body: JSON.stringify({ areaIds: editAreaIds }),
+                            });
+                            if (!r.ok) { const j = await r.json(); throw new Error(j.error ?? j.message ?? 'فشل'); }
+                            invalidateCache('/api/monthly-plans');
+                            await reloadPlan(activePlan.id);
+                          } catch (e: any) { alert(e.message); }
+                          finally { setSavingAreas(false); }
+                        }} disabled={savingAreas}
+                          style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          {savingAreas ? 'جاري الحفظ...' : '💾 حفظ المناطق'}
+                        </button>
+                      </div>
+                    ) : (
                     <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 تقييد بمناطق المندوب فقط</span>
                       <div onClick={() => setSRestrictAreas(v => !v)}
@@ -1896,6 +1941,7 @@ export default function MonthlyPlansPage() {
                         }} />
                       </div>
                     </label>
+                    )}
 
                     {/* Sort by */}
                     <label style={settingLabelStyle}>
