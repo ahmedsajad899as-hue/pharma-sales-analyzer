@@ -199,8 +199,30 @@ export default function MonthlyPlansPage() {
   const [sWishExcluded, setSWishExcluded]     = useState<Set<number>>(new Set());
   const [showToolsMenu, setShowToolsMenu]   = useState(false);
 
-  // Fetch rep areas for quota UI whenever active plan's rep changes
+  // Populate distribution areas from planAreas (editAreaIds) or rep areas
   useEffect(() => {
+    const planAreas = activePlan?.planAreas;
+    // If plan has planAreas → derive from editAreaIds (live selection)
+    if (planAreas && planAreas.length > 0) {
+      const selected = allAreas.filter(a => editAreaIds.includes(a.id));
+      setSRepAreas(selected);
+      setSAreaQuotas(prev => {
+        const q: Record<string, number> = {};
+        const ids = selected.map(a => String(a.id));
+        // keep existing quotas for still-selected areas
+        ids.forEach(id => { q[id] = prev[id] ?? 0; });
+        // if all zero or first init → equal distribution
+        const total = Object.values(q).reduce((s, v) => s + v, 0);
+        if (total === 0 && selected.length > 0) {
+          const base = Math.floor(sTargetDoctors / selected.length);
+          const rem  = sTargetDoctors % selected.length;
+          selected.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
+        }
+        return q;
+      });
+      return;
+    }
+    // Else if rep → fetch rep areas
     const repId = activePlan?.scientificRepId;
     if (!repId) { setSRepAreas([]); setSAreaQuotas({}); return; }
     fetch(`${API}/api/monthly-plans/suggest-areas?scientificRepId=${repId}`, { headers: H() })
@@ -208,7 +230,6 @@ export default function MonthlyPlansPage() {
       .then((areas: {id: number; name: string}[]) => {
         if (!Array.isArray(areas)) return;
         setSRepAreas(areas);
-        // Set equal distribution as default
         if (areas.length > 0) {
           const base = Math.floor(sTargetDoctors / areas.length);
           const rem  = sTargetDoctors % areas.length;
@@ -219,7 +240,7 @@ export default function MonthlyPlansPage() {
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePlan?.scientificRepId]);
+  }, [activePlan?.scientificRepId, activePlan?.planAreas, editAreaIds, allAreas]);
 
   // Upload visits
   const fileRef = useRef<HTMLInputElement>(null);
