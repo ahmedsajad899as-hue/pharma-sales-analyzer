@@ -13,6 +13,11 @@ interface ActiveStats { totalSalesValue: number; totalReturnsValue: number; file
 interface DailyRep { id: number; name: string; }
 interface DailyCallsData { visits: VisitPoint[]; reps: DailyRep[]; total: number; }
 
+// Arabic normalization for search matching (handles أإآ→ا, ة→ه, ى→ي, tashkeel)
+const normArabic = (s: string) => String(s ?? '').trim().toLowerCase()
+  .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+  .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
+
 export default function DashboardPage({ onNavigate, activeFileIds, onFileActivated }: { onNavigate: (p: PageId) => void; activeFileIds: number[]; onFileActivated: (id: number) => void }) {
   const { token, user, hasFeature, requiresGps, getDoctorFilterPlanMode } = useAuth();
   const { t } = useLanguage();
@@ -772,7 +777,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClManualMode(false);
     setClDidYouMean(null);
     if (!val.trim()) { setClSuggestions([]); setClShowSugg(false); return; }
-    const lv = val.toLowerCase();
 
     // Build set of plan doctor IDs + their entry refs (for in-plan marking)
     const planEntries: any[] = activePlan?.entries ?? [];
@@ -780,8 +784,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     const planById   = new Map<number, any>(planEntries.map((e: any) => [e.doctor.id, e]));
 
     // Show plan matches immediately (local filter for instant feedback)
+    // Uses Arabic normalization so أحمد matches احمد, ة matches ه, etc.
+    const normVal = normArabic(val);
     const planMatches = planEntries
-      .filter((e: any) => e.doctor.name.toLowerCase().includes(lv))
+      .filter((e: any) => normArabic(e.doctor.name).includes(normVal))
       .slice(0, 5)
       .map((e: any) => ({ ...e, _inPlan: true }));
     setClSuggestions(planMatches);
@@ -923,8 +929,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       if (!clOtherDocId) { setClNotInPlan(true); setClManualMode(true); setClShowSugg(false); }
       return;
     }
-    const lv = clDoctor.toLowerCase();
-    const match = (activePlan.entries ?? []).find((e: any) => e.doctor.name.toLowerCase() === lv);
+    const lv = normArabic(clDoctor);
+    const match = (activePlan.entries ?? []).find((e: any) => normArabic(e.doctor.name) === lv);
     if (match) return;
     // Doctor not found anywhere — open extra fields automatically
     setClNotInPlan(true);
