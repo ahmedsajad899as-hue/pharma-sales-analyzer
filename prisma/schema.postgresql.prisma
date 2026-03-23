@@ -437,7 +437,6 @@ model MonthlyPlan {
   entries   PlanEntry[]
   planAreas PlanArea[]
 
-  @@unique([scientificRepId, month, year, userId])
   @@index([userId])
   @@index([assignedUserId])
   @@index([scientificRepId])
