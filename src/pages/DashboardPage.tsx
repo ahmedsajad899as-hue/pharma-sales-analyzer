@@ -438,20 +438,23 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const TITLE_RE = /^(دكتور|دكتوره|د\.|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
         const cleanN = (s: string) => normAr(s.replace(TITLE_RE, ''));
 
+        // ال (definite article) stripper — normalizes "الحسيني" ↔ "حسيني" mismatches
+        const stripAl = (t: string) => t.startsWith('ال') && t.length > 4 ? t.slice(2) : t;
+
         // Token overlap ratio — voice-coverage weighted
-        // Hard rule: if voice has ≥2 tokens, the LAST token (family/tribal name)
-        // MUST appear in the candidate's tokens, otherwise score = 0.
-        // This prevents "احمد الخفاجي" matching "احمد التميمي".
+        // Soft family-name rule: last voice token must be a substring of some candidate token
+        // (allows ال prefix mismatch). Substring matching used for all tokens.
         const tokenOverlap = (a: string, b: string): number => {
-          const ta = cleanN(a).split(' ').filter(t => t.length >= 2);
-          const tb = cleanN(b).split(' ').filter(t => t.length >= 2);
+          const ta = cleanN(a).split(' ').filter(t => t.length >= 2).map(stripAl);
+          const tb = cleanN(b).split(' ').filter(t => t.length >= 2).map(stripAl);
           if (ta.length === 0 || tb.length === 0) return 0;
-          // Family name hard rule (last token of voice must be in candidate)
+          // Soft family name rule: last voice token must substring-match some candidate token
           if (ta.length >= 2) {
-            const voiceFamilyName = ta[ta.length - 1];
-            if (!tb.includes(voiceFamilyName)) return 0;
+            const fam = ta[ta.length - 1];
+            if (!tb.some(t => t.includes(fam) || fam.includes(t))) return 0;
           }
-          const matched = ta.filter(t => tb.includes(t)).length;
+          // Count soft matches (substring overlap in either direction)
+          const matched = ta.filter(tv => tb.some(tc => tc.includes(tv) || tv.includes(tc))).length;
           const voiceCoverage   = matched / ta.length;
           const catalogCoverage = matched / tb.length;
           return voiceCoverage * 0.7 + catalogCoverage * 0.3;
@@ -470,10 +473,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const v = visits[0];
         const transcribedName: string = v.doctorName || '';
 
-        // ── Step A: fuzzy match against active plan entries ──
+        // Adaptive auto-select threshold: multi-word voice → 0.80, single-word → 0.95
+        // (prevents generic first names like "احمد" from auto-selecting the wrong doctor)
+        const voiceTokenCount = cleanN(transcribedName).split(' ').filter(t => t.length >= 2).map(stripAl).length;
+        const autoSelectThreshold = voiceTokenCount >= 2 ? 0.80 : 0.95;
+
+        // ── Step A0: if Gemini matched an entryId confidently, use it directly ──
         const voicePlanMode = getDoctorFilterPlanMode();
         let matchedFromPlan = false;
-        if (activePlan && transcribedName && voicePlanMode !== 'all') {
+        if (v.entryId && activePlan && voicePlanMode !== 'all') {
+          const geminiEntry = (activePlan.entries ?? []).find((e: any) => e.id === v.entryId);
+          if (geminiEntry) {
+            selectClEntry({ ...geminiEntry, _inPlan: true });
+            matchedFromPlan = true;
+          }
+        }
+
+        // ── Step A: fuzzy match against active plan entries ──
+        if (!matchedFromPlan && activePlan && transcribedName && voicePlanMode !== 'all') {
           const planEntries: any[] = activePlan.entries ?? [];
           let exactEntry: any = null;
           let partialEntry: any = null;
@@ -481,7 +498,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
           for (const e of planEntries) {
             const score = tokenOverlap(transcribedName, e.doctor.name);
-            if (score >= 0.99) { exactEntry = e; break; }
+            if (score >= autoSelectThreshold) { exactEntry = e; break; }
             if (score >= 0.6 && score > partialScore) { partialScore = score; partialEntry = e; }
           }
 
@@ -502,21 +519,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         // ── Step B: if not found in plan, search catalog ──
         if (!matchedFromPlan && transcribedName && voicePlanMode !== 'plan_only') {
           try {
-            // Strategy: run two parallel fetches — one with the original first token
-            // (catches DB entries stored WITH hamzas), one with the normalized token
-            // (catches DB entries stored WITHOUT hamzas). Merge and deduplicate results.
-            const normalizedTokens = cleanN(transcribedName).split(' ').filter(t => t.length >= 2);
-            const origTokens = transcribedName.trim().split(/\s+/).filter(t => t.length >= 2);
-            const normQ = normalizedTokens[0] ?? '';
-            const origQ = origTokens[0] ?? '';
+            // Strategy: query by first AND last token (last = family name, far more specific).
+            // Also send original (pre-normalization) forms to catch DB entries stored with hamzas.
+            // Strip ال prefix from query tokens — LIKE %حسيني% still matches "الحسيني" in DB.
+            const normalizedTokens = cleanN(transcribedName).split(' ').filter(t => t.length >= 2).map(stripAl);
+            const origTokens = transcribedName.trim().split(/\s+/).filter(t => t.length >= 2)
+              .map(t => t.startsWith('ال') && t.length > 4 ? t.slice(2) : t);
+            const normFirst = normalizedTokens[0] ?? '';
+            const normLast  = normalizedTokens.length > 1 ? normalizedTokens[normalizedTokens.length - 1] : '';
+            const origFirst = origTokens[0] ?? '';
+            const origLast  = origTokens.length > 1 ? origTokens[origTokens.length - 1] : '';
 
             // Always use /api/doctors which has area+survey+plan filters applied
             const mkUrl = (q: string) => `/api/doctors?q=${encodeURIComponent(q)}`;
 
             const headers = { Authorization: `Bearer ${token}` };
-            const queries = normQ === origQ ? [normQ] : [normQ, origQ];
+            const querySet = [...new Set([normFirst, normLast, origFirst, origLast].filter(q => q.length >= 2))];
             const results = await Promise.all(
-              queries.map(q => fetch(mkUrl(q), { headers }).then(r => r.json()).catch(() => []))
+              querySet.map(q => fetch(mkUrl(q), { headers }).then(r => r.json()).catch(() => []))
             );
             // Merge and deduplicate by doctor id
             const seen = new Set<number>();
@@ -534,7 +554,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
             for (const d of docs) {
               const score = tokenOverlap(transcribedName, d.name);
-              if (score >= 0.99) { exactDoc = d; break; }
+              if (score >= autoSelectThreshold) { exactDoc = d; break; }
               if (score >= 0.6 && score > partialScore) { partialScore = score; partialDoc = d; }
             }
 
