@@ -795,7 +795,16 @@ export default function DoctorsPage() {
               </div>
 
               {/* Actions */}
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+                {/* Wish star */}
+                {(() => { const isW = wishedDoctors.has(d.id); return (
+                  <button onClick={() => toggleWish(d.id, d.name)} title={isW ? 'إزالة من قائمة الطلبات' : 'أضف لقائمة الطلبات'} style={{
+                    background: isW ? '#e0f2fe' : 'transparent', border: `1.5px solid ${isW ? '#38bdf8' : '#cbd5e1'}`,
+                    borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    opacity: isW ? 1 : 0.45, transition: 'all 0.15s',
+                  }}>⭐</button>
+                ); })()}
                 <button onClick={() => openEdit(d)} title="تعديل" style={{
                   fontSize: 15, padding: '4px 8px', borderRadius: 8,
                   border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca',
