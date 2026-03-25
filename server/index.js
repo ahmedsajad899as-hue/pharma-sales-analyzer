@@ -128,48 +128,63 @@ app.use('/api/company-members',   companyMembersRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────
+// Route a small chunk (≤10 waypoints) through OSRM demo server
+async function osrmRouteChunk(chunk) {
+  const coordStr = chunk.map(([lng, lat]) => `${lng},${lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error(`OSRM ${r.status}`);
+  const data = await r.json();
+  if (data.code !== 'Ok' || !data.routes?.[0]?.geometry?.coordinates?.length)
+    throw new Error('OSRM no route');
+  return data.routes[0].geometry.coordinates; // [lng, lat][]
+}
+
 app.post('/api/ors/route', async (req, res) => {
   try {
     const { coordinates } = req.body; // array of [lng, lat]
     if (!Array.isArray(coordinates) || coordinates.length < 2)
       return res.status(400).json({ error: 'coordinates array required (min 2)' });
 
-    // Sample down to max 25 waypoints to keep OSRM URL length reasonable
-    // Always keep first and last, evenly sample the rest
-    const MAX_WP = 25;
-    let pts = coordinates;
-    if (pts.length > MAX_WP) {
-      const step = (pts.length - 1) / (MAX_WP - 1);
-      const sampled = [];
-      for (let i = 0; i < MAX_WP; i++) {
-        sampled.push(pts[Math.round(i * step)]);
-      }
-      pts = sampled;
+    // Break into small overlapping chunks for reliability
+    const CHUNK = 8;
+    const chunks = [];
+    for (let i = 0; i < coordinates.length; i += CHUNK - 1) {
+      const slice = coordinates.slice(i, Math.min(i + CHUNK, coordinates.length));
+      if (slice.length >= 2) chunks.push(slice);
     }
 
-    // OSRM public demo server — free, no key needed
-    const coordStr = pts.map(([lng, lat]) => `${lng},${lat}`).join(';');
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+    // Route each chunk in parallel (small requests → reliable)
+    const results = await Promise.all(
+      chunks.map(async (chunk) => {
+        try {
+          return { ok: true, coords: await osrmRouteChunk(chunk) };
+        } catch (e) {
+          console.warn('[OSRM chunk fallback]', e.message);
+          return { ok: false, coords: chunk }; // straight-line fallback for this segment
+        }
+      })
+    );
 
-    const osrmRes = await fetch(osrmUrl, { signal: AbortSignal.timeout(8000) });
-    if (!osrmRes.ok) {
-      console.error('[OSRM proxy]', osrmRes.status, await osrmRes.text());
+    // Merge segments (skip first point of each subsequent segment to avoid duplicates)
+    const merged = [];
+    results.forEach((seg, i) => {
+      const start = i === 0 ? 0 : 1;
+      for (let j = start; j < seg.coords.length; j++) merged.push(seg.coords[j]);
+    });
+
+    const anyRouted = results.some(r => r.ok);
+    if (!anyRouted) {
       return res.json({ fallback: true, coordinates });
     }
-    const data = await osrmRes.json();
-    if (data.code !== 'Ok' || !data.routes?.[0]?.geometry?.coordinates?.length) {
-      return res.json({ fallback: true, coordinates });
-    }
 
-    // Return in ORS-compatible envelope so the frontend needs no changes
     res.json({
       features: [{
-        geometry: { coordinates: data.routes[0].geometry.coordinates }
+        geometry: { coordinates: merged }
       }]
     });
   } catch (err) {
     console.error('[OSRM proxy] error:', err);
-    // Fallback to straight line rather than crashing
     res.json({ fallback: true, coordinates: req.body?.coordinates ?? [] });
   }
 });
@@ -327,9 +342,18 @@ app.get('/api/items', async (req, res) => {
           linkedRepItems = riRows.map(r => r.item);
         }
       }
+      // 4. Items from user's monthly plan entries (PlanEntryItem)
+      let planEntryItems = [];
+      if (userId) {
+        const plans = await prisma.monthlyPlan.findMany({
+          where: { userId },
+          select: { entries: { select: { items: { select: { item: { select: itemSelect } } } } } },
+        });
+        planEntryItems = plans.flatMap(p => p.entries.flatMap(e => e.items.map(i => i.item)));
+      }
       // Deduplicate and sort
       const seen = new Set();
-      items = [...ownedItems, ...assignedItems, ...linkedRepItems].filter(i => {
+      items = [...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
         if (seen.has(i.id)) return false;
         seen.add(i.id); return true;
       }).sort((a, b) => a.name.localeCompare(b.name));

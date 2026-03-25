@@ -1374,11 +1374,31 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       unavailable:    td.feedbackUnavailable,
       pending:        td.feedbackPending,
     };
+    // Handle comma-separated multi-feedback
+    if (fb && fb.includes(',')) {
+      return fb.split(',').map(f => map[f.trim()] ?? f.trim()).join(' + ');
+    }
     return map[fb] ?? fb;
   };
   const feedbackColor: Record<string, string> = {
     writing:       '#10b981', stocked: '#8b5cf6', interested: '#6366f1',
     not_interested:'#ef4444', unavailable: '#f59e0b', pending: '#0ea5e9',
+  };
+  // Render one or two feedback badges for a visit
+  const renderFeedbackBadges = (fb: string) => {
+    const parts = fb ? fb.split(',').map(s => s.trim()).filter(Boolean) : ['pending'];
+    return (
+      <span style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap' }}>
+        {parts.map((f, i) => (
+          <span key={i} style={{
+            background: (feedbackColor[f] ?? '#e5e7eb') + '22',
+            color:      feedbackColor[f] ?? '#374151',
+            border:     `1px solid ${feedbackColor[f] ?? '#e5e7eb'}55`,
+            borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500,
+          }}>{feedbackLabel(f)}</span>
+        ))}
+      </span>
+    );
   };
 
   const quickActions = [
@@ -2009,13 +2029,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             {(v as any)._visitType === 'pharmacy' ? (
                               <span style={{ background: '#d1fae522', color: '#065f46', border: '1px solid #d1fae555', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500 }}>صيدلية</span>
                             ) : (
-                              <span style={{
-                                background: (feedbackColor[v.feedback] ?? '#e5e7eb') + '22',
-                                color:      feedbackColor[v.feedback] ?? '#374151',
-                                border:     `1px solid ${feedbackColor[v.feedback] ?? '#e5e7eb'}55`,
-                                borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500,
-                              }}>
-                                {feedbackLabel(v.feedback)}
+                              <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                                {(v.feedback || 'pending').split(',').map((f: string, i: number) => (
+                                  <span key={i} style={{
+                                    background: (feedbackColor[f.trim()] ?? '#e5e7eb') + '22',
+                                    color:      feedbackColor[f.trim()] ?? '#374151',
+                                    border:     `1px solid ${feedbackColor[f.trim()] ?? '#e5e7eb'}55`,
+                                    borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500,
+                                  }}>{feedbackLabel(f.trim())}</span>
+                                ))}
                               </span>
                             )}
                           </td>
@@ -3700,17 +3722,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         </td>
                         <td>{v.item?.name ?? '—'}</td>
                         <td>
-                          <span style={{
-                            background: (feedbackColor[v.feedback] ?? '#e5e7eb') + '22',
-                            color:      feedbackColor[v.feedback] ?? '#374151',
-                            border:     `1px solid ${feedbackColor[v.feedback] ?? '#e5e7eb'}55`,
-                            borderRadius: '6px',
-                            padding:    '2px 8px',
-                            fontSize:   '12px',
-                            fontWeight: 500,
-                          }}>
-                            {feedbackLabel(v.feedback)}
-                          </span>
+                          {renderFeedbackBadges(v.feedback || 'pending')}
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           {v.latitude != null
