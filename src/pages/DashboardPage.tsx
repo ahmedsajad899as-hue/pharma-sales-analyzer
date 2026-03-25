@@ -128,6 +128,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clGpsWarning, setClGpsWarning]         = useState(false); // show GPS alert before submit
   const [waitingForSettings, setWaitingForSettings] = useState(false); // waiting for user to return from location settings
   const clTimerRef = useRef<any>(null);
+  const fillCallLogRef    = useRef<typeof fillCallLogFromVoiceData>(async () => {});
+  const fillPharmacyRef   = useRef<typeof fillPharmacyFromVoiceData>(() => {});
+  const openCallLogNoResetRef = useRef<typeof openCallLog_noReset>(() => {});
   const clGpsWatchRef = useRef<number | null>(null);
   const clGpsBestAccRef = useRef<number>(Infinity);
   // ── Silent Location Tracking ─────────────────────────────
@@ -253,6 +256,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   useEffect(() => { loadDailyCalls(todayStr, todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // AI assistant page-action listener
+  // Use refs so handler always calls the LATEST version of async functions
+  // (avoids stale-closure bug where activePlan is null from first render)
+  useEffect(() => { fillCallLogRef.current = fillCallLogFromVoiceData; });
+  useEffect(() => { fillPharmacyRef.current = fillPharmacyFromVoiceData; });
+  useEffect(() => { openCallLogNoResetRef.current = openCallLog_noReset; });
+
   useEffect(() => {
     const handler = (e: Event) => {
       const { action, param } = (e as CustomEvent).detail || {};
@@ -262,13 +271,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         case 'open-map':        setShowMap(true); break;
         case 'fill-visit-form': {
           const visitData = typeof param === 'object' && param ? param : {};
-          fillCallLogFromVoiceData(visitData).then(() => openCallLog_noReset());
+          fillCallLogRef.current(visitData).then(() => openCallLogNoResetRef.current());
           break;
         }
         case 'fill-pharmacy-visit': {
           const pharmData = typeof param === 'object' && param ? param : {};
-          fillPharmacyFromVoiceData(pharmData);
-          openCallLog_noReset();
+          fillPharmacyRef.current(pharmData);
+          openCallLogNoResetRef.current();
           break;
         }
       }
