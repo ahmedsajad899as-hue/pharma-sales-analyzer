@@ -346,10 +346,10 @@ app.get('/api/items', async (req, res) => {
       let planEntryItems = [];
       if (userId) {
         const plans = await prisma.monthlyPlan.findMany({
-          where: { userId },
-          select: { entries: { select: { items: { select: { item: { select: itemSelect } } } } } },
+          where: { OR: [{ userId }, { assignedUserId: userId }] },
+          select: { entries: { select: { targetItems: { select: { item: { select: itemSelect } } } } } },
         });
-        planEntryItems = plans.flatMap(p => p.entries.flatMap(e => e.items.map(i => i.item)));
+        planEntryItems = plans.flatMap(p => p.entries.flatMap(e => e.targetItems.map(i => i.item)));
       }
       // Deduplicate and sort
       const seen = new Set();
