@@ -388,8 +388,9 @@ export default function DoctorsPage() {
         case 'open-add-doctor':     openAdd(); break;
         case 'open-import-doctors': setShowImportPanel(true); break;
         case 'open-coverage':       setShowCoveragePopup(true); break;
-        case 'open-wish-list':      setShowWishPanel(true); break;
+        case 'open-wish-list':      setActiveTab('list'); setShowWishPanel(true); break;
         case 'open-wish-list-area': {
+          setActiveTab('list');
           setShowWishPanel(true);
           if (typeof param === 'string') applyAreaFilter(action, param);
           break;
