@@ -304,14 +304,35 @@ app.get('/api/items', async (req, res) => {
         items = [];
       }
     } else {
-      items = await prisma.item.findMany({
-        where: {
-          ...(userId ? { userId } : {}),
-          ...(companyId ? { companyId } : {}),
-        },
-        orderBy: { name: 'asc' },
+      // 1. Items owned directly by this user
+      const ownedItems = await prisma.item.findMany({
+        where: { ...(userId ? { userId } : {}), ...(companyId ? { companyId } : {}) },
         select: itemSelect,
       });
+      // 2. Items assigned via UserItemAssignment
+      const assignedRows = userId ? await prisma.userItemAssignment.findMany({
+        where: { userId },
+        select: { item: { select: itemSelect } },
+      }) : [];
+      const assignedItems = assignedRows.map(r => r.item);
+      // 3. Items assigned via RepresentativeItem (linked medical rep)
+      let linkedRepItems = [];
+      if (userId) {
+        const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+        if (userRecord?.linkedRepId) {
+          const riRows = await prisma.representativeItem.findMany({
+            where: { representativeId: userRecord.linkedRepId },
+            select: { item: { select: itemSelect } },
+          });
+          linkedRepItems = riRows.map(r => r.item);
+        }
+      }
+      // Deduplicate and sort
+      const seen = new Set();
+      items = [...ownedItems, ...assignedItems, ...linkedRepItems].filter(i => {
+        if (seen.has(i.id)) return false;
+        seen.add(i.id); return true;
+      }).sort((a, b) => a.name.localeCompare(b.name));
     }
     res.json({ success: true, data: items });
   } catch (err) { res.status(500).json({ error: err.message }); }

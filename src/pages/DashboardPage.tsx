@@ -119,6 +119,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clFeedback, setClFeedback]           = useState<string[]>(['pending']);
   const [showItemsPopup, setShowItemsPopup]   = useState(false);
   const [itemsPopupSearch, setItemsPopupSearch] = useState('');
+  const [itemsPopupLoading, setItemsPopupLoading] = useState(false);
   const [clNotes, setClNotes]                 = useState('');
   const [clSaving, setClSaving]               = useState(false);
   const [clError, setClError]                 = useState('');
@@ -1048,7 +1049,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setShowCallLog(false);
         setIsDoubleVisit(false);
         loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-        if (isScientificRep) lastCallTimeRef.current = Date.now(); // extend 30-min window
+        if (canHavePlan) lastCallTimeRef.current = Date.now(); // extend 30-min window
       } catch (err: any) {
         setClError(err.message || 'حدث خطأ أثناء الحفظ');
       } finally {
@@ -1115,7 +1116,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         clearInterval(clTimerRef.current);
         setShowCallLog(false); setIsDoubleVisit(false);
         loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-        if (isScientificRep) lastCallTimeRef.current = Date.now();
+        if (canHavePlan) lastCallTimeRef.current = Date.now();
       } catch (err: any) { setClError(err.message || 'حدث خطأ أثناء الحفظ'); }
       finally { setClSaving(false); }
       return;
@@ -1232,9 +1233,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       setShowCallLog(false);
       setIsDoubleVisit(false);
       loadDailyCalls(callsDateFrom, callsDateTo, callsRepId);
-      if (isScientificRep) lastCallTimeRef.current = Date.now(); // extend 30-min window
-      // Refresh plan entries
-      fetch(`/api/monthly-plans`, { headers: authH() })
+        if (canHavePlan) lastCallTimeRef.current = Date.now(); // extend 30-min window
+        // Refresh plan entries
+        fetch(`/api/monthly-plans`, { headers: authH() })
         .then(r => r.json())
         .then(plans => {
           if (!Array.isArray(plans) || plans.length === 0) return;
@@ -1251,7 +1252,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
   // Start tracking on mount (for sci-reps) + cleanup on unmount
   useEffect(() => {
-    if (isScientificRep) startTracking();
+    if (canHavePlan) startTracking();
     const onUnload = () => stopTracking();
     window.addEventListener('beforeunload', onUnload);
     return () => {
@@ -3173,12 +3174,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       e.stopPropagation();
                       setItemsPopupSearch('');
                       setShowItemsPopup(true);
-                      if (clAllItems.length === 0) {
-                        fetch('/api/items', { headers: authH() })
-                          .then(r => r.json())
-                          .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
-                          .catch(() => {});
-                      }
+                      setItemsPopupLoading(true);
+                      fetch('/api/items', { headers: authH() })
+                        .then(r => r.json())
+                        .then(json => { setClAllItems(Array.isArray(json.data) ? json.data : []); setItemsPopupLoading(false); })
+                        .catch(() => setItemsPopupLoading(false));
                     }}
                     style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '1px 8px', lineHeight: '1.4' }}
                     title="اختر ايتم من القائمة"
@@ -3984,7 +3984,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1.5px solid #d1d5db', borderRadius: '8px', fontSize: '14px', marginBottom: '10px', outline: 'none' }}
             />
             <div style={{ overflowY: 'auto', flex: 1 }}>
-              {(itemsPopupSearch.trim()
+              {itemsPopupLoading ? (
+                <div style={{ textAlign: 'center', color: '#6b7280', padding: '24px', fontSize: '14px' }}>⏳ جاري التحميل...</div>
+              ) : (itemsPopupSearch.trim()
                 ? clAllItems.filter((i: any) => i.name.toLowerCase().includes(itemsPopupSearch.trim().toLowerCase()))
                 : clAllItems
               ).map((item: any) => (
@@ -3998,7 +4000,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   {item.name}
                 </div>
               ))}
-              {clAllItems.length === 0 && (
+              {!itemsPopupLoading && clAllItems.length === 0 && (
                 <div style={{ textAlign: 'center', color: '#9ca3af', padding: '20px', fontSize: '13px' }}>لا توجد ايتمات</div>
               )}
             </div>
