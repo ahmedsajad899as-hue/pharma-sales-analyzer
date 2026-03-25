@@ -116,7 +116,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clItemSugg, setClItemSugg]           = useState<any[]>([]);
   const [clItemShowSugg, setClItemShowSugg]   = useState(false);
   const [clAllItems, setClAllItems]           = useState<any[]>([]);
-  const [clFeedback, setClFeedback]           = useState('pending');
+  const [clFeedback, setClFeedback]           = useState<string[]>(['pending']);
+  const [showItemsPopup, setShowItemsPopup]   = useState(false);
+  const [itemsPopupSearch, setItemsPopupSearch] = useState('');
   const [clNotes, setClNotes]                 = useState('');
   const [clSaving, setClSaving]               = useState(false);
   const [clError, setClError]                 = useState('');
@@ -625,7 +627,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClManualPharmacySugg([]); setClManualPharmacyShow(false);
     setClManualAreaSugg([]); setClManualAreaShow(false);
     setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
-    setClFeedback('pending'); setClNotes('');
+    setClFeedback(['pending']); setClNotes('');
     setClPharmacyName(''); setClPharmacyAreaId(''); setClPharmacyAreaName('');
     setClPharmacyAreaSugg([]); setClPharmacyAreaShowSugg(false);
     setClPharmacyNameSugg([]); setClPharmacyNameShowSugg(false); setClPharmacyIsNew(false);
@@ -821,7 +823,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClAddToPlan(false); setClOtherDocId(null); setClOtherDoc(null);
     setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName(''); setClMissingFields([]);
     setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
-    setClFeedback('pending'); setClNotes('');
+    setClFeedback(['pending']); setClNotes('');
     setClError(''); setClShowSugg(false); setClSuggestions([]); setClDidYouMean(null);
 
     const transcribedName = v.doctorName || '';
@@ -914,7 +916,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       if (v.itemId) setClItemId(String(v.itemId));
       setClItemName(v.itemName);
     }
-    if (v.feedback) setClFeedback(v.feedback);
+    if (v.feedback) setClFeedback(v.feedback ? v.feedback.split(',').map((s:string) => s.trim()).filter(Boolean) : ['pending']);
     if (v.notes)    setClNotes(v.notes);
   };
 
@@ -1102,7 +1104,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             pharmacyName: clManualPharmacy.trim() || null,
             areaId:       clManualAreaId || null,
             areaName:     (!clManualAreaId && clManualAreaName.trim()) ? clManualAreaName.trim() : null,
-            feedback: clFeedback, notes: clNotes,
+            feedback: clFeedback.join(','), notes: clNotes,
             itemId:   resolvedItemId || null,
             itemName: clItemName.trim() || null,
             visitDate, isDoubleVisit,
@@ -1223,7 +1225,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       const visitRes  = await fetch(`/api/monthly-plans/${activePlan.id}/entries/${entryId}/visits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authH() },
-        body: JSON.stringify({ visitDate, feedback: clFeedback, notes: clNotes, isDoubleVisit, ...(resolvedItemId ? { itemId: resolvedItemId } : {}), ...(clItemName.trim() ? { itemName: clItemName.trim() } : {}), ...(clLat != null ? { latitude: clLat, longitude: clLng } : {}) }),
+        body: JSON.stringify({ visitDate, feedback: clFeedback.join(','), notes: clNotes, isDoubleVisit, ...(resolvedItemId ? { itemId: resolvedItemId } : {}), ...(clItemName.trim() ? { itemName: clItemName.trim() } : {}), ...(clLat != null ? { latitude: clLat, longitude: clLng } : {}) }),
       });
       if (!visitRes.ok) { const e = await visitRes.json().catch(() => ({})); throw new Error(e.error || 'فشل تسجيل الزيارة'); }
       clearInterval(clTimerRef.current);
@@ -3163,7 +3165,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Item selector */}
               <div style={{ marginBottom: '16px', position: 'relative' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📦 الايتم</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>📦 الايتم</label>
+                  <button
+                    type="button"
+                    onClick={() => { setItemsPopupSearch(''); setShowItemsPopup(true); }}
+                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '1px 8px', lineHeight: '1.4' }}
+                    title="اختر ايتم من القائمة"
+                  >←</button>
+                </div>
                 <input
                   type="text"
                   className="form-input"
@@ -3214,23 +3224,35 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Feedback */}
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '8px' }}>💬 نتيجة الزيارة</label>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '4px' }}>💬 نتيجة الزيارة</label>
+                <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>يمكن اختيار خيارين كحد أقصى</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {(['writing', 'pending', 'interested', 'not_interested', 'stocked', 'unavailable'] as const).map(fb => (
-                    <button
-                      key={fb}
-                      onClick={() => setClFeedback(fb)}
-                      style={{
-                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
-                        cursor: 'pointer', transition: 'all 0.15s',
-                        border: `2px solid ${clFeedback === fb ? (feedbackColor[fb] ?? '#374151') : '#e5e7eb'}`,
-                        background: clFeedback === fb ? ((feedbackColor[fb] ?? '#374151') + '22') : '#fff',
-                        color: clFeedback === fb ? (feedbackColor[fb] ?? '#374151') : '#6b7280',
-                      }}
-                    >
-                      {feedbackLabel(fb)}
-                    </button>
-                  ))}
+                  {(['writing', 'pending', 'interested', 'not_interested', 'stocked', 'unavailable'] as const).map(fb => {
+                    const isSelected = clFeedback.includes(fb);
+                    return (
+                      <button
+                        key={fb}
+                        onClick={() => {
+                          if (isSelected) {
+                            const next = clFeedback.filter(x => x !== fb);
+                            setClFeedback(next.length === 0 ? ['pending'] : next);
+                          } else {
+                            if (clFeedback.length >= 2) return; // max 2
+                            setClFeedback([...clFeedback, fb]);
+                          }
+                        }}
+                        style={{
+                          padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                          border: `2px solid ${isSelected ? (feedbackColor[fb] ?? '#374151') : '#e5e7eb'}`,
+                          background: isSelected ? ((feedbackColor[fb] ?? '#374151') + '22') : '#fff',
+                          color: isSelected ? (feedbackColor[fb] ?? '#374151') : '#6b7280',
+                        }}
+                      >
+                        {feedbackLabel(fb)}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -3924,6 +3946,51 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 ) : null}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Items Popup Modal ─── */}
+      {showItemsPopup && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+          onClick={() => setShowItemsPopup(false)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 480, maxHeight: '70vh', display: 'flex', flexDirection: 'column', padding: '20px 16px 24px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <span style={{ fontWeight: 700, fontSize: '15px', color: '#111827' }}>📦 اختر الايتم</span>
+              <button onClick={() => setShowItemsPopup(false)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+            </div>
+            <input
+              type="text"
+              autoFocus
+              placeholder="ابحث..."
+              value={itemsPopupSearch}
+              onChange={e => setItemsPopupSearch(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1.5px solid #d1d5db', borderRadius: '8px', fontSize: '14px', marginBottom: '10px', outline: 'none' }}
+            />
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {(itemsPopupSearch.trim()
+                ? clAllItems.filter((i: any) => i.name.toLowerCase().includes(itemsPopupSearch.trim().toLowerCase()))
+                : clAllItems
+              ).map((item: any) => (
+                <div
+                  key={item.id}
+                  onClick={() => { setClItemId(String(item.id)); setClItemName(item.name); setShowItemsPopup(false); }}
+                  style={{ padding: '11px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '14px', color: '#111827', borderRadius: 6 }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
+                  onMouseLeave={e => (e.currentTarget.style.background = '')}
+                >
+                  {item.name}
+                </div>
+              ))}
+              {clAllItems.length === 0 && (
+                <div style={{ textAlign: 'center', color: '#9ca3af', padding: '20px', fontSize: '13px' }}>لا توجد ايتمات</div>
+              )}
+            </div>
           </div>
         </div>
       )}
