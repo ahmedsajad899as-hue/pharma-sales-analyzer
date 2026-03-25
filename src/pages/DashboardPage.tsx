@@ -66,6 +66,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // Pre-fetched rep list for managers — shown in dropdown even when today has no visits
   const [dashReps, setDashReps] = useState<{ id: number; name: string }[]>([]);
   const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
+  const canHavePlan      = ['user', 'scientific_rep', 'team_leader', 'supervisor', 'commercial_rep'].includes(user?.role ?? '');
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
   const [showLikersId, setShowLikersId] = useState<number | null>(null);
   const [showItemNotesId, setShowItemNotesId] = useState<number | null>(null);
@@ -254,11 +255,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // AI assistant page-action listener
   useEffect(() => {
     const handler = (e: Event) => {
-      const { action } = (e as CustomEvent).detail || {};
+      const { action, param } = (e as CustomEvent).detail || {};
       switch (action) {
         case 'open-call-log':   setShowCallLog(true); break;
         case 'open-voice-call': setShowCallLog(true); setVoiceOverlay(true); setVoiceReady(true); break;
         case 'open-map':        setShowMap(true); break;
+        case 'fill-visit-form': {
+          const visitData = typeof param === 'object' && param ? param : {};
+          fillCallLogFromVoiceData(visitData).then(() => openCallLog_noReset());
+          break;
+        }
+        case 'fill-pharmacy-visit': {
+          const pharmData = typeof param === 'object' && param ? param : {};
+          fillPharmacyFromVoiceData(pharmData);
+          openCallLog_noReset();
+          break;
+        }
       }
     };
     window.addEventListener('ai-page-action', handler);
@@ -292,9 +304,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     return () => window.removeEventListener('before-navigate-back', handleBackNav);
   }, [voiceOverlay, voiceReady, trackingMapRepId, showMap, showCallLog]);
 
-  // Load active plan for scientific rep (used by Quick Call Log)
+  // Load active plan (used by Quick Call Log for doctor matching)
   useEffect(() => {
-    if (!isScientificRep) return;
+    if (!canHavePlan) return;
     fetch(`/api/monthly-plans`, { headers: authH() })
       .then(r => r.json())
       .then(plans => {
@@ -304,7 +316,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         setActivePlan(plan || null);
       })
       .catch(() => {});
-  }, [isScientificRep]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canHavePlan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCallsDateFromChange = (d: string) => {
     setCallsDateFrom(d);
@@ -431,35 +443,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         }
 
         // ── Doctor voice path ───────────────────────────────
-        // Fuzzy matching helpers (Arabic normalization)
-        const normAr = (s: string) => String(s ?? '').trim().toLowerCase()
-          .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
-        const TITLE_RE = /^(دكتور|دكتوره|د\.|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
-        const cleanN = (s: string) => normAr(s.replace(TITLE_RE, ''));
-
-        // ال (definite article) stripper — normalizes "الحسيني" ↔ "حسيني" mismatches
-        const stripAl = (t: string) => t.startsWith('ال') && t.length > 4 ? t.slice(2) : t;
-
-        // Token overlap ratio — voice-coverage weighted
-        // Soft family-name rule: last voice token must be a substring of some candidate token
-        // (allows ال prefix mismatch). Substring matching used for all tokens.
-        const tokenOverlap = (a: string, b: string): number => {
-          const ta = cleanN(a).split(' ').filter(t => t.length >= 2).map(stripAl);
-          const tb = cleanN(b).split(' ').filter(t => t.length >= 2).map(stripAl);
-          if (ta.length === 0 || tb.length === 0) return 0;
-          // Soft family name rule: last voice token must substring-match some candidate token
-          if (ta.length >= 2) {
-            const fam = ta[ta.length - 1];
-            if (!tb.some(t => t.includes(fam) || fam.includes(t))) return 0;
-          }
-          // Count soft matches (substring overlap in either direction)
-          const matched = ta.filter(tv => tb.some(tc => tc.includes(tv) || tv.includes(tc))).length;
-          const voiceCoverage   = matched / ta.length;
-          const catalogCoverage = matched / tb.length;
-          return voiceCoverage * 0.7 + catalogCoverage * 0.3;
-        };
-
         const voiceUrl = activePlan
           ? `/api/monthly-plans/${activePlan.id}/voice-record`
           : '/api/doctor-visits/voice-record';
@@ -471,133 +454,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const visits: any[] = data.visits ?? [];
         if (visits.length === 0) { setVoiceError('لم يتم التعرف على اسم الطبيب — ابدأ بذكر اسم الطبيب بوضوح ثم حاول مجدداً'); return; }
         const v = visits[0];
-        const transcribedName: string = v.doctorName || '';
 
-        // Adaptive auto-select threshold: multi-word voice → 0.80, single-word → 0.95
-        // (prevents generic first names like "احمد" from auto-selecting the wrong doctor)
-        const voiceTokenCount = cleanN(transcribedName).split(' ').filter(t => t.length >= 2).map(stripAl).length;
-        const autoSelectThreshold = voiceTokenCount >= 2 ? 0.80 : 0.95;
-
-        // ── Step A0: if Gemini matched an entryId confidently, use it directly ──
-        const voicePlanMode = getDoctorFilterPlanMode();
-        let matchedFromPlan = false;
-        if (v.entryId && activePlan && voicePlanMode !== 'all') {
-          const geminiEntry = (activePlan.entries ?? []).find((e: any) => e.id === v.entryId);
-          if (geminiEntry) {
-            selectClEntry({ ...geminiEntry, _inPlan: true });
-            matchedFromPlan = true;
-          }
-        }
-
-        // ── Step A: fuzzy match against active plan entries ──
-        if (!matchedFromPlan && activePlan && transcribedName && voicePlanMode !== 'all') {
-          const planEntries: any[] = activePlan.entries ?? [];
-          let exactEntry: any = null;
-          let partialEntry: any = null;
-          let partialScore = 0;
-
-          for (const e of planEntries) {
-            const score = tokenOverlap(transcribedName, e.doctor.name);
-            if (score >= autoSelectThreshold) { exactEntry = e; break; }
-            if (score >= 0.6 && score > partialScore) { partialScore = score; partialEntry = e; }
-          }
-
-          if (exactEntry) {
-            selectClEntry({ ...exactEntry, _inPlan: true });
-            matchedFromPlan = true;
-          } else if (partialEntry) {
-            setClDoctor(transcribedName);
-            setClSuggestions([]);
-            setClSelectedEntry(null);
-            setClNotInPlan(false);
-            setClManualMode(false);
-            setClDidYouMean({ candidate: { ...partialEntry, _inPlan: true }, _inPlan: true });
-            matchedFromPlan = true;
-          }
-        }
-
-        // ── Step B: if not found in plan, search catalog ──
-        if (!matchedFromPlan && transcribedName && voicePlanMode !== 'plan_only') {
-          try {
-            // Strategy: query by first AND last token (last = family name, far more specific).
-            // Also send original (pre-normalization) forms to catch DB entries stored with hamzas.
-            // Strip ال prefix from query tokens — LIKE %حسيني% still matches "الحسيني" in DB.
-            const normalizedTokens = cleanN(transcribedName).split(' ').filter(t => t.length >= 2).map(stripAl);
-            const origTokens = transcribedName.trim().split(/\s+/).filter(t => t.length >= 2)
-              .map(t => t.startsWith('ال') && t.length > 4 ? t.slice(2) : t);
-            const normFirst = normalizedTokens[0] ?? '';
-            const normLast  = normalizedTokens.length > 1 ? normalizedTokens[normalizedTokens.length - 1] : '';
-            const origFirst = origTokens[0] ?? '';
-            const origLast  = origTokens.length > 1 ? origTokens[origTokens.length - 1] : '';
-
-            // Always use /api/doctors which has area+survey+plan filters applied
-            const mkUrl = (q: string) => `/api/doctors?q=${encodeURIComponent(q)}`;
-
-            const headers = { Authorization: `Bearer ${token}` };
-            const querySet = [...new Set([normFirst, normLast, origFirst, origLast].filter(q => q.length >= 2))];
-            const results = await Promise.all(
-              querySet.map(q => fetch(mkUrl(q), { headers }).then(r => r.json()).catch(() => []))
-            );
-            // Merge and deduplicate by doctor id
-            const seen = new Set<number>();
-            const docs: any[] = [];
-            for (const list of results) {
-              if (!Array.isArray(list)) continue;
-              for (const d of list) {
-                if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
-              }
-            }
-
-            let exactDoc: any = null;
-            let partialDoc: any = null;
-            let partialScore = 0;
-
-            for (const d of docs) {
-              const score = tokenOverlap(transcribedName, d.name);
-              if (score >= autoSelectThreshold) { exactDoc = d; break; }
-              if (score >= 0.6 && score > partialScore) { partialScore = score; partialDoc = d; }
-            }
-
-            if (exactDoc) {
-              selectClEntry({ doctor: exactDoc, id: null, targetItems: [], _inPlan: false });
-              matchedFromPlan = true;
-            } else if (partialDoc) {
-              setClDoctor(transcribedName);
-              setClSuggestions([]);
-              setClSelectedEntry(null);
-              setClNotInPlan(false);
-              setClManualMode(false);
-              setClDidYouMean({ candidate: { doctor: partialDoc, id: null, targetItems: [], _inPlan: false }, _inPlan: false });
-              matchedFromPlan = true;
-            }
-          } catch { /* network error — fall through to manual */ }
-        }
-
-        // ── Step C: no match anywhere → manual entry ──
-        if (!matchedFromPlan) {
-          setClDoctor(transcribedName);
-          setClSuggestions([]);
-          setClSelectedEntry(null);
-          setClOtherDocId(null);
-          setClOtherDoc(null);
-          setClAddToPlan(false);
-          setClNotInPlan(true);
-          setClManualMode(true);
-          setClManualSpecialty(v.specialty || '');
-          setClManualPharmacy(v.pharmacyName || '');
-          setClManualAreaId('');
-          setClManualAreaName(v.areaName || '');
-          setClMissingFields(['specialty', 'pharmacy', 'area']);
-          setClDidYouMean(null);
-        }
-
-        // ── Fill shared fields (item, feedback, notes) ──
-        if (v.itemName && !['مهتم','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود'].includes(v.itemName.trim())) {
-          if (v.itemId) setClItemId(String(v.itemId));
-          setClItemName(v.itemName);
-        }
-        if (v.feedback) setClFeedback(v.feedback);
-        if (v.notes)    setClNotes(v.notes);
+        await fillCallLogFromVoiceData(v);
         setVoiceOverlay(false);
         openCallLog_noReset();
       } catch (e: any) { setVoiceError('خطأ في التحليل: ' + (e.message ?? '')); }
@@ -901,6 +759,177 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
   };
 
+  // ─── Shared: fill call log from voice/AI data ─────────────────
+  const TITLE_RE_SHARED = /^(دكتور|دكتوره|د\.|استاذ|استاذه|أستاذ|أستاذه|صيدلاني|صيدلانيه|مهندس|مهندسه|حاج|حاجه)\s+/g;
+  const cleanN_shared = (s: string) => normArabic(s.replace(TITLE_RE_SHARED, ''));
+  const stripAl_shared = (t: string) => t.startsWith('ال') && t.length > 4 ? t.slice(2) : t;
+  // Levenshtein edit-distance ratio (0–1, higher = more similar)
+  const charSim_shared = (a: string, b: string): number => {
+    if (a === b) return 1;
+    const la = a.length, lb = b.length;
+    if (!la || !lb) return 0;
+    let prev = Array.from({ length: lb + 1 }, (_, j) => j);
+    for (let i = 1; i <= la; i++) {
+      const curr = [i];
+      for (let j = 1; j <= lb; j++)
+        curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j], curr[j - 1], prev[j - 1]);
+      prev = curr;
+    }
+    return 1 - prev[lb] / Math.max(la, lb);
+  };
+  // Token match: includes OR character similarity ≥ 70%
+  const tokMatch_shared = (a: string, b: string): boolean =>
+    a.includes(b) || b.includes(a) || (Math.min(a.length, b.length) >= 2 && charSim_shared(a, b) >= 0.70);
+  const tokenOverlap_shared = (a: string, b: string): number => {
+    const ta = cleanN_shared(a).split(' ').filter(t => t.length >= 2).map(stripAl_shared);
+    const tb = cleanN_shared(b).split(' ').filter(t => t.length >= 2).map(stripAl_shared);
+    if (ta.length === 0 || tb.length === 0) return 0;
+    // Family name rule: the SHORTER name's last token must be found in the other
+    const shorter = ta.length <= tb.length ? ta : tb;
+    const longer  = ta.length <= tb.length ? tb : ta;
+    if (shorter.length >= 2) {
+      const fam = shorter[shorter.length - 1];
+      if (!longer.some(t => tokMatch_shared(fam, t))) return 0;
+    }
+    // Count how many tokens of the shorter name match the longer name
+    const matched = shorter.filter(tv => longer.some(tc => tokMatch_shared(tv, tc))).length;
+    const shortCoverage = matched / shorter.length;
+    const longCoverage  = matched / longer.length;
+    return shortCoverage * 0.7 + longCoverage * 0.3;
+  };
+
+  const fillCallLogFromVoiceData = async (v: { doctorName?: string; itemName?: string; itemId?: number; feedback?: string; notes?: string; specialty?: string; pharmacyName?: string; areaName?: string; entryId?: number }) => {
+    // ── Reset all fields before filling new voice data ──
+    setCallType('doctor');
+    setClDoctor(''); setClSelectedEntry(null); setClNotInPlan(false);
+    setClAddToPlan(false); setClOtherDocId(null); setClOtherDoc(null);
+    setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName(''); setClMissingFields([]);
+    setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
+    setClFeedback('pending'); setClNotes('');
+    setClError(''); setClShowSugg(false); setClSuggestions([]); setClDidYouMean(null);
+
+    const transcribedName = v.doctorName || '';
+    const voiceTokenCount = cleanN_shared(transcribedName).split(' ').filter(t => t.length >= 2).map(stripAl_shared).length;
+    const autoSelectThreshold = voiceTokenCount >= 2 ? 0.80 : 0.85;
+    const voicePlanMode = getDoctorFilterPlanMode();
+    let matchedFromPlan = false;
+
+    // Step A0: if entryId provided, use it directly
+    if (v.entryId && activePlan) {
+      const geminiEntry = (activePlan.entries ?? []).find((e: any) => e.id === v.entryId);
+      if (geminiEntry) { selectClEntry({ ...geminiEntry, _inPlan: true }); matchedFromPlan = true; }
+    }
+
+    // Step A: ALWAYS fuzzy match against active plan entries first (regardless of planMode)
+    if (!matchedFromPlan && activePlan && transcribedName) {
+      const planEntries: any[] = activePlan.entries ?? [];
+      let exactEntry: any = null, partialEntry: any = null, partialScore = 0;
+      for (const e of planEntries) {
+        const score = tokenOverlap_shared(transcribedName, e.doctor.name);
+        if (score >= autoSelectThreshold) { exactEntry = e; break; }
+        if (score >= 0.6 && score > partialScore) { partialScore = score; partialEntry = e; }
+      }
+      if (exactEntry) { selectClEntry({ ...exactEntry, _inPlan: true }); matchedFromPlan = true; }
+      else if (partialEntry) {
+        setClDoctor(transcribedName); setClSuggestions([]); setClSelectedEntry(null);
+        setClNotInPlan(false); setClManualMode(false);
+        setClDidYouMean({ candidate: { ...partialEntry, _inPlan: true }, _inPlan: true });
+        matchedFromPlan = true;
+      }
+    }
+
+    // Step B: search catalog (and cross-reference with plan)
+    if (!matchedFromPlan && transcribedName && voicePlanMode !== 'plan_only') {
+      try {
+        const normalizedTokens = cleanN_shared(transcribedName).split(' ').filter(t => t.length >= 2).map(stripAl_shared);
+        const origTokens = transcribedName.trim().split(/\s+/).filter(t => t.length >= 2)
+          .map(t => t.startsWith('ال') && t.length > 4 ? t.slice(2) : t);
+        const normFirst = normalizedTokens[0] ?? '', normLast = normalizedTokens.length > 1 ? normalizedTokens[normalizedTokens.length - 1] : '';
+        const origFirst = origTokens[0] ?? '', origLast = origTokens.length > 1 ? origTokens[origTokens.length - 1] : '';
+        const mkUrl = (q: string) => `/api/doctors?q=${encodeURIComponent(q)}`;
+        const headers = { Authorization: `Bearer ${token}` };
+        const querySet = [...new Set([normFirst, normLast, origFirst, origLast].filter(q => q.length >= 2))];
+        const results = await Promise.all(querySet.map(q => fetch(mkUrl(q), { headers }).then(r => r.json()).catch(() => [])));
+        const seen = new Set<number>(); const docs: any[] = [];
+        for (const list of results) { if (!Array.isArray(list)) continue; for (const d of list) { if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); } } }
+        let exactDoc: any = null, partialDoc: any = null, partialScore = 0;
+        for (const d of docs) {
+          const score = tokenOverlap_shared(transcribedName, d.name);
+          if (score >= autoSelectThreshold) { exactDoc = d; break; }
+          if (score >= 0.6 && score > partialScore) { partialScore = score; partialDoc = d; }
+        }
+        // If found in catalog, check if doctor is also in plan → prefer plan entry
+        const bestDoc = exactDoc || partialDoc;
+        const isExact = !!exactDoc;
+        if (bestDoc && activePlan) {
+          const planMatch = (activePlan.entries ?? []).find((e: any) => e.doctor.id === bestDoc.id);
+          if (planMatch) {
+            if (isExact) { selectClEntry({ ...planMatch, _inPlan: true }); matchedFromPlan = true; }
+            else {
+              setClDoctor(transcribedName); setClSuggestions([]); setClSelectedEntry(null);
+              setClNotInPlan(false); setClManualMode(false);
+              setClDidYouMean({ candidate: { ...planMatch, _inPlan: true }, _inPlan: true });
+              matchedFromPlan = true;
+            }
+          }
+        }
+        if (!matchedFromPlan && exactDoc) { selectClEntry({ doctor: exactDoc, id: null, targetItems: [], _inPlan: false }); matchedFromPlan = true; }
+        else if (!matchedFromPlan && partialDoc) {
+          setClDoctor(transcribedName); setClSuggestions([]); setClSelectedEntry(null);
+          setClNotInPlan(false); setClManualMode(false);
+          setClDidYouMean({ candidate: { doctor: partialDoc, id: null, targetItems: [], _inPlan: false }, _inPlan: false });
+          matchedFromPlan = true;
+        }
+      } catch { /* network error — fall through to manual */ }
+    }
+
+    // Step C: no match → manual entry
+    if (!matchedFromPlan) {
+      setClDoctor(transcribedName); setClSuggestions([]); setClSelectedEntry(null);
+      setClOtherDocId(null); setClOtherDoc(null); setClAddToPlan(false);
+      setClNotInPlan(true); setClManualMode(true);
+      setClManualSpecialty(v.specialty || ''); setClManualPharmacy(v.pharmacyName || '');
+      setClManualAreaId(''); setClManualAreaName(v.areaName || '');
+      setClMissingFields(['specialty', 'pharmacy', 'area']); setClDidYouMean(null);
+    }
+
+    // Fill shared fields (item, feedback, notes)
+    if (v.itemName && !['مهتم','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود'].includes(v.itemName.trim())) {
+      if (v.itemId) setClItemId(String(v.itemId));
+      setClItemName(v.itemName);
+    }
+    if (v.feedback) setClFeedback(v.feedback);
+    if (v.notes)    setClNotes(v.notes);
+  };
+
+  const fillPharmacyFromVoiceData = (v: { pharmacyName?: string; areaName?: string; areaId?: number; items?: { itemName?: string; itemId?: number; notes?: string }[]; notes?: string }) => {
+    // ── Reset all fields before filling new pharmacy voice data ──
+    setCallType('pharmacy');
+    setClPharmacyName(''); setClPharmacyAreaId(''); setClPharmacyAreaName('');
+    setClPharmacyAreaSugg([]); setClPharmacyAreaShowSugg(false);
+    setClPharmacyNameSugg([]); setClPharmacyNameShowSugg(false); setClPharmacyIsNew(false);
+    setClPharmacyItems([{ tempId: 1, itemId: '', itemName: '', notes: '', showSugg: false, sugg: [] }]);
+    clPharmacyItemCounter.current = 2;
+    setClNotes(''); setClError('');
+
+    if (v.pharmacyName) setClPharmacyName(v.pharmacyName);
+    if (v.areaId) { setClPharmacyAreaId(String(v.areaId)); setClPharmacyAreaName(v.areaName || ''); }
+    else if (v.areaName) { setClPharmacyAreaName(v.areaName); }
+    if (Array.isArray(v.items) && v.items.length > 0) {
+      const parsed = v.items.map((it, idx) => ({
+        tempId:   clPharmacyItemCounter.current + idx,
+        itemId:   it.itemId ? String(it.itemId) : '',
+        itemName: it.itemName || '',
+        notes:    it.notes   || '',
+        showSugg: false,
+        sugg:     [] as any[],
+      }));
+      clPharmacyItemCounter.current += parsed.length;
+      setClPharmacyItems(parsed);
+    }
+    if (v.notes) setClNotes(v.notes);
+  };
+
   // ─── Silent background tracking ──────────────────────────────
   const captureLocation = () => {
     if (!trackingActiveRef.current) return;
@@ -1132,9 +1161,30 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           headers: { 'Content-Type': 'application/json', ...authH() },
           body: JSON.stringify({ doctorId, isExtraVisit: true }),
         });
-        if (!addRes.ok) { const e = await addRes.json().catch(() => ({})); throw new Error(e.error || 'فشل إضافة الطبيب للبلان'); }
-        const newEntry = await addRes.json();
-        entryId = newEntry.id;
+        if (addRes.status === 409) {
+          // Doctor already in plan — find their existing entry and use it
+          const existingEntry = (activePlan.entries ?? []).find((e: any) => e.doctor?.id === doctorId);
+          if (existingEntry) {
+            entryId = existingEntry.id;
+          } else {
+            // activePlan stale — re-fetch to find the entry
+            const freshPlans = await fetch('/api/monthly-plans', { headers: authH() }).then(r => r.json()).catch(() => []);
+            const freshPlan = Array.isArray(freshPlans) ? freshPlans.find((x: any) => x.id === activePlan.id) : null;
+            const freshEntry = freshPlan?.entries?.find((e: any) => e.doctor?.id === doctorId);
+            if (freshEntry) {
+              entryId = freshEntry.id;
+              setActivePlan(freshPlan);
+            } else {
+              const e = await addRes.json().catch(() => ({}));
+              throw new Error(e.error || 'فشل إضافة الطبيب للبلان');
+            }
+          }
+        } else if (!addRes.ok) {
+          const e = await addRes.json().catch(() => ({})); throw new Error(e.error || 'فشل إضافة الطبيب للبلان');
+        } else {
+          const newEntry = await addRes.json();
+          entryId = newEntry.id;
+        }
       }
       const now      = new Date();
       const [vy2, vm2, vd2] = callsDateFrom.split('-').map(Number);
