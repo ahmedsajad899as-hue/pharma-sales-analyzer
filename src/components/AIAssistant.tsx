@@ -141,6 +141,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   const [clarInput,    setClarInput]    = useState('');
   const [history,      setHistory]      = useState<HistoryEntry[]>([]);
   const [showHistory,  setShowHistory]  = useState(false);
+  const [btnPos,       setBtnPos]       = useState({ right: 24, bottom: 88 });
 
   const mediaRecRef  = useRef<MediaRecorder | null>(null);
   const chunksRef    = useRef<Blob[]>([]);
@@ -148,6 +149,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   const startTimeRef = useRef<number>(0);
   const panelRef     = useRef<HTMLDivElement>(null);
   const btnRef       = useRef<HTMLButtonElement>(null);
+  const dragRef      = useRef<{ sx: number; sy: number; br: number; bb: number; moved: boolean } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -346,6 +348,33 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     if (clarInput.trim()) sendText(clarInput.trim());
   };
 
+  const onBtnPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { sx: e.clientX, sy: e.clientY, br: btnPos.right, bb: btnPos.bottom, moved: false };
+  };
+
+  const onBtnPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.sx;
+    const dy = e.clientY - d.sy;
+    if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
+    if (!d.moved) return;
+    setBtnPos({
+      right:  Math.max(4, Math.min(window.innerWidth  - 56, d.br - dx)),
+      bottom: Math.max(4, Math.min(window.innerHeight - 56, d.bb - dy)),
+    });
+  };
+
+  const onBtnPointerUp = () => {
+    const wasDragging = dragRef.current?.moved ?? false;
+    dragRef.current = null;
+    if (!wasDragging) {
+      setIsOpen(o => !o);
+      if (!isOpen) { reset(); setShowHistory(false); }
+    }
+  };
+
   return (
     <>
       {/* Recording overlay */}
@@ -437,15 +466,17 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         </div>
       )}
 
-      {/* Floating button */}
+      {/* Floating button — draggable */}
       <button
         ref={btnRef}
-        onClick={() => { setIsOpen(o => !o); if (!isOpen) { reset(); setShowHistory(false); } }}
-        title="مساعد AI الصوتي"
+        onPointerDown={onBtnPointerDown}
+        onPointerMove={onBtnPointerMove}
+        onPointerUp={onBtnPointerUp}
+        title="مساعد AI الصوتي — اسحب لتغيير الموضع"
         style={{
           position: 'fixed',
-          bottom: 88,
-          right: 24,
+          bottom: btnPos.bottom,
+          right: btnPos.right,
           zIndex: 9999,
           width: 52,
           height: 52,
@@ -454,12 +485,14 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           background: isOpen ? '#4f46e5' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
           color: '#fff',
           fontSize: 22,
-          cursor: 'pointer',
+          cursor: 'grab',
           boxShadow: '0 4px 16px rgba(79,70,229,0.45)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          transition: 'all 0.2s ease',
+          transition: 'background 0.2s ease, box-shadow 0.2s ease',
+          touchAction: 'none',
+          userSelect: 'none',
         }}
       >
         {isOpen ? '✕' : '🤖'}
@@ -472,8 +505,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           dir="rtl"
           style={{
             position: 'fixed',
-            bottom: 152,
-            right: 16,
+            bottom: btnPos.bottom + 64,
+            right: Math.max(8, btnPos.right - 4),
             zIndex: 9998,
             width: 360,
             maxWidth: 'calc(100vw - 32px)',
