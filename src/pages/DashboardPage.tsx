@@ -3169,7 +3169,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>📦 الايتم</label>
                   <button
                     type="button"
-                    onClick={() => { setItemsPopupSearch(''); setShowItemsPopup(true); }}
+                    onClick={e => {
+                      e.stopPropagation();
+                      setItemsPopupSearch('');
+                      setShowItemsPopup(true);
+                      if (clAllItems.length === 0) {
+                        fetch('/api/items', { headers: authH() })
+                          .then(r => r.json())
+                          .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
+                          .catch(() => {});
+                      }
+                    }}
                     style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '1px 8px', lineHeight: '1.4' }}
                     title="اختر ايتم من القائمة"
                   >←</button>
@@ -3225,7 +3235,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* Feedback */}
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '4px' }}>💬 نتيجة الزيارة</label>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>يمكن اختيار خيارين كحد أقصى</div>
+                <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>اختيار خيار ثالث يلغي الأول تلقائياً</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {(['writing', 'pending', 'interested', 'not_interested', 'stocked', 'unavailable'] as const).map(fb => {
                     const isSelected = clFeedback.includes(fb);
@@ -3237,8 +3247,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             const next = clFeedback.filter(x => x !== fb);
                             setClFeedback(next.length === 0 ? ['pending'] : next);
                           } else {
-                            if (clFeedback.length >= 2) return; // max 2
-                            setClFeedback([...clFeedback, fb]);
+                            // sliding window: drop oldest if already 2 selected
+                            const base = clFeedback.length >= 2 ? clFeedback.slice(1) : clFeedback;
+                            setClFeedback([...base, fb]);
                           }
                         }}
                         style={{
