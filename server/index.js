@@ -178,8 +178,34 @@ app.post('/api/ors/route', async (req, res) => {
 app.get('/api/areas', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
+    if (!userId) return res.json({ success: true, data: [] });
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, linkedRepId: true } });
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+
+    if (user && FIELD_ROLES.includes(user.role)) {
+      // Field reps: include owned areas + assigned areas + linked rep areas
+      const [assignedRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+        user.linkedRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: user.linkedRepId }, select: { areaId: true } })
+          : Promise.resolve([]),
+      ]);
+      const extraIds = [...new Set([
+        ...assignedRows.map(r => r.areaId),
+        ...repAreaRows.map(r => r.areaId),
+      ])];
+      const areas = await prisma.area.findMany({
+        where: { OR: [{ userId }, ...(extraIds.length ? [{ id: { in: extraIds } }] : [])] },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      });
+      return res.json({ success: true, data: areas });
+    }
+
+    // Manager / admin: areas they own
     const areas = await prisma.area.findMany({
-      where: userId ? { userId } : {},
+      where: { userId },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     });

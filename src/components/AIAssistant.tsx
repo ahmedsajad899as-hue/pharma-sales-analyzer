@@ -40,6 +40,7 @@ interface DoctorListRow {
   specialty: string;
   areaName: string;
   phone: string;
+  pharmacyName?: string;
 }
 
 interface QueryResult {
@@ -50,7 +51,8 @@ interface QueryResult {
        | 'sales_list' | 'sales_grouped'
        | 'returns_list'
        | 'survey_list' | 'survey_grouped'
-       | 'stats_summary';
+       | 'stats_summary'
+       | 'plan_stats';
   visitType?: 'doctor' | 'pharmacy' | 'all';
   groupBy?: string;
   totalVisits?: number;
@@ -76,13 +78,26 @@ interface QueryResult {
   records?: any[];
   // survey
   pharmacies?: any[];
+  // plan stats
+  month?: number;
+  year?: number;
+  repName?: string | null;
+  visitedDoctors?: number;
+  doctorCoveragePct?: number;
+  totalTargetVisits?: number;
+  totalActualVisits?: number;
+  completionPct?: number;
+  byArea?: { name: string; targetDoctors: number; visitedDoctors: number; targetVisits: number; actualVisits: number; pct: number }[];
+  byItem?: { name: string; targetDoctors: number; visitedDoctors: number; pct: number }[];
+  filteredAreaName?: string | null;
+  filteredItemName?: string | null;
 }
 
 interface AssistantResult {
   action: string;
   navigatePage?: string | null;
   pageAction?: string | null;
-  pageActionParam?: string | null;
+  pageActionParam?: any;
   params?: { page?: string };
   responseText: string;
   needsClarification: boolean;
@@ -190,11 +205,15 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           'open-import-doctors':   'doctors',
           'open-coverage':         'doctors',
           'open-wish-list':        'doctors',
+          'open-wish-list-area':   'doctors',
+          'open-doctors-area':     'doctors',
           'open-add-sci-rep':      'scientific-reps',
           'open-add-rep':          'representatives',
           'open-add-user':         'users',
           'open-call-log':         'dashboard',
           'open-voice-call':       'dashboard',
+          'fill-visit-form':       'dashboard',
+          'fill-pharmacy-visit':   'dashboard',
           'open-map':              'dashboard',
           'open-export-report':    'reports',
         };
@@ -524,6 +543,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         : h.result.action === 'query_doctors' ? '🩺 قائمة أطباء'
                         : h.result.action === 'query_unvisited_doctors' ? '⚠️ أطباء لم تتم زيارتهم'
                         : h.result.action === 'query_stats' ? '📈 إحصائيات'
+                        : h.result.action === 'query_plan_stats' ? '📋 تقدم البلان'
                         : h.result.action === 'navigate' ? `🔀 انتقال: ${h.result.navigatePage}`
                         : h.result.action === 'page_action' ? `⚡ إجراء: ${h.result.pageAction}`
                         : '💡 رد'}
@@ -824,6 +844,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
               if (qr?.type === 'doctor_list') {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {result.responseText && (
+                      <div style={{ fontSize: 13, color: '#1e293b', lineHeight: 1.6, padding: '6px 0' }}>
+                        💡 {result.responseText}
+                      </div>
+                    )}
                     <div style={{ background: '#ecfdf5', borderRadius: 10, padding: '10px 12px', border: '1px solid #a7f3d0' }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>🩺 قائمة الأطباء</div>
                       <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>
@@ -839,6 +864,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                           {d.specialty && <span style={{ fontSize: 11, color: '#374151' }}>🔬 {d.specialty}</span>}
                           {d.areaName && <span style={{ fontSize: 11, color: '#6b7280' }}>📍 {d.areaName}</span>}
+                          {d.pharmacyName && <span style={{ fontSize: 11, color: '#6b7280' }}>🏥 {d.pharmacyName}</span>}
                           {d.phone && <span style={{ fontSize: 11, color: '#6b7280' }}>📞 {d.phone}</span>}
                         </div>
                       </div>
@@ -1208,6 +1234,85 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                           </div>
                         )}
                       </>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── plan_stats ────────────────────────────────────────────
+              if (qr?.type === 'plan_stats') {
+                if (!qr.found) {
+                  return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا يوجد بلان'}</div>;
+                }
+                const monthNames = ['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+                const mName = monthNames[qr.month || 0] || `شهر ${qr.month}`;
+                const pctColor = (p: number) => p >= 80 ? '#10b981' : p >= 50 ? '#f59e0b' : '#ef4444';
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Header */}
+                    <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', borderRadius: 12, padding: '14px 16px', color: '#fff', textAlign: 'center' }}>
+                      <div style={{ fontSize: 13, opacity: 0.9, marginBottom: 4 }}>📋 تقدم البلان — {mName} {qr.year}</div>
+                      <div style={{ fontSize: 36, fontWeight: 800 }}>{qr.completionPct}%</div>
+                      <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>نسبة تحقيق الزيارات</div>
+                    </div>
+
+                    {/* Summary cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ background: '#f0f9ff', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #bae6fd', textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: '#0369a1', marginBottom: 2 }}>🩺 الأطباء</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: '#0c4a6e' }}>{qr.visitedDoctors}/{qr.totalDoctors}</div>
+                        <div style={{ fontSize: 11, color: '#0369a1' }}>تغطية {qr.doctorCoveragePct}%</div>
+                      </div>
+                      <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #a7f3d0', textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: '#065f46', marginBottom: 2 }}>📞 الكولات</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: '#064e3b' }}>{qr.totalActualVisits}/{qr.totalTargetVisits}</div>
+                        <div style={{ fontSize: 11, color: '#065f46' }}>تحقيق {qr.completionPct}%</div>
+                      </div>
+                    </div>
+
+                    {/* By Area */}
+                    {qr.byArea && qr.byArea.length > 0 && (
+                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #e0e7ff' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>
+                          📍 {qr.filteredAreaName ? `منطقة ${qr.filteredAreaName}` : 'حسب المنطقة'}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {qr.byArea.map((a, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ fontSize: 11, color: '#374151', minWidth: 80, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                              <div style={{ flex: 1, height: 16, background: '#e5e7eb', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+                                <div style={{ height: '100%', width: `${a.pct}%`, background: pctColor(a.pct), borderRadius: 8, transition: 'width 0.4s ease' }} />
+                              </div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: pctColor(a.pct), minWidth: 60, textAlign: 'left' }}>
+                                {a.actualVisits}/{a.targetVisits} ({a.pct}%)
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* By Item */}
+                    {qr.byItem && qr.byItem.length > 0 && (
+                      <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #a7f3d0' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8 }}>
+                          💊 {qr.filteredItemName ? `ايتم ${qr.filteredItemName}` : 'حسب الإيتم'}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {qr.byItem.map((it, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ fontSize: 11, color: '#374151', minWidth: 80, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
+                              <div style={{ flex: 1, height: 16, background: '#e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${it.pct}%`, background: pctColor(it.pct), borderRadius: 8, transition: 'width 0.4s ease' }} />
+                              </div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: pctColor(it.pct), minWidth: 60, textAlign: 'left' }}>
+                                {it.visitedDoctors}/{it.targetDoctors} ({it.pct}%)
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 );

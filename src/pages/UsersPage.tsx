@@ -243,6 +243,7 @@ export default function UsersPage() {
         m.id === areasModalMember.id ? { ...m, areas: j.areas ?? [] } : m
       ));
       setAreasModalMember(null);
+      window.dispatchEvent(new Event('areas-changed'));
     } catch (err: any) { alert(err.message || 'فشل حفظ المناطق'); }
     finally { setAreasSaving(false); }
   };

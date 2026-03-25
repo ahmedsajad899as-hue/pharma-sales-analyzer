@@ -286,6 +286,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         method: 'PUT', headers: H(), body: JSON.stringify({ [keyMap[type]]: ids }),
       });
       loadDetail(detail.id);
+      if (type === 'areas') window.dispatchEvent(new Event('areas-changed'));
     } catch (e) {
       console.error('saveAssignment error:', e);
     } finally {

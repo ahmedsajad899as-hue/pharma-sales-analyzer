@@ -320,6 +320,27 @@ export default function DoctorsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Re-fetch areas when they change (added/removed) or when user returns to the page
+  useEffect(() => {
+    const refreshAreas = () => {
+      fetch(`${API}/api/areas`, { headers: H() })
+        .then(r => r.json())
+        .then(json => {
+          const arr = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : []);
+          setAreas(arr);
+        })
+        .catch(() => {});
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshAreas(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('areas-changed', refreshAreas);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('areas-changed', refreshAreas);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // When user changes (login/switch), reload wishlist from correct per-user key
   // and remove old generic keys to prevent bleed-over
   useEffect(() => {
@@ -337,14 +358,48 @@ export default function DoctorsPage() {
   }, [user?.id]);
 
   // AI assistant page-action listener
+  const pendingAreaRef = useRef<{ action: string; param: string } | null>(null);
   useEffect(() => {
+    const normA = (s: string) => s.trim().toLowerCase().replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+    const matchArea = (param: string) => {
+      if (!param?.trim() || areas.length === 0) return null;
+      const q = normA(param);
+      return areas.find(a => normA(a.name) === q)
+        || areas.find(a => normA(a.name).includes(q) || q.includes(normA(a.name)))
+        || null;
+    };
+    const applyAreaFilter = (action: string, param: string) => {
+      const match = matchArea(param);
+      if (match) {
+        setFilterArea(String(match.id));
+        pendingAreaRef.current = null;
+      } else if (areas.length === 0) {
+        // Areas not loaded yet — defer
+        pendingAreaRef.current = { action, param };
+      }
+    };
+    // Resolve any pending area filter now that areas may have loaded
+    if (pendingAreaRef.current && areas.length > 0) {
+      applyAreaFilter(pendingAreaRef.current.action, pendingAreaRef.current.param);
+    }
     const handler = (e: Event) => {
-      const { action } = (e as CustomEvent).detail || {};
+      const { action, param } = (e as CustomEvent).detail || {};
       switch (action) {
         case 'open-add-doctor':     openAdd(); break;
         case 'open-import-doctors': setShowImportPanel(true); break;
         case 'open-coverage':       setShowCoveragePopup(true); break;
         case 'open-wish-list':      setShowWishPanel(true); break;
+        case 'open-wish-list-area': {
+          setShowWishPanel(true);
+          if (typeof param === 'string') applyAreaFilter(action, param);
+          break;
+        }
+        case 'open-doctors-area': {
+          setActiveTab('list');
+          setShowWishPanel(false);
+          if (typeof param === 'string') applyAreaFilter(action, param);
+          break;
+        }
       }
     };
     window.addEventListener('ai-page-action', handler);
@@ -352,7 +407,7 @@ export default function DoctorsPage() {
     if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
     return () => window.removeEventListener('ai-page-action', handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [areas]);
 
   // Sync wished doctor names to localStorage whenever doctors list loads
   useEffect(() => {
@@ -522,7 +577,7 @@ export default function DoctorsPage() {
       let resolvedAreaId = fAreaId;
       if (fAreaName.trim() && !resolvedAreaId) {
         const r = await fetch(`${API}/api/areas`, { method: 'POST', headers: H(), body: JSON.stringify({ name: fAreaName.trim() }) });
-        if (r.ok) { const j = await r.json(); resolvedAreaId = String(j.id); setAreas(prev => prev.some(a => a.id === j.id) ? prev : [...prev, j].sort((a, b) => a.name.localeCompare(b.name))); }
+        if (r.ok) { const j = await r.json(); resolvedAreaId = String(j.id); setAreas(prev => prev.some(a => a.id === j.id) ? prev : [...prev, j].sort((a, b) => a.name.localeCompare(b.name))); window.dispatchEvent(new Event('areas-changed')); }
       } else if (!fAreaName.trim()) { resolvedAreaId = ''; }
       // Resolve or create item
       let resolvedItemId = fItemId;

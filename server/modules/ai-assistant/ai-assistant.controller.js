@@ -73,7 +73,7 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 
 ═══ البيانات المتاحة ═══
 المندوبون: ${repsText}
-الأطباء: ${docsText}
+الأطباء (للاستعلام فقط — لا تستبدل اسم الطبيب الذي نطقه المستخدم بأي اسم من هذه القائمة): ${docsText}
 الأيتمات: ${itemsText}
 المناطق: ${areasText}
 الخطط الشهرية (أسماء المندوبين): ${plansText}
@@ -83,9 +83,10 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 2. query_doctors           → الحصول على قائمة أسماء الأطباء (بدون زيارات)
 3. query_unvisited_doctors → أطباء لم تتم زيارتهم في فترة محددة أو منذ البداية
 4. query_stats             → إحصائيات وملخص سريع للزيارات (كم زيارة، أكثر ايتم، أكثر منطقة...)
-5. navigate                → الانتقال لصفحة
-6. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
-7. unknown                 → لا يمكن فهم الطلب
+5. query_plan_stats        → نسبة تحقيق البلان الشهري (كم المطلوب وكم المنجز ونسبة التحقيق)
+6. navigate                → الانتقال لصفحة
+7. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
+8. unknown                 → لا يمكن فهم الطلب
 
 ═══ متى تستخدم query_unvisited_doctors ═══
 • "من لم يتم زيارته" / "أطباء ما تزاروا" / "الأطباء غير المزارين" → query_unvisited_doctors
@@ -96,6 +97,20 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 • إذا ذُكر تاريخ محدد → يعني ما تتم زيارتهم في تلك الفترة فقط
 • إذا لم يُذكر تاريخ → يعني ما تمت زيارتهم إطلاقاً
 
+═══ متى تستخدم query_plan_stats ═══
+• "نسبة البلان" / "تقدم البلان" / "نسبة التحقيق" / "كم حققت من البلان" / "شكد باقي" → query_plan_stats
+• "كم طبيب بالبلان" / "كم مطلوب أزور" / "عدد الكولات المطلوبة" → query_plan_stats
+• "نسبة تحقيق الايتم X" / "شكد زرت من ايتم X" → query_plan_stats + itemName
+• "نسبة البلان في منطقة X" / "كم حققت بمنطقة X" / "شكد باقي بمنطقة X" → query_plan_stats + areaName
+• "بلان شهر 2" / "بلان شهر فبراير" → query_plan_stats + month:2
+• إذا لم يُذكر شهر → الشهر الحالي ${curMonth}/${curYear} تلقائياً
+
+═══ فلاتر query_plan_stats ═══
+areaName : اسم المنطقة أو null
+itemName : اسم الايتم أو null
+month    : رقم الشهر 1-12 أو null (افتراضي الشهر الحالي)
+year     : السنة أو null (افتراضي السنة الحالية)
+
 ═══ متى تستخدم query_stats ═══
 • "كم زيارة" / "كمية الزيارات" / "إحصائيات" / "ملخص الزيارات" / "تقرير سريع" → query_stats
 • "أكثر إيتم مزار" / "أكثر منطقة فيها زيارات" / "أكثر مندوب زيارة" → query_stats + groupBy مناسب
@@ -104,10 +119,24 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 • استخدم query_stats عند السؤال عن أعداد وإحصائيات لا عن قائمة تفصيلية
 
 ═══ متى تستخدم query_doctors بدلاً من query_visits ═══
-• "شنو الأطباء في منطقة X" / "من هم أطباء منطقة X" / "اسماء أطباء X" → query_doctors
-• "اريد الأطباء في منطقة X" (بدون ذكر زيارات أو كولات) → query_doctors
-• "قائمة الأطباء" / "أطباء التخصص X" → query_doctors
+• "شنو الأطباء في منطقة X" / "من هم أطباء منطقة X" / "اسماء أطباء X" / "اطباء X" (بدون ذكر تخصص) → page_action: open-doctors-area + pageActionParam: اسم المنطقة (يفتح صفحة الأطباء مع فلتر المنطقة)
+• "اريد الأطباء في منطقة X" (بدون ذكر تخصص أو شروط إضافية) → page_action: open-doctors-area + pageActionParam: اسم المنطقة
+• ⚠️ إذا ذُكر تخصص + منطقة معاً: استخدم query_doctors (وليس open-doctors-area) لأن page_action لا يدعم فلتر التخصص
+  - "أطباء باطنية في منطقة العامرية" → query_doctors + specialty:"باطنية" + areaName:"العامرية"
+  - "الأطباء الي اختصاصهم ENT في الحارثية" → query_doctors + specialty:"ENT" + areaName:"الحارثية"
+  - "أطباء جلدية بالمنصور" → query_doctors + specialty:"جلدية" + areaName:"المنصور"
+  - "أطباء عيون في الكرادة" → query_doctors + specialty:"عيون" + areaName:"الكرادة"
+• "قائمة الأطباء" / "أطباء التخصص X" (بدون ذكر منطقة) → query_doctors + specialty
+• "هذا الطبيب من أي منطقة" / "دكتور X من وين" / "منطقة دكتور X" → query_doctors + doctorName
+• "وين صيدلية X" / "صيدلية X بأي منطقة" → query_doctors + pharmacyName (سيبحث في بيانات الصيدليات)
 • "زيارات/كولات أطباء منطقة X" / "كم مرة زار الطبيب X" → query_visits (ليس query_doctors)
+• "دزلي سيرفي منطقة X" / "اريد السيرفي الخاص بمنطقة X" → page_action: open-wish-list-area + pageActionParam: اسم المنطقة
+
+═══ قاعدة مهمة: الأوامر المركبة ═══
+عندما يذكر المستخدم أكثر من شرط (تخصص + منطقة، أو اسم + منطقة، أو تخصص + صيدلية...):
+→ استخدم query_doctors مع جميع الفلاتر معاً في نفس الطلب
+مثال: "أطباء باطنية في العامرية" → action:"query_doctors", filters:{specialty:"باطنية", areaName:"العامرية"}
+مثال: "أطباء الجلدية الي بصيدلية النور" → action:"query_doctors", filters:{specialty:"جلدية", pharmacyName:"النور"}
 
 ═══ الصفحات للانتقال (navigate) ═══
 • dashboard        → الرئيسية / الداشبورد
@@ -133,6 +162,8 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
   • open-import-doctors     → استيراد أطباء من ملف
   • open-coverage           → عرض خريطة التغطية / نسبة التغطية
   • open-wish-list          → فتح قائمة الطلبات / السيرفي / Wish List / قائمة الأمنيات / ويش ليست
+  • open-wish-list-area     → فتح السيرفي مع تصفية بمنطقة معينة (ضع اسم المنطقة في pageActionParam)
+  • open-doctors-area       → فتح قائمة الأطباء مع تصفية بمنطقة معينة (ضع اسم المنطقة في pageActionParam)
 
 صفحة scientific-reps (المندوبون العلميون):
   • open-add-sci-rep        → إضافة مندوب علمي جديد
@@ -146,6 +177,8 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 صفحة dashboard (الرئيسية):
   • open-call-log           → فتح سجل الاتصالات / عرض قائمة الكولات
   • open-voice-call         → فتح نافذة الإدخال الصوتي للكول / تسجيل زيارة بالصوت / الكول الصوتي / ادخال صوتي
+  • fill-visit-form         → تسجيل زيارة طبيب من الكلام المباشر (ضع بيانات الزيارة في pageActionParam ككائن JSON)
+  • fill-pharmacy-visit     → تسجيل زيارة صيدلية من الكلام المباشر (ضع بيانات الزيارة في pageActionParam ككائن JSON)
   • open-map                → عرض خريطة الزيارات اليومية
 
 صفحة reports (التقارير):
@@ -155,6 +188,29 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 • إذا طلب المستخدم فتح نافذة أو إجراء في صفحة أخرى غير الحالية، استخدم page_action (النظام سيتنقل تلقائياً)
 • إذا ذكر اسم مندوب مع طلب فتح خطته: pageAction:"open-plan", pageActionParam:"اسم المندوب"
 • للإجراءات التي لا تحتاج معامل: pageActionParam: null
+• إذا وصف المستخدم زيارة طبيب (ذكر اسم الطبيب + ايتم أو فيدباك أو ملاحظات): pageAction:"fill-visit-form", pageActionParam: كائن JSON بالشكل:
+  {"doctorName":"اسم الطبيب كما نطقه المستخدم حرفياً — لا تغيّره ولا تصححه ولا تستبدله باسم مشابه من القائمة","itemName":"اسم الايتم أو null","feedback":"writing|stocked|interested|not_interested|unavailable|pending أو null","notes":"الملاحظات أو null","specialty":"التخصص أو null","pharmacyName":"اسم الصيدلية أو null","areaName":"اسم المنطقة أو null"}
+⚠️ مهم جداً: ضع اسم الطبيب بالضبط كما قاله المستخدم. مثلاً إذا قال "حكمت ناجي" اكتب "حكمت ناجي" حتى لو وجدت اسم مشابه في القائمة مثل "احمد حكمت". النظام الأمامي سيتولى المطابقة الذكية.
+• أمثلة fill-visit-form:
+  - "سجل زيارة دكتور احمد، ايتم لوسارتان، كاتب" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"احمد","itemName":"لوسارتان","feedback":"writing","notes":null}
+  - "اكتب كول دكتور محمد الحسيني، نزّل، ايتم أموكسيسيللين، ملاحظة سيزيد الكمية" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"محمد الحسيني","itemName":"أموكسيسيللين","feedback":"stocked","notes":"سيزيد الكمية"}
+  - "زرت دكتور علي، مهتم" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"علي","itemName":null,"feedback":"interested","notes":null}
+  - "سجل زيارة دكتور سعد، ايتم باراسيتامول، غير مهتم، ملاحظة: يفضل البديل" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"سعد","itemName":"باراسيتامول","feedback":"not_interested","notes":"يفضل البديل"}
+• إذا وصف المستخدم زيارة صيدلية (ذكر اسم صيدلية + ايتمات أو منطقة): pageAction:"fill-pharmacy-visit", pageActionParam: كائن JSON بالشكل:
+  {"pharmacyName":"اسم الصيدلية","areaName":"اسم المنطقة أو null","items":[{"itemName":"اسم الايتم","notes":"ملاحظة أو null"}],"notes":"ملاحظات عامة أو null"}
+• أمثلة fill-pharmacy-visit:
+  - "سجل زيارة صيدلية النور، منطقة الكرادة، ايتم لوسارتان وايتم أموكسيسيللين" → pageAction:"fill-pharmacy-visit", pageActionParam:{"pharmacyName":"النور","areaName":"الكرادة","items":[{"itemName":"لوسارتان","notes":null},{"itemName":"أموكسيسيللين","notes":null}],"notes":null}
+  - "زرت صيدلية العين، ايتم باراسيتامول نزّل 5 علب" → pageAction:"fill-pharmacy-visit", pageActionParam:{"pharmacyName":"العين","areaName":null,"items":[{"itemName":"باراسيتامول","notes":"نزّل 5 علب"}],"notes":null}
+• إذا طلب المستخدم السيرفي في منطقة معينة: pageAction:"open-wish-list-area", pageActionParam:"اسم المنطقة"
+• أمثلة open-wish-list-area:
+  - "دزلي سيرفي منطقة الحارثية" / "اريد السيرفي الخاص بالحارثية" → pageAction:"open-wish-list-area", pageActionParam:"الحارثية"
+  - "ابي اشوف سيرفي حي العامل" → pageAction:"open-wish-list-area", pageActionParam:"حي العامل"
+• إذا طلب المستخدم أطباء منطقة معينة أو قائمة أطباء منطقة (بدون ذكر سيرفي): pageAction:"open-doctors-area", pageActionParam:"اسم المنطقة"
+• أمثلة open-doctors-area:
+  - "اطباء منطقة الحارثية" / "شنو الأطباء في الحارثية" → pageAction:"open-doctors-area", pageActionParam:"الحارثية"
+  - "ابي اشوف اطباء منطقة حي العامل" → pageAction:"open-doctors-area", pageActionParam:"حي العامل"
+  - "من هم أطباء المنصور" → pageAction:"open-doctors-area", pageActionParam:"المنصور"
+• إذا سأل المستخدم عن طبيب أو صيدلية في أي منطقة ("هذا الطبيب من أي منطقة" / "وين صيدلية X"): استخدم query_doctors مع doctorName أو query_visits مع pharmacyName — الجواب سيتضمن اسم المنطقة
 
 ═══ فلاتر query_unvisited_doctors ═══
 areaName  : اسم منطقة واحدة أو null
@@ -165,9 +221,12 @@ year      : السنة أو null
 day       : رقم اليوم 1-31 أو null
 
 ═══ فلاتر query_doctors ═══
-areaName  : اسم المنطقة أو null
-specialty : التخصص الطبي أو null
-limit     : عدد النتائج (افتراضي 100)
+areaName     : اسم المنطقة أو null
+specialty    : التخصص الطبي أو null — أمثلة: باطنية، جلدية، عيون، أطفال، عام، قلب، ENT، Dermato، أنف أذن حنجرة
+               يمكن دمج specialty مع areaName للبحث المركب (مثل: أطباء باطنية في العامرية)
+doctorName   : اسم الطبيب للبحث عنه أو null (عند السؤال عن طبيب معين: "دكتور X من وين" / "هذا الطبيب من أي منطقة")
+pharmacyName : اسم الصيدلية للبحث عنها أو null (عند السؤال عن صيدلية معينة: "صيدلية X بأي منطقة")
+limit        : عدد النتائج (افتراضي 100)
 
 ═══ فلاتر query_visits ═══
 visitType    : "doctor" | "pharmacy" | null  (دائماً "doctor" ما لم يذكر صيدلية/صيدليات)
@@ -246,7 +305,7 @@ null        → قائمة مباشرة
 
 ═══ صيغة الرد (JSON فقط) ═══
 {
-  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "navigate" | "page_action" | "unknown",
+  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "navigate" | "page_action" | "unknown",
   "navigatePage": null,
   "pageAction": null,
   "pageActionParam": null,
@@ -457,6 +516,112 @@ async function executeDoctorQuery(spec, userId, areasList) {
   }
 
   return { found: true, type: 'visits_list', visitType: 'doctor', totalVisits: visits.length, visits: visits.map(mapVisit) };
+}
+
+// ── Execute: Plan Stats (تقدم البلان الشهري) ─────────────────
+async function executePlanStatsQuery(spec, userId) {
+  const { filters = {} } = spec;
+  const now = new Date();
+  const month = filters.month ?? (now.getMonth() + 1);
+  const year  = filters.year  ?? now.getFullYear();
+
+  const REP_ROLES = ['user','scientific_rep','team_leader','supervisor','commercial_rep'];
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  const isRep = user && REP_ROLES.includes(user.role);
+  const planWhere = isRep
+    ? { month, year, OR: [{ userId }, { assignedUserId: userId }] }
+    : { month, year, userId };
+
+  const plan = await prisma.monthlyPlan.findFirst({
+    where: planWhere,
+    include: {
+      scientificRep: { select: { name: true } },
+      entries: {
+        where: { isExtraVisit: false },
+        include: {
+          doctor: { select: { name: true, area: { select: { id: true, name: true } } } },
+          visits: { select: { id: true, itemId: true, feedback: true } },
+          targetItems: { include: { item: { select: { id: true, name: true } } } },
+        },
+      },
+    },
+  });
+
+  if (!plan) return { found: false, type: 'plan_stats', message: `لا يوجد بلان لشهر ${month}/${year}` };
+
+  const entries = plan.entries || [];
+  const totalDoctors = entries.length;
+  const totalTargetVisits = entries.reduce((s, e) => s + (e.targetVisits || 2), 0);
+  const totalActualVisits = entries.reduce((s, e) => s + (e.visits?.length || 0), 0);
+  const visitedDoctors = entries.filter(e => (e.visits?.length || 0) > 0).length;
+  const completionPct = totalTargetVisits > 0 ? Math.round((totalActualVisits / totalTargetVisits) * 100) : 0;
+  const doctorCoveragePct = totalDoctors > 0 ? Math.round((visitedDoctors / totalDoctors) * 100) : 0;
+
+  // By area
+  const areaMap = new Map();
+  for (const e of entries) {
+    const aName = e.doctor?.area?.name || 'بدون منطقة';
+    if (!areaMap.has(aName)) areaMap.set(aName, { target: 0, visited: 0, targetVisits: 0, actualVisits: 0 });
+    const a = areaMap.get(aName);
+    a.target++;
+    a.targetVisits += (e.targetVisits || 2);
+    a.actualVisits += (e.visits?.length || 0);
+    if ((e.visits?.length || 0) > 0) a.visited++;
+  }
+  const byArea = Array.from(areaMap.entries()).map(([name, d]) => ({
+    name, targetDoctors: d.target, visitedDoctors: d.visited,
+    targetVisits: d.targetVisits, actualVisits: d.actualVisits,
+    pct: d.targetVisits > 0 ? Math.round((d.actualVisits / d.targetVisits) * 100) : 0,
+  })).sort((a, b) => b.targetDoctors - a.targetDoctors);
+
+  // By item
+  const itemMap = new Map();
+  for (const e of entries) {
+    const items = (e.targetItems || []).map(ti => ti.item);
+    for (const it of items) {
+      if (!it) continue;
+      if (!itemMap.has(it.name)) itemMap.set(it.name, { targetDoctors: 0, visitedDoctors: 0 });
+      const rec = itemMap.get(it.name);
+      rec.targetDoctors++;
+      // Check if any visit for this entry used this item
+      const visitedWithItem = (e.visits || []).some(v => v.itemId === it.id);
+      if (visitedWithItem) rec.visitedDoctors++;
+    }
+  }
+  const byItem = Array.from(itemMap.entries()).map(([name, d]) => ({
+    name, targetDoctors: d.targetDoctors, visitedDoctors: d.visitedDoctors,
+    pct: d.targetDoctors > 0 ? Math.round((d.visitedDoctors / d.targetDoctors) * 100) : 0,
+  })).sort((a, b) => b.targetDoctors - a.targetDoctors);
+
+  // Filter by area if requested
+  let filteredArea = null;
+  if (filters.areaName) {
+    const areasList = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true }, take: 200 }).catch(() => []);
+    const area = fuzzyFind(areasList, 'name', filters.areaName);
+    if (area) filteredArea = byArea.find(a => a.name === area.name) || null;
+  }
+
+  // Filter by item if requested
+  let filteredItem = null;
+  if (filters.itemName) {
+    const nq = norm(filters.itemName);
+    filteredItem = byItem.find(i => norm(i.name) === nq)
+      || byItem.find(i => norm(i.name).includes(nq) || nq.includes(norm(i.name)))
+      || null;
+  }
+
+  return {
+    found: true,
+    type: 'plan_stats',
+    month, year,
+    repName: plan.scientificRep?.name || null,
+    totalDoctors, visitedDoctors, doctorCoveragePct,
+    totalTargetVisits, totalActualVisits, completionPct,
+    byArea: filteredArea ? [filteredArea] : byArea,
+    byItem: filteredItem ? [filteredItem] : byItem,
+    filteredAreaName: filteredArea?.name || null,
+    filteredItemName: filteredItem?.name || null,
+  };
 }
 
 // ── Execute: Stats Summary ────────────────────────────────────
@@ -839,7 +1004,7 @@ async function executeUnvisitedDoctorsQuery(spec, userId) {
 // ── Execute: Doctor List (no visits) ─────────────────────────
 async function executeDoctorListQuery(spec, userId) {
   const { filters = {} } = spec;
-  const { areaName, specialty } = filters;
+  const { areaName, specialty, doctorName, pharmacyName } = filters;
 
   const where = {};
   if (userId) where.userId = userId;
@@ -855,7 +1020,17 @@ async function executeDoctorListQuery(spec, userId) {
   }
 
   if (specialty) {
-    where.specialty = { contains: specialty };
+    where.specialty = { contains: specialty, mode: 'insensitive' };
+  }
+
+  // Doctor name search (fuzzy)
+  if (doctorName) {
+    where.name = { contains: doctorName, mode: 'insensitive' };
+  }
+
+  // Pharmacy name search
+  if (pharmacyName) {
+    where.pharmacyName = { contains: pharmacyName, mode: 'insensitive' };
   }
 
   const doctors = await prisma.doctor.findMany({
@@ -865,19 +1040,50 @@ async function executeDoctorListQuery(spec, userId) {
     orderBy: { name: 'asc' },
   });
 
-  if (!doctors.length) {
+  // Fuzzy fallback: if primary Prisma query returned 0 results
+  let matched = doctors;
+  if (doctors.length === 0 && (doctorName || pharmacyName || specialty)) {
+    // Build a base query (area filter is already resolved to areaId)
+    const baseWhere = { ...where };
+    delete baseWhere.specialty;
+    delete baseWhere.name;
+    delete baseWhere.pharmacyName;
+    const allDocs = await prisma.doctor.findMany({
+      where: baseWhere,
+      include: { area: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+    });
+    matched = allDocs.filter(d => {
+      if (doctorName) {
+        const n = norm(d.name), q = norm(doctorName);
+        if (!(n.includes(q) || q.includes(n))) return false;
+      }
+      if (pharmacyName) {
+        const n = norm(d.pharmacyName || ''), q = norm(pharmacyName);
+        if (!(n && (n.includes(q) || q.includes(n)))) return false;
+      }
+      if (specialty) {
+        const s = norm(d.specialty || ''), q = norm(specialty);
+        if (!(s.includes(q) || q.includes(s))) return false;
+      }
+      return true;
+    });
+  }
+
+  if (!matched.length) {
     return { found: false, message: 'لا يوجد أطباء يطابقون البحث' };
   }
 
   return {
     found: true,
     type: 'doctor_list',
-    totalDoctors: doctors.length,
-    doctors: doctors.map(d => ({
+    totalDoctors: matched.length,
+    doctors: matched.map(d => ({
       name:      d.name,
       specialty: d.specialty || '',
       areaName:  d.area?.name || '',
       phone:     d.phone || '',
+      pharmacyName: d.pharmacyName || '',
     })),
   };
 }
@@ -1490,6 +1696,8 @@ export async function handleCommand(req, res) {
       queryResult = await executeUnvisitedDoctorsQuery(parsed, userId);
     } else if (parsed.action === 'query_stats') {
       queryResult = await executeStatsQuery(parsed, userId);
+    } else if (parsed.action === 'query_plan_stats') {
+      queryResult = await executePlanStatsQuery(parsed, userId);
     }
 
     const validPages = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis'];
@@ -1501,6 +1709,7 @@ export async function handleCommand(req, res) {
       'open-add-doctor', 'open-import-doctors', 'open-coverage', 'open-wish-list',
       'open-add-sci-rep', 'open-add-rep', 'open-add-user',
       'open-call-log', 'open-voice-call', 'open-map', 'open-export-report',
+      'fill-visit-form', 'fill-pharmacy-visit', 'open-wish-list-area', 'open-doctors-area',
     ];
     const pageAction = (parsed.action === 'page_action' && validPageActions.includes(parsed.pageAction))
       ? parsed.pageAction : null;
