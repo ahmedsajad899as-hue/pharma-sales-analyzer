@@ -113,7 +113,7 @@ interface UserDetail extends UserRow {
 }
 
 export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: number | null; onJumpClear?: () => void } = {}) {
-  const { token } = useSuperAdmin();
+  const { token, logout } = useSuperAdmin();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
   // Preserve scroll position when entering/leaving detail view
@@ -270,7 +270,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       method: isEdit ? 'PUT' : 'POST', headers: H(), body: JSON.stringify(payload),
     });
     const d = await res.json();
-    if (!res.ok) { setError(d.error || 'خطأ'); setSaving(false); return; }
+    if (!res.ok) {
+      if (res.status === 401) {
+        setError('انتهت صلاحية جلسة السوبر أدمن — يرجى تسجيل الخروج وإعادة الدخول');
+        logout();
+      } else {
+        setError(d.error || 'خطأ');
+      }
+      setSaving(false); return;
+    }
     setSaving(false); setForm(null); load();
     if (detail?.id === form.id) loadDetail(form.id);
   };

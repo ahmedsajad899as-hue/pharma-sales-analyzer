@@ -20,7 +20,7 @@ export async function loginSuperAdmin(req, res) {
   const token = jwt.sign(
     { id: admin.id, isMaster: admin.isMaster, type: 'super_admin' },
     JWT_SECRET,
-    { expiresIn: '12h' }
+    { expiresIn: '7d' }
   );
 
   res.json({
