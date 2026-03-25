@@ -721,7 +721,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
     if (entry._inPlan) {
       // ── In-plan doctor ──
-      setClSelectedEntry(entry);
+      // If entry.id is null (came from API result matched to plan by doctorId),
+      // find the real plan entry from activePlan to get the correct entryId.
+      let resolvedEntry = entry;
+      if (!entry.id && entry.doctor?.id && activePlan) {
+        const found = (activePlan.entries ?? []).find((e: any) => e.doctor.id === entry.doctor.id);
+        if (found) resolvedEntry = { ...found, _inPlan: true };
+      }
+      setClSelectedEntry(resolvedEntry);
       setClNotInPlan(false);
       setClAddToPlan(false);
       setClOtherDocId(null);
@@ -979,8 +986,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       return;
     }
     const lv = normArabic(clDoctor);
-    const match = (activePlan.entries ?? []).find((e: any) => normArabic(e.doctor.name) === lv);
-    if (match) return;
+    // Exact match OR substring match (in case name in plan has extra tokens)
+    const match = (activePlan.entries ?? []).find((e: any) => {
+      const en = normArabic(e.doctor.name);
+      return en === lv || en.includes(lv) || lv.includes(en);
+    });
+    if (match) {
+      // Silently select this plan entry without triggering out-of-plan UI
+      selectClEntry({ ...match, _inPlan: true });
+      return;
+    }
     // Doctor not found anywhere — open extra fields automatically
     setClNotInPlan(true);
     setClShowSugg(false);
