@@ -1586,9 +1586,12 @@ export async function parseVoice(req, res, next) {
 
     const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
     const feedbackAr = {
-      'يكتب': 'writing', 'كاتب': 'writing', 'نزل': 'stocked', 'نزل الايتم': 'stocked',
-      'مهتم': 'interested', 'غير مهتم': 'not_interested', 'مو مهتم': 'not_interested',
-      'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'pending',
+      'يكتب': 'writing', 'كاتب': 'writing', 'بلش يكتب': 'writing', 'اشترى': 'writing', 'طلب': 'writing',
+      'نزل': 'stocked', 'نزل الايتم': 'stocked', 'عنده منافس': 'stocked', 'كومبتتر': 'stocked', 'يستخدم منتج ثاني': 'stocked', 'عنده بديل': 'stocked',
+      'مهتم': 'interested', 'مهتمه': 'interested', 'ايجابي': 'interested', 'متحمس': 'interested',
+      'غير مهتم': 'not_interested', 'مو مهتم': 'not_interested', 'رفض': 'not_interested', 'ما يريد': 'not_interested',
+      'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'unavailable', 'غداً': 'unavailable', 'متابعة': 'unavailable', 'تذكير': 'unavailable', 'موعد ثاني': 'unavailable',
+      'بانتظار الفيدباك': 'pending', 'انتظار': 'pending',
     };
 
     const prompt = `أنت مساعد ذكي لتحليل كلام مندوب طبي. المندوب يتكلم عن زيارات قام بها لأطباء.
@@ -1600,7 +1603,14 @@ export async function parseVoice(req, res, next) {
   ${itemNames}
 
   قيم الفيدباك المتاحة: ${feedbackValues.join(', ')}
-  المقابلات بالعربي: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(', ')}
+  قواعد استنتاج الفيدباك من الكلام الطبيعي — استنتج من المعنى حتى لو لم تُستخدم الكلمة الدقيقة:
+  • writing (يكتب): "بلش يكتب"/"صار يكتب"/"اشترى"/"طلب"/"اشتغل على الإيتم"/"نزّل الدواء عنده" → writing
+  • stocked (يوجد كومبتتر): "عنده منافس"/"يستخدم منتج ثاني"/"مو موالي"/"عنده بديل"/"ما يتغير"/"كومبتتر" → stocked
+  • interested (مهتم): "عجبه"/"طلب معلومات أكثر"/"ايجابي"/"متحمس"/"شايف مصلحة"/"واعد" → interested
+  • not_interested (غير مهتم): "ما عجبه"/"رفض"/"ما يريد"/"قال لا"/"يرفض"/"سلبي" → not_interested
+  • unavailable (متابعة وتذكير): "غداً"/"بعدين"/"موعد ثاني"/"اتصل لاحقاً"/"تذكير"/"متابعة"/"رجع عليه"/"ما كان موجود" → unavailable
+  • pending (بانتظار الفيدباك): لم تُذكر أي نتيجة أو ردة فعل واضحة → pending
+  يمكن أن يكون الفيدباك قيمة واحدة أو مصفوفة من قيمتين إذا قال المستخدم اثنتين (مثل "يكتب ومهتم" → ["writing","interested"]).
 
   النص المنطوق:
   "${text}"
@@ -1610,7 +1620,7 @@ export async function parseVoice(req, res, next) {
   - doctorName: اسم الطبيب كما ورد
   - itemId: رقم id الايتم (null إذا لم يُذكر)
   - itemName: اسم الايتم كما ورد (اكتبه كما هو من القائمة فقط)
-  - feedback: قيمة الفيدباك من القائمة أعلاه (pending إذا لم يُذكر)
+  - feedback: قيمة الفيدباك من القائمة أعلاه — استنج من المعنى (pending إذا لم يُذكر). يمكن أن يكون string أو array من اثنتين.
   - notes: أي ملاحظات إضافية
   - date: التاريخ إذا ذُكر (YYYY-MM-DD) وإلا null
 
@@ -1714,7 +1724,9 @@ export async function parseVoice(req, res, next) {
         doctorName: v.doctorName || '',
         itemId,
         itemName,
-        feedback: feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
+        feedback: Array.isArray(v.feedback)
+          ? v.feedback.filter(f => feedbackValues.includes(f)).slice(0, 2).join(',') || 'pending'
+          : (feedbackValues.includes(v.feedback) ? v.feedback : feedbackAr[v.feedback] && feedbackValues.includes(feedbackAr[v.feedback]) ? feedbackAr[v.feedback] : 'pending'),
         notes: v.notes || '',
         date: v.date || new Date().toISOString().split('T')[0],
       };
@@ -1794,9 +1806,12 @@ export async function parseVoiceAudio(req, res, next) {
     const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
     const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
     const feedbackAr = {
-      'يكتب': 'writing', 'كاتب': 'writing', 'نزل': 'stocked', 'نزل الايتم': 'stocked',
-      'مهتم': 'interested', 'غير مهتم': 'not_interested', 'مو مهتم': 'not_interested',
-      'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'pending',
+      'يكتب': 'writing', 'كاتب': 'writing', 'بلش يكتب': 'writing', 'اشترى': 'writing', 'طلب': 'writing',
+      'نزل': 'stocked', 'نزل الايتم': 'stocked', 'عنده منافس': 'stocked', 'كومبتتر': 'stocked', 'يستخدم منتج ثاني': 'stocked', 'عنده بديل': 'stocked',
+      'مهتم': 'interested', 'مهتمه': 'interested', 'ايجابي': 'interested', 'متحمس': 'interested',
+      'غير مهتم': 'not_interested', 'مو مهتم': 'not_interested', 'رفض': 'not_interested', 'ما يريد': 'not_interested',
+      'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'unavailable', 'غداً': 'unavailable', 'متابعة': 'unavailable', 'تذكير': 'unavailable', 'موعد ثاني': 'unavailable',
+      'بانتظار الفيدباك': 'pending', 'انتظار': 'pending',
     };
 
     const prompt = `أنت متخصص في تحويل التسجيلات الصوتية لمناديب المبيعات الطبية إلى بيانات منظمة.
@@ -1814,7 +1829,14 @@ export async function parseVoiceAudio(req, res, next) {
 • كلمات الفيدباك (يكتب، مهتم، نزل...) لا تُعتبر أسماء أدوية
 
 ══ باقي الحقول ══
-• feedback: ${feedbackValues.join(' | ')} — المقابلات: ${Object.entries(feedbackAr).map(([k,v]) => `${k}=${v}`).join(' | ')}
+• feedback: ${feedbackValues.join(' | ')} — استنتج من المعنى حتى لو لم تُستخدم الكلمة الدقيقة:
+  - writing (يكتب): "بلش يكتب" / "صار يكتب" / "اشترى" / "طلب" / "نزّل الدواء عنده"
+  - stocked (يوجد كومبتتر): "عنده منافس" / "يستخدم منتج ثاني" / "عنده بديل" / "كومبتتر" / "مو موالي"
+  - interested (مهتم): "عجبه" / "ايجابي" / "متحمس" / "طلب معلومات" / "واعد"
+  - not_interested (غير مهتم): "ما عجبه" / "رفض" / "ما يريد" / "قال لا" / "سلبي"
+  - unavailable (متابعة وتذكير): "غداً" / "بعدين" / "موعد ثاني" / "اتصل لاحقاً" / "ما كان موجود" / "تذكير" / "متابعة"
+  - pending: لم تُذكر نتيجة أو ردة فعل واضحة
+• يمكن أن يكون feedback قيمة واحدة أو مصفوفة من اثنتين إذا ذُكرت نتيجتان (مثل "يكتب ومهتم" → ["writing","interested"])
 • إذا لم يُذكر فيدباك → feedback = "pending"
 • specialty / pharmacyName / areaName: فقط إذا ذُكرت صراحةً — وإلا ""
 • إذا التسجيل فارغ أو غير مفهوم → أرجع {"visits": []}
@@ -1841,7 +1863,7 @@ ${itemNames || '(لا توجد أيتمات)'}
     const parsed = JSON.parse(jsonMatch[0]);
 
     // Arabic feedback words that must NEVER be treated as item/drug names
-    const FEEDBACK_AR_SET = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود']);
+    const FEEDBACK_AR_SET = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود','بانتظار الفيدباك','انتظار','يوجد كومبتتر','متابعة','متابعه','تذكير']);
     const isFeedbackWord = name => FEEDBACK_AR_SET.has(String(name ?? '').trim());
 
     // Fuzzy item-matching: normalize + bigram similarity
@@ -1897,7 +1919,9 @@ ${itemNames || '(لا توجد أيتمات)'}
         doctorName:   v.doctorName    || '',
         itemId,
         itemName,
-        feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
+        feedback: Array.isArray(v.feedback)
+          ? v.feedback.filter(f => feedbackValues.includes(f)).slice(0, 2).join(',') || 'pending'
+          : (feedbackValues.includes(v.feedback) ? v.feedback : feedbackAr[v.feedback] && feedbackValues.includes(feedbackAr[v.feedback]) ? feedbackAr[v.feedback] : 'pending'),
         notes:        v.notes        || '',
         date:         v.date         || new Date().toISOString().split('T')[0],
         specialty:    v.specialty    || '',

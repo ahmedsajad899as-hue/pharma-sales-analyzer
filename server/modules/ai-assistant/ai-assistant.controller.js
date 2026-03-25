@@ -4,12 +4,12 @@ import prisma from '../../lib/prisma.js';
 
 // ── Constants ────────────────────────────────────────────────
 const FEEDBACK_AR = {
-  writing:        '\u0643\u0627\u062a\u0628 \u270d\ufe0f',
-  stocked:        '\u0646\u0632\u0651\u0644 \ud83d\udce6',
+  writing:        '\u064a\u0643\u062a\u0628 \u270d\ufe0f',
+  stocked:        '\u064a\u0648\u062c\u062f \u0643\u0648\u0645\u0628\u062a\u062a\u0631 \u2694\ufe0f',
   interested:     '\u0645\u0647\u062a\u0645 \ud83d\udc4d',
   not_interested: '\u063a\u064a\u0631 \u0645\u0647\u062a\u0645 \ud83d\udc4e',
-  unavailable:    '\u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631 \u274c',
-  pending:        '\u0645\u0639\u0644\u0642 \u23f3',
+  unavailable:    '\u0645\u062a\u0627\u0628\u0639\u0629 \u0648\u062a\u0630\u0643\u064a\u0631 \ud83d\udd14',
+  pending:        '\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0641\u064a\u062f\u0628\u0627\u0643 \u23f3',
 };
 
 // ── Fuzzy name matcher (Arabic-aware) ────────────────────────
@@ -54,6 +54,7 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 جدول DoctorVisit (زيارات الأطباء):
   • visitDate     — تاريخ الزيارة
   • feedback      — writing | stocked | interested | not_interested | unavailable | pending
+                   (writing=يكتب, stocked=يوجد كومبتتر/منافس, interested=مهتم, not_interested=غير مهتم, unavailable=متابعة وتذكير, pending=بانتظار الفيدباك)
   • notes         — ملاحظات
   • isDoubleVisit — زيارة مزدوجة (true/false)
   • doctor        — الطبيب (له name, specialty, area.name)
@@ -196,6 +197,15 @@ year     : السنة أو null (افتراضي السنة الحالية)
   - "اكتب كول دكتور محمد الحسيني، نزّل، ايتم أموكسيسيللين، ملاحظة سيزيد الكمية" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"محمد الحسيني","itemName":"أموكسيسيللين","feedback":"stocked","notes":"سيزيد الكمية"}
   - "زرت دكتور علي، مهتم" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"علي","itemName":null,"feedback":"interested","notes":null}
   - "سجل زيارة دكتور سعد، ايتم باراسيتامول، غير مهتم، ملاحظة: يفضل البديل" → pageAction:"fill-visit-form", pageActionParam:{"doctorName":"سعد","itemName":"باراسيتامول","feedback":"not_interested","notes":"يفضل البديل"}
+
+  ══ قواعد استنتاج الفيدباك من الكلام الطبيعي ══
+  استنتج feedback من المعنى حتى لو لم يُستخدم المصطلح الدقيق:
+  • writing (يكتب): "بلّش يكتب"/"بدأ يكتب"/"صار يكتب"/"اشترى"/"طلب"/"اشتغل على الإيتم"/"ال dose نزلت عنده" → writing
+  • stocked (يوجد كومبتتر): "عنده منافس"/"يستخدم منتج ثاني"/"مو موالي"/"عنده بديل"/"ما يتغير"/"مشغول بشركة ثانية"/"كومبتتر" → stocked
+  • interested (مهتم): "عجبه"/"طلب معلومات أكثر"/"ايجابي"/"متحمس"/"شايف مصلحة"/"اشتغلنا عليه"/"واعد" → interested
+  • not_interested (غير مهتم): "ما عجبه"/"رفض"/"ما يريد"/"قال لا"/"يرفض"/"سلبي"/"ما مهتم" → not_interested
+  • unavailable (متابعة وتذكير): "غداً"/"بعدين"/"موعد ثاني"/"حاول مرة ثانية"/"اتصل لاحقاً"/"تذكير"/"متابعة"/"رجع عليه"/"ما كان موجود" → unavailable
+  • pending (بانتظار الفيدباك): عندما لا تُذكر أي نتيجة أو ردة فعل واضحة → pending
 • إذا وصف المستخدم زيارة صيدلية (ذكر اسم صيدلية + ايتمات أو منطقة): pageAction:"fill-pharmacy-visit", pageActionParam: كائن JSON بالشكل:
   {"pharmacyName":"اسم الصيدلية","areaName":"اسم المنطقة أو null","items":[{"itemName":"اسم الايتم","notes":"ملاحظة أو null"}],"notes":"ملاحظات عامة أو null"}
 • أمثلة fill-pharmacy-visit:

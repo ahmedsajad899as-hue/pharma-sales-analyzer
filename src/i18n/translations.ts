@@ -99,12 +99,12 @@ const translations = {
       dailyCallsHasGps: '📍 GPS',
       dailyCallsNoGps: '—',
       // Feedback values
-      feedbackPending: 'انتظار',
-      feedbackWriting: 'كاتب',
-      feedbackStocked: 'مخزون',
+      feedbackPending: 'بانتظار الفيدباك',
+      feedbackWriting: 'يكتب',
+      feedbackStocked: 'يوجد كومبتتر',
       feedbackInterested: 'مهتم',
       feedbackNotInterested: 'غير مهتم',
-      feedbackUnavailable: 'غير متاح',
+      feedbackUnavailable: 'متابعة وتذكير',
       // Map modal
       mapTitle: 'خريطة مسار الزيارات',
       mapClose: 'إغلاق',
@@ -601,12 +601,12 @@ const translations = {
       dailyCallsHasGps: '📍 GPS',
       dailyCallsNoGps: '—',
       // Feedback values
-      feedbackPending: 'Pending',
+      feedbackPending: 'Awaiting Feedback',
       feedbackWriting: 'Writing',
-      feedbackStocked: 'Stocked',
+      feedbackStocked: 'Has Competitor',
       feedbackInterested: 'Interested',
       feedbackNotInterested: 'Not Interested',
-      feedbackUnavailable: 'Unavailable',
+      feedbackUnavailable: 'Follow-up',
       // Map modal
       mapTitle: 'Visit Route Map',
       mapClose: 'Close',

@@ -3,12 +3,12 @@ import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
 const FEEDBACK_OPTIONS = [
-  { value: 'pending',        label: 'في الانتظار' },
-  { value: 'writing',        label: 'كاتب' },
-  { value: 'stocked',        label: 'مخزّن' },
+  { value: 'pending',        label: 'بانتظار الفيدباك' },
+  { value: 'writing',        label: 'يكتب' },
+  { value: 'stocked',        label: 'يوجد كومبتتر' },
   { value: 'interested',     label: 'مهتم' },
   { value: 'not_interested', label: 'غير مهتم' },
-  { value: 'unavailable',    label: 'غير متاح' },
+  { value: 'unavailable',    label: 'متابعة وتذكير' },
 ];
 
 interface Visit {
@@ -230,8 +230,8 @@ export default function VisitsPage() {
 
   const feedbackColor = (f: string) => {
     const map: Record<string, string> = {
-      pending: '#f59e0b', writing: '#3b82f6', stocked: '#8b5cf6',
-      interested: '#10b981', not_interested: '#ef4444', unavailable: '#94a3b8',
+      pending: '#0ea5e9', writing: '#10b981', stocked: '#8b5cf6',
+      interested: '#6366f1', not_interested: '#ef4444', unavailable: '#f59e0b',
     };
     return map[f] || '#64748b';
   };

@@ -115,12 +115,12 @@ function fmtDate(d: string) {
 }
 
 const FEEDBACK_COLORS: Record<string, string> = {
-  'كاتب ✍️':     '#dcfce7',
-  'نزّل 📦':      '#dbeafe',
-  'مهتم 👍':      '#fef9c3',
+  'يكتب ✍️':            '#dcfce7',
+  'يوجد كومبتتر ⚔️':  '#ede9fe',
+  'مهتم 👍':           '#fef9c3',
   'غير مهتم 👎': '#fee2e2',
-  'غير متوفر ❌': '#f3f4f6',
-  'معلق ⏳':      '#ede9fe',
+  'متابعة وتذكير 🔔': '#fff7ed',
+  'بانتظار الفيدباك ⏳': '#e0f2fe',
 };
 
 interface HistoryEntry {

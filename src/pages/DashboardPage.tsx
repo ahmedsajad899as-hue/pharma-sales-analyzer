@@ -349,7 +349,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   // Feedback words that must NOT be treated as item/drug names
-  const FEEDBACK_AR_WORDS = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود']);
+  const FEEDBACK_AR_WORDS = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود','بانتظار الفيدباك','انتظار','يوجد كومبتتر','متابعة','متابعه','تذكير']);
 
   // Non-blocking beep — fire and forget, never throws
   const safeBeep = (freq: number, dur = 0.18) => {
@@ -910,7 +910,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     }
 
     // Fill shared fields (item, feedback, notes)
-    if (v.itemName && !['مهتم','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود'].includes(v.itemName.trim())) {
+    if (v.itemName && !['مهتم','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود','بانتظار الفيدباك','انتظار','يوجد كومبتتر','متابعة','متابعه','تذكير'].includes(v.itemName.trim())) {
       if (v.itemId) setClItemId(String(v.itemId));
       setClItemName(v.itemName);
     }
@@ -1374,8 +1374,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     return map[fb] ?? fb;
   };
   const feedbackColor: Record<string, string> = {
-    writing:       '#10b981', stocked: '#0ea5e9', interested: '#6366f1',
-    not_interested:'#ef4444', unavailable: '#9ca3af', pending: '#f59e0b',
+    writing:       '#10b981', stocked: '#8b5cf6', interested: '#6366f1',
+    not_interested:'#ef4444', unavailable: '#f59e0b', pending: '#0ea5e9',
   };
 
   const quickActions = [
@@ -3216,7 +3216,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '8px' }}>💬 نتيجة الزيارة</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {(['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'] as const).map(fb => (
+                  {(['writing', 'pending', 'interested', 'not_interested', 'stocked', 'unavailable'] as const).map(fb => (
                     <button
                       key={fb}
                       onClick={() => setClFeedback(fb)}
