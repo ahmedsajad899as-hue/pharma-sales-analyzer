@@ -3188,72 +3188,85 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               )}
 
               {/* Item selector */}
-              <div style={{ marginBottom: '16px', position: 'relative' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>📦 الايتم</label>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>📦 الايتم</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="ابحث باسم الايتم..."
+                    value={clItemName}
+                    autoComplete="off"
+                    onChange={e => {
+                      const v = e.target.value;
+                      setClItemName(v);
+                      setClItemId('');
+                      if (!v.trim()) { setClItemSugg([]); setClItemShowSugg(false); return; }
+                      const lv = v.toLowerCase();
+                      const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 12);
+                      setClItemSugg(matches);
+                      setClItemShowSugg(true);
+                    }}
+                    onBlur={() => setTimeout(() => {
+                      setClItemShowSugg(false);
+                      if (!clItemId && clItemName.trim()) {
+                        const lv = clItemName.trim().toLowerCase();
+                        const first = clItemSugg[0] ?? clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
+                        if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
+                      }
+                    }, 200)}
+                    onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
+                    style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '38px' }}
+                  />
+                  {/* Arrow button inside input on the left */}
                   <button
                     type="button"
                     onPointerDown={e => {
                       e.stopPropagation();
                       e.preventDefault();
-                      setItemsPopupSearch('');
-                      setShowItemsPopup(true);
-                      setItemsPopupLoading(true);
-                      fetch('/api/items', { headers: authH() })
-                        .then(r => r.json())
-                        .then(json => { setClAllItems(Array.isArray(json.data) ? json.data : []); setItemsPopupLoading(false); })
-                        .catch(() => setItemsPopupLoading(false));
+                      if (clAllItems.length === 0) {
+                        fetch('/api/items', { headers: authH() })
+                          .then(r => r.json())
+                          .then(json => {
+                            const items = Array.isArray(json.data) ? json.data : [];
+                            setClAllItems(items);
+                            const lv = clItemName.toLowerCase();
+                            setClItemSugg(lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20));
+                            setClItemShowSugg(true);
+                          });
+                      } else {
+                        const lv = clItemName.toLowerCase();
+                        setClItemSugg(lv ? clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : clAllItems.slice(0, 20));
+                        setClItemShowSugg(true);
+                      }
                     }}
-                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '1px 8px', lineHeight: '1.4', touchAction: 'none' }}
+                    style={{
+                      position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
+                      background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '5px',
+                      color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                      padding: '2px 7px', lineHeight: '1.4', touchAction: 'none', zIndex: 2,
+                    }}
                     title="اختر ايتم من القائمة"
                   >←</button>
+                  {clItemId && (
+                    <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
+                  )}
+                  {clItemShowSugg && clItemSugg.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                      {clItemSugg.map((item: any) => (
+                        <div
+                          key={item.id}
+                          onPointerDown={e => { e.stopPropagation(); setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
+                          style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}
+                        >
+                          {item.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="ابحث باسم الايتم..."
-                  value={clItemName}
-                  autoComplete="off"
-                  onChange={e => {
-                    const v = e.target.value;
-                    setClItemName(v);
-                    setClItemId('');
-                    if (!v.trim()) { setClItemSugg([]); setClItemShowSugg(false); return; }
-                    const lv = v.toLowerCase();
-                    const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 8);
-                    setClItemSugg(matches);
-                    setClItemShowSugg(true);
-                  }}
-                  onBlur={() => setTimeout(() => {
-                    setClItemShowSugg(false);
-                    // Auto-resolve: if text set but no ID yet, pick the first exact/partial match
-                    if (!clItemId && clItemName.trim()) {
-                      const lv = clItemName.trim().toLowerCase();
-                      const first = clItemSugg[0] ?? clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
-                      if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
-                    }
-                  }, 200)}
-                  onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                />
-                {clItemId && (
-                  <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(4px)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
-                )}
-                {clItemShowSugg && clItemSugg.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden' }}>
-                    {clItemSugg.map((item: any) => (
-                      <div
-                        key={item.id}
-                        onMouseDown={() => { setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
-                        style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                      >
-                        {item.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* Feedback */}
@@ -3270,16 +3283,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       if (!next) setClFeedback([clFeedback[0] || 'pending']);
                     }}
                     style={{
-                      width: 18, height: 18, borderRadius: '50%', border: '2px solid',
+                      width: 13, height: 13, borderRadius: '50%', border: '2px solid',
                       borderColor: clDualFeedback ? '#6366f1' : '#d1d5db',
                       background: clDualFeedback ? '#6366f1' : '#fff',
                       cursor: 'pointer', padding: 0, flexShrink: 0, transition: 'all 0.2s',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
-                    {clDualFeedback && <span style={{ color: '#fff', fontSize: '10px', lineHeight: 1 }}>✓</span>}
+                    {clDualFeedback && <span style={{ color: '#fff', fontSize: '8px', lineHeight: 1 }}>✓</span>}
                   </button>
-                  {clDualFeedback && <span style={{ fontSize: '11px', color: '#6366f1', fontWeight: 500 }}>اثنين</span>}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {(['writing', 'pending', 'interested', 'not_interested', 'stocked', 'unavailable'] as const).map(fb => {
@@ -4001,52 +4013,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         </div>
       )}
 
-      {/* ─── Items Popup Modal ─── */}
-      {showItemsPopup && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-          onPointerDown={() => setShowItemsPopup(false)}
-        >
-          <div
-            style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 480, maxHeight: '70vh', display: 'flex', flexDirection: 'column', padding: '20px 16px 24px' }}
-            onPointerDown={e => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <span style={{ fontWeight: 700, fontSize: '15px', color: '#111827' }}>📦 اختر الايتم</span>
-              <button onPointerDown={() => setShowItemsPopup(false)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
-            </div>
-            <input
-              type="text"
-              autoFocus
-              placeholder="ابحث..."
-              value={itemsPopupSearch}
-              onChange={e => setItemsPopupSearch(e.target.value)}
-              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1.5px solid #d1d5db', borderRadius: '8px', fontSize: '14px', marginBottom: '10px', outline: 'none' }}
-            />
-            <div style={{ overflowY: 'auto', flex: 1 }}>
-              {itemsPopupLoading ? (
-                <div style={{ textAlign: 'center', color: '#6b7280', padding: '24px', fontSize: '14px' }}>⏳ جاري التحميل...</div>
-              ) : (itemsPopupSearch.trim()
-                ? clAllItems.filter((i: any) => i.name.toLowerCase().includes(itemsPopupSearch.trim().toLowerCase()))
-                : clAllItems
-              ).map((item: any) => (
-                <div
-                  key={item.id}
-                  onPointerDown={e => { e.stopPropagation(); setClItemId(String(item.id)); setClItemName(item.name); setShowItemsPopup(false); }}
-                  style={{ padding: '11px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '14px', color: '#111827', borderRadius: 6 }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
-                  onMouseLeave={e => (e.currentTarget.style.background = '')}
-                >
-                  {item.name}
-                </div>
-              ))}
-              {!itemsPopupLoading && clAllItems.length === 0 && (
-                <div style={{ textAlign: 'center', color: '#9ca3af', padding: '20px', fontSize: '13px' }}>لا توجد ايتمات</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 }

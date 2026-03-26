@@ -90,26 +90,12 @@ async function fetchRouteSegment(coords: [number, number][]): Promise<[number, n
 async function buildRoadRoute(points: LocationPoint[]): Promise<L.LatLngExpression[]> {
   if (points.length < 2) return points.map(p => [p.latitude, p.longitude]);
 
-  // ORS free plan allows max 50 waypoints per request → chunk
-  const CHUNK = 50;
-  const orsCoords: [number, number][] = points.map(p => [p.longitude, p.latitude]); // ORS: [lng, lat]
-
-  const chunks: [number, number][][] = [];
-  for (let i = 0; i < orsCoords.length; i += CHUNK - 1) {
-    chunks.push(orsCoords.slice(i, Math.min(i + CHUNK, orsCoords.length)));
-    if (chunks[chunks.length - 1].length < 2) chunks.pop();
-  }
-
-  const segments = await Promise.all(chunks.map(fetchRouteSegment));
-  // Merge: each segment starts where the previous ended, avoid duplicates
-  const merged: [number, number][] = [];
-  segments.forEach((seg, si) => {
-    const start = si === 0 ? 0 : 1;
-    for (let i = start; i < seg.length; i++) merged.push(seg[i]);
-  });
+  // Send all points to backend — backend handles chunking + OSRM routing
+  const orsCoords: [number, number][] = points.map(p => [p.longitude, p.latitude]); // [lng, lat]
+  const routed = await fetchRouteSegment(orsCoords);
 
   // Convert [lng, lat] → Leaflet [lat, lng]
-  return merged.map(([lng, lat]) => [lat, lng] as L.LatLngExpression);
+  return routed.map(([lng, lat]) => [lat, lng] as L.LatLngExpression);
 }
 
 export default function RepTrackingMap({ repId, repName, date, visitMarkers = [], onClose, onBack }: Props) {
