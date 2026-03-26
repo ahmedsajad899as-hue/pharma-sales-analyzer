@@ -2768,7 +2768,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20);
                               setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, sugg: matches, showSugg: true } : p));
                             }}
-                            onBlur={() => setTimeout(() => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: false } : p)), 200)}
+                            onClick={() => { if (pit.showSugg) setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: false } : p)); }}
                             onFocus={() => { if (pit.sugg.length > 0) setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: true } : p)); }}
                             style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '38px' }}
                           />
@@ -2777,6 +2777,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             type="button"
                             onPointerDown={e => e.stopPropagation()}
                             onClick={() => {
+                              if (pit.showSugg) {
+                                setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: false } : p));
+                                return;
+                              }
                               const showAll = (items: any[]) => {
                                 const lv = pit.itemName.toLowerCase();
                                 const filtered = lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20);
@@ -2807,22 +2811,27 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
                           )}
                           {pit.showSugg && pit.sugg.length > 0 && (
-                            <div
-                              style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}
-                              onMouseDown={e => e.preventDefault()}
-                            >
-                              {pit.sugg.map((item: any) => (
-                                <div
-                                  key={item.id}
-                                  onClick={e => { e.stopPropagation(); setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, itemId: String(item.id), itemName: item.name, sugg: [], showSugg: false } : p)); }}
-                                  style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
-                                  onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                                  onMouseLeave={e => (e.currentTarget.style.background = '')}
-                                >
-                                  {item.name}
-                                </div>
-                              ))}
-                            </div>
+                            <>
+                              <div
+                                style={{ position: 'fixed', inset: 0, zIndex: 299 }}
+                                onClick={() => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: false } : p))}
+                              />
+                              <div
+                                style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}
+                              >
+                                {pit.sugg.map((item: any) => (
+                                  <div
+                                    key={item.id}
+                                    onClick={e => { e.stopPropagation(); setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, itemId: String(item.id), itemName: item.name, sugg: [], showSugg: false } : p)); }}
+                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = '')}
+                                  >
+                                    {item.name}
+                                  </div>
+                                ))}
+                              </div>
+                            </>
                           )}
                         </div>
                         {/* Per-item notes */}
@@ -3250,14 +3259,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       setClItemSugg(matches);
                       setClItemShowSugg(true);
                     }}
-                    onBlur={() => setTimeout(() => {
-                      setClItemShowSugg(false);
-                      if (!clItemId && clItemName.trim()) {
-                        const lv = clItemName.trim().toLowerCase();
-                        const first = clItemSugg[0] ?? clAllItems.find((i: any) => i.name.toLowerCase().includes(lv) || lv.includes(i.name.toLowerCase()));
-                        if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
-                      }
-                    }, 200)}
+                    onClick={() => { if (clItemShowSugg) setClItemShowSugg(false); }}
                     ref={itemInputRef}
                     onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
                     style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '38px' }}
@@ -3267,6 +3269,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     type="button"
                     onPointerDown={e => e.stopPropagation()}
                     onClick={() => {
+                      if (clItemShowSugg) { setClItemShowSugg(false); return; }
                       if (clAllItems.length === 0) {
                         fetch('/api/items', { headers: authH() })
                           .then(r => r.json())
@@ -3295,19 +3298,25 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
                   )}
                   {clItemShowSugg && clItemSugg.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
-                      {clItemSugg.map((item: any) => (
-                        <div
-                          key={item.id}
-                          onClick={() => { setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
-                          style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '')}
-                        >
-                          {item.name}
-                        </div>
-                      ))}
-                    </div>
+                    <>
+                      <div
+                        style={{ position: 'fixed', inset: 0, zIndex: 199 }}
+                        onClick={() => setClItemShowSugg(false)}
+                      />
+                      <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
+                        {clItemSugg.map((item: any) => (
+                          <div
+                            key={item.id}
+                            onClick={() => { setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
+                            style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '')}
+                          >
+                            {item.name}
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
