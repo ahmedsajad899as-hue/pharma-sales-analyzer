@@ -1532,7 +1532,7 @@ export default function MonthlyPlansPage() {
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
           onChange={e => e.target.files?.[0] && uploadVisits(e.target.files[0])} />
         {!uploadedFileName ? (
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={btnStyle('#10b981', true)}>
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={btnStyle('#059669', true)}>
             {uploading ? '⏳ جاري الرفع...' : '📤 رفع زيارات Excel'}
           </button>
         ) : (
@@ -1690,7 +1690,7 @@ export default function MonthlyPlansPage() {
                 {/* ── Excel: export + import plan ── */}
                 <div style={{ position: 'relative' }}>
                   <button onClick={() => setShowExcelMenu(v => !v)}
-                    style={{ ...btnStyle('#16a34a'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                    style={{ ...btnStyle('#059669'), display: 'flex', alignItems: 'center', gap: 5 }}>
                     📊 Excel
                   </button>
                   {showExcelMenu && (
@@ -1714,12 +1714,12 @@ export default function MonthlyPlansPage() {
                 {/* ── Suggest + settings (combined group) ── */}
                 <div style={{ display: 'flex', gap: 0 }}>
                   <button onClick={loadSuggest} disabled={suggestLoading}
-                    style={{ ...btnStyle('#8b5cf6'), borderRadius: '8px 0 0 8px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
+                    style={{ ...btnStyle('#7c3aed'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
                     {suggestLoading ? '⏳' : '✨'} اقتراح ذكي
                   </button>
                   <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
                     title="إعدادات الاقتراح"
-                    style={{ ...btnStyle('#8b5cf6'), borderRadius: '0 8px 8px 0', padding: '8px 9px', fontSize: 14 }}>
+                    style={{ ...btnStyle('#7c3aed'), borderRadius: '0 9px 9px 0', padding: '8px 9px', fontSize: 14 }}>
                     ⚙️
                   </button>
                 </div>
@@ -1729,7 +1729,7 @@ export default function MonthlyPlansPage() {
                   onClick={() => { if (voiceListening) { stopVoice(); } else { startVoice(); } }}
                   title={voiceListening ? 'إيقاف التسجيل' : 'إدخال صوتي'}
                   style={{
-                    ...btnStyle(voiceListening ? '#ef4444' : '#f97316'),
+                    ...btnStyle(voiceListening ? '#ef4444' : '#0284c7'),
                     padding: '8px 11px', fontSize: 16,
                     animation: voiceListening ? 'pulse-mic 1.5s infinite' : 'none',
                   }}>
@@ -1741,7 +1741,7 @@ export default function MonthlyPlansPage() {
                   <div style={{ position: 'relative' }}>
                     <button
                       onClick={() => setShowToolsMenu(v => !v)}
-                      style={{ ...btnStyle('#475569'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                      style={{ ...btnStyle('#64748b'), display: 'flex', alignItems: 'center', gap: 5 }}>
                       ⋯ أدوات
                     </button>
                     {showToolsMenu && (
@@ -2445,7 +2445,7 @@ export default function MonthlyPlansPage() {
                     )}
 
                     <button onClick={loadSuggest} disabled={suggestLoading}
-                      style={{ ...btnStyle('#8b5cf6'), width: '100%', marginTop: 10 }}>
+                      style={{ ...btnStyle('#7c3aed'), width: '100%', marginTop: 10 }}>
                       ✨ تطبيق وعرض الاقتراح
                     </button>
                   </div>
@@ -4254,8 +4254,9 @@ export default function MonthlyPlansPage() {
 
 // ── Styles ────────────────────────────────────────────────────
 const btnStyle = (bg: string, small = false) => ({
-  background: bg, color: '#fff', border: 'none', borderRadius: 8,
-  padding: small ? '6px 14px' : '8px 18px', cursor: 'pointer', fontWeight: 600, fontSize: small ? 13 : 14,
+  background: bg, color: '#fff', border: 'none', borderRadius: 9,
+  padding: small ? '6px 14px' : '8px 16px', cursor: 'pointer', fontWeight: 600, fontSize: small ? 13 : 14,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.16)', transition: 'opacity 0.15s',
 });
 const btnSmall = (bg: string) => ({
   background: bg, color: '#fff', border: 'none', borderRadius: 6,
