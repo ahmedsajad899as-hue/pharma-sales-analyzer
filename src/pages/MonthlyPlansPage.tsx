@@ -3168,7 +3168,7 @@ export default function MonthlyPlansPage() {
                 const pct = Math.min(100, Math.round((visitCount / (entry.targetVisits || 1)) * 100));
                 const progressColor = pct >= 100 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#6366f1';
                 const lastVisit = entry.visits[entry.visits.length - 1];
-                const lastFb = FEEDBACK_LABELS[lastVisit?.feedback ?? 'pending'];
+                const lastFb = FEEDBACK_LABELS[(lastVisit?.feedback ?? 'pending').split(',')[0]] ?? FEEDBACK_LABELS.pending;
                 const isExpanded = expandedEntries.has(entry.id);
                 const targetItemsList = entry.targetItems ?? [];
 
@@ -3485,7 +3485,7 @@ export default function MonthlyPlansPage() {
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             {entry.visits.map((v, vi) => {
-                              const vfb = FEEDBACK_LABELS[v.feedback ?? 'pending'];
+                              const vfb = FEEDBACK_LABELS[(v.feedback ?? 'pending').split(',')[0]] ?? FEEDBACK_LABELS.pending;
                               const isEditingThis = editingVisitItem === v.id;
                               return (
                                 <div key={v.id} style={{ background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
