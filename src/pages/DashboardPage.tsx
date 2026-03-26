@@ -3252,11 +3252,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
                   )}
                   {clItemShowSugg && clItemSugg.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
                       {clItemSugg.map((item: any) => (
                         <div
                           key={item.id}
-                          onPointerDown={e => { e.stopPropagation(); setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
+                          onClick={() => { setClItemId(String(item.id)); setClItemName(item.name); setClItemSugg([]); setClItemShowSugg(false); }}
                           style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                           onMouseLeave={e => (e.currentTarget.style.background = '')}
