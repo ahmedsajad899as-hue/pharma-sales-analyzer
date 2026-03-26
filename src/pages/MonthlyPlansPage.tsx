@@ -2366,7 +2366,17 @@ export default function MonthlyPlansPage() {
                               })()}
                             </div>
                           </div>
-                          <div onClick={() => setSAreaQuotasEnabled(v => !v)}
+                          <div onClick={() => {
+                              const next = !sAreaQuotasEnabled;
+                              setSAreaQuotasEnabled(next);
+                              if (next && sRepAreas.length > 0) {
+                                const base = Math.floor(sTargetDoctors / sRepAreas.length);
+                                const rem  = sTargetDoctors % sRepAreas.length;
+                                const q: Record<string, number> = {};
+                                sRepAreas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
+                                setSAreaQuotas(q);
+                              }
+                            }}
                             style={{
                               width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
                               background: sAreaQuotasEnabled ? '#0ea5e9' : '#e2e8f0', position: 'relative',
