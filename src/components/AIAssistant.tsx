@@ -194,7 +194,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       if (data.navigatePage && !data.needsClarification && !data.queryResult) {
         const page = data.navigatePage as PageId;
         const valid: PageId[] = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis'];
-        if (valid.includes(page)) navigateTo(page);
+        if (valid.includes(page)) { navigateTo(page); setIsOpen(false); }
       }
       // Dispatch page-level actions via CustomEvent
       if (data.pageAction) {
@@ -237,6 +237,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         } else {
           fire();
         }
+        // Close the assistant panel so the user can see the result/page
+        setIsOpen(false);
       }
     } catch (e: any) {
       setError(e.message || 'حدث خطأ');
