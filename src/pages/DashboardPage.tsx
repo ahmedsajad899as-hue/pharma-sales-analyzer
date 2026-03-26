@@ -2629,7 +2629,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </label>
                     <div style={{ position: 'relative' }}>
                       <input
-                        ref={pharmInputRef}
                         type="text"
                         className="form-input"
                         placeholder="اكتب اسم الصيدلية..."
@@ -2639,23 +2638,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           const val = e.target.value;
                           setClPharmacyName(val);
                           if (!val.trim()) {
-                            const all = clAllPharmacies.slice(0, 20);
-                            setClPharmacyNameSugg(all); setClPharmacyNameShowSugg(all.length > 0); setClPharmacyIsNew(false);
+                            setClPharmacyNameSugg([]); setClPharmacyNameShowSugg(false); setClPharmacyIsNew(false);
                             return;
                           }
-                          const lv = val.trim().toLowerCase();
-                          // filter from cached list first, then also fetch from server
-                          const local = clAllPharmacies.filter(n => n.toLowerCase().includes(lv)).slice(0, 12);
-                          if (local.length > 0) { setClPharmacyNameSugg(local); setClPharmacyNameShowSugg(true); }
                           try {
                             const r = await fetch(`/api/pharmacies/suggestions?q=${encodeURIComponent(val.trim())}`, { headers: authH() });
                             const names: string[] = await r.json();
-                            setClPharmacyNameSugg(names.length > 0 ? names : local);
-                            setClPharmacyNameShowSugg((names.length > 0 || local.length > 0));
-                            const exactMatch = names.some(n => n.toLowerCase() === val.trim().toLowerCase()) || local.some(n => n.toLowerCase() === val.trim().toLowerCase());
+                            setClPharmacyNameSugg(names);
+                            setClPharmacyNameShowSugg(names.length > 0);
+                            const exactMatch = names.some(n => n.toLowerCase() === val.trim().toLowerCase());
                             setClPharmacyIsNew(!exactMatch);
                           } catch {
-                            if (local.length === 0) { setClPharmacyNameSugg([]); setClPharmacyIsNew(true); }
+                            setClPharmacyNameSugg([]); setClPharmacyIsNew(true);
                           }
                         }}
                         onFocus={() => { if (clPharmacyNameSugg.length > 0) setClPharmacyNameShowSugg(true); }}
@@ -2669,43 +2663,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             if (data.areaId) { setClPharmacyAreaId(String(data.areaId)); setClPharmacyAreaName(data.areaName); }
                           } catch {}
                         }}
-                        style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '38px' }}
+                        style={{ width: '100%', boxSizing: 'border-box' }}
                       />
-                      {/* Arrow button inside input on the left */}
-                      <button
-                        type="button"
-                        onPointerDown={e => e.stopPropagation()}
-                        onClick={() => {
-                          pharmInputRef.current?.focus();
-                          const showAll = (names: string[]) => {
-                            const lv = clPharmacyName.toLowerCase();
-                            const filtered = lv ? names.filter(n => n.toLowerCase().includes(lv)).slice(0, 20) : names.slice(0, 20);
-                            setClPharmacyNameSugg(filtered);
-                            setClPharmacyNameShowSugg(true);
-                          };
-                          if (clAllPharmacies.length > 0) {
-                            showAll(clAllPharmacies);
-                          } else {
-                            fetch('/api/pharmacies/all', { headers: authH() })
-                              .then(r => r.json())
-                              .then((names: string[]) => { setClAllPharmacies(names); showAll(names); })
-                              .catch(() => {});
-                          }
-                        }}
-                        style={{
-                          position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
-                          background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '5px',
-                          color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
-                          padding: '2px 7px', lineHeight: '1.4', touchAction: 'none', zIndex: 2,
-                        }}
-                        title="اختر صيدلية من القائمة"
-                      >←</button>
                       {clPharmacyNameShowSugg && clPharmacyNameSugg.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.14)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
+                        <div
+                          style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.14)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}
+                          onMouseDown={e => e.preventDefault()}
+                        >
                           {clPharmacyNameSugg.map((name, i) => (
                             <div
                               key={i}
-                              onClick={async () => {
+                              onClick={async e => {
+                                e.stopPropagation();
                                 setClPharmacyName(name);
                                 setClPharmacyIsNew(false);
                                 setClPharmacyNameShowSugg(false);
@@ -2839,11 +2808,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
                           )}
                           {pit.showSugg && pit.sugg.length > 0 && (
-                            <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
+                            <div
+                              style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}
+                              onMouseDown={e => e.preventDefault()}
+                            >
                               {pit.sugg.map((item: any) => (
                                 <div
                                   key={item.id}
-                                  onClick={() => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, itemId: String(item.id), itemName: item.name, sugg: [], showSugg: false } : p))}
+                                  onClick={e => { e.stopPropagation(); setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, itemId: String(item.id), itemName: item.name, sugg: [], showSugg: false } : p)); }}
                                   style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
                                   onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                                   onMouseLeave={e => (e.currentTarget.style.background = '')}
