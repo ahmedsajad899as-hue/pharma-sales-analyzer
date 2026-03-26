@@ -2777,7 +2777,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             type="button"
                             onPointerDown={e => e.stopPropagation()}
                             onClick={() => {
-                              pharmItemInputRefs.current.get(pit.tempId)?.focus();
                               const showAll = (items: any[]) => {
                                 const lv = pit.itemName.toLowerCase();
                                 const filtered = lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20);
@@ -3268,7 +3267,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     type="button"
                     onPointerDown={e => e.stopPropagation()}
                     onClick={() => {
-                      itemInputRef.current?.focus();
                       if (clAllItems.length === 0) {
                         fetch('/api/items', { headers: authH() })
                           .then(r => r.json())
