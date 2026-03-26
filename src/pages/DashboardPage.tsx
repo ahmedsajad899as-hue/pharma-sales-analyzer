@@ -132,6 +132,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clGpsWarning, setClGpsWarning]         = useState(false); // show GPS alert before submit
   const [waitingForSettings, setWaitingForSettings] = useState(false); // waiting for user to return from location settings
   const clTimerRef = useRef<any>(null);
+  const itemInputRef = useRef<HTMLInputElement>(null);
   const fillCallLogRef    = useRef<typeof fillCallLogFromVoiceData>(async () => {});
   const fillPharmacyRef   = useRef<typeof fillPharmacyFromVoiceData>(() => {});
   const openCallLogNoResetRef = useRef<typeof openCallLog_noReset>(() => {});
@@ -3215,15 +3216,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         if (first) { setClItemId(String(first.id)); setClItemName(first.name); }
                       }
                     }, 200)}
+                    ref={itemInputRef}
                     onFocus={() => { if (clItemSugg.length > 0) setClItemShowSugg(true); }}
                     style={{ width: '100%', boxSizing: 'border-box', paddingLeft: '38px' }}
                   />
                   {/* Arrow button inside input on the left */}
                   <button
                     type="button"
-                    onPointerDown={e => {
-                      e.stopPropagation();
-                      e.preventDefault();
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={() => {
+                      itemInputRef.current?.focus();
                       if (clAllItems.length === 0) {
                         fetch('/api/items', { headers: authH() })
                           .then(r => r.json())
