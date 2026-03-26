@@ -117,6 +117,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clItemShowSugg, setClItemShowSugg]   = useState(false);
   const [clAllItems, setClAllItems]           = useState<any[]>([]);
   const [clFeedback, setClFeedback]           = useState<string[]>(['pending']);
+  const [clDualFeedback, setClDualFeedback]   = useState(false); // allow 2 feedback choices
   const [showItemsPopup, setShowItemsPopup]   = useState(false);
   const [itemsPopupSearch, setItemsPopupSearch] = useState('');
   const [itemsPopupLoading, setItemsPopupLoading] = useState(false);
@@ -628,7 +629,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClManualPharmacySugg([]); setClManualPharmacyShow(false);
     setClManualAreaSugg([]); setClManualAreaShow(false);
     setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
-    setClFeedback(['pending']); setClNotes('');
+    setClFeedback(['pending']); setClDualFeedback(false); setClNotes('');
     setClPharmacyName(''); setClPharmacyAreaId(''); setClPharmacyAreaName('');
     setClPharmacyAreaSugg([]); setClPharmacyAreaShowSugg(false);
     setClPharmacyNameSugg([]); setClPharmacyNameShowSugg(false); setClPharmacyIsNew(false);
@@ -824,7 +825,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     setClAddToPlan(false); setClOtherDocId(null); setClOtherDoc(null);
     setClManualMode(false); setClManualSpecialty(''); setClManualPharmacy(''); setClManualAreaId(''); setClManualAreaName(''); setClMissingFields([]);
     setClItemId(''); setClItemName(''); setClItemSugg([]); setClItemShowSugg(false);
-    setClFeedback(['pending']); setClNotes('');
+    setClFeedback(['pending']); setClDualFeedback(false); setClNotes('');
     setClError(''); setClShowSugg(false); setClSuggestions([]); setClDidYouMean(null);
 
     const transcribedName = v.doctorName || '';
@@ -3192,8 +3193,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>📦 الايتم</label>
                   <button
                     type="button"
-                    onClick={e => {
+                    onPointerDown={e => {
                       e.stopPropagation();
+                      e.preventDefault();
                       setItemsPopupSearch('');
                       setShowItemsPopup(true);
                       setItemsPopupLoading(true);
@@ -3202,7 +3204,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         .then(json => { setClAllItems(Array.isArray(json.data) ? json.data : []); setItemsPopupLoading(false); })
                         .catch(() => setItemsPopupLoading(false));
                     }}
-                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '1px 8px', lineHeight: '1.4' }}
+                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '1px 8px', lineHeight: '1.4', touchAction: 'none' }}
                     title="اختر ايتم من القائمة"
                   >←</button>
                 </div>
@@ -3256,8 +3258,29 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Feedback */}
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '4px' }}>💬 نتيجة الزيارة</label>
-                <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>اختيار خيار ثالث يلغي الأول تلقائياً</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>💬 نتيجة الزيارة</label>
+                  {/* Dual-mode toggle dot */}
+                  <button
+                    type="button"
+                    title={clDualFeedback ? 'تعطيل اختيار ثنائي' : 'تفعيل اختيار نتيجتين'}
+                    onClick={() => {
+                      const next = !clDualFeedback;
+                      setClDualFeedback(next);
+                      if (!next) setClFeedback([clFeedback[0] || 'pending']);
+                    }}
+                    style={{
+                      width: 18, height: 18, borderRadius: '50%', border: '2px solid',
+                      borderColor: clDualFeedback ? '#6366f1' : '#d1d5db',
+                      background: clDualFeedback ? '#6366f1' : '#fff',
+                      cursor: 'pointer', padding: 0, flexShrink: 0, transition: 'all 0.2s',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                  >
+                    {clDualFeedback && <span style={{ color: '#fff', fontSize: '10px', lineHeight: 1 }}>✓</span>}
+                  </button>
+                  {clDualFeedback && <span style={{ fontSize: '11px', color: '#6366f1', fontWeight: 500 }}>اثنين</span>}
+                </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {(['writing', 'pending', 'interested', 'not_interested', 'stocked', 'unavailable'] as const).map(fb => {
                     const isSelected = clFeedback.includes(fb);
@@ -3266,12 +3289,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         key={fb}
                         onClick={() => {
                           if (isSelected) {
+                            if (!clDualFeedback) return; // single mode: can't deselect, must pick another
                             const next = clFeedback.filter(x => x !== fb);
                             setClFeedback(next.length === 0 ? ['pending'] : next);
                           } else {
-                            // sliding window: drop oldest if already 2 selected
-                            const base = clFeedback.length >= 2 ? clFeedback.slice(1) : clFeedback;
-                            setClFeedback([...base, fb]);
+                            if (!clDualFeedback) {
+                              setClFeedback([fb]); // single mode: just replace
+                            } else {
+                              // dual mode: max 2, sliding window
+                              const base = clFeedback.length >= 2 ? clFeedback.slice(1) : clFeedback;
+                              setClFeedback([...base, fb]);
+                            }
                           }
                         }}
                         style={{
@@ -3977,15 +4005,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       {showItemsPopup && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-          onClick={() => setShowItemsPopup(false)}
+          onPointerDown={() => setShowItemsPopup(false)}
         >
           <div
             style={{ background: '#fff', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 480, maxHeight: '70vh', display: 'flex', flexDirection: 'column', padding: '20px 16px 24px' }}
-            onClick={e => e.stopPropagation()}
+            onPointerDown={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
               <span style={{ fontWeight: 700, fontSize: '15px', color: '#111827' }}>📦 اختر الايتم</span>
-              <button onClick={() => setShowItemsPopup(false)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+              <button onPointerDown={() => setShowItemsPopup(false)} style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#6b7280' }}>✕</button>
             </div>
             <input
               type="text"
@@ -4004,7 +4032,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               ).map((item: any) => (
                 <div
                   key={item.id}
-                  onClick={() => { setClItemId(String(item.id)); setClItemName(item.name); setShowItemsPopup(false); }}
+                  onPointerDown={e => { e.stopPropagation(); setClItemId(String(item.id)); setClItemName(item.name); setShowItemsPopup(false); }}
                   style={{ padding: '11px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '14px', color: '#111827', borderRadius: 6 }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
                   onMouseLeave={e => (e.currentTarget.style.background = '')}
