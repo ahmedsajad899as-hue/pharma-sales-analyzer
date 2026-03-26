@@ -1119,6 +1119,31 @@ ${JSON.stringify(data, null, 2)}
 });
 
 // ── Pharmacy Visits API ────────────────────────────────────────
+// GET /api/pharmacies/all — return all pharmacy names for this user
+app.get('/api/pharmacies/all', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const userFilter = userId ? { userId } : {};
+    const visits = await prisma.pharmacyVisit.findMany({
+      where: userFilter,
+      select: { pharmacyName: true },
+      distinct: ['pharmacyName'],
+      orderBy: { visitDate: 'desc' },
+    });
+    const doctors = await prisma.doctor.findMany({
+      where: { ...userFilter, pharmacyName: { not: null } },
+      select: { pharmacyName: true },
+      distinct: ['pharmacyName'],
+    });
+    const names = new Set();
+    visits.forEach(v => { if (v.pharmacyName) names.add(v.pharmacyName); });
+    doctors.forEach(d => { if (d.pharmacyName) names.add(d.pharmacyName); });
+    res.json([...names].sort((a, b) => a.localeCompare(b)));
+  } catch (e) {
+    res.json([]);
+  }
+});
+
 // GET /api/pharmacies/suggestions — autocomplete pharmacy names
 app.get('/api/pharmacies/suggestions', requireAuth, async (req, res) => {
   try {
