@@ -156,6 +156,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   interface PharmacyItem { tempId: number; itemId: string; itemName: string; notes: string; showSugg: boolean; sugg: any[]; }
   const [clPharmacyItems, setClPharmacyItems]     = useState<PharmacyItem[]>([{ tempId: 1, itemId: '', itemName: '', notes: '', showSugg: false, sugg: [] }]);
   const clPharmacyItemCounter = useRef(2);
+  const pharmItemInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
   const [clPharmacyAreaSugg, setClPharmacyAreaSugg]         = useState<any[]>([]);
   const [clPharmacyAreaShowSugg, setClPharmacyAreaShowSugg] = useState(false);
   const [clPharmacyNameSugg, setClPharmacyNameSugg]         = useState<string[]>([]);
@@ -2781,6 +2782,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         {/* Item search */}
                         <div style={{ position: 'relative', marginBottom: '6px' }}>
                           <input
+                            ref={el => { if (el) pharmItemInputRefs.current.set(pit.tempId, el); else pharmItemInputRefs.current.delete(pit.tempId); }}
                             type="text"
                             className="form-input"
                             placeholder="ابحث باسم الايتم..."
@@ -2794,22 +2796,54 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 return;
                               }
                               const lv = v.toLowerCase();
-                              const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 8);
+                              const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20);
                               setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, sugg: matches, showSugg: true } : p));
                             }}
                             onBlur={() => setTimeout(() => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: false } : p)), 200)}
                             onFocus={() => { if (pit.sugg.length > 0) setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: true } : p)); }}
-                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: pit.itemId ? '28px' : undefined }}
+                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: '38px' }}
                           />
+                          {/* Arrow button inside input on the left */}
+                          <button
+                            type="button"
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={() => {
+                              pharmItemInputRefs.current.get(pit.tempId)?.focus();
+                              const showAll = (items: any[]) => {
+                                const lv = pit.itemName.toLowerCase();
+                                const filtered = lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20);
+                                setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, sugg: filtered, showSugg: true } : p));
+                              };
+                              if (clAllItems.length > 0) {
+                                showAll(clAllItems);
+                              } else {
+                                fetch('/api/items', { headers: authH() })
+                                  .then(r => r.json())
+                                  .then(json => {
+                                    const items = Array.isArray(json.data) ? json.data : [];
+                                    setClAllItems(items);
+                                    showAll(items);
+                                  })
+                                  .catch(() => {});
+                              }
+                            }}
+                            style={{
+                              position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
+                              background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '5px',
+                              color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                              padding: '2px 7px', lineHeight: '1.4', touchAction: 'none', zIndex: 2,
+                            }}
+                            title="اختر ايتم من القائمة"
+                          >←</button>
                           {pit.itemId && (
-                            <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
                           )}
                           {pit.showSugg && pit.sugg.length > 0 && (
-                            <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', maxHeight: '200px', overflowY: 'auto', touchAction: 'pan-y', overscrollBehavior: 'contain' }}>
                               {pit.sugg.map((item: any) => (
                                 <div
                                   key={item.id}
-                                  onMouseDown={() => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, itemId: String(item.id), itemName: item.name, sugg: [], showSugg: false } : p))}
+                                  onClick={() => setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, itemId: String(item.id), itemName: item.name, sugg: [], showSugg: false } : p))}
                                   style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', color: '#111827' }}
                                   onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                                   onMouseLeave={e => (e.currentTarget.style.background = '')}
