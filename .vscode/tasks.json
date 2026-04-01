@@ -1,0 +1,10 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "deploy-railway",
+			"type": "shell",
+			"command": "cd /d \"d:\\my code\\marketing\\pharma-sales-analyzer\" && git add -A && git commit -m \"feat: add smart search to Items and Areas tabs in SA panel\" && git push origin main"
+		}
+	]
+}

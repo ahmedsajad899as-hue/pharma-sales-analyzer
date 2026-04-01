@@ -153,6 +153,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftItemIds,       setDraftItemIds]       = useState<number[]>([]);
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
+  const [itemSearch,         setItemSearch]         = useState('');
+  const [areaSearch,         setAreaSearch]         = useState('');
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
@@ -506,12 +508,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'items' && (
             <div>
+              <input
+                type="text"
+                placeholder="🔍 بحث عن ايتم..."
+                value={itemSearch}
+                onChange={e => setItemSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+              />
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => setDraftItemIds(items.map(i => i.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
                 <button onClick={() => setDraftItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {items.map(i => (
+                {items.filter(i => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase())).map(i => (
                   <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
                     <input type="checkbox" checked={draftItemIds.includes(i.id)} onChange={e => setDraftItemIds(e.target.checked ? [...draftItemIds, i.id] : draftItemIds.filter(x => x !== i.id))} />
                     {i.name}
@@ -525,12 +534,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'areas' && (
             <div>
+              <input
+                type="text"
+                placeholder="🔍 بحث عن منطقة..."
+                value={areaSearch}
+                onChange={e => setAreaSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+              />
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => setDraftAreaIds(areas.map(a => a.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
                 <button onClick={() => setDraftAreaIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {areas.map(a => (
+                {areas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase())).map(a => (
                   <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
                     <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
                     {a.name}
