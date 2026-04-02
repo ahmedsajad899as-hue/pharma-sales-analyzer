@@ -70,6 +70,12 @@ export async function list(filters, user = null) {
         await prisma.user.update({ where: { id: u.id }, data: { linkedRepId: rep.id } });
         repId = rep.id;
       }
+      // Load actual commercial rep assignments from DB for this sci rep
+      const commLinks = await prisma.scientificRepCommercial.findMany({
+        where: { scientificRepId: repId },
+        select: { commercialRep: { select: { id: true, name: true } } },
+      });
+
       return {
         id: repId,
         name: u.displayName || u.username,
@@ -81,7 +87,7 @@ export async function list(filters, user = null) {
         areas:         u.areaAssignments.map(a => a.area),
         items:         u.itemAssignments.map(a => a.item),
         companies:     u.companyAssignments.map(a => a.company),
-        commercialReps: [],
+        commercialReps: commLinks.map(l => l.commercialRep),
         _isUser: true,
         role: u.role,
       };
