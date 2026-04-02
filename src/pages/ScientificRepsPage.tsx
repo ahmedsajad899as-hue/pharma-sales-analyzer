@@ -100,6 +100,7 @@ export default function ScientificRepsPage() {
     const crWithAreas: CommercialWithAreas[] = crAreasList.filter((r: any) => r.areas?.length > 0);
     setAllCommercialWithAreas(crWithAreas);
     return { crWithAreas };
+  }, [token]);
 
   // ─── Open modals ───────────────────────────────────────────
   const openAdd = () => {
