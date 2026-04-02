@@ -315,16 +315,23 @@ function buildDateFilter({ startDate, endDate }) {
  * @returns {{ totals, byArea, byItem, byRep }}
  */
 export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dateRange = {}, fileIds = null, recordType = null) {
-  if (!commRepIds || commRepIds.length === 0) {
-    return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
+  const hasCommReps = commRepIds && commRepIds.length > 0;
+  const hasAreas    = areaIds    && areaIds.length > 0;
+  const hasItems    = itemIds    && itemIds.length > 0;
+
+  // If no commercial reps assigned, fall back to area/item scope (requires at least fileIds or areas)
+  if (!hasCommReps) {
+    if (!fileIds && !hasAreas && !hasItems) {
+      return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
+    }
   }
 
   const dateFilter = buildDateFilter(dateRange);
   const where = {
-    representativeId: { in: commRepIds },
+    ...(hasCommReps ? { representativeId: { in: commRepIds } } : {}),
     ...dateFilter,
-    ...(areaIds && areaIds.length ? { areaId: { in: areaIds } } : {}),
-    ...(itemIds && itemIds.length ? { itemId: { in: itemIds } } : {}),
+    ...(hasAreas ? { areaId: { in: areaIds } } : {}),
+    ...(hasItems ? { itemId: { in: itemIds } } : {}),
     ...buildFileIdsFilter(fileIds),
     ...(recordType ? { recordType } : {}),
   };
