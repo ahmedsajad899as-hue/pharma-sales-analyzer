@@ -355,23 +355,20 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
  * @param {number|null}   userId    - scope to this user's data
  * @returns {{ totals, byArea, byItem, byRep }}
  */
-export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {}, fileIds = null, userId = null) {
-  // Safety guard: require at least a fileIds scope to avoid returning everything
+export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {}, fileIds = null) {
+  // Safety guard: require fileIds to avoid returning all returns in the system
   if (!fileIds || (Array.isArray(fileIds) && fileIds.length === 0)) {
     return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
   }
 
-  // NOTE: We intentionally do NOT filter by areaIds or itemIds here.
-  // Return rows in a mixed file may be saved under different area records than
-  // what the sci rep has assigned (due to fuzzy-matching differences during upload),
-  // so restricting by area IDs would silently exclude valid returns.
-  // Scoping by fileIds (active uploaded files) + optional userId is sufficient.
+  // Scope only by fileIds. Do NOT filter by userId (Sale.userId = uploaderUserId,
+  // not the sci rep's userId — filtering would exclude all results).
+  // Do NOT filter by areaIds (area ID mismatch between admin-assigned and uploader-scoped).
   const dateFilter = buildDateFilter(dateRange);
   const where = {
     recordType: 'return',
     ...dateFilter,
     ...buildFileIdsFilter(fileIds),
-    ...(userId ? { userId } : {}),
   };
 
   const sales = await prisma.sale.findMany({

@@ -195,31 +195,49 @@ export async function getReport(id, query = {}) {
   });
   const commRepIds = commercialLinks.map(l => l.commercialRepId);
 
-  // Load assigned area IDs (null = no restriction)
+  // Load assigned area links and resolve ALL area IDs with those names cross-user.
+  // Areas assigned via admin panel may be scoped to adminUserId, while sales areas
+  // are scoped to the uploaderUserId — same name, different records.
+  // We resolve by name to capture all matching area IDs regardless of who created them.
   const areaLinks = await prisma.scientificRepArea.findMany({
     where: { scientificRepId: id },
     select: { areaId: true, area: { select: { id: true, name: true } } },
   });
-  const areaIds = areaLinks.length ? areaLinks.map(l => l.areaId) : null;
+  let areaIds = null;
+  if (areaLinks.length) {
+    const areaNames = areaLinks.map(l => l.area.name);
+    const allMatchingAreas = await prisma.area.findMany({
+      where: { name: { in: areaNames } },
+      select: { id: true },
+    });
+    areaIds = allMatchingAreas.map(a => a.id);
+  }
 
-  // Load assigned item IDs (null = no restriction)
+  // Same cross-user resolution for items.
   const itemLinks = await prisma.scientificRepItem.findMany({
     where: { scientificRepId: id },
     select: { itemId: true, item: { select: { id: true, name: true } } },
   });
-  const itemIds = itemLinks.length ? itemLinks.map(l => l.itemId) : null;
+  let itemIds = null;
+  if (itemLinks.length) {
+    const itemNames = itemLinks.map(l => l.item.name);
+    const allMatchingItems = await prisma.item.findMany({
+      where: { name: { in: itemNames } },
+      select: { id: true },
+    });
+    itemIds = allMatchingItems.map(i => i.id);
+  }
 
-  // For returns: query by area/item scope only (not restricted to assigned commRepIds)
-  // This handles mixed files where return rows may be attributed to reps not
-  // directly assigned to this scientific rep (e.g., 'غير محدد' or different rep spelling).
+  // For returns: scope by fileIds only — no area/item/userId restriction.
+  // Sale.userId = uploader's userId (not the sci rep's userId), so filtering by
+  // rep.userId would exclude all results unless the rep uploaded the file themselves.
   let salesResult, returnsResult;
   if (query.recordType === 'return') {
     returnsResult = await getReturnsForSciRepScope(
-      areaIds,
-      itemIds,
+      null,
+      null,
       { startDate: query.startDate, endDate: query.endDate },
       query.fileIds ?? null,
-      rep.userId ?? null,
     );
     salesResult = returnsResult;
   } else {
