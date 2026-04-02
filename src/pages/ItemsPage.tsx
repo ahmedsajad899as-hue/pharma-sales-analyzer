@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-interface Company { id: number; name: string; }
+interface Company { id: number; name: string; isSci?: boolean; }
 interface Item {
   id: number;
   name: string;
@@ -15,6 +15,8 @@ interface Item {
   imageUrl: string | null;
   companyId: number | null;
   company: Company | null;
+  scientificCompanyId: number | null;
+  scientificCompany: Company | null;
 }
 
 const EMPTY_FORM = { name: '', scientificName: '', dosage: '', form: '', price: '', scientificMessage: '', companyId: '' };
@@ -167,7 +169,17 @@ export default function ItemsPage() {
 
   // Filtered items
   const filtered = items.filter(it => {
-    if (filterCompany !== 'all' && String(it.companyId) !== filterCompany) return false;
+    if (filterCompany !== 'all') {
+      if (filterCompany === 'null') {
+        if (it.companyId != null || it.scientificCompanyId != null) return false;
+      } else if (filterCompany.startsWith('sci-')) {
+        const sciId = Number(filterCompany.slice(4));
+        if (it.scientificCompanyId !== sciId) return false;
+      } else if (filterCompany.startsWith('usr-')) {
+        const usrId = Number(filterCompany.slice(4));
+        if (it.companyId !== usrId) return false;
+      }
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       return (
@@ -181,9 +193,9 @@ export default function ItemsPage() {
     return true;
   });
 
-  // Group by company
+  // Group by company (scientific company takes priority over user-scoped company)
   const grouped = filtered.reduce<Record<string, Item[]>>((acc, it) => {
-    const key = it.company?.name ?? 'بدون شركة';
+    const key = it.scientificCompany?.name ?? it.company?.name ?? 'بدون شركة';
     if (!acc[key]) acc[key] = [];
     acc[key].push(it);
     return acc;
@@ -296,7 +308,11 @@ export default function ItemsPage() {
         >
           <option value="all">🏢 كل الشركات</option>
           <option value="null">بدون شركة</option>
-          {companies.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+          {companies.map(c => (
+            <option key={`${c.isSci ? 'sci' : 'usr'}-${c.id}`} value={`${c.isSci ? 'sci' : 'usr'}-${c.id}`}>
+              {c.name}
+            </option>
+          ))}
         </select>
         {(search || filterCompany !== 'all') && (
           <button

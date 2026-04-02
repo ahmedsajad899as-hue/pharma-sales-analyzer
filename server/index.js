@@ -302,7 +302,7 @@ app.get('/api/items', async (req, res) => {
     const userRole  = req.user?.role ?? 'user';
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
-    const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } };
+    const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } }, scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } } };
     // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction
     if (['scientific_rep', 'team_leader', 'supervisor'].includes(userRole) && userId) {
       const rep = await prisma.scientificRepresentative.findFirst({
@@ -351,9 +351,25 @@ app.get('/api/items', async (req, res) => {
         });
         planEntryItems = plans.flatMap(p => p.entries.flatMap(e => e.targetItems.map(i => i.item)));
       }
+      // 5. Catalog items from the user's scientific companies
+      let catalogItems = [];
+      if (userId) {
+        const userCompanies = await prisma.userCompanyAssignment.findMany({
+          where: { userId },
+          select: { companyId: true },
+        });
+        const sciCompanyIds = userCompanies.map(c => c.companyId);
+        if (sciCompanyIds.length > 0) {
+          catalogItems = await prisma.item.findMany({
+            where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+            select: itemSelect,
+            orderBy: { name: 'asc' },
+          });
+        }
+      }
       // Deduplicate and sort
       const seen = new Set();
-      items = [...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
+      items = [...catalogItems, ...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
         if (seen.has(i.id)) return false;
         seen.add(i.id); return true;
       }).sort((a, b) => a.name.localeCompare(b.name));
@@ -541,6 +557,7 @@ app.post('/api/items/import-excel', upload.single('file'), async (req, res) => {
 app.get('/api/companies', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
+    // User-scoped companies
     const companies = await prisma.company.findMany({
       where: userId ? { userId } : {},
       orderBy: { name: 'asc' },
@@ -549,7 +566,25 @@ app.get('/api/companies', async (req, res) => {
         items: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
       },
     });
-    res.json({ success: true, data: companies });
+    // Scientific companies the user belongs to (via UserCompanyAssignment)
+    let sciCompanies = [];
+    if (userId) {
+      const assignments = await prisma.userCompanyAssignment.findMany({
+        where: { userId },
+        select: { company: { select: { id: true, name: true } } },
+      });
+      sciCompanies = assignments.map(a => ({ ...a.company, _isSci: true, items: [] }));
+    }
+    // Merge, sci companies first; deduplicate by name
+    const seen = new Set();
+    const merged = [
+      ...sciCompanies.map(c => ({ id: c.id, name: c.name, isSci: true, items: [] })),
+      ...companies.map(c => ({ id: c.id, name: c.name, isSci: false, items: c.items })),
+    ].filter(c => {
+      if (seen.has(c.name)) return false;
+      seen.add(c.name); return true;
+    });
+    res.json({ success: true, data: merged });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
