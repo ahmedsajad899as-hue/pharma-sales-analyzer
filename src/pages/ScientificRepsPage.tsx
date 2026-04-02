@@ -185,8 +185,34 @@ export default function ScientificRepsPage() {
   };
 
   // ─── Toggle helpers ────────────────────────────────────────
-  const toggleArea = (a: NamedItem) =>
-    setSelAreas(prev => prev.some(x => x.id === a.id) ? prev.filter(x => x.id !== a.id) : [...prev, a]);
+  const toggleArea = (a: NamedItem) => {
+    const isSelected = selAreas.some(x => x.id === a.id);
+    setSelAreas(prev => isSelected ? prev.filter(x => x.id !== a.id) : [...prev, a]);
+
+    // Auto-add/remove commercial reps whose sales areas include this area (matched by name)
+    const repsForArea = allCommercialWithAreas.filter(cr =>
+      cr.areas.some(ca => ca.name.trim() === a.name.trim())
+    );
+    if (repsForArea.length === 0) return;
+
+    if (isSelected) {
+      // When deselecting an area: remove its reps only if they have NO other selected areas
+      const remainingAreas = selAreas.filter(x => x.id !== a.id);
+      setSelCommercial(prev => prev.filter(cr => {
+        const repFull = allCommercialWithAreas.find(r => r.id === cr.id);
+        if (!repFull) return true; // keep unknown
+        const stillNeeded = repFull.areas.some(ra => remainingAreas.some(sel => sel.name.trim() === ra.name.trim()));
+        return stillNeeded;
+      }));
+    } else {
+      // When selecting an area: auto-add matching commercial reps
+      setSelCommercial(prev => {
+        const existingIds = new Set(prev.map(x => x.id));
+        const toAdd = repsForArea.filter(r => !existingIds.has(r.id)).map(r => ({ id: r.id, name: r.name }));
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
+    }
+  };
 
   const toggleItem = (i: NamedItem) =>
     setSelItems(prev => prev.some(x => x.id === i.id) ? prev.filter(x => x.id !== i.id) : [...prev, i]);
