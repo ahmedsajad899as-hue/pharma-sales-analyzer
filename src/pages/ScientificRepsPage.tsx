@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -38,6 +38,8 @@ export default function ScientificRepsPage() {
   const [selAreas, setSelAreas]             = useState<NamedItem[]>([]);
   const [selItems, setSelItems]             = useState<NamedItem[]>([]);
   const [selCommercial, setSelCommercial]   = useState<NamedItem[]>([]);
+  const [itemsPopup, setItemsPopup]         = useState<number | null>(null); // rep.id whose items popup is open
+  const itemsPopupRef                       = useRef<HTMLDivElement>(null);
   const [allAreas, setAllAreas]             = useState<NamedItem[]>([]);
   const [allItems, setAllItems]             = useState<NamedItem[]>([]);
   const [allCommercial, setAllCommercial]   = useState<NamedItem[]>([]);
@@ -66,6 +68,18 @@ export default function ScientificRepsPage() {
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Close items popup on outside click
+  useEffect(() => {
+    if (itemsPopup === null) return;
+    const handler = (e: MouseEvent) => {
+      if (itemsPopupRef.current && !itemsPopupRef.current.contains(e.target as Node)) {
+        setItemsPopup(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [itemsPopup]);
 
   // AI assistant page-action listener
   useEffect(() => {
@@ -364,15 +378,41 @@ export default function ScientificRepsPage() {
                       </div>
                     </td>
                     <td>
-                      <div className="tag-list">
+                      <div className="tag-list" style={{ position: 'relative' }}>
                         {rep.items.length === 0
                           ? <span className="tag tag--green">{t.sciReps.allItems}</span>
                           : rep.items.slice(0, 3).map(i => <span key={i.id} className="tag tag--purple">{i.name}</span>)
                         }
                         {rep.items.length > 3 && (
-                          <span className="tag tag--gray" title={rep.items.slice(3).map(i => i.name).join('\n')} style={{ cursor: 'help', borderBottom: '1px dashed #94a3b8' }}>
+                          <span
+                            className="tag tag--gray"
+                            onClick={e => { e.stopPropagation(); setItemsPopup(itemsPopup === rep.id ? null : rep.id); }}
+                            style={{ cursor: 'pointer', userSelect: 'none', background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd', fontWeight: 700 }}>
                             +{rep.items.length - 3} {t.sciReps.moreItemsSuffix}
                           </span>
+                        )}
+                        {itemsPopup === rep.id && (
+                          <div ref={itemsPopupRef} style={{
+                            position: 'absolute', top: '110%', right: 0, zIndex: 400,
+                            background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.13)', padding: '10px 12px',
+                            minWidth: 200, maxWidth: 280, maxHeight: 260, overflowY: 'auto',
+                            direction: 'rtl',
+                          }}>
+                            <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#6d28d9', display: 'flex', alignItems: 'center', gap: 5 }}>
+                              💊 كل الايتمات ({rep.items.length})
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                              {rep.items.map(i => (
+                                <span key={i.id} style={{
+                                  background: '#f5f3ff', color: '#5b21b6', border: '1px solid #ddd6fe',
+                                  borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600,
+                                }}>
+                                  {i.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         )}
                       </div>
                     </td>
