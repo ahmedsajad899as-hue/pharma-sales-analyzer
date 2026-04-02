@@ -10,7 +10,7 @@
     "client": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate --schema prisma/schema.postgresql.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",

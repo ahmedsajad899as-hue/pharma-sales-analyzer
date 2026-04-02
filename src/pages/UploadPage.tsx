@@ -76,7 +76,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const data = await res.json();
       setProgress(100);
       if (!res.ok) {
-        const msg = data.message || t.upload.uploadFailed;
+        const msg = data.message || data.error || t.upload.uploadFailed;
         const detailMatch = msg.match(/Detected columns: \[(.+?)\]/);
         if (detailMatch) setErrorDetail(`${t.upload.columnsFound}: ${detailMatch[1]}`);
         throw new Error(msg.split('\n')[0]);
