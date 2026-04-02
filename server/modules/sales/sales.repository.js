@@ -368,13 +368,14 @@ export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {},
     return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
   }
 
-  // Scope only by fileIds. Do NOT filter by userId (Sale.userId = uploaderUserId,
-  // not the sci rep's userId — filtering would exclude all results).
-  // Do NOT filter by areaIds (area ID mismatch between admin-assigned and uploader-scoped).
+  // areaIds/itemIds are already resolved cross-user (all IDs matching the assigned names),
+  // so we can safely filter by them here.
   const dateFilter = buildDateFilter(dateRange);
   const where = {
     recordType: 'return',
     ...dateFilter,
+    ...(areaIds && areaIds.length ? { areaId: { in: areaIds } } : {}),
+    ...(itemIds && itemIds.length ? { itemId: { in: itemIds } } : {}),
     ...buildFileIdsFilter(fileIds),
   };
 

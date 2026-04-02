@@ -228,14 +228,13 @@ export async function getReport(id, query = {}) {
     itemIds = allMatchingItems.map(i => i.id);
   }
 
-  // For returns: scope by fileIds only — no area/item/userId restriction.
-  // Sale.userId = uploader's userId (not the sci rep's userId), so filtering by
-  // rep.userId would exclude all results unless the rep uploaded the file themselves.
+  // For returns: use cross-user resolved areaIds/itemIds (same as sales).
+  // fileIds-only scope was too broad — it returned returns from unassigned areas.
   let salesResult, returnsResult;
   if (query.recordType === 'return') {
     returnsResult = await getReturnsForSciRepScope(
-      null,
-      null,
+      areaIds,
+      itemIds,
       { startDate: query.startDate, endDate: query.endDate },
       query.fileIds ?? null,
     );
