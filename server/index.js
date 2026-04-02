@@ -596,7 +596,7 @@ app.post('/api/cleanup-orphans', async (req, res) => {
         select: { id: true, name: true },
       }),
       prisma.item.findMany({
-        where: { sales: { none: {} }, scientificReps: { none: {} } },
+        where: { sales: { none: {} }, scientificReps: { none: {} }, planEntryItems: { none: {} } },
         select: { id: true, name: true },
       }),
     ]);
@@ -765,8 +765,9 @@ app.delete('/api/files/:id', async (req, res) => {
       }),
       prisma.item.findMany({
         where: {
-          sales:         { none: {} },  // no sales remain
+          sales:          { none: {} },  // no sales remain
           scientificReps: { none: {} }, // NOT assigned to any scientific rep
+          planEntryItems: { none: {} }, // NOT referenced in any monthly plan
         },
         select: { id: true },
       }),
