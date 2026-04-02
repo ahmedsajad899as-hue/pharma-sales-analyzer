@@ -356,18 +356,20 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
  * @returns {{ totals, byArea, byItem, byRep }}
  */
 export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {}, fileIds = null, userId = null) {
-  // Safety guard: require at least one scoping condition
-  const hasScope = fileIds || userId || (areaIds && areaIds.length) || (itemIds && itemIds.length);
-  if (!hasScope) {
+  // Safety guard: require at least a fileIds scope to avoid returning everything
+  if (!fileIds || (Array.isArray(fileIds) && fileIds.length === 0)) {
     return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
   }
 
+  // NOTE: We intentionally do NOT filter by areaIds or itemIds here.
+  // Return rows in a mixed file may be saved under different area records than
+  // what the sci rep has assigned (due to fuzzy-matching differences during upload),
+  // so restricting by area IDs would silently exclude valid returns.
+  // Scoping by fileIds (active uploaded files) + optional userId is sufficient.
   const dateFilter = buildDateFilter(dateRange);
   const where = {
     recordType: 'return',
     ...dateFilter,
-    ...(areaIds && areaIds.length ? { areaId: { in: areaIds } } : {}),
-    ...(itemIds && itemIds.length ? { itemId: { in: itemIds } } : {}),
     ...buildFileIdsFilter(fileIds),
     ...(userId ? { userId } : {}),
   };

@@ -150,14 +150,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const zeroItems: BreakdownRow[] = assignedItemsList
           .filter(i => !salesItemNames.has(i.name))
           .map(i => ({ name: i.name, totalQty: 0, totalValue: 0, isZero: true }));
+
+        const salesAreas = (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+        const assignedAreasList: Rep[] = d.assignedAreas ?? [];
+        const salesAreaNames = new Set(salesAreas.map((r: BreakdownRow) => r.name));
+        const zeroAreas: BreakdownRow[] = assignedAreasList
+          .filter(a => !salesAreaNames.has(a.name))
+          .map(a => ({ name: a.name, totalQty: 0, totalValue: 0, isZero: true }));
+
         return {
           repName:    d.scientificRep?.name ?? '—',
           totalQty:   d.summary?.totalQuantity ?? 0,
           totalValue: d.summary?.totalValue    ?? 0,
-          assignedAreas:          d.assignedAreas          ?? [],
+          assignedAreas:          assignedAreasList,
           assignedItems:          assignedItemsList,
           assignedCommercialReps: d.assignedCommercialReps ?? [],
-          byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+          byArea: [...salesAreas, ...zeroAreas],
           byItem: [...salesItems, ...zeroItems],
           byRep:  (d.byRep  ?? []).map((r: any) => ({ name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         };
