@@ -2,7 +2,7 @@ import prisma from '../../lib/prisma.js';
 
 const select = {
   id: true, name: true, phone: true, email: true, company: true,
-  isActive: true, notes: true, createdAt: true, updatedAt: true,
+  isActive: true, notes: true, createdAt: true, updatedAt: true, userId: true,
 };
 
 export async function createScientificRep(data) {

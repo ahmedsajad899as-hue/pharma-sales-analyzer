@@ -344,6 +344,49 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
 }
 
 /**
+ * Query returns for a scientific rep using only area/item scoping
+ * (without restricting by commRepIds). This handles cases where return rows
+ * in a mixed file are attributed to reps not directly assigned to the sci rep.
+ *
+ * @param {number[]|null} areaIds   - null = all areas
+ * @param {number[]|null} itemIds   - null = all items
+ * @param {{ startDate?, endDate? }} dateRange
+ * @param {number[]|null} fileIds
+ * @param {number|null}   userId    - scope to this user's data
+ * @returns {{ totals, byArea, byItem, byRep }}
+ */
+export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {}, fileIds = null, userId = null) {
+  // Safety guard: require at least one scoping condition
+  const hasScope = fileIds || userId || (areaIds && areaIds.length) || (itemIds && itemIds.length);
+  if (!hasScope) {
+    return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
+  }
+
+  const dateFilter = buildDateFilter(dateRange);
+  const where = {
+    recordType: 'return',
+    ...dateFilter,
+    ...(areaIds && areaIds.length ? { areaId: { in: areaIds } } : {}),
+    ...(itemIds && itemIds.length ? { itemId: { in: itemIds } } : {}),
+    ...buildFileIdsFilter(fileIds),
+    ...(userId ? { userId } : {}),
+  };
+
+  const sales = await prisma.sale.findMany({
+    where,
+    select: {
+      quantity:   true,
+      totalValue: true,
+      area:           { select: { id: true, name: true } },
+      item:           { select: { id: true, name: true } },
+      representative: { select: { id: true, name: true } },
+    },
+  });
+
+  return aggregateSalesWithReps(sales);
+}
+
+/**
  * In-memory aggregation of Prisma sale records.
  * Groups by area and item, accumulates quantity + value.
  */

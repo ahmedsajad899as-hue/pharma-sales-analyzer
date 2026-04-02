@@ -1,5 +1,5 @@
 import * as repo from './scientific-reps.repository.js';
-import { findOrCreateArea, findOrCreateItem, getSalesForScientificRep } from '../sales/sales.repository.js';
+import { findOrCreateArea, findOrCreateItem, getSalesForScientificRep, getReturnsForSciRepScope } from '../sales/sales.repository.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
@@ -209,14 +209,31 @@ export async function getReport(id, query = {}) {
   });
   const itemIds = itemLinks.length ? itemLinks.map(l => l.itemId) : null;
 
-  const { totals, byArea, byItem, byRep } = await getSalesForScientificRep(
-    commRepIds,
-    areaIds,
-    itemIds,
-    { startDate: query.startDate, endDate: query.endDate },
-    query.fileIds ?? null,
-    query.recordType || null,
-  );
+  // For returns: query by area/item scope only (not restricted to assigned commRepIds)
+  // This handles mixed files where return rows may be attributed to reps not
+  // directly assigned to this scientific rep (e.g., 'غير محدد' or different rep spelling).
+  let salesResult, returnsResult;
+  if (query.recordType === 'return') {
+    returnsResult = await getReturnsForSciRepScope(
+      areaIds,
+      itemIds,
+      { startDate: query.startDate, endDate: query.endDate },
+      query.fileIds ?? null,
+      rep.userId ?? null,
+    );
+    salesResult = returnsResult;
+  } else {
+    salesResult = await getSalesForScientificRep(
+      commRepIds,
+      areaIds,
+      itemIds,
+      { startDate: query.startDate, endDate: query.endDate },
+      query.fileIds ?? null,
+      query.recordType || null,
+    );
+  }
+
+  const { totals, byArea, byItem, byRep } = salesResult;
 
   return {
     scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
