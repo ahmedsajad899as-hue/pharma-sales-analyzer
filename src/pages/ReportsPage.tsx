@@ -126,7 +126,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
       setCommReport(parseReport(salesJson.data ?? salesJson));
-      setCommReturnsReport(parseReport(returnsJson.data ?? returnsJson));
+      setCommReturnsReport(returnsRes.ok ? parseReport(returnsJson.data ?? returnsJson) : null);
       setReportView('sales');
       setActiveTab('area');
     } catch (err: any) { setError(err.message); }
@@ -170,7 +170,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
       setSciReport(parseSciReport(salesJson.data ?? salesJson));
-      setSciReturnsReport(parseSciReport(returnsJson.data ?? returnsJson));
+      setSciReturnsReport(returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null);
       setReportView('sales');
       setActiveTab('area');
     } catch (err: any) { setError(err.message); }
@@ -260,25 +260,31 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const isActive = reportView === key;
         const isDisabled = key === 'returns' && !hasReturns;
         return (
-          <button key={key} onClick={() => setReportView(key)} disabled={isDisabled} style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-            padding: isActive ? '10px 28px 8px' : '7px 20px 6px',
-            borderRadius: 12,
-            border: isActive ? `2.5px solid ${border}` : '2.5px solid transparent',
-            cursor: isDisabled ? 'not-allowed' : 'pointer',
-            fontWeight: isActive ? 800 : 600,
-            fontSize: isActive ? 14 : 13,
-            background: isActive ? bg : '#f1f5f9',
-            color: isActive ? '#fff' : '#64748b',
-            opacity: isDisabled ? 0.4 : 1,
-            boxShadow: isActive ? `0 4px 18px ${glow}, 0 2px 6px ${glow}` : '0 1px 3px #0001',
-            transform: isActive ? 'scale(1.12) translateY(-3px)' : 'scale(1)',
-            transition: 'all 0.2s cubic-bezier(.34,1.56,.64,1)',
-            minWidth: 90,
-            position: 'relative',
-          }}>
+          <button
+            key={key}
+            onClick={() => setReportView(key)}
+            disabled={isDisabled}
+            title={isDisabled ? 'لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من صفحة رفع الملفات' : undefined}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              padding: isActive ? '10px 28px 8px' : '7px 20px 6px',
+              borderRadius: 12,
+              border: isActive ? `2.5px solid ${border}` : '2.5px solid transparent',
+              cursor: isDisabled ? 'not-allowed' : 'pointer',
+              fontWeight: isActive ? 800 : 600,
+              fontSize: isActive ? 14 : 13,
+              background: isActive ? bg : '#f1f5f9',
+              color: isActive ? '#fff' : '#64748b',
+              opacity: isDisabled ? 0.4 : 1,
+              boxShadow: isActive ? `0 4px 18px ${glow}, 0 2px 6px ${glow}` : '0 1px 3px #0001',
+              transform: isActive ? 'scale(1.12) translateY(-3px)' : 'scale(1)',
+              transition: 'all 0.2s cubic-bezier(.34,1.56,.64,1)',
+              minWidth: 90,
+              position: 'relative',
+            }}>
             <span style={{ fontSize: isActive ? 24 : 17, lineHeight: 1, transition: 'font-size 0.2s' }}>{icon}</span>
             <span>{label}</span>
+            {isDisabled && <span style={{ fontSize: 9, color: '#94a3b8', marginTop: -2 }}>لا يوجد بيانات</span>}
             {isActive && (
               <span style={{
                 position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)',
@@ -289,6 +295,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </button>
         );
       })}
+      {!hasReturns && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: '#fff7ed', border: '1px solid #fed7aa',
+          borderRadius: 8, padding: '5px 10px', fontSize: 12, color: '#9a3412',
+        }}>
+          <span>↩️</span>
+          <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
+        </div>
+      )}
     </div>
   );
 

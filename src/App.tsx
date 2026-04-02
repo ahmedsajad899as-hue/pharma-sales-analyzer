@@ -152,7 +152,13 @@ function AppInner() {
   });
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
-  const [activeFileIds, setActiveFileIds] = useState<number[]>([]);
+  const [activeFileIds, setActiveFileIds] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem('activeFileIds');
+      if (saved) return JSON.parse(saved) as number[];
+    } catch {}
+    return [];
+  });
 
   // Keep a ref so the popstate closure always sees the latest activePage
   const activePageRef = useRef(activePage);
@@ -282,10 +288,16 @@ function AppInner() {
   }, []);
 
   const toggleFileActive = (id: number | null) => {
-    if (id === null) { setActiveFileIds([]); return; }
-    setActiveFileIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
+    if (id === null) {
+      setActiveFileIds([]);
+      localStorage.removeItem('activeFileIds');
+      return;
+    }
+    setActiveFileIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      localStorage.setItem('activeFileIds', JSON.stringify(next));
+      return next;
+    });
   };
 
   // Show login page when not authenticated
