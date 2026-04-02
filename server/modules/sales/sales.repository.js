@@ -49,11 +49,44 @@ export async function findOrCreateCompany(name, userId) {
  * @param {string} name
  * @param {number} userId
  */
-export async function findOrCreateItem(name, userId) {
+/**
+ * Find or create an Item by name.
+ * Priority order:
+ *  1. Item in a scientific company catalog (scientificCompanyId set, name match)
+ *     — shared across all users of that company.
+ *  2. Item scoped to userId (legacy / temp items from previous uploads).
+ *  3. Create new item scoped to userId, marked isTemp=true (not in any catalog).
+ *
+ * @param {string} name
+ * @param {number|null} userId
+ * @param {number[]|null} sciCompanyIds  - IDs of scientific companies the uploader belongs to
+ */
+export async function findOrCreateItem(name, userId, sciCompanyIds = null) {
+  // 1. Check company catalog first (if user belongs to a company)
+  if (sciCompanyIds && sciCompanyIds.length > 0) {
+    const catalogItem = await prisma.item.findFirst({
+      where: {
+        name,
+        scientificCompanyId: { in: sciCompanyIds },
+        isTemp: false,
+      },
+    });
+    if (catalogItem) return catalogItem;
+  }
+
+  // 2. Try existing user-scoped item (not temp)
+  if (userId) {
+    const userItem = await prisma.item.findFirst({
+      where: { name, userId, isTemp: false },
+    });
+    if (userItem) return userItem;
+  }
+
+  // 3. Create new temp item scoped to user — not in any company catalog
   return prisma.item.upsert({
     where:  { name_userId: { name, userId } },
     update: {},
-    create: { name, userId },
+    create: { name, userId, isTemp: true },
   });
 }
 
@@ -78,6 +111,17 @@ export async function findOrCreateCustomer(name, userId) {
  */
 export async function getAllItems(userId) {
   return prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+}
+
+/**
+ * Return all catalog item names (from scientific companies) for the uploader's companies.
+ */
+export async function getCatalogItems(sciCompanyIds) {
+  if (!sciCompanyIds || sciCompanyIds.length === 0) return [];
+  return prisma.item.findMany({
+    where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+    select: { id: true, name: true },
+  });
 }
 
 /**

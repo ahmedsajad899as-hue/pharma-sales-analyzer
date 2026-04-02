@@ -32,6 +32,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     salesCount?: number;
     returnsCount?: number;
     normalizations?: Array<{ from: string; to: string; source: string; entityType: string }>;
+    unknownItems?: string[];
   } | null>(null);
   const [showNorm, setShowNorm] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -84,10 +85,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       // Auto-activate new file
       const newFileId = data.data?.uploadedFile?.id ?? data.uploadedFile?.id;
       const norms = data.data?.normalizations ?? data.normalizations ?? [];
+      const unknownItems = data.data?.unknownItems ?? data.unknownItems ?? [];
       setUploadResult({
         salesCount:  data.data?.salesCount,
         returnsCount: data.data?.returnsCount,
         normalizations: norms,
+        unknownItems,
       });
       setShowNorm(norms.length > 0);
       setTimeout(() => { setUploadResult(null); setShowNorm(false); }, 18000);

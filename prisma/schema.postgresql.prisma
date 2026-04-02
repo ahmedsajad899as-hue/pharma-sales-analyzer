@@ -162,6 +162,7 @@ model Item {
   price             Float?   // السعر
   scientificMessage String?  // المسج العلمي
   imageUrl          String?  // صورة الايتم
+  isTemp            Boolean  @default(false) // إيتم مؤقت من ملف رفع، غير موجود في كتالوج الشركة
   createdAt         DateTime @default(now())
 
   userId              Int?

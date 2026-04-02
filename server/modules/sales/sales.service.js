@@ -17,6 +17,7 @@ import {
   getAllItems,
   getAllReps,
   getAllCompanies,
+  getCatalogItems,
 } from './sales.repository.js';
 import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
 import { ExcelRowSchema } from './sales.dto.js';
@@ -227,18 +228,36 @@ export async function processUploadedFile(file, options = {}) {
   // Compare incoming names against existing DB names (same userId) so that minor
   // spelling variants across files get collapsed to a single canonical name.
   let normalizationLog = [];
+
+  // Fetch the scientific companies the uploader belongs to (for catalog matching)
+  let sciCompanyIds = [];
   if (userId) {
-    const [existingItems, existingReps, existingCompanies] = await Promise.all([
+    const userCompanies = await prisma.userCompanyAssignment.findMany({
+      where: { userId },
+      select: { companyId: true },
+    });
+    sciCompanyIds = userCompanies.map(c => c.companyId);
+  }
+
+  if (userId) {
+    const [existingItems, existingReps, existingCompanies, catalogItems] = await Promise.all([
       getAllItems(userId),
       getAllReps(userId),
       getAllCompanies(userId),
+      getCatalogItems(sciCompanyIds),
     ]);
+
+    // Merge user items + catalog items for fuzzy matching
+    const allKnownItemNames = [...new Set([
+      ...existingItems.map(i => i.name),
+      ...catalogItems.map(i => i.name),
+    ])];
 
     const incomingItems     = [...new Set(validRows.map(r => r.item))].filter(n => n && n !== 'غير محدد');
     const incomingReps      = [...new Set(validRows.map(r => r.repName))].filter(n => n && n !== 'غير محدد');
     const incomingCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
 
-    const itemDedup    = buildNormalizationMap(incomingItems,     existingItems.map(i => i.name),    'item');
+    const itemDedup    = buildNormalizationMap(incomingItems,     allKnownItemNames,            'item');
     const repDedup     = buildNormalizationMap(incomingReps,      existingReps.map(r => r.name),     'rep');
     const companyDedup = buildNormalizationMap(incomingCompanies, existingCompanies.map(c => c.name), 'company');
 
@@ -263,11 +282,22 @@ export async function processUploadedFile(file, options = {}) {
 
   const [areaMap, itemMap, repMap, customerMap, companyMap] = await Promise.all([
     resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId)),
-    resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId)),
+    resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId, sciCompanyIds)),
     resolveEntities(uniqueReps,      name => findOrCreateRep(name, userId)),
     resolveEntities(uniqueCustomers, name => findOrCreateCustomer(name, userId)),
     resolveEntities(uniqueCompanies, name => findOrCreateCompany(name, userId)),
   ]);
+
+  // Track which items are temporary (not in any company catalog)
+  const tempItemNames = [];
+  if (sciCompanyIds.length > 0) {
+    const resolvedItemIds = Object.values(itemMap).filter(Boolean);
+    const tempItems = await prisma.item.findMany({
+      where: { id: { in: resolvedItemIds }, isTemp: true },
+      select: { name: true },
+    });
+    tempItemNames.push(...tempItems.map(i => i.name));
+  }
 
   // Link each item to its company (from the first row that maps item → company)
   if (uniqueCompanies.length > 0) {
@@ -354,6 +384,7 @@ export async function processUploadedFile(file, options = {}) {
     returnsCount:   returnsRows.length,
     skipped:        skippedRows,
     normalizations: normalizationLog,
+    unknownItems:   tempItemNames,
     uploadedFile: {
       id:           uploadedFile.id,
       originalName: uploadedFile.originalName,
