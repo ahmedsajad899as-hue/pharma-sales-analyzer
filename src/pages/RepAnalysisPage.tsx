@@ -14,15 +14,13 @@ interface Props {
   onNavigate: (p: PageId) => void;
 }
 
-const TABS: { id: TabId; label: string; icon: string; desc: string }[] = [
-  { id: 'upload',          label: 'رفع الملفات',         icon: '📤', desc: 'رفع وإدارة ملفات المبيعات' },
-  { id: 'representatives', label: 'المندوبون التجاريون', icon: '💰', desc: 'متابعة وإدارة المندوبين التجاريين' },
-  { id: 'scientific-reps', label: 'المندوبون العلميون',  icon: '🔬', desc: 'إدارة المندوبين العلميين وتعيين المناطق' },
-  { id: 'reports',         label: 'التقارير والتحليل',   icon: '📊', desc: 'تقارير المبيعات والتحليل المفصّل' },
-  { id: 'items',           label: 'الايتمات',            icon: '💊', desc: 'إدارة ايتمات الشركة بكافة تفاصيلها' },
+const TABS: { id: TabId; label: string; desc: string }[] = [
+  { id: 'upload',          label: 'رفع الملفات',         desc: 'رفع وإدارة ملفات المبيعات' },
+  { id: 'representatives', label: 'المندوبون التجاريون', desc: 'متابعة وإدارة المندوبين التجاريين' },
+  { id: 'scientific-reps', label: 'المندوبون العلميون',  desc: 'إدارة المندوبين العلميين وتعيين المناطق' },
+  { id: 'reports',         label: 'التقارير والتحليل',   desc: 'تقارير المبيعات والتحليل المفصّل' },
+  { id: 'items',           label: 'الايتمات',            desc: 'إدارة ايتمات الشركة بكافة تفاصيلها' },
 ];
-
-const ACCENT = '#4f46e5';  // single unified accent color
 
 export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
@@ -53,86 +51,62 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
   return (
     <div style={{ minHeight: '100%', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
       <style>{`
-        @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .ra-tab {
-          transition: background 0.18s, color 0.18s, box-shadow 0.18s;
-        }
-        .ra-tab:hover:not(.ra-tab--active) {
-          background: rgba(79,70,229,0.07) !important;
-          color: #4f46e5 !important;
-        }
+        .ra-tab { transition: color 0.15s, border-color 0.15s; }
+        .ra-tab:hover { color: #1e293b !important; }
         @media (max-width: 640px) {
-          .ra-tabs { overflow-x: auto !important; flex-wrap: nowrap !important; }
-          .ra-tab  { padding: 9px 14px !important; font-size: 12px !important; white-space: nowrap; }
-          .ra-tab-desc { display: none !important; }
+          .ra-tabs { overflow-x: auto; flex-wrap: nowrap; }
+          .ra-tab  { font-size: 13px !important; padding: 10px 14px !important; }
         }
       `}</style>
 
       {/* ── Header ── */}
       <div style={{
-        background: 'linear-gradient(135deg, #312e81 0%, #4f46e5 100%)',
-        padding: '20px 24px 0',
+        background: '#fff',
+        borderBottom: '1px solid #e2e8f0',
+        padding: '18px 28px 0',
+        direction: 'rtl',
       }}>
-        {/* Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-          <div style={{
-            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-            background: 'rgba(255,255,255,0.15)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-          }}>📂</div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>
-              تحليل ملفات المندوبين
-            </h1>
-            <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: 'rgba(199,210,254,0.85)' }}>
-              {activeInfo.icon} {activeInfo.desc}
-            </p>
-          </div>
+        {/* Title row */}
+        <div style={{ marginBottom: 16 }}>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
+            تحليل ملفات المندوبين
+          </h1>
+          <p style={{ margin: '3px 0 0', fontSize: 13, color: '#94a3b8' }}>
+            {activeInfo.desc}
+          </p>
         </div>
 
         {/* Tab bar */}
-        <div className="ra-tabs" style={{ display: 'flex', gap: 2 }}>
+        <div className="ra-tabs" style={{ display: 'flex', gap: 0 }}>
           {TABS.map(tab => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                className={`ra-tab${isActive ? ' ra-tab--active' : ''}`}
+                className="ra-tab"
                 onClick={() => handleTabChange(tab.id)}
                 style={{
-                  padding: '10px 18px',
+                  padding: '10px 20px',
                   border: 'none',
-                  borderRadius: '8px 8px 0 0',
-                  fontSize: 13,
-                  fontWeight: isActive ? 700 : 500,
+                  borderBottom: isActive ? '2px solid #4f46e5' : '2px solid transparent',
+                  background: 'transparent',
+                  fontSize: 14,
+                  fontWeight: isActive ? 600 : 400,
+                  color: isActive ? '#4f46e5' : '#64748b',
                   cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 7,
                   whiteSpace: 'nowrap',
-                  background: isActive ? '#f8fafc' : 'transparent',
-                  color: isActive ? ACCENT : 'rgba(255,255,255,0.7)',
-                  borderBottom: isActive ? `3px solid ${ACCENT}` : '3px solid transparent',
-                  boxShadow: 'none',
+                  marginBottom: -1,
                 }}
               >
-                <span style={{ fontSize: 16, lineHeight: 1 }}>{tab.icon}</span>
-                <span>{tab.label}</span>
+                {tab.label}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* ── Accent line + content ── */}
-      <div key={animKey} style={{
-        flex: 1,
-        background: '#f8fafc',
-        animation: 'fadeSlideIn 0.22s ease',
-      }}>
-        <div style={{ height: 3, background: `linear-gradient(90deg, ${ACCENT}, ${ACCENT}30)` }} />
+      {/* ── Content ── */}
+      <div key={animKey} style={{ flex: 1, background: '#f8fafc' }}>
         {renderContent()}
       </div>
     </div>
