@@ -97,8 +97,9 @@ export default function ScientificRepsPage() {
     const crList = Array.isArray(cr.data) ? cr.data : (Array.isArray(cr) ? cr : []);
     setAllCommercial(crList);
     const crAreasList = Array.isArray(crAreas.data) ? crAreas.data : [];
-    setAllCommercialWithAreas(crAreasList.filter((r: any) => r.areas?.length > 0));
-  }, [token]);
+    const crWithAreas: CommercialWithAreas[] = crAreasList.filter((r: any) => r.areas?.length > 0);
+    setAllCommercialWithAreas(crWithAreas);
+    return { crWithAreas };
 
   // ─── Open modals ───────────────────────────────────────────
   const openAdd = () => {
@@ -128,7 +129,18 @@ export default function ScientificRepsPage() {
     setAssignError('');
     setModal('assign');           // افتح المودال أولاً حتى لو فشل التحميل
     try {
-      await loadAllOptions();
+      const { crWithAreas } = await loadAllOptions();
+      // Auto-add commercial reps whose sales areas match the already-assigned areas
+      const currentAreas = rep.areas ?? [];
+      if (currentAreas.length > 0 && crWithAreas.length > 0) {
+        const savedCommIds = new Set((rep.commercialReps ?? []).map(c => c.id));
+        const autoReps: NamedItem[] = crWithAreas
+          .filter(cr => !savedCommIds.has(cr.id) &&
+            cr.areas.some(ca => currentAreas.some(sa => sa.name.trim() === ca.name.trim())))
+          .map(cr => ({ id: cr.id, name: cr.name }));
+        if (autoReps.length > 0)
+          setSelCommercial(prev => [...prev, ...autoReps]);
+      }
     } catch (err: any) {
       setError(`${t.sciReps.errorAssignLoad}: ${err.message}`);
     }
