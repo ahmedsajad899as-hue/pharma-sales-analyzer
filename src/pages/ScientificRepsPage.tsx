@@ -45,6 +45,7 @@ export default function ScientificRepsPage() {
   const [newItemName, setNewItemName]       = useState('');
   const [search, setSearch]                 = useState('');
   const [saving, setSaving]                 = useState(false);
+  const [assignError, setAssignError]       = useState('');
   const [areaViewMode, setAreaViewMode]       = useState<AreaViewMode>('flat');
   const [allCommercialWithAreas, setAllCommercialWithAreas] = useState<CommercialWithAreas[]>([]);
   const [selectedCommRepId, setSelectedCommRepId] = useState<number | null>(null);
@@ -124,6 +125,7 @@ export default function ScientificRepsPage() {
     setAreaViewMode('flat');
     setSelectedCommRepId(null);
     setFilterCompanyId('all');
+    setAssignError('');
     setModal('assign');           // افتح المودال أولاً حتى لو فشل التحميل
     try {
       await loadAllOptions();
@@ -155,7 +157,7 @@ export default function ScientificRepsPage() {
     setSaving(true);
     try {
       const id = selected.id;
-      await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`${API}/api/scientific-reps/${id}/areas`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json', ...authH() },
           body: JSON.stringify({ areaNames: selAreas.map(a => a.name) }),
@@ -173,8 +175,14 @@ export default function ScientificRepsPage() {
           body: JSON.stringify({ commercialRepIds: selCommercial.map(c => c.id) }),
         }),
       ]);
+      for (const r of [r1, r2, r3, r4]) {
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error || j.message || `فشل الحفظ (HTTP ${r.status})`);
+        }
+      }
       setModal(null); load();
-    } catch (err: any) { setError(err.message); }
+    } catch (err: any) { setAssignError(err.message); }
     finally { setSaving(false); }
   };
 
@@ -1093,6 +1101,11 @@ export default function ScientificRepsPage() {
               )}
             </div>
 
+            {assignError && (
+              <div style={{ margin: '0 20px 12px', padding: '10px 14px', background: '#fee2e2', color: '#b91c1c', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
+                ⚠️ {assignError}
+              </div>
+            )}
             <div className="modal-footer">
               <button className="btn btn--secondary" onClick={() => setModal(null)}>{t.sciReps.cancel}</button>
               <button className="btn btn--primary" onClick={saveAssign} disabled={saving}>
