@@ -437,6 +437,30 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         </div>
       )}
 
+      {/* Unknown items warning — items from file not in company catalog */}
+      {uploadResult && uploadResult.unknownItems && uploadResult.unknownItems.length > 0 && (
+        <div style={{ background: '#fff7ed', border: '1px solid #fb923c', borderRadius: 10, padding: '12px 18px', fontSize: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 22 }}>🆕</span>
+            <div>
+              <strong style={{ color: '#9a3412', fontSize: 15 }}>
+                {uploadResult.unknownItems.length} ايتم غير موجود في كتالوج الشركة
+              </strong>
+              <div style={{ color: '#c2410c', fontSize: 12, marginTop: 2 }}>
+                تم حفظ البيانات مؤقتاً — أضف هذه الأيتمات من صفحة إدارة الشركة إذا أردت اعتمادها رسمياً
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {uploadResult.unknownItems.map((name, i) => (
+              <span key={i} style={{ background: '#fed7aa', color: '#9a3412', borderRadius: 6, padding: '2px 10px', fontSize: 13, fontWeight: 600 }}>
+                {name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Dedup scan result */}
       {dedupResult && showDedupDetail && dedupResult.count > 0 && (
         <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 10, padding: '10px 18px', fontSize: 14 }}>
