@@ -4,19 +4,21 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 
-/** Quantity cell — hidden by default, click to reveal, click again to hide */
-function HiddenQty({ value, fmt, style, signed }: { value: number; fmt: (n: number) => string; style?: React.CSSProperties; signed?: boolean }) {
+/** Quantity cell — hidden by default, click to reveal, click again to hide.
+ *  forceReveal overrides local state when provided (used by global toggle). */
+function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; fmt: (n: number) => string; style?: React.CSSProperties; signed?: boolean; forceReveal?: boolean }) {
   const [revealed, setRevealed] = useState(false);
+  const show = forceReveal !== undefined ? forceReveal : revealed;
   const formatted = signed
     ? (value >= 0 ? `+${fmt(Math.abs(value))}` : `-${fmt(Math.abs(value))}`)
     : fmt(value);
   return (
     <span
       onClick={() => setRevealed(r => !r)}
-      title={revealed ? 'انقر للإخفاء' : 'انقر لعرض الكمية'}
+      title={show ? 'انقر للإخفاء' : 'انقر لعرض الكمية'}
       style={{ cursor: 'pointer', userSelect: 'none', ...style }}
     >
-      {revealed ? formatted : (
+      {show ? formatted : (
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 3,
           background: '#f1f5f9', borderRadius: 6,
@@ -86,6 +88,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selCommIds, setSelCommIds]           = useState<Set<number>>(new Set());
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
+  const [qtyRevealed, setQtyRevealed]         = useState(false);
 
   // AI assistant page-action listener
   useEffect(() => {
@@ -223,6 +226,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const retMap    = Object.fromEntries(returns.map(r => [rowKey(r), r]));
     const colSpanEmpty = hasRep ? 9 : 8;
     return (
+      <>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
+          <button
+            onClick={() => setQtyRevealed(r => !r)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '5px 14px', borderRadius: '8px', border: '1px solid',
+              fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+              background: qtyRevealed ? '#1e40af' : '#f1f5f9',
+              color: qtyRevealed ? '#fff' : '#475569',
+              borderColor: qtyRevealed ? '#1e40af' : '#cbd5e1',
+              transition: 'all 0.15s',
+            }}
+          >
+            {qtyRevealed ? '🙈 إخفاء الكميات' : '👁 إظهار الكميات'}
+          </button>
+        </div>
       <div className="table-wrapper">
         <table className="data-table">
           <thead>
@@ -249,11 +269,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td>{i + 1}</td>
                   <td><strong>{row.name}</strong></td>
                   {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} /></td>
+                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} /></td>
                   <td style={{ color: '#1d4ed8' }}>{fmt(s.totalValue)}</td>
-                  <td style={{ color: '#dc2626' }}><HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} /></td>
+                  <td style={{ color: '#dc2626' }}><HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} /></td>
                   <td style={{ color: '#dc2626' }}>{fmt(r.totalValue)}</td>
-                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} /></td>
+                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} /></td>
                   <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netVal)}</td>
                 </tr>
               );
@@ -268,11 +288,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr style={{ background: '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
-                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} /></td>
+                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} /></td>
                   <td style={{ color: '#1d4ed8' }}>{fmt(totSalesVal)}</td>
-                  <td style={{ color: '#dc2626' }}><HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} /></td>
+                  <td style={{ color: '#dc2626' }}><HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} /></td>
                   <td style={{ color: '#dc2626' }}>{fmt(totRetVal)}</td>
-                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} /></td>
+                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} /></td>
                   <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesVal - totRetVal)}</td>
                 </tr>
               );
@@ -280,6 +300,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </tbody>
         </table>
       </div>
+      </>
     );
   };
 
@@ -529,7 +550,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <td>{i + 1}</td>
                 <td><strong>{row.name}</strong></td>
                 {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                <td><HiddenQty value={row.totalQty} fmt={fmt} /></td>
+                <td><HiddenQty value={row.totalQty} fmt={fmt} forceReveal={qtyRevealed} /></td>
                 <td>{fmt(row.totalValue)}</td>
                 <td>
                   <div className="pct-bar-wrapper">
