@@ -273,7 +273,25 @@ export async function processUploadedFile(file, options = {}) {
     }
   }
 
-  // ── 4. Resolve/create Areas, Items, Reps, Companies (de-duped) ────
+  // ── 4. Resolve/create Areas, Items, Reps, Companies (de-duped) ─────────────
+  // Normalize Arabic names before deduplication so الأعظمية/الاعظمية → same entry.
+  const normalizeAr = s => String(s)
+    .trim()
+    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
+    .replace(/\u0629/g, '\u0647')
+    .replace(/\u0640/g, '')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  for (const row of validRows) {
+    row.area    = normalizeAr(row.area);
+    row.item    = normalizeAr(row.item);
+    row.repName = normalizeAr(row.repName);
+    if (row.customer) row.customer = normalizeAr(row.customer);
+    if (row.company)  row.company  = normalizeAr(row.company);
+  }
+
   const uniqueAreas     = [...new Set(validRows.map(r => r.area))];
   const uniqueItems     = [...new Set(validRows.map(r => r.item))];
   const uniqueReps      = [...new Set(validRows.map(r => r.repName))];

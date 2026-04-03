@@ -7,6 +7,25 @@
 import prisma from '../../lib/prisma.js';
 
 /**
+ * Normalize Arabic text to a canonical form:
+ * - Unify all Alef variants (أ إ آ ٱ) → ا
+ * - Unify Teh Marbuta (ة) → ه
+ * - Remove Tatweel (ـ)
+ * - Remove diacritics (تشكيل)
+ * - Trim and collapse whitespace
+ */
+function normalizeArabic(str) {
+  return String(str)
+    .trim()
+    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')  // أ إ آ ٱ → ا
+    .replace(/\u0629/g, '\u0647')                        // ة → ه
+    .replace(/\u0640/g, '')                              // ـ Tatweel
+    .replace(/[\u064B-\u065F]/g, '')                    // diacritics
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Build a Prisma uploadedFileId filter from a fileIds value.
  * Accepts: null (no filter), a single number, or an array of numbers.
  */
@@ -24,11 +43,18 @@ function buildFileIdsFilter(fileIds) {
  * @param {number} userId
  */
 export async function findOrCreateArea(name, userId) {
-  return prisma.area.upsert({
-    where:  { name_userId: { name, userId } },
-    update: {},
-    create: { name, userId },
+  const normalized = normalizeArabic(name);
+  // Pull all areas for this user and find one whose normalized name matches.
+  // This handles variants like ا/أ/إ/آ, ه/ة, with/without diacritics etc.
+  const userAreas = await prisma.area.findMany({
+    where: { userId: userId ?? null },
+    select: { id: true, name: true },
   });
+  const existing = userAreas.find(r => normalizeArabic(r.name) === normalized);
+  if (existing) return existing;
+
+  // Create using the normalized name so future lookups stay consistent.
+  return prisma.area.create({ data: { name: normalized, userId: userId ?? null } });
 }
 
 /**
@@ -62,31 +88,33 @@ export async function findOrCreateCompany(name, userId) {
  * @param {number[]|null} sciCompanyIds  - IDs of scientific companies the uploader belongs to
  */
 export async function findOrCreateItem(name, userId, sciCompanyIds = null) {
+  const normalized = normalizeArabic(name);
+
   // 1. Check company catalog first (if user belongs to a company)
   if (sciCompanyIds && sciCompanyIds.length > 0) {
-    const catalogItem = await prisma.item.findFirst({
-      where: {
-        name,
-        scientificCompanyId: { in: sciCompanyIds },
-        isTemp: false,
-      },
+    const catalogItems = await prisma.item.findMany({
+      where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+      select: { id: true, name: true },
     });
-    if (catalogItem) return catalogItem;
+    const found = catalogItems.find(i => normalizeArabic(i.name) === normalized);
+    if (found) return found;
   }
 
   // 2. Try existing user-scoped item (not temp)
   if (userId) {
-    const userItem = await prisma.item.findFirst({
-      where: { name, userId, isTemp: false },
+    const userItems = await prisma.item.findMany({
+      where: { userId, isTemp: false },
+      select: { id: true, name: true },
     });
-    if (userItem) return userItem;
+    const found = userItems.find(i => normalizeArabic(i.name) === normalized);
+    if (found) return found;
   }
 
   // 3. Create new temp item scoped to user — not in any company catalog
   return prisma.item.upsert({
-    where:  { name_userId: { name, userId } },
+    where:  { name_userId: { name: normalized, userId } },
     update: {},
-    create: { name, userId, isTemp: true },
+    create: { name: normalized, userId, isTemp: true },
   });
 }
 
