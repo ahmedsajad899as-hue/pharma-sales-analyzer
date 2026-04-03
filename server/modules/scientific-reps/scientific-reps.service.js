@@ -14,25 +14,13 @@ async function assertExists(id) {
 // ─── CRUD ────────────────────────────────────────────────────
 
 export async function create(dto, user = null) {
-  // Company-scoped roles create standalone reps with userId=null to avoid the
-  // unique(name, userId) collision. Visibility is controlled via ScientificRepCompany.
-  const repData = (user && COMPANY_SCOPED_ROLES.has(user.role))
-    ? { ...dto, userId: null }
-    : dto;
-  const rep = await repo.createScientificRep(repData);
-
-  // Auto-assign creator's companies so the new rep appears in the company-scoped list
-  if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
-    const assignments = await prisma.userCompanyAssignment.findMany({
-      where: { userId: user.id },
-      select: { companyId: true },
-    });
-    const companyIds = assignments.map(a => a.companyId);
-    if (companyIds.length > 0) {
-      await repo.setCompanies(rep.id, companyIds);
-    }
-  }
-
+  // dto already has userId = user.id (set by controller).
+  // For company-scoped roles we keep that userId so the rep is scoped to
+  // this manager and appears in their list via the userId filter below.
+  // We intentionally do NOT try to link via ScientificRepCompany because
+  // that junction table references the old Company model, while
+  // UserCompanyAssignment references the newer ScientificCompany model.
+  const rep = await repo.createScientificRep(dto);
   return getById(rep.id);
 }
 
@@ -116,12 +104,13 @@ export async function list(filters, user = null) {
       };
     }));
 
-    // Also include standalone ScientificRepresentative records assigned to these companies
-    // (e.g. reps added manually by the company manager that don't have a linked User account)
+    // Also include standalone ScientificRepresentative records created by this user
+    // (added manually by the company manager — scoped via userId, not ScientificRepCompany,
+    //  because UserCompanyAssignment → ScientificCompany while ScientificRepCompany → Company).
     const userRepIds = new Set(repsWithIds.map(r => r.id));
     const standaloneReps = await prisma.scientificRepresentative.findMany({
       where: {
-        companies: { some: { companyId: { in: companyIds } } },
+        userId: user.id,
         ...(userRepIds.size > 0 ? { id: { notIn: [...userRepIds] } } : {}),
       },
       select: {
