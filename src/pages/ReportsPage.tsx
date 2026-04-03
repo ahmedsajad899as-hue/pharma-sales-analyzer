@@ -222,9 +222,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string) => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
     const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
-    const allKeys = [...new Set([...sales.map(rowKey), ...returns.map(rowKey)])];
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
     const retMap    = Object.fromEntries(returns.map(r => [rowKey(r), r]));
+    // Remove rows where all four values are zero (avoids ghost duplicates when repName is null in one dataset)
+    const allKeys = [...new Set([...sales.map(rowKey), ...returns.map(rowKey)])].filter(key => {
+      const s = salesMap[key]  ?? { totalQty: 0, totalValue: 0 };
+      const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
+      return s.totalQty !== 0 || s.totalValue !== 0 || r.totalQty !== 0 || r.totalValue !== 0;
+    });
     const colSpanEmpty = hasRep ? 9 : 8;
     return (
       <>
