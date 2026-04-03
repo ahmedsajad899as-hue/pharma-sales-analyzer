@@ -8,7 +8,8 @@ import type { PageId } from '../App';
  *  forceReveal overrides local state when provided (used by global toggle). */
 function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; fmt: (n: number) => string; style?: React.CSSProperties; signed?: boolean; forceReveal?: boolean }) {
   const [revealed, setRevealed] = useState(false);
-  const show = forceReveal !== undefined ? forceReveal : revealed;
+  // global forceReveal OR individual click — either one shows the value
+  const show = !!forceReveal || revealed;
   const formatted = signed
     ? (value >= 0 ? `+${fmt(Math.abs(value))}` : `-${fmt(Math.abs(value))}`)
     : fmt(value);
@@ -530,6 +531,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const zeroRows  = rows.filter(r => r.isZero);
     const colCount  = hasRep ? 6 : 5;
     return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
+        <button
+          onClick={() => setQtyRevealed(r => !r)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            padding: '5px 14px', borderRadius: '8px', border: '1px solid',
+            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+            background: qtyRevealed ? '#1e40af' : '#f1f5f9',
+            color: qtyRevealed ? '#fff' : '#475569',
+            borderColor: qtyRevealed ? '#1e40af' : '#cbd5e1',
+            transition: 'all 0.15s',
+          }}
+        >
+          {qtyRevealed ? '🙈 إخفاء الكميات' : '👁 إظهار الكميات'}
+        </button>
+      </div>
     <div className="table-wrapper">
       <table className="data-table">
         <thead>
@@ -606,6 +624,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         </tbody>
       </table>
     </div>
+    </>
     );
   };
 
