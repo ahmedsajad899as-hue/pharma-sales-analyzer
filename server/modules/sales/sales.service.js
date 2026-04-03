@@ -14,10 +14,8 @@ import {
   findRepByName,
   bulkCreateSales,
   createUploadedFile,
-  getAllItems,
   getAllReps,
   getAllCompanies,
-  getCatalogItems,
 } from './sales.repository.js';
 import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
 import { ExcelRowSchema } from './sales.dto.js';
@@ -240,32 +238,21 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   if (userId) {
-    const [existingItems, existingReps, existingCompanies, catalogItems] = await Promise.all([
-      getAllItems(userId),
+    const [existingReps, existingCompanies] = await Promise.all([
       getAllReps(userId),
       getAllCompanies(userId),
-      getCatalogItems(sciCompanyIds),
     ]);
 
-    // Merge user items + catalog items for fuzzy matching
-    const allKnownItemNames = [...new Set([
-      ...existingItems.map(i => i.name),
-      ...catalogItems.map(i => i.name),
-    ])];
-
-    const incomingItems     = [...new Set(validRows.map(r => r.item))].filter(n => n && n !== 'غير محدد');
     const incomingReps      = [...new Set(validRows.map(r => r.repName))].filter(n => n && n !== 'غير محدد');
     const incomingCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
 
-    const itemDedup    = buildNormalizationMap(incomingItems,     allKnownItemNames,            'item');
     const repDedup     = buildNormalizationMap(incomingReps,      existingReps.map(r => r.name),     'rep');
     const companyDedup = buildNormalizationMap(incomingCompanies, existingCompanies.map(c => c.name), 'company');
 
-    normalizationLog = [...itemDedup.log, ...repDedup.log, ...companyDedup.log];
+    normalizationLog = [...repDedup.log, ...companyDedup.log];
 
     if (normalizationLog.length > 0) {
       for (const row of validRows) {
-        if (itemDedup.map[row.item])                   row.item    = itemDedup.map[row.item];
         if (repDedup.map[row.repName])                 row.repName = repDedup.map[row.repName];
         if (row.company && companyDedup.map[row.company]) row.company = companyDedup.map[row.company];
       }
