@@ -286,6 +286,7 @@ export async function getReport(id, query = {}) {
       itemIds,
       { startDate: query.startDate, endDate: query.endDate },
       query.fileIds ?? null,
+      commRepIds.length > 0 ? commRepIds : null,
     );
     salesResult = returnsResult;
   } else {

@@ -406,11 +406,13 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
  * @param {number|null}   userId    - scope to this user's data
  * @returns {{ totals, byArea, byItem, byRep }}
  */
-export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {}, fileIds = null) {
+export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {}, fileIds = null, commRepIds = null) {
   // Safety guard: require fileIds to avoid returning all returns in the system
   if (!fileIds || (Array.isArray(fileIds) && fileIds.length === 0)) {
     return { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
   }
+
+  const hasCommReps = commRepIds && commRepIds.length > 0;
 
   // areaIds/itemIds are already resolved cross-user (all IDs matching the assigned names),
   // so we can safely filter by them here.
@@ -418,6 +420,9 @@ export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {},
   const where = {
     recordType: 'return',
     ...dateFilter,
+    // Always restrict to assigned commercial reps when they are specified.
+    // This prevents returns from unassigned reps that share the same area from leaking in.
+    ...(hasCommReps ? { representativeId: { in: commRepIds } } : {}),
     ...(areaIds && areaIds.length ? { areaId: { in: areaIds } } : {}),
     ...(itemIds && itemIds.length ? { itemId: { in: itemIds } } : {}),
     ...buildFileIdsFilter(fileIds),
