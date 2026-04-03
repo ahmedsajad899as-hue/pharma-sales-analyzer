@@ -46,8 +46,6 @@ export async function list(filters, user = null) {
       },
       include: {
         companyAssignments: { include: { company: { select: { id: true, name: true } } } },
-        areaAssignments:    { include: { area:    { select: { id: true, name: true } } } },
-        itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
         linkedRep:          true,
       },
     });
@@ -70,10 +68,16 @@ export async function list(filters, user = null) {
         await prisma.user.update({ where: { id: u.id }, data: { linkedRepId: rep.id } });
         repId = rep.id;
       }
-      // Load actual commercial rep assignments from DB for this sci rep
-      const commLinks = await prisma.scientificRepCommercial.findMany({
-        where: { scientificRepId: repId },
-        select: { commercialRep: { select: { id: true, name: true } } },
+      // Load areas, items, companies, and commercial reps from the ScientificRepresentative's
+      // OWN assignment tables — fully independent from the User's SA-managed assignments.
+      const sciRepData = await prisma.scientificRepresentative.findUnique({
+        where: { id: repId },
+        select: {
+          areas:          { select: { area:          { select: { id: true, name: true } } } },
+          items:          { select: { item:          { select: { id: true, name: true } } } },
+          companies:      { select: { company:       { select: { id: true, name: true } } } },
+          commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
+        },
       });
 
       return {
@@ -84,10 +88,10 @@ export async function list(filters, user = null) {
         company: u.companyAssignments[0]?.company?.name || null,
         notes: null,
         isActive: u.isActive,
-        areas:         u.areaAssignments.map(a => a.area),
-        items:         u.itemAssignments.map(a => a.item),
-        companies:     u.companyAssignments.map(a => a.company),
-        commercialReps: commLinks.map(l => l.commercialRep),
+        areas:          sciRepData?.areas?.map(a => a.area)          ?? [],
+        items:          sciRepData?.items?.map(i => i.item)          ?? [],
+        companies:      sciRepData?.companies?.map(c => c.company)   ?? [],
+        commercialReps: sciRepData?.commercialReps?.map(l => l.commercialRep) ?? [],
         _isUser: true,
         role: u.role,
       };

@@ -166,37 +166,6 @@ export async function setUserAreas(req, res) {
     })] : []),
   ]);
 
-  // Auto-assign commercial reps to the linked ScientificRepresentative
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { linkedRepId: true },
-  });
-  if (user?.linkedRepId) {
-    const sciRep = await prisma.scientificRepresentative.findUnique({
-      where: { id: user.linkedRepId },
-      select: { id: true, userId: true },
-    });
-    if (sciRep) {
-      // Find commercial reps (MedicalRepresentative) that have sales in the assigned areas
-      const medReps = parsedAreaIds.length
-        ? await prisma.medicalRepresentative.findMany({
-            where: {
-              ...(sciRep.userId ? { userId: sciRep.userId } : {}),
-              sales: { some: { areaId: { in: parsedAreaIds } } },
-            },
-            select: { id: true },
-          })
-        : [];
-      const medRepIds = [...new Set(medReps.map(r => r.id))];
-      await prisma.$transaction([
-        prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: sciRep.id } }),
-        ...(medRepIds.length ? [prisma.scientificRepCommercial.createMany({
-          data: medRepIds.map(commercialRepId => ({ scientificRepId: sciRep.id, commercialRepId })),
-        })] : []),
-      ]);
-    }
-  }
-
   res.json({ success: true });
 }
 
