@@ -9,7 +9,7 @@ const parseFileIds = (raw) => {
 
 export async function createRep(req, res, next) {
   try {
-    const rep = await svc.create({ ...req.body, userId: req.user?.id ?? null });
+    const rep = await svc.create({ ...req.body, userId: req.user?.id ?? null }, req.user);
     res.status(201).json({ success: true, data: rep });
   } catch (err) { next(err); }
 }

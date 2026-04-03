@@ -13,8 +13,22 @@ async function assertExists(id) {
 
 // ─── CRUD ────────────────────────────────────────────────────
 
-export async function create(dto) {
-  return repo.createScientificRep(dto);
+export async function create(dto, user = null) {
+  const rep = await repo.createScientificRep(dto);
+
+  // Auto-assign creator's companies so the new rep appears in the company-scoped list
+  if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { userId: user.id },
+      select: { companyId: true },
+    });
+    const companyIds = assignments.map(a => a.companyId);
+    if (companyIds.length > 0) {
+      await repo.setCompanies(rep.id, companyIds);
+    }
+  }
+
+  return getById(rep.id);
 }
 
 // Roles that see only their assigned-company reps (not all reps)
@@ -97,7 +111,38 @@ export async function list(filters, user = null) {
       };
     }));
 
-    return repsWithIds;
+    // Also include standalone ScientificRepresentative records assigned to these companies
+    // (e.g. reps added manually by the company manager that don't have a linked User account)
+    const userRepIds = new Set(repsWithIds.map(r => r.id));
+    const standaloneReps = await prisma.scientificRepresentative.findMany({
+      where: {
+        companies: { some: { companyId: { in: companyIds } } },
+        ...(userRepIds.size > 0 ? { id: { notIn: [...userRepIds] } } : {}),
+      },
+      select: {
+        id: true, name: true, phone: true, email: true, company: true,
+        isActive: true, notes: true,
+        areas:          { select: { area:          { select: { id: true, name: true } } } },
+        items:          { select: { item:          { select: { id: true, name: true } } } },
+        companies:      { select: { company:       { select: { id: true, name: true } } } },
+        commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
+      },
+    });
+    const standaloneFormatted = standaloneReps.map(r => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone,
+      email: r.email,
+      company: r.company,
+      notes: r.notes,
+      isActive: r.isActive,
+      areas:          r.areas?.map(a => a.area)          ?? [],
+      items:          r.items?.map(i => i.item)          ?? [],
+      companies:      r.companies?.map(c => c.company)   ?? [],
+      commercialReps: r.commercialReps?.map(l => l.commercialRep) ?? [],
+    }));
+
+    return [...repsWithIds, ...standaloneFormatted];
   }
 
   const reps = await repo.listAll(whereFilters);
