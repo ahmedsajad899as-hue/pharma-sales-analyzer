@@ -378,6 +378,21 @@ app.get('/api/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/items-by-files?fileIds=1,2,3 — items that appear in specific uploaded files
+app.get('/api/items-by-files', requireAuth, async (req, res) => {
+  try {
+    const fileIds = String(req.query.fileIds || '').split(',').map(Number).filter(n => n > 0);
+    if (fileIds.length === 0) return res.json({ success: true, data: [] });
+    const rows = await prisma.sale.findMany({
+      where: { uploadedFileId: { in: fileIds } },
+      select: { item: { select: { id: true, name: true } } },
+      distinct: ['itemId'],
+    });
+    const items = rows.map(r => r.item).sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ success: true, data: items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/items', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;

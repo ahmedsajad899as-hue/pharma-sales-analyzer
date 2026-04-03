@@ -16,7 +16,7 @@ type AssignTab = 'areas' | 'companies' | 'items' | 'commercialReps';
 type AreaViewMode = 'flat' | 'byRep';
 interface CommercialWithAreas { id: number; name: string; areas: NamedItem[]; }
 
-export default function ScientificRepsPage() {
+export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
   const { token } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
@@ -98,9 +98,13 @@ export default function ScientificRepsPage() {
 
   const loadAllOptions = useCallback(async () => {
     const safe = (p: Promise<any>) => p.catch(() => ({ data: [] }));
+    // Items: if active files are selected, show only items from those files
+    const itemsUrl = activeFileIds.length > 0
+      ? `${API}/api/items-by-files?fileIds=${activeFileIds.join(',')}`
+      : `${API}/api/items`;
     const [ar, it, cr, crAreas, co] = await Promise.all([
       safe(fetch(`${API}/api/areas`,                              { headers: authH() }).then(r => r.json())),
-      safe(fetch(`${API}/api/items`,                              { headers: authH() }).then(r => r.json())),
+      safe(fetch(itemsUrl,                                        { headers: authH() }).then(r => r.json())),
       safe(fetch(`${API}/api/representatives`,                    { headers: authH() }).then(r => r.json())),
       safe(fetch(`${API}/api/representatives/with-sales-areas`,   { headers: authH() }).then(r => r.json())),
       safe(fetch(`${API}/api/companies`,                          { headers: authH() }).then(r => r.json())),
@@ -114,7 +118,7 @@ export default function ScientificRepsPage() {
     const crWithAreas: CommercialWithAreas[] = crAreasList.filter((r: any) => r.areas?.length > 0);
     setAllCommercialWithAreas(crWithAreas);
     return { crWithAreas };
-  }, [token]);
+  }, [token, activeFileIds]);
 
   // ─── Open modals ───────────────────────────────────────────
   const openAdd = () => {
@@ -743,8 +747,13 @@ export default function ScientificRepsPage() {
 
                   {/* LEFT PANE — available checklist */}
                   <div style={{ flex: '0 0 52%', borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', padding: '16px 14px' }}>
-                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#475569', marginBottom: '8px' }}>
+                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {t.sciReps.availableItems}
+                      {activeFileIds.length > 0 && (
+                        <span style={{ fontSize: '11px', background: '#dbeafe', color: '#1d4ed8', borderRadius: '6px', padding: '2px 8px', fontWeight: 600 }}>
+                          📂 من الملف المفعّل
+                        </span>
+                      )}
                     </div>
 
                     {/* Company filter */}

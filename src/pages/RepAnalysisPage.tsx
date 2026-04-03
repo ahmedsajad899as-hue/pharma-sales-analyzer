@@ -42,7 +42,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
     switch (activeTab) {
       case 'upload':          return <UploadPage activeFileIds={activeFileIds} onFileActivated={onFileActivated} />;
       case 'representatives': return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;
-      case 'scientific-reps': return <ScientificRepsPage />;
+      case 'scientific-reps': return <ScientificRepsPage activeFileIds={activeFileIds} />;
       case 'reports':         return <ReportsPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;
       case 'items':           return <ItemsPage />;
     }
