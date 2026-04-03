@@ -69,7 +69,35 @@ export default function ItemsPage() {
     } catch (e: any) { alert(e.message); }
   };
 
-  // Excel import state
+  // Dedup state
+  type DedupEntry = { from: string; to: string; entityType: string };
+  const [dedupLoading, setDedupLoading]   = useState(false);
+  const [dedupPreview, setDedupPreview]   = useState<DedupEntry[] | null>(null);
+  const [dedupApplying, setDedupApplying] = useState(false);
+
+  const runDedup = async (apply = false) => {
+    if (apply) setDedupApplying(true);
+    else setDedupLoading(true);
+    try {
+      const r = await fetch(`${API}/api/dedup-names`, {
+        method: 'POST',
+        headers: jsonH(),
+        body: JSON.stringify({ apply }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'فشل');
+      if (apply) {
+        setDedupPreview(null);
+        await load();
+      } else {
+        // Show only item duplicates in this page
+        setDedupPreview((j.normalizations as DedupEntry[]).filter(e => e.entityType === 'item'));
+      }
+    } catch (e: any) { alert(e.message); }
+    finally { setDedupLoading(false); setDedupApplying(false); }
+  };
+
+
   const importInputRef            = useRef<HTMLInputElement>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting]   = useState(false);
@@ -271,6 +299,18 @@ export default function ItemsPage() {
             📥 استيراد Excel
           </button>
           <button
+            onClick={() => runDedup(false)}
+            disabled={dedupLoading}
+            style={{
+              background: '#fff', color: '#d97706',
+              border: '1.5px solid #d97706', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'all .18s',
+            }}
+          >
+            {dedupLoading ? '⏳...' : '🔀 دمج المتشابهات'}
+          </button>
+          <button
             onClick={openAdd}
             style={{
               background:'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff',
@@ -329,6 +369,57 @@ export default function ItemsPage() {
       )}
       {error && (
         <div style={{ textAlign:'center', padding:'20px', color:'#ef4444', fontSize:13 }}>{error}</div>
+      )}
+
+      {/* ── Dedup preview panel ─────────────────────────────── */}
+      {dedupPreview !== null && (
+        <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <strong style={{ color: '#92400e', fontSize: 14 }}>
+              {dedupPreview.length === 0
+                ? '✅ لا توجد أيتمات متشابهة'
+                : `⚠️ تم اكتشاف ${dedupPreview.length} أيتم متشابه — سيتم الاحتفاظ بالاسم الأطول`}
+            </strong>
+            <button onClick={() => setDedupPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#92400e' }}>✕</button>
+          </div>
+          {dedupPreview.length > 0 && (
+            <>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 12 }}>
+                <thead>
+                  <tr style={{ background: '#fef3c7' }}>
+                    <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>سيُحذف</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right', color: '#065f46', fontWeight: 700 }}>سيُبقى (الأطول)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dedupPreview.map((e, i) => {
+                    const keepLonger = e.from.length >= e.to.length;
+                    const keep   = keepLonger ? e.from : e.to;
+                    const remove = keepLonger ? e.to   : e.from;
+                    return (
+                      <tr key={i} style={{ borderTop: '1px solid #fde68a' }}>
+                        <td style={{ padding: '6px 10px', color: '#dc2626', textDecoration: 'line-through' }}>{remove}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</td>
+                        <td style={{ padding: '6px 10px', color: '#065f46', fontWeight: 600 }}>{keep}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <button
+                onClick={() => runDedup(true)}
+                disabled={dedupApplying}
+                style={{
+                  background: '#d97706', color: '#fff', border: 'none', borderRadius: 8,
+                  padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                {dedupApplying ? '⏳ جاري الدمج...' : `🔀 تطبيق الدمج (${dedupPreview.length} أيتم)`}
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {!loading && !error && filtered.length === 0 && (

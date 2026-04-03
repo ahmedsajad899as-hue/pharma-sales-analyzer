@@ -694,7 +694,12 @@ app.post('/api/dedup-names', async (req, res) => {
       for (const entry of itemDedup.log) {
         const fromId = id(allItemObjs, entry.from);
         const toId   = id(allItemObjs, entry.to);
-        if (fromId && toId) await mergeItems(fromId, toId);
+        if (fromId && toId) {
+          // Always keep the LONGER (more detailed) name — flip if needed
+          const keepId   = entry.from.length >= entry.to.length ? fromId : toId;
+          const deleteId = entry.from.length >= entry.to.length ? toId   : fromId;
+          await mergeItems(deleteId, keepId);
+        }
       }
       for (const entry of repDedup.log) {
         const fromId = id(allRepObjs, entry.from);
