@@ -14,7 +14,12 @@ async function assertExists(id) {
 // ─── CRUD ────────────────────────────────────────────────────
 
 export async function create(dto, user = null) {
-  const rep = await repo.createScientificRep(dto);
+  // Company-scoped roles create standalone reps with userId=null to avoid the
+  // unique(name, userId) collision. Visibility is controlled via ScientificRepCompany.
+  const repData = (user && COMPANY_SCOPED_ROLES.has(user.role))
+    ? { ...dto, userId: null }
+    : dto;
+  const rep = await repo.createScientificRep(repData);
 
   // Auto-assign creator's companies so the new rep appears in the company-scoped list
   if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
