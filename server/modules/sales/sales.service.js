@@ -14,7 +14,6 @@ import {
   findRepByName,
   bulkCreateSales,
   createUploadedFile,
-  getAllReps,
   getAllCompanies,
 } from './sales.repository.js';
 import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
@@ -238,22 +237,18 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   if (userId) {
-    const [existingReps, existingCompanies] = await Promise.all([
-      getAllReps(userId),
+    const [existingCompanies] = await Promise.all([
       getAllCompanies(userId),
     ]);
 
-    const incomingReps      = [...new Set(validRows.map(r => r.repName))].filter(n => n && n !== 'غير محدد');
     const incomingCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
 
-    const repDedup     = buildNormalizationMap(incomingReps,      existingReps.map(r => r.name),     'rep');
     const companyDedup = buildNormalizationMap(incomingCompanies, existingCompanies.map(c => c.name), 'company');
 
-    normalizationLog = [...repDedup.log, ...companyDedup.log];
+    normalizationLog = [...companyDedup.log];
 
     if (normalizationLog.length > 0) {
       for (const row of validRows) {
-        if (repDedup.map[row.repName])                 row.repName = repDedup.map[row.repName];
         if (row.company && companyDedup.map[row.company]) row.company = companyDedup.map[row.company];
       }
       console.log(`[upload] Fuzzy normalizations (${normalizationLog.length}):`, normalizationLog);
