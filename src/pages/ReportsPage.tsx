@@ -4,6 +4,32 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 
+/** Quantity cell — hidden by default, click to reveal, click again to hide */
+function HiddenQty({ value, fmt, style, signed }: { value: number; fmt: (n: number) => string; style?: React.CSSProperties; signed?: boolean }) {
+  const [revealed, setRevealed] = useState(false);
+  const formatted = signed
+    ? (value >= 0 ? `+${fmt(Math.abs(value))}` : `-${fmt(Math.abs(value))}`)
+    : fmt(value);
+  return (
+    <span
+      onClick={() => setRevealed(r => !r)}
+      title={revealed ? 'انقر للإخفاء' : 'انقر لعرض الكمية'}
+      style={{ cursor: 'pointer', userSelect: 'none', ...style }}
+    >
+      {revealed ? formatted : (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          background: '#f1f5f9', borderRadius: 6,
+          padding: '1px 8px', fontSize: 12,
+          color: '#94a3b8', letterSpacing: 2,
+        }}>
+          •••
+        </span>
+      )}
+    </span>
+  );
+}
+
 interface Rep { id: number; name: string; }
 interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; }
 interface CommReport {
@@ -223,11 +249,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td>{i + 1}</td>
                   <td><strong>{row.name}</strong></td>
                   {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                  <td style={{ color: '#1d4ed8' }}>{fmt(s.totalQty)}</td>
+                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} /></td>
                   <td style={{ color: '#1d4ed8' }}>{fmt(s.totalValue)}</td>
-                  <td style={{ color: '#dc2626' }}>{fmt(r.totalQty)}</td>
+                  <td style={{ color: '#dc2626' }}><HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} /></td>
                   <td style={{ color: '#dc2626' }}>{fmt(r.totalValue)}</td>
-                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netQty)}</td>
+                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} /></td>
                   <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netVal)}</td>
                 </tr>
               );
@@ -242,11 +268,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr style={{ background: '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
-                  <td style={{ color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>
+                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} /></td>
                   <td style={{ color: '#1d4ed8' }}>{fmt(totSalesVal)}</td>
-                  <td style={{ color: '#dc2626' }}>{fmt(totRetQty)}</td>
+                  <td style={{ color: '#dc2626' }}><HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} /></td>
                   <td style={{ color: '#dc2626' }}>{fmt(totRetVal)}</td>
-                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesQty - totRetQty)}</td>
+                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} /></td>
                   <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesVal - totRetVal)}</td>
                 </tr>
               );
@@ -503,7 +529,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <td>{i + 1}</td>
                 <td><strong>{row.name}</strong></td>
                 {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                <td>{fmt(row.totalQty)}</td>
+                <td><HiddenQty value={row.totalQty} fmt={fmt} /></td>
                 <td>{fmt(row.totalValue)}</td>
                 <td>
                   <div className="pct-bar-wrapper">
@@ -672,7 +698,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#eef2ff', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>📦</div>
                 <div className="stat-card-body">
                   <div className="stat-card-value" style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>
-                    {isNet ? fmtSigned(netQtyTotal) : fmt(viewData?.totalQty ?? 0)}
+                    <HiddenQty value={isNet ? netQtyTotal : (viewData?.totalQty ?? 0)} fmt={fmt} signed={isNet} style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1', fontWeight: 800, fontSize: 22 }} />
                   </div>
                   <div className="stat-card-label">{isNet ? t.reports.statNetQty : t.reports.statTotalQty}</div>
                 </div>
@@ -748,7 +774,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#eef2ff', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>📦</div>
                 <div className="stat-card-body">
                   <div className="stat-card-value" style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>
-                    {isNet ? fmtSigned(netQtyTotal) : fmt(viewData?.totalQty ?? 0)}
+                    <HiddenQty value={isNet ? netQtyTotal : (viewData?.totalQty ?? 0)} fmt={fmt} signed={isNet} style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1', fontWeight: 800, fontSize: 22 }} />
                   </div>
                   <div className="stat-card-label">{isNet ? t.reports.statNetQty : t.reports.statTotalQty}</div>
                 </div>
