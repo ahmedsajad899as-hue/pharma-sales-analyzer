@@ -91,6 +91,20 @@ export async function visitsByArea(req, res, next) {
               item: { select: { id: true, name: true } },
             },
           },
+          // Infer area from plan entries when Doctor.areaId is null
+          planEntries: {
+            take: 1,
+            select: {
+              plan: {
+                select: {
+                  planAreas: {
+                    take: 1,
+                    select: { area: { select: { id: true, name: true } } },
+                  },
+                },
+              },
+            },
+          },
         },
         orderBy: { name: 'asc' },
       });
@@ -102,17 +116,19 @@ export async function visitsByArea(req, res, next) {
     for (const d of doctors) {
       const visited   = d.visits.length > 0;
       const isWriting = d.visits.some(v => v.feedback === 'writing');
+      // Use Doctor.area if set, otherwise fall back to the first plan-area
+      const effectiveArea = d.area ?? d.planEntries?.[0]?.plan?.planAreas?.[0]?.area ?? null;
       const doc = {
         id: d.id, name: d.name, specialty: d.specialty,
         pharmacyName: d.pharmacyName ?? null,
-        area: d.area ?? null,
+        area: effectiveArea,
         targetItem: d.targetItem, isActive: d.isActive,
         visited, isWriting, visits: d.visits,
       };
-      if (d.area) {
-        if (!areaMap.has(d.area.id))
-          areaMap.set(d.area.id, { id: d.area.id, name: d.area.name, doctors: [] });
-        areaMap.get(d.area.id).doctors.push(doc);
+      if (effectiveArea) {
+        if (!areaMap.has(effectiveArea.id))
+          areaMap.set(effectiveArea.id, { id: effectiveArea.id, name: effectiveArea.name, doctors: [] });
+        areaMap.get(effectiveArea.id).doctors.push(doc);
       } else {
         noAreaDocs.push(doc);
       }
