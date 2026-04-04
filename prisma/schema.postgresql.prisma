@@ -402,16 +402,20 @@ model Doctor {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  userId     Int?
-  user       User? @relation(fields: [userId], references: [id])
-  area       Area? @relation(fields: [areaId], references: [id])
-  targetItem Item? @relation(fields: [targetItemId], references: [id])
+  userId               Int?
+  masterSurveyDoctorId Int?
+
+  user               User?                @relation(fields: [userId], references: [id])
+  area               Area?                @relation(fields: [areaId], references: [id])
+  targetItem         Item?                @relation(fields: [targetItemId], references: [id])
+  masterSurveyDoctor MasterSurveyDoctor?  @relation(fields: [masterSurveyDoctorId], references: [id], onDelete: SetNull)
 
   planEntries PlanEntry[]
   visits      DoctorVisit[]
 
   @@index([userId])
   @@index([areaId])
+  @@index([masterSurveyDoctorId])
   @@map("doctors")
 }
 
@@ -995,6 +999,7 @@ model MasterSurveyDoctor {
 
   survey       MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   lastEditedBy User?        @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
+  importedDoctors Doctor[]
 
   @@index([surveyId])
   @@map("master_survey_doctors")
