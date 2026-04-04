@@ -159,7 +159,7 @@ export async function setUserAreas(req, res) {
   const parsedAreaIds = areaIds.map(id => parseInt(id));
 
   // Resolve area IDs: if this user has a manager, also include the equivalent areas
-  // from the manager's account (same name, manager's userId) so visitsByArea works correctly.
+  // from the manager's account using fuzzy Arabic name matching (handles ة/ه, حي prefix, etc.)
   let finalAreaIds = [...parsedAreaIds];
   try {
     const managerRows = await prisma.userManagerAssignment.findMany({
@@ -168,19 +168,30 @@ export async function setUserAreas(req, res) {
     });
     const managerIds = managerRows.map(r => r.managerId);
     if (managerIds.length > 0 && parsedAreaIds.length > 0) {
-      // Get area names for the chosen IDs
+      const normA = s => String(s || '').trim()
+        .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+        .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+        .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
+        .toLowerCase().trim();
+
       const chosenAreas = await prisma.area.findMany({
         where: { id: { in: parsedAreaIds } },
         select: { id: true, name: true },
       });
-      const areaNames = chosenAreas.map(a => a.name);
-      // Find the manager's version of those same areas
-      const managerAreas = await prisma.area.findMany({
-        where: { name: { in: areaNames }, userId: { in: managerIds } },
-        select: { id: true },
+      const allManagerAreas = await prisma.area.findMany({
+        where: { userId: { in: managerIds } },
+        select: { id: true, name: true },
       });
-      // Merge both sets (original IDs + manager's equivalent IDs)
-      finalAreaIds = [...new Set([...parsedAreaIds, ...managerAreas.map(a => a.id)])];
+      const extraIds = [];
+      for (const chosen of chosenAreas) {
+        const cN = normA(chosen.name);
+        const match = allManagerAreas.find(m => {
+          const mN = normA(m.name);
+          return mN === cN || mN.includes(cN) || cN.includes(mN);
+        });
+        if (match) extraIds.push(match.id);
+      }
+      finalAreaIds = [...new Set([...parsedAreaIds, ...extraIds])];
     }
   } catch (e) {
     console.warn('[setUserAreas] manager area resolution failed (non-fatal):', e.message);

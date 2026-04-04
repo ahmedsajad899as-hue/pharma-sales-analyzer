@@ -114,19 +114,43 @@ export async function visitsByArea(req, res, next) {
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // جلب أطباء المناطق — المناطق المحلولة في حساب المدير (مع userId) + غير المحلولة بدون userId
+      // جلب أطباء المناطق — OR بين:
+      //   1) المناطق المحلولة في حساب المدير (مع userId للدقة)
+      //   2) المناطق غير المحلولة — نجيب الـ userId الفعلي لكل منطقة من DB ونفلتر بيه بشكل صحيح
       let doctorWhere;
       const orClauses = [];
+
+      // المناطق المحلولة في حساب المدير
       if (managerAreaIds.length > 0) {
         orClauses.push({ areaId: { in: managerAreaIds }, userId: { in: managerIds } });
       }
+
+      // المناطق غير المحلولة — نجيب userId المالك الفعلي من DB
       if (unresolvedOriginalAreaIds.length > 0) {
-        orClauses.push({ areaId: { in: unresolvedOriginalAreaIds } });
+        const unresolvedFull = await prisma.area.findMany({
+          where: { id: { in: unresolvedOriginalAreaIds } },
+          select: { id: true, userId: true },
+        });
+        // جمّع حسب الحساب المالك
+        const byOwner = new Map();
+        for (const a of unresolvedFull) {
+          if (!byOwner.has(a.userId)) byOwner.set(a.userId, []);
+          byOwner.get(a.userId).push(a.id);
+        }
+        for (const [ownerId, aIds] of byOwner) {
+          if (ownerId) {
+            orClauses.push({ areaId: { in: aIds }, userId: ownerId });
+          } else {
+            orClauses.push({ areaId: { in: aIds } });
+          }
+        }
+        // أيضاً: إذا منطقة موجودة في DB بـ ID لكن لا تنتمي لأي حساب، جيب بدون قيد userId
+        const noOwner = unresolvedOriginalAreaIds.filter(id => !unresolvedFull.find(a => a.id === id));
+        if (noOwner.length > 0) orClauses.push({ areaId: { in: noOwner } });
       }
+
       if (orClauses.length > 0) {
         doctorWhere = orClauses.length === 1 ? orClauses[0] : { OR: orClauses };
-      } else if (finalAreaIds.length > 0) {
-        doctorWhere = { areaId: { in: finalAreaIds } };
       } else {
         doctorWhere = { id: { in: [...new Set(allVisits.map(v => v.doctorId))] } };
       }
