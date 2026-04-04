@@ -49,43 +49,49 @@ export async function visitsByArea(req, res, next) {
       });
       const managerIds = managerRows.map(r => r.managerId);
 
-      // ── Resolve area IDs → manager's account using JS-side normalized name matching ──
-      // Prisma exact-string match misses Arabic variants (ة/ه, أ/ا, ى/ي, etc.)
-      // So we fetch ALL manager areas and match in JS after normalization.
+      // ── Resolve area IDs → manager's account using fuzzy JS-side matching ──
+      // Handles: ة/ه، أإآ/ا، ى/ي، تشكيل، بادئات "حي/محله/ناحية"، تطابق جزئي
       const normArea = s => String(s || '').trim()
         .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-        .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ').toLowerCase();
+        .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+        .replace(/^(حي |محله |قضاء |ناحيه |ناحيه |ناحية )/, '')
+        .toLowerCase().trim();
 
-      // Get names of assigned area IDs (from any account — SA, manager, etc.)
       const assignedAreaObjs = repAreaIds.length > 0
         ? await prisma.area.findMany({ where: { id: { in: repAreaIds } }, select: { id: true, name: true } })
         : [];
-      const assignedNormNames = new Set(assignedAreaObjs.map(a => normArea(a.name)));
 
-      // Fetch ALL areas owned by manager(s) and match by normalized name
-      let finalAreaIds = [];
       let managerAreaIds = [];
-      if (managerIds.length > 0 && assignedNormNames.size > 0) {
+      const resolvedOriginalIds = new Set(); // area IDs (from assigned) that got matched
+
+      if (managerIds.length > 0 && assignedAreaObjs.length > 0) {
         const allManagerAreas = await prisma.area.findMany({
           where: { userId: { in: managerIds } },
           select: { id: true, name: true },
         });
-        const matched = allManagerAreas.filter(a => assignedNormNames.has(normArea(a.name)));
-        managerAreaIds = matched.map(a => a.id);
-        console.log('[visitsByArea] assigned areas:', assignedNormNames.size,
+
+        for (const assigned of assignedAreaObjs) {
+          const aN = normArea(assigned.name);
+          const match = allManagerAreas.find(m => {
+            const mN = normArea(m.name);
+            return mN === aN || mN.includes(aN) || aN.includes(mN);
+          });
+          if (match) {
+            managerAreaIds.push(match.id);
+            resolvedOriginalIds.add(assigned.id);
+          }
+        }
+        console.log('[visitsByArea] assigned:', assignedAreaObjs.length,
           'matched in manager account:', managerAreaIds.length,
-          'unmatched:', assignedNormNames.size - matched.length);
+          'unmatched:', assignedAreaObjs.length - resolvedOriginalIds.size);
       }
 
-      // Build finalAreaIds: manager-matched areas (preferred) + unmatched originals as fallback
-      const matchedNormNames = managerIds.length > 0 ? new Set(
-        (await prisma.area.findMany({ where: { id: { in: managerAreaIds } }, select: { name: true } }))
-          .map(a => normArea(a.name))
-      ) : new Set();
+      // Unmatched area IDs: use original (fallback — may belong to different account)
       const unresolvedOriginalAreaIds = assignedAreaObjs
-        .filter(a => !matchedNormNames.has(normArea(a.name)))
+        .filter(a => !resolvedOriginalIds.has(a.id))
         .map(a => a.id);
-      finalAreaIds = [...managerAreaIds, ...unresolvedOriginalAreaIds];
+
+      const finalAreaIds = [...new Set([...managerAreaIds, ...unresolvedOriginalAreaIds])];
 
       // جلب الزيارات المفلترة بالشهر — فقط للأطباء في مناطق المندوب
       const allVisits = await prisma.doctorVisit.findMany({
