@@ -14,7 +14,7 @@ export interface VisitPoint {
   feedback: string;
   notes?: string | null;
   doctor: { id: number; name: string; specialty?: string | null; pharmacyName?: string | null; area?: { name: string } | null };
-  scientificRep: { id: number; name: string };
+  scientificRep: { id: number; name: string } | null;
   item?: { id: number; name: string } | null;
   likes?: VisitLikePt[];
   comments?: VisitCommentPt[];
@@ -133,7 +133,7 @@ export default function DailyCallsMap({ visits, repName, onClose, onShowRoute }:
             <span style="background:${color};color:#fff;padding:2px 8px;border-radius:8px;font-size:11px">${feedbackLabel}</span>
           </div>
           ${v.notes ? `<div style="font-size:11px;color:#6b7280;margin-top:4px">${v.notes}</div>` : ''}
-          <div style="font-size:11px;color:#9ca3af;margin-top:4px">👤 ${v.scientificRep.name}</div>
+          ${v.scientificRep ? `<div style="font-size:11px;color:#9ca3af;margin-top:4px">👤 ${v.scientificRep.name}</div>` : ''}
         </div>
       `;
 
