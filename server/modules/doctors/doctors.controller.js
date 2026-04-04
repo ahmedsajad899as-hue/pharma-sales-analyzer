@@ -26,6 +26,8 @@ export async function visitsByArea(req, res, next) {
       .toLowerCase().trim();
 
     let doctors;
+    let fieldRepAssignedNormSet = null; // used later to filter final areas
+    let fieldRepAssignedAreas   = null;
 
     if (isFieldRep) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
@@ -51,6 +53,8 @@ export async function visitsByArea(req, res, next) {
       }
       const assignedAreas   = [...assignedAreaMap.values()];
       const assignedNormSet = new Set(assignedAreas.map(a => normArea(a.name)));
+      fieldRepAssignedNormSet = assignedNormSet;
+      fieldRepAssignedAreas   = assignedAreas;
 
       console.log('[visitsByArea] userId:', userId, 'assignedAreas:',
         assignedAreas.map(a => a.name));
@@ -121,10 +125,13 @@ export async function visitsByArea(req, res, next) {
 
       // أولاً: Doctor table (له أولوية لأن عنده زيارات حقيقية)
       for (const [key, d] of dbDoctorsByNorm) {
+        // Normalize display area to the canonical ASSIGNED area name
+        const normKey = normArea(d.area.name);
+        const canonicalArea = assignedAreas.find(a => normArea(a.name) === normKey) ?? d.area;
         mergedMap.set(key, {
           id: d.id, name: d.name, specialty: d.specialty ?? null,
           pharmacyName: d.pharmacyName ?? null,
-          area: d.area, targetItem: d.targetItem, isActive: d.isActive,
+          area: canonicalArea, targetItem: d.targetItem, isActive: d.isActive,
           visits: visitsByDoc.get(d.id) ?? [],
         });
       }
@@ -266,7 +273,12 @@ export async function visitsByArea(req, res, next) {
       writingCount: g.doctors.filter(d => d.isWriting).length,
     });
 
-    const areas = [...areaMap.values()].map(toStats)
+    // For field reps: only show areas that are in the assigned set
+    const filteredAreaEntries = fieldRepAssignedNormSet
+      ? [...areaMap.entries()].filter(([key]) => fieldRepAssignedNormSet.has(key))
+      : [...areaMap.entries()];
+
+    const areas = filteredAreaEntries.map(([, g]) => toStats(g))
       .sort((a, b) => b.visitedCount - a.visitedCount);
 
     if (noAreaDocs.length > 0)
