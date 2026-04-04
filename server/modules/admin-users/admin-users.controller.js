@@ -158,11 +158,40 @@ export async function setUserAreas(req, res) {
   const { areaIds = [] } = req.body;
   const parsedAreaIds = areaIds.map(id => parseInt(id));
 
+  // Resolve area IDs: if this user has a manager, also include the equivalent areas
+  // from the manager's account (same name, manager's userId) so visitsByArea works correctly.
+  let finalAreaIds = [...parsedAreaIds];
+  try {
+    const managerRows = await prisma.userManagerAssignment.findMany({
+      where: { userId },
+      select: { managerId: true },
+    });
+    const managerIds = managerRows.map(r => r.managerId);
+    if (managerIds.length > 0 && parsedAreaIds.length > 0) {
+      // Get area names for the chosen IDs
+      const chosenAreas = await prisma.area.findMany({
+        where: { id: { in: parsedAreaIds } },
+        select: { id: true, name: true },
+      });
+      const areaNames = chosenAreas.map(a => a.name);
+      // Find the manager's version of those same areas
+      const managerAreas = await prisma.area.findMany({
+        where: { name: { in: areaNames }, userId: { in: managerIds } },
+        select: { id: true },
+      });
+      // Merge both sets (original IDs + manager's equivalent IDs)
+      finalAreaIds = [...new Set([...parsedAreaIds, ...managerAreas.map(a => a.id)])];
+    }
+  } catch (e) {
+    console.warn('[setUserAreas] manager area resolution failed (non-fatal):', e.message);
+    finalAreaIds = parsedAreaIds;
+  }
+
   // Save user area assignments
   await prisma.$transaction([
     prisma.userAreaAssignment.deleteMany({ where: { userId } }),
-    ...(parsedAreaIds.length ? [prisma.userAreaAssignment.createMany({
-      data: parsedAreaIds.map(areaId => ({ userId, areaId })),
+    ...(finalAreaIds.length ? [prisma.userAreaAssignment.createMany({
+      data: finalAreaIds.map(areaId => ({ userId, areaId })),
     })] : []),
   ]);
 

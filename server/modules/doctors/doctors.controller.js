@@ -37,6 +37,40 @@ export async function visitsByArea(req, res, next) {
       ])];
       console.log('[visitsByArea] userId:', userId, 'linkedRepId:', linkedRepId, 'repAreaIds:', repAreaIds);
 
+      // ── Resolve the manager(s) for this rep ──────────────────
+      // Areas in the DB are per-user (Area.userId = managerId). The SA may have assigned
+      // area IDs from a different manager's account. We resolve by:
+      //  1. Finding the rep's manager via UserManagerAssignment
+      //  2. Looking up the area NAMES (not IDs) inside the manager's account
+      // This ensures we always get the correct doctor set even if area IDs differ across accounts.
+      const managerRows = await prisma.userManagerAssignment.findMany({
+        where: { userId },
+        select: { managerId: true },
+      });
+      const managerIds = managerRows.map(r => r.managerId);
+
+      let finalAreaIds = repAreaIds;
+      if (managerIds.length > 0 && repAreaIds.length > 0) {
+        // Get area names from the assigned IDs (could be from any account)
+        const assignedAreaObjs = await prisma.area.findMany({
+          where: { id: { in: repAreaIds } },
+          select: { name: true },
+        });
+        const assignedAreaNames = assignedAreaObjs.map(a => a.name);
+
+        if (assignedAreaNames.length > 0) {
+          // Find area IDs for those names BUT scoped to the manager's account
+          const managerAreaObjs = await prisma.area.findMany({
+            where: { name: { in: assignedAreaNames }, userId: { in: managerIds } },
+            select: { id: true },
+          });
+          if (managerAreaObjs.length > 0) {
+            finalAreaIds = managerAreaObjs.map(a => a.id);
+            console.log('[visitsByArea] resolved managerAreaIds:', finalAreaIds, 'for managers:', managerIds);
+          }
+        }
+      }
+
       // جلب الزيارات المفلترة بالشهر — فقط للأطباء في مناطق المندوب
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
@@ -58,9 +92,12 @@ export async function visitsByArea(req, res, next) {
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // جلب أطباء المناطق المُعيَّنة للمندوب فقط — بدون OR إضافية
-      const doctorWhere = repAreaIds.length > 0
-        ? { areaId: { in: repAreaIds } }          // المناطق المحددة فقط
+      // جلب أطباء المناطق المُعيَّنة للمندوب فقط — مع فلتر userId للمدير إن وُجد
+      const doctorWhere = finalAreaIds.length > 0
+        ? {
+            areaId: { in: finalAreaIds },
+            ...(managerIds.length > 0 ? { userId: { in: managerIds } } : {}),
+          }
         : { id: { in: [...new Set(allVisits.map(v => v.doctorId))] } }; // fallback: من زارهم
 
       const allDoctors = await prisma.doctor.findMany({
