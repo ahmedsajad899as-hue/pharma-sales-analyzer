@@ -99,6 +99,24 @@ app.get('/api/sa/items', requireSuperAdmin, async (req, res) => {
   res.json({ success: true, data: items });
 });
 app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
+  // Sync distinct area names from master survey into Area table (global, userId=null)
+  const surveyAreaRows = await prisma.masterSurveyDoctor.findMany({
+    where: { areaName: { not: null } },
+    select: { areaName: true },
+    distinct: ['areaName'],
+  });
+  const surveyNames = surveyAreaRows.map(r => r.areaName.trim()).filter(Boolean);
+  if (surveyNames.length > 0) {
+    const existing = await prisma.area.findMany({ select: { name: true } });
+    const existingSet = new Set(existing.map(a => a.name.trim()));
+    const toCreate = surveyNames.filter(n => !existingSet.has(n));
+    if (toCreate.length > 0) {
+      await prisma.area.createMany({
+        data: toCreate.map(name => ({ name })),
+        skipDuplicates: true,
+      });
+    }
+  }
   const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
   res.json({ success: true, data: areas });
 });
