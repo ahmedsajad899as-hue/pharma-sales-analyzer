@@ -99,8 +99,35 @@ app.get('/api/sa/items', requireSuperAdmin, async (req, res) => {
   res.json({ success: true, data: items });
 });
 app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
-  const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
-  res.json({ success: true, data: areas });
+  // Return ONLY area names from the latest active survey (exact match, nothing extra)
+  const activeSurvey = await prisma.masterSurvey.findFirst({
+    where: { isActive: true }, orderBy: { createdAt: 'desc' }, select: { id: true },
+  });
+  if (!activeSurvey) {
+    const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    return res.json({ success: true, data: areas });
+  }
+  const surveyRows = await prisma.masterSurveyDoctor.findMany({
+    where: { surveyId: activeSurvey.id, areaName: { not: null } },
+    select: { areaName: true },
+    distinct: ['areaName'],
+  });
+  const surveyNames = [...new Set(surveyRows.map(r => r.areaName.trim()).filter(Boolean))].sort();
+  // Ensure all survey area names exist in Area table
+  const existing = await prisma.area.findMany({ select: { id: true, name: true } });
+  const existingByName = new Map(existing.map(a => [a.name.trim(), a]));
+  const toCreate = surveyNames.filter(n => !existingByName.has(n));
+  if (toCreate.length > 0) {
+    await prisma.area.createMany({ data: toCreate.map(name => ({ name })), skipDuplicates: true });
+    const fresh = await prisma.area.findMany({ select: { id: true, name: true } });
+    fresh.forEach(a => existingByName.set(a.name.trim(), a));
+  }
+  // Return only the survey areas (by exact name match)
+  const result = surveyNames
+    .map(n => existingByName.get(n))
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  res.json({ success: true, data: result });
 });
 
 // POST /api/sa/areas/reset-from-survey — clear all areas and reload from master survey
