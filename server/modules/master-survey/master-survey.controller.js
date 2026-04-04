@@ -1,5 +1,11 @@
 import prisma from '../../lib/prisma.js';
 
+// ── Arabic normalization helper ───────────────────────────────
+// Normalizes Arabic text: hamza variants → ا, ة → ه, ى → ي, strip diacritics
+const normAreaKey = s => String(s ?? '').trim().toLowerCase()
+  .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+  .replace(/[ًٌٍَُِّْ]/g, '');
+
 // ── Visibility helper ────────────────────────────────────────
 // Returns a Prisma `where` clause that filters surveys visible to this user
 function visibleWhere(user) {
@@ -49,20 +55,17 @@ export async function listSurveys(req, res, next) {
       },
     });
 
-    // If user has assigned areas, replace counts with area-filtered counts
+    // If user has assigned areas, replace counts with normalized area-filtered counts
     const userAreaNames = await getUserAssignedAreaNames(req.user.id);
     if (userAreaNames.length > 0) {
+      const normAreaSet = new Set(userAreaNames.map(normAreaKey));
       await Promise.all(surveys.map(async survey => {
-        const [dc, pc] = await Promise.all([
-          prisma.masterSurveyDoctor.count({
-            where: { surveyId: survey.id, areaName: { in: userAreaNames } },
-          }),
-          prisma.masterSurveyPharmacy.count({
-            where: { surveyId: survey.id, areaName: { in: userAreaNames } },
-          }),
+        const [allDocs, allPharmas] = await Promise.all([
+          prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
+          prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
         ]);
-        survey._count.doctors    = dc;
-        survey._count.pharmacies = pc;
+        survey._count.doctors    = allDocs.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName))).length;
+        survey._count.pharmacies = allPharmas.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName))).length;
       }));
     }
 
@@ -82,28 +85,31 @@ export async function getSurvey(req, res, next) {
       if (repUserId) filterUserId = repUserId;
     }
 
-    // Build area filter: only return doctors/pharmacies in the user's assigned areas
+    // Build area filter using Arabic normalization to handle ة/ه, أإآ/ا variants
     const userAreaNames = await getUserAssignedAreaNames(filterUserId);
-    const areaFilter = userAreaNames.length > 0
-      ? { areaName: { in: userAreaNames } }
-      : undefined; // no filter → user has no area restrictions (admin/manager)
+    const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
     const survey = await prisma.masterSurvey.findFirst({
       where: { id, ...visibleWhere(req.user) },
       include: {
         doctors: {
-          where: areaFilter,
           orderBy: { createdAt: 'asc' },
           include: { lastEditedBy: { select: { id: true, username: true, displayName: true } } },
         },
         pharmacies: {
-          where: areaFilter,
           orderBy: { createdAt: 'asc' },
           include: { lastEditedBy: { select: { id: true, username: true, displayName: true } } },
         },
       },
     });
     if (!survey) return res.status(404).json({ success: false, error: 'لم يُعثر على السيرفي أو غير مسموح' });
+
+    // Post-filter by assigned areas using normalized Arabic comparison
+    if (normAreaSet) {
+      survey.doctors    = survey.doctors.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName)));
+      survey.pharmacies = survey.pharmacies.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName)));
+    }
+
     res.json({ success: true, data: { ...survey, userAreaNames } });
   } catch (e) { next(e); }
 }
@@ -148,6 +154,37 @@ export async function updateDoctor(req, res, next) {
     if (notes        !== undefined) data.notes        = notes;
     const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
     await logEntry(surveyId, 'doctor', docId, 'update', old, updated, req.user.id);
+
+    // Cascade: propagate changes to all Doctor records imported from this survey doctor
+    const cascadeData = {};
+    if (data.name         !== undefined) cascadeData.name         = data.name;
+    if (data.specialty    !== undefined) cascadeData.specialty    = data.specialty;
+    if (data.pharmacyName !== undefined) cascadeData.pharmacyName = data.pharmacyName;
+    if (data.notes        !== undefined) cascadeData.notes        = data.notes;
+    if (Object.keys(cascadeData).length > 0 || data.areaName !== undefined) {
+      if (data.areaName !== undefined) {
+        const linkedDoctors = await prisma.doctor.findMany({
+          where: { masterSurveyDoctorId: docId },
+          select: { id: true, userId: true },
+        });
+        const userGroups = new Map();
+        for (const d of linkedDoctors) {
+          const key = d.userId ?? null;
+          if (!userGroups.has(key)) userGroups.set(key, []);
+          userGroups.get(key).push(d.id);
+        }
+        for (const [uid, ids] of userGroups) {
+          const resolvedAreaId = uid ? await resolveAreaId(data.areaName, uid) : null;
+          await prisma.doctor.updateMany({
+            where: { id: { in: ids } },
+            data: { ...cascadeData, areaId: resolvedAreaId },
+          });
+        }
+      } else {
+        await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: docId }, data: cascadeData });
+      }
+    }
+
     res.json({ success: true, data: updated });
   } catch (e) { next(e); }
 }
@@ -186,13 +223,14 @@ export async function importAllDoctors(req, res, next) {
       if (repUserId) userId = repUserId;
     }
 
-    // Only import doctors from the user's assigned areas
+    // Only import doctors from the user's assigned areas (with Arabic normalization)
     const userAreaNames = await getUserAssignedAreaNames(userId);
-    const areaWhere = userAreaNames.length > 0
-      ? { surveyId, areaName: { in: userAreaNames } }
-      : { surveyId };
+    const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
-    const surveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: areaWhere });
+    const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
+    const surveyDoctors = normAreaSet
+      ? allSurveyDoctors.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName)))
+      : allSurveyDoctors;
     const existingNames = new Set(
       (await prisma.doctor.findMany({ where: { userId }, select: { name: true } }))
         .map(d => d.name.toLowerCase().trim())
@@ -211,12 +249,13 @@ export async function importAllDoctors(req, res, next) {
     }
 
     const data = newDoctors.map(d => ({
-      name:         d.name.trim(),
-      specialty:    d.specialty    ?? null,
-      pharmacyName: d.pharmacyName ?? null,
-      notes:        d.notes        ?? null,
-      areaId:       d.areaName?.trim() ? (areaIdMap.get(d.areaName.trim().toLowerCase()) ?? null) : null,
+      name:                d.name.trim(),
+      specialty:           d.specialty    ?? null,
+      pharmacyName:        d.pharmacyName ?? null,
+      notes:               d.notes        ?? null,
+      areaId:              d.areaName?.trim() ? (areaIdMap.get(d.areaName.trim().toLowerCase()) ?? null) : null,
       userId,
+      masterSurveyDoctorId: d.id,
     }));
 
     const result = await prisma.doctor.createMany({ data });
@@ -244,16 +283,23 @@ export async function importDoctor(req, res, next) {
     const existing = await prisma.doctor.findFirst({
       where: { name: src.name, userId: targetUserId },
     });
-    if (existing) return res.json({ success: true, data: existing, message: 'الطبيب موجود مسبقاً في قائمتك' });
+    if (existing) {
+      // Backfill masterSurveyDoctorId if not linked yet
+      if (!existing.masterSurveyDoctorId) {
+        await prisma.doctor.update({ where: { id: existing.id }, data: { masterSurveyDoctorId: src.id } });
+      }
+      return res.json({ success: true, data: existing, message: 'الطبيب موجود مسبقاً في قائمتك' });
+    }
     const resolvedAreaId = await resolveAreaId(src.areaName, targetUserId);
     const newDoc = await prisma.doctor.create({
       data: {
-        name:         src.name,
-        specialty:    src.specialty    ?? null,
-        pharmacyName: src.pharmacyName ?? null,
-        notes:        src.notes        ?? null,
-        areaId:       resolvedAreaId,
-        userId:       targetUserId,
+        name:                src.name,
+        specialty:           src.specialty    ?? null,
+        pharmacyName:        src.pharmacyName ?? null,
+        notes:               src.notes        ?? null,
+        areaId:              resolvedAreaId,
+        userId:              targetUserId,
+        masterSurveyDoctorId: src.id,
       },
     });
     res.status(201).json({ success: true, data: newDoc, message: 'تمت الإضافة لقائمة أطبائك' });

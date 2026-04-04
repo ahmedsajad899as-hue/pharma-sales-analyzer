@@ -77,9 +77,14 @@ export async function visitsByArea(req, res, next) {
       console.log('[visitsByArea] total doctors:', allDoctors.length);
 
     } else {
-      // للمدير: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
+      // للمدير: جلب أطباءه — مع تطبيق فلتر المناطق إن وُجدت (نفس سلوك سيرفي اوردين)
+      const assignedAreaRows = await prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } });
+      const assignedAreaIds  = assignedAreaRows.map(a => a.areaId);
+      const managerDocWhere  = assignedAreaIds.length > 0
+        ? { userId, areaId: { in: assignedAreaIds } }
+        : { userId };
       doctors = await prisma.doctor.findMany({
-        where: { userId },
+        where: managerDocWhere,
         include: {
           area:       { select: { id: true, name: true } },
           targetItem: { select: { id: true, name: true } },

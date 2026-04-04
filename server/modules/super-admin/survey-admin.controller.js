@@ -1,5 +1,17 @@
 import prisma from '../../lib/prisma.js';
 
+// ── Shared helpers ────────────────────────────────────────────
+// Find or create an Area by name for a given user
+async function resolveAreaId(areaName, userId) {
+  if (!areaName?.trim()) return null;
+  const nameNorm = areaName.trim().toLowerCase();
+  const userAreas = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
+  const found = userAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
+  if (found) return found.id;
+  const created = await prisma.area.create({ data: { name: areaName.trim(), userId } });
+  return created.id;
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 function logEntry(surveyId, entryType, entryId, action, oldData, newData, editedById) {
   return prisma.masterSurveyEditLog.create({
@@ -114,6 +126,37 @@ export async function updateDoctor(req, res, next) {
     if (notes        !== undefined) data.notes        = notes;
     const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
     await logEntry(surveyId, 'doctor', docId, 'update', old, updated, null);
+
+    // Cascade: propagate changes to all Doctor records imported from this survey doctor
+    const cascadeData = {};
+    if (data.name         !== undefined) cascadeData.name         = data.name;
+    if (data.specialty    !== undefined) cascadeData.specialty    = data.specialty;
+    if (data.pharmacyName !== undefined) cascadeData.pharmacyName = data.pharmacyName;
+    if (data.notes        !== undefined) cascadeData.notes        = data.notes;
+    if (Object.keys(cascadeData).length > 0 || data.areaName !== undefined) {
+      if (data.areaName !== undefined) {
+        const linkedDoctors = await prisma.doctor.findMany({
+          where: { masterSurveyDoctorId: docId },
+          select: { id: true, userId: true },
+        });
+        const userGroups = new Map();
+        for (const d of linkedDoctors) {
+          const key = d.userId ?? null;
+          if (!userGroups.has(key)) userGroups.set(key, []);
+          userGroups.get(key).push(d.id);
+        }
+        for (const [uid, ids] of userGroups) {
+          const resolvedAreaId = uid ? await resolveAreaId(data.areaName, uid) : null;
+          await prisma.doctor.updateMany({
+            where: { id: { in: ids } },
+            data: { ...cascadeData, areaId: resolvedAreaId },
+          });
+        }
+      } else {
+        await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: docId }, data: cascadeData });
+      }
+    }
+
     res.json({ success: true, data: updated });
   } catch (e) { next(e); }
 }
