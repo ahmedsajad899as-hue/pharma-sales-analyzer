@@ -64,8 +64,9 @@ export async function listSurveys(req, res, next) {
           prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
           prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
         ]);
-        survey._count.doctors    = allDocs.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName))).length;
-        survey._count.pharmacies = allPharmas.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName))).length;
+        // Include docs with no areaName (they're not area-specific, show to all)
+        survey._count.doctors    = allDocs.filter(d => !d.areaName?.trim() || normAreaSet.has(normAreaKey(d.areaName))).length;
+        survey._count.pharmacies = allPharmas.filter(p => !p.areaName?.trim() || normAreaSet.has(normAreaKey(p.areaName))).length;
       }));
     }
 
@@ -105,9 +106,10 @@ export async function getSurvey(req, res, next) {
     if (!survey) return res.status(404).json({ success: false, error: 'لم يُعثر على السيرفي أو غير مسموح' });
 
     // Post-filter by assigned areas using normalized Arabic comparison
+    // Docs/pharmacies with no areaName are not area-specific → show to all
     if (normAreaSet) {
-      survey.doctors    = survey.doctors.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName)));
-      survey.pharmacies = survey.pharmacies.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName)));
+      survey.doctors    = survey.doctors.filter(d => !d.areaName?.trim() || normAreaSet.has(normAreaKey(d.areaName)));
+      survey.pharmacies = survey.pharmacies.filter(p => !p.areaName?.trim() || normAreaSet.has(normAreaKey(p.areaName)));
     }
 
     res.json({ success: true, data: { ...survey, userAreaNames } });
@@ -229,7 +231,7 @@ export async function importAllDoctors(req, res, next) {
 
     const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
     const surveyDoctors = normAreaSet
-      ? allSurveyDoctors.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName)))
+      ? allSurveyDoctors.filter(d => !d.areaName?.trim() || normAreaSet.has(normAreaKey(d.areaName)))
       : allSurveyDoctors;
     const existingNames = new Set(
       (await prisma.doctor.findMany({ where: { userId }, select: { name: true } }))
