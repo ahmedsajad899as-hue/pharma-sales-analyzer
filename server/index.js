@@ -1727,9 +1727,21 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (userId) where.userId = userId;
       if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
     } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
-      // Rep sees only their own visits
-      if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
-      else if (userId) where.userId = userId;
+      // Rep sees ONLY visits attributed to their ScientificRepresentative record.
+      // JWT does not carry linkedRepId, so look it up from DB.
+      const repUserRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      const repLinkedId = repUserRow?.linkedRepId ?? null;
+      let resolvedRepId = repLinkedId;
+      if (!resolvedRepId) {
+        const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+        resolvedRepId = ownRep?.id ?? null;
+      }
+      if (resolvedRepId) {
+        where.scientificRepId = resolvedRepId;
+      } else {
+        // No ScientificRepresentative found — fall back to userId (edge case)
+        where.userId = userId;
+      }
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
@@ -1793,8 +1805,8 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (userId) pharmWhere.userId = userId;
       if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
     } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
-      // Rep sees only their own visits
-      if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
+      // Same resolved repId from above — filter pharmacy visits the same way
+      if (resolvedRepId) pharmWhere.scientificRepId = resolvedRepId;
       else if (userId) pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
