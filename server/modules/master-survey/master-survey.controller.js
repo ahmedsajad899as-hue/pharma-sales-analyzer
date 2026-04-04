@@ -218,22 +218,41 @@ async function getRepLinkedUserId(repId) {
   return rep?.userId ?? null;
 }
 
+// ── Helper: get manager's userId for a field rep ─────────────
+// Doctors are stored under manager's account in the DB, so imports
+// must also save under the manager's userId (not the rep's own userId)
+async function getManagerUserId(userId) {
+  const row = await prisma.userManagerAssignment.findFirst({
+    where: { userId },
+    select: { managerId: true },
+  });
+  return row?.managerId ?? null;
+}
+
 // ── POST /api/master-surveys/:id/doctors/import-all ──────────
 export async function importAllDoctors(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     await assertVisible(surveyId, req.user, res);
 
-    // If repId provided (company_manager importing for a rep), use rep's userId
-    let userId = req.user.id;
+    // Determine TARGET userId (where doctor is saved) and AREA userId (for area filtering)
+    // Field reps: doctors live under manager's account, so save there too
+    let userId    = req.user.id;   // where to CREATE the doctor
+    let areaRefId = req.user.id;   // whose area assignments to filter by
     if (req.query.repId) {
+      // company_manager importing on behalf of a rep
       const repUserId = await getRepLinkedUserId(req.query.repId);
-      if (repUserId) userId = repUserId;
+      if (repUserId) { userId = repUserId; areaRefId = repUserId; }
+    } else if (FIELD_ROLES.has(req.user.role)) {
+      // Field rep importing for themselves → save under manager's account
+      const managerUserId = await getManagerUserId(req.user.id);
+      if (managerUserId) userId = managerUserId;
+      // areaRefId stays as req.user.id so area filtering uses rep's own assignments
     }
 
-    // Only import doctors from the user's assigned areas (field roles only)
+    // Only import doctors from the rep's assigned areas (field roles only)
     // Managers import all survey doctors (no area restriction)
-    const userAreaNames = FIELD_ROLES.has(req.user.role) ? await getUserAssignedAreaNames(userId) : [];
+    const userAreaNames = FIELD_ROLES.has(req.user.role) ? await getUserAssignedAreaNames(areaRefId) : [];
     const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
     const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
@@ -279,11 +298,17 @@ export async function importDoctor(req, res, next) {
     const docId    = parseInt(req.params.docId);
     await assertVisible(surveyId, req.user, res);
 
-    // If repId provided (company_manager importing for a rep), use rep's userId
+    // Determine TARGET userId (where doctor is saved)
+    // Field reps: doctors live under manager's account, so save there too
     let targetUserId = req.user.id;
     if (req.query.repId) {
+      // company_manager importing on behalf of a rep
       const repUserId = await getRepLinkedUserId(req.query.repId);
       if (repUserId) targetUserId = repUserId;
+    } else if (FIELD_ROLES.has(req.user.role)) {
+      // Field rep importing for themselves → save under manager's account
+      const managerUserId = await getManagerUserId(req.user.id);
+      if (managerUserId) targetUserId = managerUserId;
     }
 
     const src = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
@@ -364,12 +389,24 @@ export async function importPharmacy(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const pharmaId = parseInt(req.params.pharmaId);
     await assertVisible(surveyId, req.user, res);
+
+    // Determine target userId — same logic as importDoctor
+    let targetUserId = req.user.id;
+    if (req.query.repId) {
+      const repUserId = await getRepLinkedUserId(req.query.repId);
+      if (repUserId) targetUserId = repUserId;
+    } else if (FIELD_ROLES.has(req.user.role)) {
+      const managerUserId = await getManagerUserId(req.user.id);
+      if (managerUserId) targetUserId = managerUserId;
+    }
+
     const src = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
-    if (!src || src.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });    // Upsert to handle duplicates gracefully
+    if (!src || src.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     const existing = await prisma.pharmacy.findFirst({
-      where: { name: src.name, userId: req.user.id },
+      where: { name: src.name, userId: targetUserId },
     });
-    if (existing) return res.json({ success: true, data: existing, message: 'الصيدلية موجودة مسبقاً في قائمتك' });    const newPh = await prisma.pharmacy.create({
+    if (existing) return res.json({ success: true, data: existing, message: 'الصيدلية موجودة مسبقاً في قائمتك' });
+    const newPh = await prisma.pharmacy.create({
       data: {
         name:      src.name,
         ownerName: src.ownerName ?? null,
@@ -377,7 +414,7 @@ export async function importPharmacy(req, res, next) {
         address:   src.address  ?? null,
         areaName:  src.areaName ?? null,
         notes:     src.notes    ?? null,
-        userId:    req.user.id,
+        userId:    targetUserId,
       },
     });
     res.status(201).json({ success: true, data: newPh, message: 'تمت الإضافة لقائمة صيدلياتك' });

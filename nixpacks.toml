@@ -9,4 +9,4 @@ cmds = ["npm install --include=dev", "node_modules/.bin/prisma generate --schema
 cmds = ["npm run build"]
 
 [start]
-cmd = "(node_modules/.bin/prisma db push --schema prisma/schema.postgresql.prisma --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && npm start"
+cmd = "(node_modules/.bin/prisma db push --schema prisma/schema.postgresql.prisma --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && (node _fix_survey_imports.mjs || echo 'fix_survey_imports skipped') && npm start"
