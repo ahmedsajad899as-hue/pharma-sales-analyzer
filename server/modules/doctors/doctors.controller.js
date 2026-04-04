@@ -202,13 +202,18 @@ export async function visitsByArea(req, res, next) {
       });
     }
 
-    const areaMap = new Map();
+    const areaMap = new Map();   // key = normName(areaName)
     const noAreaDocs = [];
 
-    // Arabic normalization for name matching (handles ة/ه, أإآ/ا, ى/ي, diacritics, extra spaces)
-    const normName = s => String(s || '').trim().toLowerCase()
+    // Arabic normalization: ة→ه، أإآ→ا، ى→ي، تشكيل، حي/محله prefix، مسافات
+    const normName = s => String(s || '').trim()
       .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
+      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+      .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
+      .toLowerCase().trim();
+
+    // canonical display name: أول اسم يُصادَف لكل مجموعة هو الاسم المعروض
+    const canonicalName = new Map(); // normKey → displayName
 
     // For null-area doctors: batch-lookup in active master survey by name (wrapped in try-catch to fail gracefully)
     const nullAreaDoctors = doctors.filter(d => !d.area && !d.planEntries?.[0]?.plan?.planAreas?.[0]?.area);
@@ -246,14 +251,17 @@ export async function visitsByArea(req, res, next) {
         visited, isWriting, visits: d.visits,
       };
       if (effectiveArea) {
-        if (!areaMap.has(effectiveArea.id))
-          areaMap.set(effectiveArea.id, { id: effectiveArea.id, name: effectiveArea.name, doctors: [] });
-        areaMap.get(effectiveArea.id).doctors.push(doc);
+        const key = normName(effectiveArea.name);
+        if (!canonicalName.has(key)) canonicalName.set(key, effectiveArea.name);
+        if (!areaMap.has(key))
+          areaMap.set(key, { id: effectiveArea.id, name: canonicalName.get(key), doctors: [] });
+        areaMap.get(key).doctors.push(doc);
       } else if (surveyArea) {
-        const mapKey = `survey:${surveyArea}`;
-        if (!areaMap.has(mapKey))
-          areaMap.set(mapKey, { id: mapKey, name: surveyArea, doctors: [] });
-        areaMap.get(mapKey).doctors.push(doc);
+        const key = normName(surveyArea);
+        if (!canonicalName.has(key)) canonicalName.set(key, surveyArea);
+        if (!areaMap.has(key))
+          areaMap.set(key, { id: `survey:${key}`, name: canonicalName.get(key), doctors: [] });
+        areaMap.get(key).doctors.push(doc);
       } else {
         noAreaDocs.push(doc);
       }
