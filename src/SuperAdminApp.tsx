@@ -1,5 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
+import type { ReactNode } from 'react';
 import { SuperAdminProvider, useSuperAdmin } from './context/SuperAdminContext';
+
+class SAErrorBoundary extends Component<{ children: ReactNode }, { err: string | null }> {
+  constructor(props: { children: ReactNode }) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e: Error) { return { err: e.message }; }
+  render() {
+    if (this.state.err) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', fontFamily: 'system-ui, sans-serif', direction: 'rtl' }}>
+          <div style={{ background: '#1e293b', border: '1px solid #dc2626', borderRadius: 16, padding: '32px 40px', maxWidth: 480, textAlign: 'center' }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+            <h2 style={{ color: '#f87171', margin: '0 0 8px' }}>حدث خطأ غير متوقع</h2>
+            <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>{this.state.err}</p>
+            <button onClick={() => { localStorage.removeItem('sa_token'); localStorage.removeItem('sa_user'); window.location.reload(); }}
+              style={{ padding: '10px 24px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}>
+              مسح الجلسة وإعادة المحاولة
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import SuperAdminLogin from './pages/super-admin/SuperAdminLogin';
 import OfficesPage from './pages/super-admin/OfficesPage';
 import CompaniesPage from './pages/super-admin/CompaniesPage';
@@ -272,8 +296,10 @@ function SuperAdminShell() {
 
 export default function SuperAdminApp() {
   return (
-    <SuperAdminProvider>
-      <SuperAdminShell />
-    </SuperAdminProvider>
+    <SAErrorBoundary>
+      <SuperAdminProvider>
+        <SuperAdminShell />
+      </SuperAdminProvider>
+    </SAErrorBoundary>
   );
 }

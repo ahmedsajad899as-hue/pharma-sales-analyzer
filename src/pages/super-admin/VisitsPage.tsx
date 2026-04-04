@@ -18,7 +18,7 @@ interface Visit {
   notes?: string | null;
   isDoubleVisit: boolean;
   doctor:        { id: number; name: string };
-  scientificRep: { id: number; name: string };
+  scientificRep: { id: number; name: string } | null;
   user?:         { id: number; username: string; displayName?: string; office?: { id: number; name: string } | null; companyAssignments?: { company: { id: number; name: string } }[] } | null;
   item?:         { id: number; name: string } | null;
 }
@@ -34,7 +34,7 @@ interface PharmVisit {
   isDoubleVisit: boolean;
   latitude?: number | null;
   longitude?: number | null;
-  scientificRep: { id: number; name: string };
+  scientificRep: { id: number; name: string } | null;
   user?:         { id: number; username: string; displayName?: string; office?: { id: number; name: string } | null; companyAssignments?: { company: { id: number; name: string } }[] } | null;
   items: PharmVisitItem[];
 }
@@ -356,7 +356,7 @@ export default function VisitsPage() {
                             {new Date(v.visitDate).toLocaleDateString('ar-IQ', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                           </td>
                           <td style={{ padding: '11px 14px', fontWeight: 600, color: '#0f172a' }}>{v.doctor.name}</td>
-                          <td style={{ padding: '11px 14px', color: '#374151' }}>{v.scientificRep.name}</td>
+                          <td style={{ padding: '11px 14px', color: '#374151' }}>{v.scientificRep?.name ?? (v.user?.displayName || v.user?.username || '')}</td>
                           <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13 }}>{v.user ? (v.user.displayName || v.user.username) : ''}</td>
                           <td style={{ padding: '11px 14px', color: '#374151', fontSize: 13 }}>{v.user?.office?.name ?? ''}</td>
                           <td style={{ padding: '11px 14px', color: '#374151', fontSize: 13 }}>{v.user?.companyAssignments?.map(a => a.company.name).join('، ') || ''}</td>
@@ -448,7 +448,7 @@ export default function VisitsPage() {
                           </td>
                           <td style={{ padding: '11px 14px', fontWeight: 600, color: '#0f766e' }}>{v.pharmacyName}</td>
                           <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13 }}>{areaLabel}</td>
-                          <td style={{ padding: '11px 14px', color: '#374151' }}>{v.scientificRep.name}</td>
+                          <td style={{ padding: '11px 14px', color: '#374151' }}>{v.scientificRep?.name ?? (v.user?.displayName || v.user?.username || '')}</td>
                           <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13 }}>{v.user ? (v.user.displayName || v.user.username) : ''}</td>
                           <td style={{ padding: '11px 14px', color: '#374151', fontSize: 13 }}>{v.user?.office?.name ?? ''}</td>
                           <td style={{ padding: '11px 14px', color: '#374151', fontSize: 13 }}>{v.user?.companyAssignments?.map(a => a.company.name).join('، ') || ''}</td>
