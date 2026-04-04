@@ -113,20 +113,26 @@ export async function visitsByArea(req, res, next) {
     const areaMap = new Map();
     const noAreaDocs = [];
 
-    // For null-area doctors: batch-lookup in active master survey by name
+    // Arabic normalization for name matching (handles ة/ه, أإآ/ا, ى/ي, diacritics, extra spaces)
+    const normName = s => String(s || '').trim().toLowerCase()
+      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
+
+    // For null-area doctors: fetch ALL active survey doctors and build a normalized name→area map
     const nullAreaDoctors = doctors.filter(d => !d.area && !d.planEntries?.[0]?.plan?.planAreas?.[0]?.area);
-    const surveyAreaByName = new Map();
+    const surveyAreaByNormName = new Map();
     if (nullAreaDoctors.length > 0) {
       const activeSurvey = await prisma.masterSurvey.findFirst({
         where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
       });
       if (activeSurvey) {
-        const surveyMatches = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: activeSurvey.id, name: { in: nullAreaDoctors.map(d => d.name) } },
+        const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurvey.id, areaName: { not: null } },
           select: { name: true, areaName: true },
         });
-        for (const s of surveyMatches) {
-          if (s.areaName?.trim()) surveyAreaByName.set(s.name.trim().toLowerCase(), s.areaName.trim());
+        // Build normalized-name → areaName map (last writer wins for duplicate names)
+        for (const s of allSurveyDoctors) {
+          if (s.areaName?.trim()) surveyAreaByNormName.set(normName(s.name), s.areaName.trim());
         }
       }
     }
@@ -134,9 +140,9 @@ export async function visitsByArea(req, res, next) {
     for (const d of doctors) {
       const visited   = d.visits.length > 0;
       const isWriting = d.visits.some(v => v.feedback === 'writing');
-      // Use Doctor.area, then plan-area, then survey area lookup as final fallback
+      // Use Doctor.area, then plan-area, then normalized survey name lookup as final fallback
       const effectiveArea = d.area ?? d.planEntries?.[0]?.plan?.planAreas?.[0]?.area ?? null;
-      const surveyArea    = !effectiveArea ? surveyAreaByName.get(d.name.trim().toLowerCase()) : null;
+      const surveyArea    = !effectiveArea ? surveyAreaByNormName.get(normName(d.name)) : null;
       const doc = {
         id: d.id, name: d.name, specialty: d.specialty,
         pharmacyName: d.pharmacyName ?? null,
