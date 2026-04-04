@@ -219,14 +219,27 @@ async function getRepLinkedUserId(repId) {
 }
 
 // ── Helper: get manager's userId for a field rep ─────────────
-// Doctors are stored under manager's account in the DB, so imports
-// must also save under the manager's userId (not the rep's own userId)
+// ScientificRepresentative.userId = manager who OWNS this rep record
+// This is the correct account where doctors should be stored
 async function getManagerUserId(userId) {
-  const row = await prisma.userManagerAssignment.findFirst({
+  // PRIMARY: via User.linkedRepId → ScientificRepresentative.userId
+  const userRow = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { linkedRepId: true },
+  });
+  if (userRow?.linkedRepId) {
+    const rep = await prisma.scientificRepresentative.findUnique({
+      where: { id: userRow.linkedRepId },
+      select: { userId: true },
+    });
+    if (rep?.userId) return rep.userId;
+  }
+  // FALLBACK: UserManagerAssignment
+  const mgr = await prisma.userManagerAssignment.findFirst({
     where: { userId },
     select: { managerId: true },
   });
-  return row?.managerId ?? null;
+  return mgr?.managerId ?? null;
 }
 
 // ── POST /api/master-surveys/:id/doctors/import-all ──────────

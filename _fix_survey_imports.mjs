@@ -12,23 +12,35 @@ const prisma = new PrismaClient();
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep']);
 
 async function main() {
-  // Get all field rep users who have a manager assignment
+  // Get all field rep users who have a linkedRepId
   const repUsers = await prisma.user.findMany({
-    where: { role: { in: [...FIELD_ROLES] } },
-    select: { id: true, username: true, displayName: true, role: true },
+    where: {
+      role: { in: [...FIELD_ROLES] },
+      linkedRepId: { not: null },
+    },
+    select: { id: true, username: true, displayName: true, role: true, linkedRepId: true },
   });
 
   let totalFixed = 0;
 
   for (const rep of repUsers) {
-    // Find this rep's manager
-    const mgr = await prisma.userManagerAssignment.findFirst({
-      where: { userId: rep.id },
-      select: { managerId: true },
+    // PRIMARY: get manager via ScientificRepresentative.userId
+    const repRecord = await prisma.scientificRepresentative.findUnique({
+      where: { id: rep.linkedRepId },
+      select: { userId: true },
     });
-    if (!mgr) continue;
+    let managerId = repRecord?.userId ?? null;
 
-    const managerId = mgr.managerId;
+    // FALLBACK: UserManagerAssignment
+    if (!managerId) {
+      const mgr = await prisma.userManagerAssignment.findFirst({
+        where: { userId: rep.id },
+        select: { managerId: true },
+      });
+      managerId = mgr?.managerId ?? null;
+    }
+
+    if (!managerId) continue;
 
     // Find doctors saved under rep's own userId
     const repDoctors = await prisma.doctor.findMany({

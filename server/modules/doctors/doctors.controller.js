@@ -38,16 +38,24 @@ export async function visitsByArea(req, res, next) {
       console.log('[visitsByArea] userId:', userId, 'linkedRepId:', linkedRepId, 'repAreaIds:', repAreaIds);
 
       // ── Resolve the manager(s) for this rep ──────────────────
-      // Areas in the DB are per-user (Area.userId = managerId). The SA may have assigned
-      // area IDs from a different manager's account. We resolve by:
-      //  1. Finding the rep's manager via UserManagerAssignment
-      //  2. Looking up the area NAMES (not IDs) inside the manager's account
-      // This ensures we always get the correct doctor set even if area IDs differ across accounts.
-      const managerRows = await prisma.userManagerAssignment.findMany({
-        where: { userId },
-        select: { managerId: true },
-      });
-      const managerIds = managerRows.map(r => r.managerId);
+      // PRIMARY: ScientificRepresentative.userId (most reliable - always set)
+      // FALLBACK: UserManagerAssignment (may be empty)
+      let managerIds = [];
+      if (linkedRepId) {
+        const repRow = await prisma.scientificRepresentative.findUnique({
+          where: { id: linkedRepId },
+          select: { userId: true },
+        });
+        if (repRow?.userId) managerIds = [repRow.userId];
+      }
+      if (managerIds.length === 0) {
+        const managerRows = await prisma.userManagerAssignment.findMany({
+          where: { userId },
+          select: { managerId: true },
+        });
+        managerIds = managerRows.map(r => r.managerId);
+      }
+      console.log('[visitsByArea] managerIds:', managerIds);
 
       // ── Resolve area IDs → manager's account using fuzzy JS-side matching ──
       // Handles: ة/ه، أإآ/ا، ى/ي، تشكيل، بادئات "حي/محله/ناحية"، تطابق جزئي
@@ -115,14 +123,15 @@ export async function visitsByArea(req, res, next) {
       }
 
       // جلب أطباء المناطق — OR بين:
-      //   1) المناطق المحلولة في حساب المدير (مع userId للدقة)
+      //   1) المناطق المحلولة في حساب المدير (بدون قيد userId — area IDs globally unique)
       //   2) المناطق غير المحلولة — نجيب الـ userId الفعلي لكل منطقة من DB ونفلتر بيه بشكل صحيح
+      //   3) أطباء محفوظون مباشرة تحت userId المندوب (استيراد قديم من السيرفي)
       let doctorWhere;
       const orClauses = [];
 
-      // المناطق المحلولة في حساب المدير
+      // المناطق المحلولة في حساب المدير — area IDs globally unique, no userId filter needed
       if (managerAreaIds.length > 0) {
-        orClauses.push({ areaId: { in: managerAreaIds }, userId: { in: managerIds } });
+        orClauses.push({ areaId: { in: managerAreaIds } });
       }
 
       // المناطق غير المحلولة — نجيب userId المالك الفعلي من DB
@@ -131,22 +140,37 @@ export async function visitsByArea(req, res, next) {
           where: { id: { in: unresolvedOriginalAreaIds } },
           select: { id: true, userId: true },
         });
-        // جمّع حسب الحساب المالك
         const byOwner = new Map();
         for (const a of unresolvedFull) {
           if (!byOwner.has(a.userId)) byOwner.set(a.userId, []);
           byOwner.get(a.userId).push(a.id);
         }
-        for (const [ownerId, aIds] of byOwner) {
-          if (ownerId) {
-            orClauses.push({ areaId: { in: aIds }, userId: ownerId });
-          } else {
-            orClauses.push({ areaId: { in: aIds } });
-          }
+        for (const [, aIds] of byOwner) {
+          orClauses.push({ areaId: { in: aIds } });
         }
-        // أيضاً: إذا منطقة موجودة في DB بـ ID لكن لا تنتمي لأي حساب، جيب بدون قيد userId
         const noOwner = unresolvedOriginalAreaIds.filter(id => !unresolvedFull.find(a => a.id === id));
         if (noOwner.length > 0) orClauses.push({ areaId: { in: noOwner } });
+      }
+
+      // أطباء المندوب نفسه (استيراد قديم تحت userId المندوب مباشرة)
+      // نجيب مناطقه الخاصة بنفس الأسماء المحددة
+      if (assignedAreaObjs.length > 0) {
+        const repOwnAreas = await prisma.area.findMany({
+          where: { userId: userId },
+          select: { id: true, name: true },
+        });
+        const repMatchingAreaIds = repOwnAreas
+          .filter(a => assignedAreaObjs.some(assigned => {
+            const aN = normArea(assigned.name);
+            const rN = normArea(a.name);
+            return rN === aN || rN.includes(aN) || aN.includes(rN);
+          }))
+          .map(a => a.id);
+        if (repMatchingAreaIds.length > 0) {
+          orClauses.push({ userId: userId, areaId: { in: repMatchingAreaIds } });
+        }
+        // كذلك أطباء المندوب بدون منطقة (areaId = null)
+        orClauses.push({ userId: userId, areaId: null });
       }
 
       if (orClauses.length > 0) {
