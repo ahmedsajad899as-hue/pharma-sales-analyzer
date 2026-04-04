@@ -1747,8 +1747,14 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (repId) where.scientificRepId = repId;
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
       if (repId) {
-        // Specific rep selected → filter directly (trusted from manager UI)
-        where.scientificRepId = repId;
+        if (repId < 0) {
+          // Negative repId = manager's own visits (encoded as -userId)
+          where.userId = -repId;
+          where.scientificRepId = null;
+        } else {
+          // Specific scientific rep selected → filter directly
+          where.scientificRepId = repId;
+        }
       } else {
         // No specific rep → show company reps' visits AND manager's own visits
         const assignments = await prisma.userCompanyAssignment.findMany({
@@ -1812,7 +1818,13 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (repId) pharmWhere.scientificRepId = repId;
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
       if (repId) {
-        pharmWhere.scientificRepId = repId;
+        if (repId < 0) {
+          // Negative repId = manager's own visits
+          pharmWhere.userId = -repId;
+          pharmWhere.scientificRepId = null;
+        } else {
+          pharmWhere.scientificRepId = repId;
+        }
       } else {
         // Mirror the doctor visits OR clause: rep visits + manager's own
         if (where.OR) pharmWhere.OR = where.OR;
@@ -1872,8 +1884,8 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (v.scientificRep && !repMap.has(v.scientificRep.id)) {
         repMap.set(v.scientificRep.id, v.scientificRep);
       } else if (!v.scientificRep && v.user) {
-        // Manager's own visit — show under their user name
-        const key = `user:${v.user.id}`;
+        // Manager's own visit — use negative userId as numeric id so frontend Number() works
+        const key = -(v.user.id);
         if (!repMap.has(key)) {
           repMap.set(key, { id: key, name: v.user.displayName || v.user.username });
         }
