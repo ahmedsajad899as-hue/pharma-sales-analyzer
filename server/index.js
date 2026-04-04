@@ -1727,7 +1727,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         // Specific rep selected → filter directly (trusted from manager UI)
         where.scientificRepId = repId;
       } else {
-        // No specific rep → show all company reps' visits
+        // No specific rep → show company reps' visits AND manager's own visits
         const assignments = await prisma.userCompanyAssignment.findMany({
           where: { userId },
           select: { companyId: true },
@@ -1742,11 +1742,15 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
             select: { linkedRepId: true },
           });
           const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
-          if (repIds.length > 0) {
-            where.scientificRepId = { in: repIds };
-          }
+          // Always include manager's own visits (userId = managerId) alongside rep visits
+          where.OR = [
+            ...(repIds.length > 0 ? [{ scientificRepId: { in: repIds } }] : []),
+            { userId },  // manager's own visits (scientificRepId = null)
+          ];
+        } else {
+          // No company assignments: show all visits scoped to manager's userId
+          where.userId = userId;
         }
-        // If no company assignments, show all (manager sees all reps in their system)
       }
     } else {
       // admin: optionally filter by rep
@@ -1758,6 +1762,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       include: {
         doctor:        { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } } },
         scientificRep: { select: { id: true, name: true } },
+        user:          { select: { id: true, displayName: true, username: true } },
         item:          { select: { id: true, name: true } },
         likes:         { select: { id: true, userId: true, user: { select: { id: true, username: true } } } },
         comments:      { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } },
@@ -1831,10 +1836,17 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime());
 
     // List of distinct reps who have visits (for filter dropdown)
+    // Also includes manager-as-rep entries where scientificRep is null
     const repMap = new Map();
     allVisits.forEach(v => {
       if (v.scientificRep && !repMap.has(v.scientificRep.id)) {
         repMap.set(v.scientificRep.id, v.scientificRep);
+      } else if (!v.scientificRep && v.user) {
+        // Manager's own visit — show under their user name
+        const key = `user:${v.user.id}`;
+        if (!repMap.has(key)) {
+          repMap.set(key, { id: key, name: v.user.displayName || v.user.username });
+        }
       }
     });
 

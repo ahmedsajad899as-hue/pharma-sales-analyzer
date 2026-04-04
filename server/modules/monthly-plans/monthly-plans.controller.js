@@ -935,16 +935,20 @@ export async function addVisit(req, res, next) {
       }
     }
 
-    // Resolve scientificRepId: use plan's rep, or fall back to user's own linked rep, or null (for managers)
-    let resolvedScientificRepId = plan.scientificRepId ?? null;
-    if (!resolvedScientificRepId) {
-      const userRow2 = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-      resolvedScientificRepId = userRow2?.linkedRepId ?? null;
-    }
-    // Final fallback: find a ScientificRepresentative record for this userId directly
-    if (!resolvedScientificRepId) {
-      const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-      resolvedScientificRepId = ownRep?.id ?? null;
+    // Resolve scientificRepId:
+    // - Field reps (user/scientific_rep/team_leader/supervisor/commercial_rep): inherit from plan or their own linked rep
+    // - Managers (company_manager, etc.): always null — their identity is tracked by userId, not scientificRepId
+    let resolvedScientificRepId = null;
+    if (REP_ROLES.has(role)) {
+      resolvedScientificRepId = plan.scientificRepId ?? null;
+      if (!resolvedScientificRepId) {
+        const userRow2 = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+        resolvedScientificRepId = userRow2?.linkedRepId ?? null;
+      }
+      if (!resolvedScientificRepId) {
+        const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+        resolvedScientificRepId = ownRep?.id ?? null;
+      }
     }
 
     const visit = await prisma.doctorVisit.create({

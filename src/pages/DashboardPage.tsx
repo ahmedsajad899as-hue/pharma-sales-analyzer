@@ -3740,9 +3740,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </span>
                 {/* Per-rep counts */}
                 {callsData.reps.map(rep => {
-                  const cnt = callsData.visits.filter(v => v.scientificRep.id === rep.id).length;
+                  const cnt = callsData.visits.filter(v =>
+                    v.scientificRep?.id === rep.id ||
+                    (!v.scientificRep && (v as any).user && `user:${(v as any).user.id}` === String(rep.id))
+                  ).length;
                   return (
-                    <span key={rep.id} style={{ fontSize: '12px', background: '#eef2ff', color: '#4f46e5', borderRadius: '8px', padding: '2px 10px' }}>
+                    <span key={String(rep.id)} style={{ fontSize: '12px', background: '#eef2ff', color: '#4f46e5', borderRadius: '8px', padding: '2px 10px' }}>
                       👤 {rep.name}: {cnt}
                     </span>
                   );
@@ -3808,7 +3811,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                           )}
                         </td>
-                        {isManagerOrAdmin && <td>{v.scientificRep.name}</td>}
+                        {isManagerOrAdmin && <td>{v.scientificRep?.name ?? (v as any).user?.displayName ?? (v as any).user?.username ?? '—'}</td>}
                         <td style={{ whiteSpace: 'nowrap' }}>
                           {(() => { const { date, time } = fmtDateAndTime(v.visitDate); return isMultiDay ? <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></> : <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
                         </td>
@@ -3915,7 +3918,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             visitMarkers={(callsData?.visits || [])
               .filter(v =>
                 v.latitude != null &&
-                (trackingMapRepId === 0 || (v.scientificRep as any).id === trackingMapRepId)
+                (trackingMapRepId === 0 || (v.scientificRep as any)?.id === trackingMapRepId)
               )
               .map(v => ({
                 lat:   v.latitude as number,
