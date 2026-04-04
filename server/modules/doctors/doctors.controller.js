@@ -18,18 +18,18 @@ export async function visitsByArea(req, res, next) {
     const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
+    // ── Arabic normalization (used in both branches) ──────────
+    const normArea = s => String(s || '').trim()
+      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+      .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
+      .toLowerCase().trim();
+
     let doctors;
 
     if (isFieldRep) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
-
-      // ── Arabic normalization ──────────────────────────────────
-      const normArea = s => String(s || '').trim()
-        .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-        .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-        .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-        .toLowerCase().trim();
 
       // ── 1. أسماء المناطق المعيّنة (من SuperAdmin) ────────────
       const [userAreaRows, repAreaRows] = await Promise.all([
