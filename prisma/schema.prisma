@@ -500,7 +500,7 @@ model PlanEntryItem {
 model DoctorVisit {
   id              Int      @id @default(autoincrement())
   doctorId        Int
-  scientificRepId Int
+  scientificRepId Int?     // nullable: managers may not have a ScientificRepresentative record
   planEntryId     Int? // ربط بالبلان (اختياري)
   visitDate       DateTime
   itemId          Int?
@@ -513,11 +513,11 @@ model DoctorVisit {
   createdAt       DateTime @default(now())
 
   userId        Int?
-  user          User?                    @relation(fields: [userId], references: [id])
-  doctor        Doctor                   @relation(fields: [doctorId], references: [id])
-  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
-  item          Item?                    @relation(fields: [itemId], references: [id])
-  planEntry     PlanEntry?               @relation(fields: [planEntryId], references: [id])
+  user          User?                     @relation(fields: [userId], references: [id])
+  doctor        Doctor                    @relation(fields: [doctorId], references: [id])
+  scientificRep ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
+  item          Item?                     @relation(fields: [itemId], references: [id])
+  planEntry     PlanEntry?                @relation(fields: [planEntryId], references: [id])
   likes         VisitLike[]
   comments      VisitComment[]
 

@@ -935,10 +935,22 @@ export async function addVisit(req, res, next) {
       }
     }
 
+    // Resolve scientificRepId: use plan's rep, or fall back to user's own linked rep, or null (for managers)
+    let resolvedScientificRepId = plan.scientificRepId ?? null;
+    if (!resolvedScientificRepId) {
+      const userRow2 = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      resolvedScientificRepId = userRow2?.linkedRepId ?? null;
+    }
+    // Final fallback: find a ScientificRepresentative record for this userId directly
+    if (!resolvedScientificRepId) {
+      const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+      resolvedScientificRepId = ownRep?.id ?? null;
+    }
+
     const visit = await prisma.doctorVisit.create({
       data: {
         doctorId:        entry.doctorId,
-        scientificRepId: plan.scientificRepId,
+        scientificRepId: resolvedScientificRepId,
         planEntryId:     entryId,
         visitDate:       visitDate ? new Date(visitDate) : new Date(),
         itemId:          resolvedItemId,
