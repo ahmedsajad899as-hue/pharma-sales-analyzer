@@ -1749,8 +1749,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (repId) {
         if (repId < 0) {
           // Negative repId = manager's own visits (encoded as -userId)
+          // Filter only by userId — don't require scientificRepId=null because
+          // visits created before the fix may have had a repId assigned incorrectly.
           where.userId = -repId;
-          where.scientificRepId = null;
         } else {
           // Specific scientific rep selected → filter directly
           where.scientificRepId = repId;
@@ -1819,9 +1820,8 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
       if (repId) {
         if (repId < 0) {
-          // Negative repId = manager's own visits
+          // Negative repId = manager's own pharmacy visits (encoded as -userId)
           pharmWhere.userId = -repId;
-          pharmWhere.scientificRepId = null;
         } else {
           pharmWhere.scientificRepId = repId;
         }
