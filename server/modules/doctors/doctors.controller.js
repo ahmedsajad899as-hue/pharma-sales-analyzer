@@ -190,16 +190,38 @@ export async function visitsByArea(req, res, next) {
         orderBy: { name: 'asc' },
       });
 
-      // Resolve area for doctors with no areaId using masterSurveyDoctor.areaName
+      // Resolve area for doctors with no areaId
       const allAreasForLookup = await prisma.area.findMany({ select: { id: true, name: true } });
       const areaByNormLookup = new Map(allAreasForLookup.map(a => [normArea(a.name), a]));
+
+      // Build name→areaName map from active survey for fallback matching by doctor name
+      const activeSurveyForLookup = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, orderBy: { createdAt: 'desc' }, select: { id: true },
+      });
+      const surveyNameToArea = new Map(); // normName(doctorName) → { id, name }
+      if (activeSurveyForLookup) {
+        const surveyDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurveyForLookup.id, areaName: { not: null } },
+          select: { name: true, areaName: true },
+        });
+        for (const sd of surveyDocs) {
+          if (!sd.areaName?.trim()) continue;
+          const area = areaByNormLookup.get(normArea(sd.areaName)) ?? { id: null, name: sd.areaName.trim() };
+          surveyNameToArea.set(normArea(sd.name), area);
+        }
+      }
+
       doctors = doctors.map(d => {
         if (d.area) return d;
+        // 1. Try via masterSurveyDoctor.areaName
         const surveyAreaName = d.masterSurveyDoctor?.areaName?.trim();
         if (surveyAreaName) {
           const resolved = areaByNormLookup.get(normArea(surveyAreaName)) ?? { id: null, name: surveyAreaName };
           return { ...d, area: resolved };
         }
+        // 2. Try matching doctor name against active survey
+        const surveyMatch = surveyNameToArea.get(normArea(d.name));
+        if (surveyMatch) return { ...d, area: surveyMatch };
         return d;
       });
     }
