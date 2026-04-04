@@ -24,84 +24,57 @@ export async function visitsByArea(req, res, next) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
 
-      // جلب المناطق من كلا المصدرين: UserAreaAssignment (الأدمن) + ScientificRepArea (مدير المناطق)
-      const [userAreaRows, repAreaRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-          : Promise.resolve([]),
-      ]);
-      const repAreaIds = [...new Set([
-        ...userAreaRows.map(a => a.areaId),
-        ...repAreaRows.map(a => a.areaId),
-      ])];
-      console.log('[visitsByArea] userId:', userId, 'linkedRepId:', linkedRepId, 'repAreaIds:', repAreaIds);
-
-      // ── Resolve the manager(s) for this rep ──────────────────
-      // PRIMARY: ScientificRepresentative.userId (most reliable - always set)
-      // FALLBACK: UserManagerAssignment (may be empty)
-      let managerIds = [];
-      if (linkedRepId) {
-        const repRow = await prisma.scientificRepresentative.findUnique({
-          where: { id: linkedRepId },
-          select: { userId: true },
-        });
-        if (repRow?.userId) managerIds = [repRow.userId];
-      }
-      if (managerIds.length === 0) {
-        const managerRows = await prisma.userManagerAssignment.findMany({
-          where: { userId },
-          select: { managerId: true },
-        });
-        managerIds = managerRows.map(r => r.managerId);
-      }
-      console.log('[visitsByArea] managerIds:', managerIds);
-
-      // ── Resolve area IDs → manager's account using fuzzy JS-side matching ──
-      // Handles: ة/ه، أإآ/ا، ى/ي، تشكيل، بادئات "حي/محله/ناحية"، تطابق جزئي
+      // ── Arabic normalization ──────────────────────────────────
       const normArea = s => String(s || '').trim()
         .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
         .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-        .replace(/^(حي |محله |قضاء |ناحيه |ناحيه |ناحية )/, '')
+        .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
         .toLowerCase().trim();
 
-      const assignedAreaObjs = repAreaIds.length > 0
-        ? await prisma.area.findMany({ where: { id: { in: repAreaIds } }, select: { id: true, name: true } })
-        : [];
+      // ── 1. أسماء المناطق المعيّنة (من SuperAdmin) ────────────
+      const [userAreaRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({
+          where: { userId },
+          include: { area: { select: { id: true, name: true } } },
+        }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({
+              where: { scientificRepId: linkedRepId },
+              include: { area: { select: { id: true, name: true } } },
+            })
+          : Promise.resolve([]),
+      ]);
 
-      let managerAreaIds = [];
-      const resolvedOriginalIds = new Set(); // area IDs (from assigned) that got matched
+      const assignedAreaMap = new Map();
+      for (const row of [...userAreaRows, ...repAreaRows]) {
+        if (row.area) assignedAreaMap.set(row.area.id, row.area);
+      }
+      const assignedAreas   = [...assignedAreaMap.values()];
+      const assignedNormSet = new Set(assignedAreas.map(a => normArea(a.name)));
 
-      if (managerIds.length > 0 && assignedAreaObjs.length > 0) {
-        const allManagerAreas = await prisma.area.findMany({
-          where: { userId: { in: managerIds } },
-          select: { id: true, name: true },
-        });
+      console.log('[visitsByArea] userId:', userId, 'assignedAreas:',
+        assignedAreas.map(a => a.name));
 
-        for (const assigned of assignedAreaObjs) {
-          const aN = normArea(assigned.name);
-          const match = allManagerAreas.find(m => {
-            const mN = normArea(m.name);
-            return mN === aN || mN.includes(aN) || aN.includes(mN);
-          });
-          if (match) {
-            managerAreaIds.push(match.id);
-            resolvedOriginalIds.add(assigned.id);
-          }
-        }
-        console.log('[visitsByArea] assigned:', assignedAreaObjs.length,
-          'matched in manager account:', managerAreaIds.length,
-          'unmatched:', assignedAreaObjs.length - resolvedOriginalIds.size);
+      if (assignedNormSet.size === 0) {
+        return res.json({ areas: [] });
       }
 
-      // Unmatched area IDs: use original (fallback — may belong to different account)
-      const unresolvedOriginalAreaIds = assignedAreaObjs
-        .filter(a => !resolvedOriginalIds.has(a.id))
-        .map(a => a.id);
+      // ── 2. manager userId ─────────────────────────────────────
+      let managerId = null;
+      if (linkedRepId) {
+        const repRow = await prisma.scientificRepresentative.findUnique({
+          where: { id: linkedRepId }, select: { userId: true },
+        });
+        managerId = repRow?.userId ?? null;
+      }
+      if (!managerId) {
+        const mgr = await prisma.userManagerAssignment.findFirst({
+          where: { userId }, select: { managerId: true },
+        });
+        managerId = mgr?.managerId ?? null;
+      }
 
-      const finalAreaIds = [...new Set([...managerAreaIds, ...unresolvedOriginalAreaIds])];
-
-      // جلب الزيارات المفلترة بالشهر — فقط للأطباء في مناطق المندوب
+      // ── 3. زيارات المندوب للشهر ───────────────────────────────
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
           scientificRepId: linkedRepId ?? -1,
@@ -114,61 +87,74 @@ export async function visitsByArea(req, res, next) {
         },
         orderBy: { visitDate: 'desc' },
       });
-
-      // تجميع الزيارات حسب doctorId
       const visitsByDoc = new Map();
       for (const v of allVisits) {
         if (!visitsByDoc.has(v.doctorId)) visitsByDoc.set(v.doctorId, []);
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // جلب أطباء المناطق
-      // ─ المناطق المطلوبة = المناطق المحلولة في حساب المدير (managerAreaIds)
-      //   + أي مناطق غير محلولة (تبقى بـ areaId الأصلي)
-      // في كلا الحالتين: نُقيّد بـ userId للمدير (أو صاحب المنطقة) لتجنب أطباء حسابات أخرى
-      let doctorWhere;
-      const orClauses = [];
-
-      // المناطق المحلولة → أطباء حساب المدير فقط
-      if (managerAreaIds.length > 0 && managerIds.length > 0) {
-        orClauses.push({ areaId: { in: managerAreaIds }, userId: { in: managerIds } });
-      }
-
-      // المناطق غير المحلولة → نجيب userId المالك الفعلي من DB ونُقيّد بيه
-      if (unresolvedOriginalAreaIds.length > 0) {
-        const unresolvedFull = await prisma.area.findMany({
-          where: { id: { in: unresolvedOriginalAreaIds } },
-          select: { id: true, userId: true },
+      // ── 4. أطباء Doctor table في المناطق المعيّنة ────────────
+      // (من حساب المدير — المصدر الصحيح لكل الأطباء)
+      const dbDoctorsByNorm = new Map(); // normName(doctorName) → doctor
+      if (managerId) {
+        const managerDocs = await prisma.doctor.findMany({
+          where: { userId: managerId },
+          include: {
+            area:       { select: { id: true, name: true } },
+            targetItem: { select: { id: true, name: true } },
+          },
         });
-        const byOwner = new Map();
-        for (const a of unresolvedFull) {
-          if (!byOwner.has(a.userId)) byOwner.set(a.userId, []);
-          byOwner.get(a.userId).push(a.id);
-        }
-        for (const [ownerId, aIds] of byOwner) {
-          if (ownerId) orClauses.push({ areaId: { in: aIds }, userId: ownerId });
-          else         orClauses.push({ areaId: { in: aIds } });
+        for (const d of managerDocs) {
+          if (d.area && assignedNormSet.has(normArea(d.area.name))) {
+            dbDoctorsByNorm.set(normArea(d.name), d);
+          }
         }
       }
 
-      if (orClauses.length > 0) {
-        doctorWhere = orClauses.length === 1 ? orClauses[0] : { OR: orClauses };
-      } else {
-        doctorWhere = { id: { in: [...new Set(allVisits.map(v => v.doctorId))] } };
-      }
-
-      const allDoctors = await prisma.doctor.findMany({
-        where: doctorWhere,
-        include: {
-          area:       { select: { id: true, name: true } },
-          targetItem: { select: { id: true, name: true } },
-        },
-        orderBy: { name: 'asc' },
+      // ── 5. أطباء السيرفي الرئيسي في المناطق المعيّنة ─────────
+      // يُضاف فقط من لا يوجد في Doctor table (dedup بالاسم)
+      const activeSurvey = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
       });
 
-      // دمج: الزيارات المفلترة للشهر المحدد فقط
-      doctors = allDoctors.map(d => ({ ...d, visits: visitsByDoc.get(d.id) ?? [] }));
-      console.log('[visitsByArea] total doctors:', allDoctors.length);
+      const mergedMap = new Map(); // key = normArea(name)
+
+      // أولاً: Doctor table (له أولوية لأن عنده زيارات حقيقية)
+      for (const [key, d] of dbDoctorsByNorm) {
+        mergedMap.set(key, {
+          id: d.id, name: d.name, specialty: d.specialty ?? null,
+          pharmacyName: d.pharmacyName ?? null,
+          area: d.area, targetItem: d.targetItem, isActive: d.isActive,
+          visits: visitsByDoc.get(d.id) ?? [],
+        });
+      }
+
+      // ثانياً: السيرفي (فقط من لا يوجد في Doctor table)
+      if (activeSurvey) {
+        const surveyDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurvey.id },
+          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
+        });
+        for (const sd of surveyDocs) {
+          if (!sd.areaName?.trim()) continue;
+          if (!assignedNormSet.has(normArea(sd.areaName))) continue;
+          const key = normArea(sd.name);
+          if (mergedMap.has(key)) continue; // موجود في Doctor table
+          const areaDisplay = assignedAreas.find(a => normArea(a.name) === normArea(sd.areaName))
+            ?? { id: null, name: sd.areaName.trim() };
+          mergedMap.set(key, {
+            id: `survey:${sd.id}`, name: sd.name, specialty: sd.specialty ?? null,
+            pharmacyName: sd.pharmacyName ?? null,
+            area: areaDisplay, targetItem: null, isActive: true,
+            visits: [],
+          });
+        }
+      }
+
+      doctors = [...mergedMap.values()];
+      console.log('[visitsByArea] db:', dbDoctorsByNorm.size,
+        'survey-only added:', doctors.length - dbDoctorsByNorm.size,
+        'total:', doctors.length);
 
     } else {
       // للمدير: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
@@ -207,49 +193,23 @@ export async function visitsByArea(req, res, next) {
     const areaMap = new Map();   // key = normName(areaName)
     const noAreaDocs = [];
 
-    // Arabic normalization: ة→ه، أإآ→ا، ى→ي، تشكيل، حي/محله prefix، مسافات
     const normName = s => String(s || '').trim()
       .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
       .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
       .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
       .toLowerCase().trim();
 
-    // canonical display name: أول اسم يُصادَف لكل مجموعة هو الاسم المعروض
-    const canonicalName = new Map(); // normKey → displayName
-
-    // For null-area doctors: batch-lookup in active master survey by name (wrapped in try-catch to fail gracefully)
-    const nullAreaDoctors = doctors.filter(d => !d.area && !d.planEntries?.[0]?.plan?.planAreas?.[0]?.area);
-    const surveyAreaByNormName = new Map();
-    if (nullAreaDoctors.length > 0) {
-      try {
-        const activeSurvey = await prisma.masterSurvey.findFirst({
-          where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
-        });
-        if (activeSurvey) {
-          const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({
-            where: { surveyId: activeSurvey.id, areaName: { not: null } },
-            select: { name: true, areaName: true },
-          });
-          for (const s of allSurveyDoctors) {
-            if (s.areaName?.trim()) surveyAreaByNormName.set(normName(s.name), s.areaName.trim());
-          }
-        }
-      } catch (surveyErr) {
-        console.warn('[visitsByArea] survey area fallback failed (non-fatal):', surveyErr.message);
-      }
-    }
+    const canonicalName = new Map();
 
     for (const d of doctors) {
       const visited   = d.visits.length > 0;
       const isWriting = d.visits.some(v => v.feedback === 'writing');
-      // Use Doctor.area, then plan-area, then normalized survey name lookup as final fallback
       const effectiveArea = d.area ?? d.planEntries?.[0]?.plan?.planAreas?.[0]?.area ?? null;
-      const surveyArea    = !effectiveArea ? surveyAreaByNormName.get(normName(d.name)) : null;
       const doc = {
         id: d.id, name: d.name, specialty: d.specialty,
         pharmacyName: d.pharmacyName ?? null,
         area: effectiveArea,
-        targetItem: d.targetItem, isActive: d.isActive,
+        targetItem: d.targetItem ?? null, isActive: d.isActive,
         visited, isWriting, visits: d.visits,
       };
       if (effectiveArea) {
@@ -257,12 +217,6 @@ export async function visitsByArea(req, res, next) {
         if (!canonicalName.has(key)) canonicalName.set(key, effectiveArea.name);
         if (!areaMap.has(key))
           areaMap.set(key, { id: effectiveArea.id, name: canonicalName.get(key), doctors: [] });
-        areaMap.get(key).doctors.push(doc);
-      } else if (surveyArea) {
-        const key = normName(surveyArea);
-        if (!canonicalName.has(key)) canonicalName.set(key, surveyArea);
-        if (!areaMap.has(key))
-          areaMap.set(key, { id: `survey:${key}`, name: canonicalName.get(key), doctors: [] });
         areaMap.get(key).doctors.push(doc);
       } else {
         noAreaDocs.push(doc);
