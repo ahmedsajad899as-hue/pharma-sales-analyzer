@@ -113,11 +113,30 @@ export async function visitsByArea(req, res, next) {
     const areaMap = new Map();
     const noAreaDocs = [];
 
+    // For null-area doctors: batch-lookup in active master survey by name
+    const nullAreaDoctors = doctors.filter(d => !d.area && !d.planEntries?.[0]?.plan?.planAreas?.[0]?.area);
+    const surveyAreaByName = new Map();
+    if (nullAreaDoctors.length > 0) {
+      const activeSurvey = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+      });
+      if (activeSurvey) {
+        const surveyMatches = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurvey.id, name: { in: nullAreaDoctors.map(d => d.name) } },
+          select: { name: true, areaName: true },
+        });
+        for (const s of surveyMatches) {
+          if (s.areaName?.trim()) surveyAreaByName.set(s.name.trim().toLowerCase(), s.areaName.trim());
+        }
+      }
+    }
+
     for (const d of doctors) {
       const visited   = d.visits.length > 0;
       const isWriting = d.visits.some(v => v.feedback === 'writing');
-      // Use Doctor.area if set, otherwise fall back to the first plan-area
+      // Use Doctor.area, then plan-area, then survey area lookup as final fallback
       const effectiveArea = d.area ?? d.planEntries?.[0]?.plan?.planAreas?.[0]?.area ?? null;
+      const surveyArea    = !effectiveArea ? surveyAreaByName.get(d.name.trim().toLowerCase()) : null;
       const doc = {
         id: d.id, name: d.name, specialty: d.specialty,
         pharmacyName: d.pharmacyName ?? null,
@@ -129,6 +148,11 @@ export async function visitsByArea(req, res, next) {
         if (!areaMap.has(effectiveArea.id))
           areaMap.set(effectiveArea.id, { id: effectiveArea.id, name: effectiveArea.name, doctors: [] });
         areaMap.get(effectiveArea.id).doctors.push(doc);
+      } else if (surveyArea) {
+        const mapKey = `survey:${surveyArea}`;
+        if (!areaMap.has(mapKey))
+          areaMap.set(mapKey, { id: mapKey, name: surveyArea, doctors: [] });
+        areaMap.get(mapKey).doctors.push(doc);
       } else {
         noAreaDocs.push(doc);
       }
