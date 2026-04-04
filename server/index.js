@@ -1294,14 +1294,20 @@ app.post('/api/pharmacy-visits', async (req, res) => {
       try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps !== false && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
     }
 
-    // Find the linked scientific rep for the current user
-    let scientificRepId = req.user?.linkedRepId ?? null;
-    if (!scientificRepId) {
-      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId } });
-      if (rep) scientificRepId = rep.id;
-    }
-    if (!scientificRepId) {
-      return res.status(400).json({ error: 'لا يوجد مندوب مرتبط بهذا الحساب' });
+    // Find the linked scientific rep for the current user — managers always get null
+    const role = req.user?.role ?? '';
+    const MANAGER_ROLES_PH = new Set(['admin', 'manager', 'company_manager', 'supervisor', 'product_manager',
+                                       'office_manager', 'commercial_supervisor', 'commercial_team_leader']);
+    let scientificRepId = null;
+    if (!MANAGER_ROLES_PH.has(role)) {
+      scientificRepId = req.user?.linkedRepId ?? null;
+      if (!scientificRepId) {
+        const rep = await prisma.scientificRepresentative.findFirst({ where: { userId } });
+        if (rep) scientificRepId = rep.id;
+      }
+      if (!scientificRepId) {
+        return res.status(400).json({ error: 'لا يوجد مندوب مرتبط بهذا الحساب' });
+      }
     }
 
     // Resolve areaId: from explicit areaId, or look up areaName in areas table
@@ -1383,10 +1389,15 @@ app.post('/api/doctor-visits', async (req, res) => {
       try { const _p = JSON.parse(_u?.permissions || '{}'); if (_p.requireGps !== false && latitude == null) return res.status(400).json({ error: 'يجب تفعيل الموقع الجغرافي لإرسال هذا التقرير' }); } catch {}
     }
 
-    // Resolve scientificRepId from the user's record
-    const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-    let scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
-    if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
+    // Resolve scientificRepId — field reps only; managers always get null (tracked by userId)
+    const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'supervisor', 'product_manager',
+                                   'office_manager', 'commercial_supervisor', 'commercial_team_leader']);
+    let scientificRepId = null;
+    if (!MANAGER_ROLES.has(role)) {
+      const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+      scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
+      if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
+    }
 
     // Resolve areaId from areaName if only text was provided
     let resolvedAreaId = areaId ? parseInt(areaId) : null;

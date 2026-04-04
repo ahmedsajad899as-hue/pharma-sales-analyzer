@@ -1894,6 +1894,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     <tr>
                       <th style={{ width: 36 }}>#</th>
                       <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
+                      {isManagerOrAdmin && <th style={{ fontSize: '10px', padding: '4px 4px' }}>{(t.dashboard as any).dailyCallsColRep}</th>}
                       <th style={{ fontSize: '10px', padding: '4px 4px', maxWidth: 80 }}>الصيدلية / المنطقة</th>
                       <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
                       <th style={{ fontSize: '10px', padding: '4px 4px', maxWidth: 80 }}>{(t.dashboard as any).dailyCallsColItem}</th>
@@ -1967,6 +1968,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               <div style={{ fontSize: '12px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                             )}
                           </td>
+                          {isManagerOrAdmin && <td style={{ fontSize: '11px', color: '#374151', whiteSpace: 'nowrap' }}>{(v as any).scientificRep?.name ?? (v as any).user?.displayName ?? (v as any).user?.username ?? '—'}</td>}
                           <td style={{ fontSize: '10px', color: '#374151', maxWidth: 80, overflow: 'hidden', padding: '3px 4px' }}>
                             {(v as any)._visitType === 'pharmacy' ? (
                               v.doctor.area?.name ? <div style={{ fontSize: '10px', color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.area.name}</div> : '—'

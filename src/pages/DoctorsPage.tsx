@@ -1483,7 +1483,7 @@ export default function DoctorsPage() {
             </div>
           )}
 
-          {!visitLoading && visitAreas.map(area => {
+          {!visitLoading && [...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors).map(area => {
             const key     = String(area.id);
             const isOpen  = expandedAreas.has(key);
             const pct     = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
