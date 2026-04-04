@@ -6,6 +6,9 @@ const normAreaKey = s => String(s ?? '').trim().toLowerCase()
   .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
   .replace(/[ًٌٍَُِّْ]/g, '');
 
+// Field roles restricted to assigned areas in the survey (managers see all)
+const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep']);
+
 // ── Visibility helper ────────────────────────────────────────
 // Returns a Prisma `where` clause that filters surveys visible to this user
 function visibleWhere(user) {
@@ -55,8 +58,9 @@ export async function listSurveys(req, res, next) {
       },
     });
 
-    // If user has assigned areas, replace counts with normalized area-filtered counts
-    const userAreaNames = await getUserAssignedAreaNames(req.user.id);
+    // Area filter only for field roles; managers see full survey
+    const isFieldRole   = FIELD_ROLES.has(req.user.role);
+    const userAreaNames = isFieldRole ? await getUserAssignedAreaNames(req.user.id) : [];
     if (userAreaNames.length > 0) {
       const normAreaSet = new Set(userAreaNames.map(normAreaKey));
       await Promise.all(surveys.map(async survey => {
@@ -80,15 +84,17 @@ export async function getSurvey(req, res, next) {
     const id = parseInt(req.params.id);
 
     // If repId provided (company_manager viewing for a rep), filter by rep's areas
-    let filterUserId = req.user.id;
+    let userAreaNames = [];
     if (req.query.repId) {
+      // manager viewing as a specific rep: filter by rep's areas
       const repUserId = await getRepLinkedUserId(req.query.repId);
-      if (repUserId) filterUserId = repUserId;
+      if (repUserId) userAreaNames = await getUserAssignedAreaNames(repUserId);
+    } else if (FIELD_ROLES.has(req.user.role)) {
+      // field role: restrict to own assigned areas
+      userAreaNames = await getUserAssignedAreaNames(req.user.id);
     }
-
-    // Build area filter using Arabic normalization to handle ة/ه, أإآ/ا variants
-    const userAreaNames = await getUserAssignedAreaNames(filterUserId);
-    const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
+    // else: manager viewing own survey -> no area filter (sees all doctors)
+    const normAreaSet = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
     const survey = await prisma.masterSurvey.findFirst({
       where: { id, ...visibleWhere(req.user) },
@@ -225,8 +231,9 @@ export async function importAllDoctors(req, res, next) {
       if (repUserId) userId = repUserId;
     }
 
-    // Only import doctors from the user's assigned areas (with Arabic normalization)
-    const userAreaNames = await getUserAssignedAreaNames(userId);
+    // Only import doctors from the user's assigned areas (field roles only)
+    // Managers import all survey doctors (no area restriction)
+    const userAreaNames = FIELD_ROLES.has(req.user.role) ? await getUserAssignedAreaNames(userId) : [];
     const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
     const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
