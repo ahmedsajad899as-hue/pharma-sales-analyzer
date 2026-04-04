@@ -1723,26 +1723,30 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
-      // Scope to reps assigned to same company as this user
-      const assignments = await prisma.userCompanyAssignment.findMany({
-        where: { userId },
-        select: { companyId: true },
-      });
-      const companyIds = assignments.map(a => a.companyId);
-      if (companyIds.length > 0) {
-        const repUsers = await prisma.user.findMany({
-          where: {
-            companyAssignments: { some: { companyId: { in: companyIds } } },
-            linkedRepId: { not: null },
-          },
-          select: { linkedRepId: true },
+      if (repId) {
+        // Specific rep selected → filter directly (trusted from manager UI)
+        where.scientificRepId = repId;
+      } else {
+        // No specific rep → show all company reps' visits
+        const assignments = await prisma.userCompanyAssignment.findMany({
+          where: { userId },
+          select: { companyId: true },
         });
-        const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
-        if (repId && repIds.includes(repId)) {
-          where.scientificRepId = repId;
-        } else if (!repId && repIds.length > 0) {
-          where.scientificRepId = { in: repIds };
+        const companyIds = assignments.map(a => a.companyId);
+        if (companyIds.length > 0) {
+          const repUsers = await prisma.user.findMany({
+            where: {
+              companyAssignments: { some: { companyId: { in: companyIds } } },
+              linkedRepId: { not: null },
+            },
+            select: { linkedRepId: true },
+          });
+          const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
+          if (repIds.length > 0) {
+            where.scientificRepId = { in: repIds };
+          }
         }
+        // If no company assignments, show all (manager sees all reps in their system)
       }
     } else {
       // admin: optionally filter by rep
