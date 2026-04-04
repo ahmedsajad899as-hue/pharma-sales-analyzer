@@ -534,6 +534,29 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'areas' && (
             <div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <button
+                  disabled={saving}
+                  onClick={async () => {
+                    if (!confirm('سيتم مسح المناطق الموجودة وإعادة تحميلها من السيرفي الرئيسي. هل أنت متأكد؟')) return;
+                    setSaving(true);
+                    try {
+                      const r = await fetch('/api/sa/areas/reset-from-survey', { method: 'POST', headers: H() });
+                      const j = await r.json();
+                      if (j.success) {
+                        setAreas(j.data);
+                        setDraftAreaIds(prev => prev.filter(id => j.data.some((a: any) => a.id === id)));
+                        alert(`✅ تم التحديث — ${j.count} منطقة من السيرفي`);
+                      } else {
+                        alert('❌ ' + j.error);
+                      }
+                    } finally { setSaving(false); }
+                  }}
+                  style={{ ...btnStyle('#7c3aed', true), fontSize: 12, padding: '4px 14px' }}
+                >
+                  {saving ? '...' : '🔄 تحديث من السيرفي'}
+                </button>
+              </div>
               <input
                 type="text"
                 placeholder="🔍 بحث عن منطقة..."

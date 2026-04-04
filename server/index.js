@@ -99,26 +99,94 @@ app.get('/api/sa/items', requireSuperAdmin, async (req, res) => {
   res.json({ success: true, data: items });
 });
 app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
-  // Sync distinct area names from master survey into Area table (global, userId=null)
-  const surveyAreaRows = await prisma.masterSurveyDoctor.findMany({
-    where: { areaName: { not: null } },
-    select: { areaName: true },
-    distinct: ['areaName'],
-  });
-  const surveyNames = surveyAreaRows.map(r => r.areaName.trim()).filter(Boolean);
-  if (surveyNames.length > 0) {
-    const existing = await prisma.area.findMany({ select: { name: true } });
-    const existingSet = new Set(existing.map(a => a.name.trim()));
-    const toCreate = surveyNames.filter(n => !existingSet.has(n));
+  const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  res.json({ success: true, data: areas });
+});
+
+// POST /api/sa/areas/reset-from-survey — clear all areas and reload from master survey
+app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) => {
+  try {
+    // 1. Get distinct area names from master survey
+    const surveyRows = await prisma.masterSurveyDoctor.findMany({
+      where: { areaName: { not: null } },
+      select: { areaName: true },
+      distinct: ['areaName'],
+    });
+    const surveyNames = [...new Set(surveyRows.map(r => r.areaName.trim()).filter(Boolean))];
+
+    // 2. Get all current areas grouped by name (to detect duplicates)
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+
+    // Build map: normalizedName → [area ids] sorted by id asc
+    const byName = new Map();
+    for (const a of allAreas) {
+      const key = a.name.trim();
+      if (!byName.has(key)) byName.set(key, []);
+      byName.get(key).push(a.id);
+    }
+
+    // 3. For each duplicated name group: keep min id (canonical), merge all refs to it
+    for (const [, ids] of byName) {
+      if (ids.length <= 1) continue;
+      const [canonical, ...dupes] = ids; // ids sorted asc → canonical = min id
+      for (const oldId of dupes) {
+        // Move all FK references to canonical
+        await prisma.$executeRaw`UPDATE doctors SET area_id = ${canonical} WHERE area_id = ${oldId}`;
+        await prisma.$executeRaw`UPDATE sales SET area_id = ${canonical} WHERE area_id = ${oldId}`;
+        await prisma.$executeRaw`UPDATE pharmacy_visits SET area_id = ${canonical} WHERE area_id = ${oldId}`;
+        await prisma.$executeRaw`UPDATE pharmacies SET area_id = ${canonical} WHERE area_id = ${oldId}`;
+        await prisma.$executeRaw`UPDATE plan_areas SET area_id = ${canonical} WHERE area_id = ${oldId} AND NOT EXISTS (SELECT 1 FROM plan_areas WHERE plan_id = plan_areas.plan_id AND area_id = ${canonical})`;
+        await prisma.$executeRaw`DELETE FROM plan_areas WHERE area_id = ${oldId}`;
+        await prisma.$executeRaw`DELETE FROM scientific_rep_areas WHERE area_id = ${oldId}`;
+        await prisma.$executeRaw`DELETE FROM representative_areas WHERE area_id = ${oldId}`;
+        // UserAreaAssignment: upsert canonical, then remove old
+        await prisma.$executeRaw`INSERT INTO user_area_assignments (user_id, area_id, assigned_at)
+          SELECT user_id, ${canonical}, assigned_at FROM user_area_assignments WHERE area_id = ${oldId}
+          ON CONFLICT DO NOTHING`;
+        await prisma.$executeRaw`DELETE FROM user_area_assignments WHERE area_id = ${oldId}`;
+        // Delete the duplicate area
+        await prisma.$executeRaw`DELETE FROM areas WHERE id = ${oldId}`;
+      }
+    }
+
+    // 4. Add survey names not yet in Area table
+    const existingAfter = await prisma.area.findMany({ select: { name: true } });
+    const existingNames = new Set(existingAfter.map(a => a.name.trim()));
+    const toCreate = surveyNames.filter(n => !existingNames.has(n));
     if (toCreate.length > 0) {
       await prisma.area.createMany({
         data: toCreate.map(name => ({ name })),
         skipDuplicates: true,
       });
     }
+
+    // 5. Delete areas NOT in survey AND having no sales, no plan_areas (truly orphan)
+    const surveySet = new Set(surveyNames);
+    const allFinal = await prisma.area.findMany({ select: { id: true, name: true } });
+    const areasNotInSurvey = allFinal.filter(a => !surveySet.has(a.name.trim()));
+    for (const area of areasNotInSurvey) {
+      const [saleCount, planCount] = await Promise.all([
+        prisma.sale.count({ where: { areaId: area.id } }),
+        prisma.planArea.count({ where: { areaId: area.id } }),
+      ]);
+      if (saleCount === 0 && planCount === 0) {
+        // Null out optional refs first
+        await prisma.$executeRaw`UPDATE doctors SET area_id = NULL WHERE area_id = ${area.id}`;
+        await prisma.$executeRaw`UPDATE pharmacy_visits SET area_id = NULL WHERE area_id = ${area.id}`;
+        await prisma.$executeRaw`UPDATE pharmacies SET area_id = NULL WHERE area_id = ${area.id}`;
+        await prisma.$executeRaw`DELETE FROM scientific_rep_areas WHERE area_id = ${area.id}`;
+        await prisma.$executeRaw`DELETE FROM representative_areas WHERE area_id = ${area.id}`;
+        await prisma.$executeRaw`DELETE FROM user_area_assignments WHERE area_id = ${area.id}`;
+        await prisma.$executeRaw`DELETE FROM areas WHERE id = ${area.id}`;
+      }
+    }
+
+    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, count: finalAreas.length });
+  } catch (err) {
+    console.error('[reset-areas]', err);
+    res.status(500).json({ success: false, error: err.message });
   }
-  const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
-  res.json({ success: true, data: areas });
 });
 
 // ── All /api routes below require a valid JWT ────────────────
