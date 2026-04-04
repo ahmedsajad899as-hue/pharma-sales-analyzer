@@ -122,19 +122,19 @@ export async function visitsByArea(req, res, next) {
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // جلب أطباء المناطق — OR بين:
-      //   1) المناطق المحلولة في حساب المدير (بدون قيد userId — area IDs globally unique)
-      //   2) المناطق غير المحلولة — نجيب الـ userId الفعلي لكل منطقة من DB ونفلتر بيه بشكل صحيح
-      //   3) أطباء محفوظون مباشرة تحت userId المندوب (استيراد قديم من السيرفي)
+      // جلب أطباء المناطق
+      // ─ المناطق المطلوبة = المناطق المحلولة في حساب المدير (managerAreaIds)
+      //   + أي مناطق غير محلولة (تبقى بـ areaId الأصلي)
+      // في كلا الحالتين: نُقيّد بـ userId للمدير (أو صاحب المنطقة) لتجنب أطباء حسابات أخرى
       let doctorWhere;
       const orClauses = [];
 
-      // المناطق المحلولة في حساب المدير — area IDs globally unique, no userId filter needed
-      if (managerAreaIds.length > 0) {
-        orClauses.push({ areaId: { in: managerAreaIds } });
+      // المناطق المحلولة → أطباء حساب المدير فقط
+      if (managerAreaIds.length > 0 && managerIds.length > 0) {
+        orClauses.push({ areaId: { in: managerAreaIds }, userId: { in: managerIds } });
       }
 
-      // المناطق غير المحلولة — نجيب userId المالك الفعلي من DB
+      // المناطق غير المحلولة → نجيب userId المالك الفعلي من DB ونُقيّد بيه
       if (unresolvedOriginalAreaIds.length > 0) {
         const unresolvedFull = await prisma.area.findMany({
           where: { id: { in: unresolvedOriginalAreaIds } },
@@ -145,32 +145,10 @@ export async function visitsByArea(req, res, next) {
           if (!byOwner.has(a.userId)) byOwner.set(a.userId, []);
           byOwner.get(a.userId).push(a.id);
         }
-        for (const [, aIds] of byOwner) {
-          orClauses.push({ areaId: { in: aIds } });
+        for (const [ownerId, aIds] of byOwner) {
+          if (ownerId) orClauses.push({ areaId: { in: aIds }, userId: ownerId });
+          else         orClauses.push({ areaId: { in: aIds } });
         }
-        const noOwner = unresolvedOriginalAreaIds.filter(id => !unresolvedFull.find(a => a.id === id));
-        if (noOwner.length > 0) orClauses.push({ areaId: { in: noOwner } });
-      }
-
-      // أطباء المندوب نفسه (استيراد قديم تحت userId المندوب مباشرة)
-      // نجيب مناطقه الخاصة بنفس الأسماء المحددة
-      if (assignedAreaObjs.length > 0) {
-        const repOwnAreas = await prisma.area.findMany({
-          where: { userId: userId },
-          select: { id: true, name: true },
-        });
-        const repMatchingAreaIds = repOwnAreas
-          .filter(a => assignedAreaObjs.some(assigned => {
-            const aN = normArea(assigned.name);
-            const rN = normArea(a.name);
-            return rN === aN || rN.includes(aN) || aN.includes(rN);
-          }))
-          .map(a => a.id);
-        if (repMatchingAreaIds.length > 0) {
-          orClauses.push({ userId: userId, areaId: { in: repMatchingAreaIds } });
-        }
-        // كذلك أطباء المندوب بدون منطقة (areaId = null)
-        orClauses.push({ userId: userId, areaId: null });
       }
 
       if (orClauses.length > 0) {
