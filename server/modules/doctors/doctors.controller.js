@@ -163,6 +163,7 @@ export async function visitsByArea(req, res, next) {
         include: {
           area:       { select: { id: true, name: true } },
           targetItem: { select: { id: true, name: true } },
+          masterSurveyDoctor: { select: { areaName: true } },
           visits: {
             where: dateFilter ? { visitDate: dateFilter } : undefined,
             orderBy: { visitDate: 'desc' },
@@ -187,6 +188,19 @@ export async function visitsByArea(req, res, next) {
           },
         },
         orderBy: { name: 'asc' },
+      });
+
+      // Resolve area for doctors with no areaId using masterSurveyDoctor.areaName
+      const allAreasForLookup = await prisma.area.findMany({ select: { id: true, name: true } });
+      const areaByNormLookup = new Map(allAreasForLookup.map(a => [normArea(a.name), a]));
+      doctors = doctors.map(d => {
+        if (d.area) return d;
+        const surveyAreaName = d.masterSurveyDoctor?.areaName?.trim();
+        if (surveyAreaName) {
+          const resolved = areaByNormLookup.get(normArea(surveyAreaName)) ?? { id: null, name: surveyAreaName };
+          return { ...d, area: resolved };
+        }
+        return d;
       });
     }
 
