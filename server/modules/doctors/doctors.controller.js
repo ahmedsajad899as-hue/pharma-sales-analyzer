@@ -118,22 +118,25 @@ export async function visitsByArea(req, res, next) {
       .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
       .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
 
-    // For null-area doctors: fetch ALL active survey doctors and build a normalized name→area map
+    // For null-area doctors: batch-lookup in active master survey by name (wrapped in try-catch to fail gracefully)
     const nullAreaDoctors = doctors.filter(d => !d.area && !d.planEntries?.[0]?.plan?.planAreas?.[0]?.area);
     const surveyAreaByNormName = new Map();
     if (nullAreaDoctors.length > 0) {
-      const activeSurvey = await prisma.masterSurvey.findFirst({
-        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
-      });
-      if (activeSurvey) {
-        const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: activeSurvey.id, areaName: { not: null } },
-          select: { name: true, areaName: true },
+      try {
+        const activeSurvey = await prisma.masterSurvey.findFirst({
+          where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
         });
-        // Build normalized-name → areaName map (last writer wins for duplicate names)
-        for (const s of allSurveyDoctors) {
-          if (s.areaName?.trim()) surveyAreaByNormName.set(normName(s.name), s.areaName.trim());
+        if (activeSurvey) {
+          const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({
+            where: { surveyId: activeSurvey.id, areaName: { not: null } },
+            select: { name: true, areaName: true },
+          });
+          for (const s of allSurveyDoctors) {
+            if (s.areaName?.trim()) surveyAreaByNormName.set(normName(s.name), s.areaName.trim());
+          }
         }
+      } catch (surveyErr) {
+        console.warn('[visitsByArea] survey area fallback failed (non-fatal):', surveyErr.message);
       }
     }
 
@@ -654,6 +657,12 @@ export async function remove(req, res, next) {
 export async function deleteAll(req, res, next) {
   try {
     const userId = req.user.id;
+    const role   = req.user.role;
+    // Only allow super_admin or admin to bulk-delete all doctors
+    const ALLOWED_ROLES = ['admin', 'super_admin'];
+    if (!ALLOWED_ROLES.includes(role)) {
+      return res.status(403).json({ error: 'عملية حذف كل الأطباء غير مسموحة إلا للمدير العام. تواصل مع مدير التطبيق للمساعدة.' });
+    }
     const result = await prisma.doctor.deleteMany({ where: { userId } });
     res.json({ deleted: result.count });
   } catch (e) { next(e); }
