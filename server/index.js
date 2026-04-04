@@ -1799,8 +1799,13 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
-      // Reuse the same rep-scope computed above for doctor visits
-      if (where.scientificRepId) pharmWhere.scientificRepId = where.scientificRepId;
+      if (repId) {
+        pharmWhere.scientificRepId = repId;
+      } else {
+        // Mirror the doctor visits OR clause: rep visits + manager's own
+        if (where.OR) pharmWhere.OR = where.OR;
+        else if (where.scientificRepId) pharmWhere.scientificRepId = where.scientificRepId;
+      }
     } else {
       if (repId) pharmWhere.scientificRepId = repId;
     }
@@ -1809,6 +1814,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       include: {
         area:          { select: { id: true, name: true } },
         scientificRep: { select: { id: true, name: true } },
+        user:          { select: { id: true, displayName: true, username: true } },
         items:         { include: { item: { select: { id: true, name: true } } } },
         likes:         { select: { id: true, userId: true, user: { select: { id: true, username: true } } } },
       },
@@ -1824,6 +1830,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       feedback:     'pharmacy',
       notes:        pv.notes,
       scientificRep: pv.scientificRep,
+      user:         pv.user ?? null,
       _visitType:   'pharmacy',
       // Mimic the doctor shape so the table renderer can reuse existing columns
       doctor: {

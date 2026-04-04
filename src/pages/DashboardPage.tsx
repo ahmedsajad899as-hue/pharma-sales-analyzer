@@ -1968,7 +1968,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               <div style={{ fontSize: '12px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                             )}
                           </td>
-                          {isManagerOrAdmin && <td style={{ fontSize: '11px', color: '#374151', whiteSpace: 'nowrap' }}>{(v as any).scientificRep?.name ?? (v as any).user?.displayName ?? (v as any).user?.username ?? '—'}</td>}
+                          {isManagerOrAdmin && <td style={{ fontSize: '11px', color: '#374151', whiteSpace: 'nowrap' }}>{(v as any).scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '—'}</td>}
                           <td style={{ fontSize: '10px', color: '#374151', maxWidth: 80, overflow: 'hidden', padding: '3px 4px' }}>
                             {(v as any)._visitType === 'pharmacy' ? (
                               v.doctor.area?.name ? <div style={{ fontSize: '10px', color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.area.name}</div> : '—'
@@ -3813,7 +3813,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
                           )}
                         </td>
-                        {isManagerOrAdmin && <td>{v.scientificRep?.name ?? (v as any).user?.displayName ?? (v as any).user?.username ?? '—'}</td>}
+                        {isManagerOrAdmin && <td>{v.scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '—'}</td>}
                         <td style={{ whiteSpace: 'nowrap' }}>
                           {(() => { const { date, time } = fmtDateAndTime(v.visitDate); return isMultiDay ? <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></> : <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
                         </td>
