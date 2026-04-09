@@ -764,6 +764,7 @@ app.get('/api/files', async (req, res) => {
       orderBy: { uploadedAt: 'desc' },
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
+        currencyMode: true, exchangeRate: true,
         _count: { select: { sales: true } },
       },
     });
@@ -976,6 +977,32 @@ app.delete('/api/files/:id', async (req, res) => {
       deletedAreas: orphanAreaIds.length,
       deletedItems: orphanItemIds.length,
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Currency settings per file ───────────────────────────────
+// PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate }
+app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const { currencyMode, exchangeRate } = req.body;
+  if (!['IQD', 'USD'].includes(currencyMode)) {
+    return res.status(400).json({ error: 'currencyMode يجب أن يكون IQD أو USD' });
+  }
+  const rate = parseFloat(exchangeRate);
+  if (!isFinite(rate) || rate <= 0) {
+    return res.status(400).json({ error: 'exchangeRate يجب أن يكون رقماً موجباً' });
+  }
+  try {
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id, ...(req.user?.id ? { userId: req.user.id } : {}) },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+    await prisma.uploadedFile.update({
+      where: { id },
+      data: { currencyMode, exchangeRate: rate },
+    });
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1211,13 +1238,29 @@ app.post('/api/analyze', async (req, res) => {
         });
       }
 
+      // جلب إعداد العملة للملف
+      let fileCurrencyMode = 'IQD';
+      let fileExchangeRate = 1500;
+      if (fileId) {
+        const fileInfo = await prisma.uploadedFile.findUnique({
+          where: { id: Number(fileId) },
+          select: { currencyMode: true, exchangeRate: true },
+        });
+        if (fileInfo) {
+          fileCurrencyMode = fileInfo.currencyMode || 'IQD';
+          fileExchangeRate = fileInfo.exchangeRate || 1500;
+        }
+      }
+
       // تحويل إلى صيغة مقروءة للـ AI
       data = dbSales.map(s => ({
         'اسم المندوب': s.representative?.name ?? 'غير محدد',
         'المنطقة':     s.area?.name           ?? 'غير محدد',
         'الصنف':       s.item?.name           ?? 'غير محدد',
         'الكمية':      Math.round(s.quantity  || 0),
-        'القيمة':      Math.round(s.totalValue || 0),
+        'القيمة':      fileCurrencyMode === 'USD'
+          ? Math.round((s.totalValue || 0) / fileExchangeRate)
+          : Math.round(s.totalValue || 0),
       }));
     }
 
@@ -1245,6 +1288,9 @@ app.post('/api/analyze', async (req, res) => {
 - عدد السجلات الكلي: ${data.length}
 - الأعمدة: ${columns.join(', ')}
 - الفلاتر المطبقة: ${JSON.stringify(filters)}
+- وحدة القيمة النقدية: ${fileCurrencyMode === 'USD' ? 'دولار أمريكي ($) — تم تحويل الأسعار من الدينار العراقي بسعر ' + fileExchangeRate + ' دينار/دولار' : 'دينار عراقي (IQD)'}
+
+⚠️ مهم: استخدم وحدة العملة الصحيحة أعلاه في جميع الجداول والأرقام التي تعرضها.
 
 📊 البيانات الكاملة:
 ${JSON.stringify(data, null, 2)}

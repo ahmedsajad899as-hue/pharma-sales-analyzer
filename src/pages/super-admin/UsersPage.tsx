@@ -79,6 +79,7 @@ const FEATURE_TREE: FeatureNode[] = [
     desc: 'صفحة رفع وتحليل ملفات بيانات المندوبين', onlyRoles: REP_ROLES,
     children: [
       { key: 'rep_files', label: 'رفع وعرض الملفات', icon: '📤', desc: 'رفع ملفات Excel وعرض نتائج التحليل', onlyRoles: REP_ROLES },
+      { key: 'currency_convert', label: 'تحويل العملة في التحليل', icon: '💱', desc: 'تحويل أسعار الملفات من الدينار إلى الدولار عند التحليل — يُضبط لكل ملف على حدة', onlyRoles: REP_ROLES },
     ],
   },
   // ── 7. قائمة المستخدمين

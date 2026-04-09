@@ -9,6 +9,8 @@ interface UploadedFile {
   rowCount: number;
   uploadedAt: string;
   fileType?: string;
+  currencyMode?: string;
+  exchangeRate?: number;
   _count?: { sales: number };
 }
 
@@ -20,7 +22,7 @@ interface Props {
 const API = '';
 
 export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
-  const { token } = useAuth();
+  const { token, hasFeature } = useAuth();
   const { t } = useLanguage();
   const [dragging, setDragging]   = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -122,6 +124,13 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [dedupResult, setDedupResult] = useState<{ count: number; normalizations: any[] } | null>(null);
   const [showDedupDetail, setShowDedupDetail] = useState(false);
 
+  // Currency conversion state
+  const [currencyModal, setCurrencyModal] = useState<UploadedFile | null>(null);
+  const [currModalMode, setCurrModalMode] = useState<'IQD' | 'USD'>('IQD');
+  const [currModalRate, setCurrModalRate] = useState<string>('1500');
+  const [savingCurrency, setSavingCurrency] = useState(false);
+  const [currSaveMsg, setCurrSaveMsg] = useState('');
+
   const dedupNames = async (apply: boolean) => {
     setDeduping(true);
     setDedupResult(null);
@@ -208,6 +217,36 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       setAnalysisText(t.upload.analysisFailed);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const openCurrencyModal = (f: UploadedFile) => {
+    setCurrencyModal(f);
+    setCurrModalMode(f.currencyMode === 'USD' ? 'USD' : 'IQD');
+    setCurrModalRate(String(f.exchangeRate ?? 1500));
+    setCurrSaveMsg('');
+  };
+
+  const saveCurrencySettings = async () => {
+    if (!currencyModal) return;
+    const rate = parseFloat(currModalRate);
+    if (!isFinite(rate) || rate <= 0) return;
+    setSavingCurrency(true);
+    setCurrSaveMsg('');
+    try {
+      const res = await fetch(`${API}/api/files/${currencyModal.id}/currency`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currencyMode: currModalMode, exchangeRate: rate }),
+      });
+      if (!res.ok) throw new Error();
+      setCurrSaveMsg(t.upload.currencySaved);
+      await loadFiles();
+      setTimeout(() => setCurrencyModal(null), 900);
+    } catch {
+      setCurrSaveMsg(t.upload.currencySaveFailed);
+    } finally {
+      setSavingCurrency(false);
     }
   };
 
@@ -563,6 +602,21 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         >
                           {analyzing && analyzeFile?.id === f.id ? '⏳' : t.upload.btnAnalyze}
                         </button>
+                        {hasFeature('currency_convert') && (
+                          <button
+                            title={t.upload.currencyModalTitle}
+                            style={{
+                              padding: '4px 10px', fontSize: '0.8rem',
+                              background: f.currencyMode === 'USD' ? '#fef9c3' : '#f3f4f6',
+                              color: f.currencyMode === 'USD' ? '#92400e' : '#374151',
+                              border: `1px solid ${f.currencyMode === 'USD' ? '#fcd34d' : '#d1d5db'}`,
+                              borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: f.currencyMode === 'USD' ? 700 : undefined,
+                            }}
+                            onClick={() => openCurrencyModal(f)}
+                          >
+                            {t.upload.btnCurrency}{f.currencyMode === 'USD' && <span style={{ marginRight: 4 }}>$</span>}
+                          </button>
+                        )}
                         <button
                           title={t.upload.syncTitle}
                           style={{ padding: '4px 10px', fontSize: '0.8rem', background: syncDone === f.id ? '#d1fae5' : '#e0f2fe', color: syncDone === f.id ? '#065f46' : '#0369a1', border: `1px solid ${syncDone === f.id ? '#6ee7b7' : '#7dd3fc'}`, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}
@@ -621,6 +675,96 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           ) : (
             <AnalysisRenderer text={analysisText} />
           )}
+        </div>
+      )}
+
+      {/* Currency Modal */}
+      {currencyModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setCurrencyModal(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 16, padding: '2rem', minWidth: 340, maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem', fontWeight: 700 }}>{t.upload.currencyModalTitle}</h3>
+            <p style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', color: '#6b7280' }}>{currencyModal.originalName}</p>
+
+            {/* Currency toggle */}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {(['IQD', 'USD'] as const).map(mode => (
+                <label
+                  key={mode}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    border: `2px solid ${currModalMode === mode ? (mode === 'USD' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'}`,
+                    borderRadius: 10, padding: '0.6rem 0.9rem', cursor: 'pointer',
+                    background: currModalMode === mode ? (mode === 'USD' ? '#fef9c3' : '#eff6ff') : '#f9fafb',
+                    fontWeight: currModalMode === mode ? 700 : 400, fontSize: '0.9rem',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="currMode"
+                    value={mode}
+                    checked={currModalMode === mode}
+                    onChange={() => setCurrModalMode(mode)}
+                    style={{ accentColor: mode === 'USD' ? '#f59e0b' : '#3b82f6' }}
+                  />
+                  {mode === 'IQD' ? t.upload.currencyIQD : t.upload.currencyUSD}
+                </label>
+              ))}
+            </div>
+
+            {/* Exchange rate — shown only when USD selected */}
+            {currModalMode === 'USD' && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem', color: '#374151' }}>
+                  {t.upload.currencyRate}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={currModalRate}
+                  onChange={e => setCurrModalRate(e.target.value)}
+                  placeholder={t.upload.currencyRatePlaceholder}
+                  style={{
+                    width: '100%', padding: '0.55rem 0.75rem', border: '1px solid #d1d5db',
+                    borderRadius: 8, fontSize: '1rem', outline: 'none', boxSizing: 'border-box',
+                    direction: 'ltr', textAlign: 'left',
+                  }}
+                />
+                <p style={{ fontSize: '0.78rem', color: '#6b7280', margin: '0.3rem 0 0' }}>
+                  1 USD = {currModalRate || '?'} IQD
+                </p>
+              </div>
+            )}
+
+            {/* Save message */}
+            {currSaveMsg && (
+              <p style={{ color: currSaveMsg === t.upload.currencySaved ? '#16a34a' : '#dc2626', fontSize: '0.85rem', marginBottom: '0.75rem', fontWeight: 600 }}>
+                {currSaveMsg}
+              </p>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                style={{ padding: '7px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem' }}
+                onClick={() => setCurrencyModal(null)}
+              >
+                {t.upload.cancel}
+              </button>
+              <button
+                style={{ padding: '7px 20px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', opacity: savingCurrency ? 0.7 : 1 }}
+                onClick={saveCurrencySettings}
+                disabled={savingCurrency}
+              >
+                {savingCurrency ? t.upload.currencySaving : t.upload.currencySave}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
