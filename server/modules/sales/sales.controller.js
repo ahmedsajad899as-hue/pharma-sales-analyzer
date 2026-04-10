@@ -39,10 +39,11 @@ export async function uploadSales(req, res, next) {
     };
 
     const result = await processUploadedFile(req.file, {
-      uploadedBy:    req.body.uploadedBy || req.user?.username || null,
+      uploadedBy:     req.body.uploadedBy || req.user?.username || null,
       columnMapping,
-      userId:        req.user?.id ?? null,
-      fileType:      req.body.fileType || 'sales',
+      userId:         req.user?.id ?? null,
+      fileType:       req.body.fileType || 'sales',
+      sourceCurrency: req.body.sourceCurrency || null,  // user-specified: 'IQD' | 'USD' | null
     });
 
     return res.status(201).json({

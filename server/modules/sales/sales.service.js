@@ -101,7 +101,7 @@ const COLUMN_ALIASES = {
  * @returns {{ rowCount, skipped, uploadedFile }}
  */
 export async function processUploadedFile(file, options = {}) {
-  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales' } = options;
+  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null } = options;
 
   // ── 1. Parse workbook ────────────────────────────────────
   const fileBuffer = file.buffer || readFileSync(file.path);
@@ -318,15 +318,22 @@ export async function processUploadedFile(file, options = {}) {
     );
   }
 
-  // ── Auto-detect currency from median totalValue ──────────
-  // Iraq pharma: IQD row totals typically 50,000 – 10,000,000 IQD
-  // USD row totals typically $5 – $5,000 → well below 100,000
-  const CURRENCY_THRESHOLD = 100000;
-  const nonZeroValues = validRows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
-  const median = nonZeroValues.length > 0
-    ? nonZeroValues[Math.floor(nonZeroValues.length / 2)]
-    : 0;
-  const detectedCurrency = median >= CURRENCY_THRESHOLD ? 'IQD' : 'USD';
+  // ── Determine currency: user-specified takes priority over auto-detection ──
+  let detectedCurrency;
+  if (sourceCurrency === 'IQD' || sourceCurrency === 'USD') {
+    // User explicitly chose the file's currency at upload time
+    detectedCurrency = sourceCurrency;
+  } else {
+    // Auto-detect from median totalValue as fallback
+    // Iraq pharma: IQD row totals typically 50,000 – 10,000,000 IQD
+    // USD row totals typically $5 – $5,000 → well below 100,000
+    const CURRENCY_THRESHOLD = 100000;
+    const nonZeroValues = validRows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
+    const median = nonZeroValues.length > 0
+      ? nonZeroValues[Math.floor(nonZeroValues.length / 2)]
+      : 0;
+    detectedCurrency = median >= CURRENCY_THRESHOLD ? 'IQD' : 'USD';
+  }
 
   // ── 5. Record the file upload ────────────────────────────
   // multer stores originalname as latin1 — decode to UTF-8 for Arabic filenames

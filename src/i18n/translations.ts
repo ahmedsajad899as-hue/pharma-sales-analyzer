@@ -476,6 +476,9 @@ const translations = {
       currencySourceLabel: 'العملة الأصلية في الملف:',
       currencyTargetLabel: 'عرض الأرقام بـ:',
       colCurrency: 'العملة',
+      preCurrencyTitle: '🪙 حدد عملة الملف',
+      preCurrencyLabel: 'أرقام هذا الملف بأي عملة؟',
+      preCurrencyConfirm: '✔ رفع الملف',
     },
 
     // Users
@@ -992,6 +995,9 @@ const translations = {
       currencySourceLabel: 'File original currency:',
       currencyTargetLabel: 'Display numbers in:',
       colCurrency: 'Currency',
+      preCurrencyTitle: '🪙 Select File Currency',
+      preCurrencyLabel: 'What currency are the numbers in this file?',
+      preCurrencyConfirm: '✔ Upload File',
     },
 
     // Users

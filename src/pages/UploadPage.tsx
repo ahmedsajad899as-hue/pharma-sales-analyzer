@@ -31,6 +31,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [error, setError]         = useState('');
   const [errorDetail, setErrorDetail] = useState('');
   const [fileType, setFileType]   = useState<'sales' | 'returns' | 'auto'>('sales');
+
+  // Pre-upload currency picker
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [preCurrency, setPreCurrency] = useState<'IQD' | 'USD'>('IQD');
   const [uploadResult, setUploadResult] = useState<{
     salesCount?: number;
     returnsCount?: number;
@@ -61,7 +65,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
-  const uploadFile = useCallback(async (file: File) => {
+  const uploadFile = useCallback(async (file: File, sourceCurrency: 'IQD' | 'USD') => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
       setError(t.upload.invalidFile);
       return;
@@ -73,6 +77,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('fileType', fileType);
+    formData.append('sourceCurrency', sourceCurrency);
     try {
       setProgress(50);
       const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: formData, headers: { Authorization: `Bearer ${token}` } });
@@ -108,11 +113,20 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     }
   }, [loadFiles, onFileActivated, fileType, activeFileIds, token]);
 
+  const requestUpload = (file: File) => {
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      setError(t.upload.invalidFile);
+      return;
+    }
+    setPreCurrency('IQD');
+    setPendingFile(file);
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) uploadFile(file);
+    if (file) requestUpload(file);
   };
 
   const [deleting, setDeleting] = useState<number | null>(null);
@@ -345,7 +359,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       >
         <input
           ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ''; }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) requestUpload(f); e.target.value = ''; }}
         />
 
         {uploading ? (
@@ -819,6 +833,71 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 disabled={savingCurrency}
               >
                 {savingCurrency ? t.upload.currencySaving : t.upload.currencySave}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-upload currency picker modal */}
+      {pendingFile && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setPendingFile(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 18, padding: '2rem', minWidth: 340, maxWidth: 420, boxShadow: '0 10px 40px rgba(0,0,0,0.22)', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 0.3rem', fontSize: '1.15rem', fontWeight: 700 }}>
+              {t.upload.preCurrencyTitle}
+            </h3>
+            <p style={{ margin: '0 0 1.4rem', fontSize: '0.84rem', color: '#6b7280' }}>
+              {pendingFile.name}
+            </p>
+
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.75rem', color: '#374151' }}>
+              {t.upload.preCurrencyLabel}
+            </label>
+
+            <div style={{ display: 'flex', gap: '0.85rem', marginBottom: '1.75rem' }}>
+              {(['IQD', 'USD'] as const).map(c => (
+                <label
+                  key={c}
+                  style={{
+                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem',
+                    border: `2px solid ${preCurrency === c ? (c === 'USD' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'}`,
+                    borderRadius: 12, padding: '0.9rem 0.5rem', cursor: 'pointer',
+                    background: preCurrency === c ? (c === 'USD' ? '#fef9c3' : '#eff6ff') : '#f9fafb',
+                    fontWeight: preCurrency === c ? 700 : 400,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="preCurr"
+                    value={c}
+                    checked={preCurrency === c}
+                    onChange={() => setPreCurrency(c)}
+                    style={{ accentColor: c === 'USD' ? '#f59e0b' : '#3b82f6' }}
+                  />
+                  <span style={{ fontSize: '1.6rem' }}>{c === 'IQD' ? '🇮🇶' : '🇺🇸'}</span>
+                  <span style={{ fontSize: '0.9rem' }}>{c === 'IQD' ? t.upload.currencyIQD : t.upload.currencyUSD}</span>
+                </label>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem' }}
+                onClick={() => setPendingFile(null)}
+              >
+                {t.upload.cancel}
+              </button>
+              <button
+                style={{ padding: '8px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}
+                onClick={() => { const f = pendingFile; setPendingFile(null); uploadFile(f, preCurrency); }}
+              >
+                {t.upload.preCurrencyConfirm}
               </button>
             </div>
           </div>
