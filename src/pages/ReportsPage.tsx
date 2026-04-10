@@ -90,7 +90,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selCommIds, setSelCommIds]           = useState<Set<number>>(new Set());
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
-  const [qtyRevealed, setQtyRevealed]         = useState(false);
+  const [tabQtyRevealed, setTabQtyRevealed]   = useState<Record<string, boolean>>({});
+  const qtyRevealed = tabQtyRevealed[activeTab] ?? false;
+  const toggleQtyRevealed = () => setTabQtyRevealed(p => ({ ...p, [activeTab]: !p[activeTab] }));
 
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
@@ -304,7 +306,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       <>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
           <button
-            onClick={() => setQtyRevealed(r => !r)}
+            onClick={() => toggleQtyRevealed()}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '5px',
               padding: '3px 10px', borderRadius: '6px', border: '1px solid',
@@ -608,7 +610,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
         <button
-          onClick={() => setQtyRevealed(r => !r)}
+          onClick={() => toggleQtyRevealed()}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
             padding: '3px 10px', borderRadius: '6px', border: '1px solid',
