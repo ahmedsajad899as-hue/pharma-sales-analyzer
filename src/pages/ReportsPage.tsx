@@ -93,6 +93,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
+  const [fileSourceCurrency, setFileSourceCurrency] = useState<'IQD' | 'USD'>('IQD');
   const [fileExchangeRate, setFileExchangeRate] = useState<number>(1500);
 
   // AI assistant page-action listener
@@ -125,6 +126,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setCommReport(null);
       setSciReport(null);
       setFileCurrencyMode('IQD');
+      setFileSourceCurrency('IQD');
       setFileExchangeRate(1500);
       return;
     }
@@ -136,9 +138,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
           setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
+          setFileSourceCurrency(activeFile.detectedCurrency === 'USD' ? 'USD' : 'IQD');
           setFileExchangeRate(activeFile.exchangeRate || 1500);
         } else {
           setFileCurrencyMode('IQD');
+          setFileSourceCurrency('IQD');
           setFileExchangeRate(1500);
         }
       }).catch(() => {});
@@ -240,9 +244,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const fmtSigned = (n: number) => (n >= 0 ? '+' : '') + fmt(n);
 
   // Currency-aware value formatting
-  const convFactor = fileCurrencyMode === 'USD' ? 1 / fileExchangeRate : 1;
+  // IQD file → USD display: divide by rate
+  // USD file → IQD display: multiply by rate
+  // same currency: no change
+  const convertVal = (n: number) => {
+    const v = n || 0;
+    if (fileSourceCurrency === 'IQD' && fileCurrencyMode === 'USD') return v / fileExchangeRate;
+    if (fileSourceCurrency === 'USD' && fileCurrencyMode === 'IQD') return v * fileExchangeRate;
+    return v;
+  };
   const fmtVal = (n: number) => {
-    const v = (n || 0) * convFactor;
+    const v = convertVal(n || 0);
     return fileCurrencyMode === 'USD'
       ? parseFloat(v.toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : Math.round(v).toLocaleString('ar-IQ-u-nu-latn');
