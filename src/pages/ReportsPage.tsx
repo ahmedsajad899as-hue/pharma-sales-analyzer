@@ -725,49 +725,60 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       {/* Filters Card */}
       <div className="filter-card">
-        <div className="filter-grid">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+
+          {/* Rep selector */}
           {mode === 'commercial' ? (
-            <div className="form-group">
-              <label className="form-label">{t.reports.modeCommercial}</label>
-              <select className="form-input" value={commRepId}
-                onChange={e => { setCommRepId(e.target.value); if (e.target.value) loadCommReport(e.target.value); }}>
-                <option value="">-- {t.reports.selectCommRep} --</option>
-                {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </div>
+            <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
+              onChange={e => { setCommRepId(e.target.value); if (e.target.value) loadCommReport(e.target.value); }}>
+              <option value="">-- {t.reports.selectCommRep} --</option>
+              {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
           ) : (
-            <div className="form-group">
-              <label className="form-label">{t.reports.modeScientific}</label>
-              <select className="form-input" value={sciRepId}
-                onChange={e => { setSciRepId(e.target.value); if (e.target.value) loadSciReport(e.target.value); }}>
-                <option value="">-- {t.reports.selectSciRep} --</option>
-                {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </div>
+            <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={sciRepId}
+              onChange={e => { setSciRepId(e.target.value); if (e.target.value) loadSciReport(e.target.value); }}>
+              <option value="">-- {t.reports.selectSciRep} --</option>
+              {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}>
-            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{t.reports.fromDate}</span>
-            <label title={fromDate || t.reports.fromDate} style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 10, background: fromDate ? '#6366f1' : '#e2e8f0', boxShadow: fromDate ? '0 2px 8px #6366f155' : 'none', transition: 'background 0.2s' }}>
-              <span style={{ fontSize: 20, pointerEvents: 'none' }}>📅</span>
-              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-            </label>
-            {fromDate && <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, direction: 'ltr' }}>{fromDate}</span>}
+
+          {/* Combined date range block */}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: (fromDate || toDate) ? '#ede9fe' : '#f1f5f9',
+            border: `1.5px solid ${(fromDate || toDate) ? '#a5b4fc' : '#e2e8f0'}`,
+            borderRadius: 10, padding: '4px 10px', cursor: 'pointer',
+          }}>
+            <span style={{ fontSize: 16 }}>📅</span>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+              title={t.reports.fromDate}
+              style={{ border: 'none', background: 'transparent', fontSize: 12, color: '#374151', outline: 'none', width: 110, cursor: 'pointer' }} />
+            <span style={{ color: '#94a3b8', fontSize: 12 }}>→</span>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+              title={t.reports.toDate}
+              style={{ border: 'none', background: 'transparent', fontSize: 12, color: '#374151', outline: 'none', width: 110, cursor: 'pointer' }} />
+            {(fromDate || toDate) && (
+              <span onClick={() => { setFromDate(''); setToDate(''); }}
+                style={{ fontSize: 12, color: '#94a3b8', cursor: 'pointer', padding: '0 2px' }}>✕</span>
+            )}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}>
-            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{t.reports.toDate}</span>
-            <label title={toDate || t.reports.toDate} style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 10, background: toDate ? '#6366f1' : '#e2e8f0', boxShadow: toDate ? '0 2px 8px #6366f155' : 'none', transition: 'background 0.2s' }}>
-              <span style={{ fontSize: 20, pointerEvents: 'none' }}>📅</span>
-              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-            </label>
-            {toDate && <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, direction: 'ltr' }}>{toDate}</span>}
-          </div>
-          <div className="form-group form-group--center">
-            <button className="btn btn--primary btn--full"
-              onClick={() => mode === 'commercial' ? loadCommReport() : loadSciReport()}
-              disabled={loading}>
-              {loading ? t.reports.loading : `🔍 ${t.reports.generate}`}
-            </button>
-          </div>
+
+          {/* Generate icon button */}
+          <button
+            title={t.reports.generate}
+            onClick={() => mode === 'commercial' ? loadCommReport() : loadSciReport()}
+            disabled={loading}
+            style={{
+              width: 40, height: 40, borderRadius: 10, border: 'none', flexShrink: 0,
+              background: loading ? '#a5b4fc' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              color: '#fff', fontSize: 20, cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px #6366f144', opacity: loading ? 0.7 : 1,
+            }}
+          >
+            {loading ? '⏳' : '🔍'}
+          </button>
+
         </div>
       </div>
 
