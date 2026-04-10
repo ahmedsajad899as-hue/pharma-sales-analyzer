@@ -126,6 +126,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [showDedupDetail, setShowDedupDetail] = useState(false);
 
   // Currency conversion state
+  const [redetecting, setRedetecting] = useState<number | null>(null);
   const [currencyModal, setCurrencyModal] = useState<UploadedFile | null>(null);
   const [currModalMode, setCurrModalMode] = useState<'IQD' | 'USD'>('IQD');
   const [currModalRate, setCurrModalRate] = useState<string>('1500');
@@ -218,6 +219,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       setAnalysisText(t.upload.analysisFailed);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const redetectCurrency = async (f: UploadedFile) => {
+    setRedetecting(f.id);
+    try {
+      const res = await fetch(`${API}/api/files/${f.id}/redetect-currency`, { method: 'POST', credentials: 'include' });
+      if (res.ok) loadFiles();
+    } finally {
+      setRedetecting(null);
     }
   };
 
@@ -579,7 +590,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           {f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : t.upload.typeSalesLabel}
                         </span>
                       </td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <span style={{
                           display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
                           background: f.detectedCurrency === 'USD' ? '#fef3c7' : '#dbeafe',
@@ -588,6 +599,14 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         }}>
                           {f.detectedCurrency === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
                         </span>
+                        <button
+                          title="إعادة تشخيص العملة تلقائياً"
+                          onClick={() => redetectCurrency(f)}
+                          disabled={redetecting === f.id}
+                          style={{ marginRight: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: '1px 3px', opacity: redetecting === f.id ? 0.5 : 0.7 }}
+                        >
+                          {redetecting === f.id ? '⏳' : '🔄'}
+                        </button>
                       </td>
                       <td><strong>{f.originalName}</strong></td>
                       <td>{f.rowCount.toLocaleString('ar-IQ')}</td>

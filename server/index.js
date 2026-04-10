@@ -1006,6 +1006,32 @@ app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/files/:id/redetect-currency  — re-run auto-detection on existing file
+app.post('/api/files/:id/redetect-currency', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id, ...(req.user?.id ? { userId: req.user.id } : {}) },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+
+    const rows = await prisma.sale.findMany({
+      where: { uploadedFileId: id },
+      select: { totalValue: true },
+    });
+    const nonZero = rows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
+    const median = nonZero.length > 0 ? nonZero[Math.floor(nonZero.length / 2)] : 0;
+    const detectedCurrency = median >= 100000 ? 'IQD' : 'USD';
+
+    await prisma.uploadedFile.update({
+      where: { id },
+      data: { detectedCurrency, currencyMode: detectedCurrency },
+    });
+    res.json({ success: true, detectedCurrency, median });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Dashboard stats ──────────────────────────────────────────
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
