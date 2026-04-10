@@ -11,6 +11,7 @@ interface UploadedFile {
   fileType?: string;
   currencyMode?: string;
   exchangeRate?: number;
+  detectedCurrency?: string;
   _count?: { sales: number };
 }
 
@@ -552,6 +553,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 <tr>
                   <th>{t.upload.colStatus}</th>
                   <th>{t.upload.colType}</th>
+                  <th>{t.upload.colCurrency}</th>
                   <th>{t.upload.colName}</th>
                   <th>{t.upload.colRows}</th>
                   <th>{t.upload.colDate}</th>
@@ -575,6 +577,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           color:      f.fileType === 'returns' ? '#dc2626'  : f.fileType === 'auto' ? '#6d28d9'  : '#1d4ed8',
                         }}>
                           {f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : t.upload.typeSalesLabel}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                          background: f.detectedCurrency === 'USD' ? '#fef3c7' : '#dbeafe',
+                          color: f.detectedCurrency === 'USD' ? '#92400e' : '#1d4ed8',
+                          border: `1px solid ${f.detectedCurrency === 'USD' ? '#fcd34d' : '#93c5fd'}`,
+                        }}>
+                          {f.detectedCurrency === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
                         </span>
                       </td>
                       <td><strong>{f.originalName}</strong></td>
@@ -689,7 +701,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem', fontWeight: 700 }}>{t.upload.currencyModalTitle}</h3>
-            <p style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', color: '#6b7280' }}>{currencyModal.originalName}</p>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#6b7280' }}>{currencyModal.originalName}</p>
+
+            {/* Detected currency info */}
+            <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '0.55rem 0.85rem', marginBottom: '1.1rem', fontSize: '0.83rem' }}>
+              <span style={{ fontWeight: 700, color: '#0369a1' }}>{t.upload.currencyDetectedLabel}:</span>{' '}
+              <span style={{ color: '#0c4a6e', fontWeight: 600 }}>
+                {currencyModal.detectedCurrency === 'USD' ? t.upload.currencyUSD : t.upload.currencyIQD}
+              </span>
+            </div>
 
             {/* Currency toggle */}
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>

@@ -318,6 +318,16 @@ export async function processUploadedFile(file, options = {}) {
     );
   }
 
+  // ── Auto-detect currency from median totalValue ──────────
+  // Iraq pharma: IQD values are typically > 5,000 per row (even smallest packs)
+  // USD values are typically < 2,000 per row
+  const CURRENCY_THRESHOLD = 5000;
+  const nonZeroValues = validRows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
+  const median = nonZeroValues.length > 0
+    ? nonZeroValues[Math.floor(nonZeroValues.length / 2)]
+    : 0;
+  const detectedCurrency = median >= CURRENCY_THRESHOLD ? 'IQD' : 'USD';
+
   // ── 5. Record the file upload ────────────────────────────
   // multer stores originalname as latin1 — decode to UTF-8 for Arabic filenames
   const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -326,12 +336,14 @@ export async function processUploadedFile(file, options = {}) {
     ? (salesRows.length > 0 && returnsRows.length > 0 ? 'auto' : returnsRows.length > 0 ? 'returns' : 'sales')
     : fileType;
   const uploadedFile = await createUploadedFile({
-    filename:     file.filename || file.originalname,
-    originalName: originalName,
-    rowCount:     validRows.length,
-    uploadedBy:   uploadedBy || null,
+    filename:         file.filename || file.originalname,
+    originalName:     originalName,
+    rowCount:         validRows.length,
+    uploadedBy:       uploadedBy || null,
     userId,
-    fileType:     storedFileType,
+    fileType:         storedFileType,
+    detectedCurrency: detectedCurrency,
+    currencyMode:     detectedCurrency, // default display = detected
   });
 
   // ── 6. Bulk insert (split sales/returns) ────────────────

@@ -472,6 +472,8 @@ const translations = {
       currencySaveFailed: 'فشل حفظ إعداد العملة',
       currencyBadgeUSD: '$ دولار',
       currencyCurrentLabel: 'العملة الحالية:',
+      currencyDetectedLabel: '🔍 العملة المكتشفة تلقائياً',
+      colCurrency: 'العملة',
     },
 
     // Users
@@ -984,6 +986,8 @@ const translations = {
       currencySaveFailed: 'Failed to save currency setting',
       currencyBadgeUSD: '$ USD',
       currencyCurrentLabel: 'Current currency:',
+      currencyDetectedLabel: '🔍 Auto-detected currency',
+      colCurrency: 'Currency',
     },
 
     // Users

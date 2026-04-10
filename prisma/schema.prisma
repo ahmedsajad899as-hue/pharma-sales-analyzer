@@ -279,8 +279,9 @@ model UploadedFile {
   uploadedAt   DateTime @default(now())
   uploadedBy   String?
   fileType     String   @default("sales") // "sales" | "returns"
-  currencyMode String   @default("IQD")   // "IQD" | "USD"
+  currencyMode String   @default("IQD")   // "IQD" | "USD" — display preference
   exchangeRate Float    @default(1500)    // دينار لكل دولار
+  detectedCurrency String @default("IQD") // auto-detected from file values on upload
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])

@@ -764,7 +764,7 @@ app.get('/api/files', async (req, res) => {
       orderBy: { uploadedAt: 'desc' },
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
-        currencyMode: true, exchangeRate: true,
+        currencyMode: true, exchangeRate: true, detectedCurrency: true,
         _count: { select: { sales: true } },
       },
     });
