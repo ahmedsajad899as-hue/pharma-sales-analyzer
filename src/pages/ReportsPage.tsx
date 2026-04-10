@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -63,28 +63,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const { token } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
-  const [mode, setMode]           = useState<Mode>('commercial');
+  const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'commercial');
 
   // Commercial
   const [commReps, setCommReps]   = useState<Rep[]>([]);
-  const [commRepId, setCommRepId] = useState('');
+  const [commRepId, setCommRepId] = useState(() => sessionStorage.getItem('rpt_commRepId') || '');
   const [commReport, setCommReport]                   = useState<CommReport | null>(null);
   const [commReturnsReport, setCommReturnsReport]     = useState<CommReport | null>(null);
 
   // Scientific
   const [sciReps, setSciReps]     = useState<Rep[]>([]);
-  const [sciRepId, setSciRepId]   = useState('');
+  const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   const [sciReport, setSciReport]                     = useState<SciReport | null>(null);
   const [sciReturnsReport, setSciReturnsReport]       = useState<SciReport | null>(null);
 
   // Shared
-  const [fromDate, setFromDate]   = useState('');
-  const [toDate, setToDate]       = useState('');
+  const [fromDate, setFromDate]   = useState(() => sessionStorage.getItem('rpt_fromDate') || '');
+  const [toDate, setToDate]       = useState(() => sessionStorage.getItem('rpt_toDate') || '');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'area' | 'item' | 'rep'>('area');
   const [showInfoTags, setShowInfoTags] = useState(false);
-  const [reportView, setReportView] = useState<ReportView>('sales');
+  const [reportView, setReportView] = useState<ReportView>(() => (sessionStorage.getItem('rpt_view') as ReportView) || 'sales');
   const [exporting, setExporting]           = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selCommIds, setSelCommIds]           = useState<Set<number>>(new Set());
@@ -156,6 +156,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         setCommReps(list);
       }).catch(() => {});
   }, [activeFileIds.join(',')]);
+
+  // Persist key state to sessionStorage whenever it changes
+  useEffect(() => { sessionStorage.setItem('rpt_mode', mode); }, [mode]);
+  useEffect(() => { sessionStorage.setItem('rpt_commRepId', commRepId); }, [commRepId]);
+  useEffect(() => { sessionStorage.setItem('rpt_sciRepId', sciRepId); }, [sciRepId]);
+  useEffect(() => { sessionStorage.setItem('rpt_fromDate', fromDate); }, [fromDate]);
+  useEffect(() => { sessionStorage.setItem('rpt_toDate', toDate); }, [toDate]);
+  useEffect(() => { sessionStorage.setItem('rpt_view', reportView); }, [reportView]);
+
+  // Auto-reload last report after page refresh (once reps list is loaded)
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (autoLoaded.current) return;
+    if (mode === 'commercial' && commRepId && commReps.length > 0) {
+      autoLoaded.current = true;
+      loadCommReport(commRepId);
+    } else if (mode === 'scientific' && sciRepId && sciReps.length > 0) {
+      autoLoaded.current = true;
+      loadSciReport(sciRepId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commReps, sciReps]);
 
   const loadCommReport = async (repIdOverride?: string) => {
     const id = repIdOverride ?? commRepId;
