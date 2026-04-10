@@ -290,7 +290,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const currStatNet    = fileCurrencyMode === 'USD' ? `صافي القيمة ($)` : t.reports.statNetVal;
 
   /* ─── Net breakdown table ─── */
-  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string) => {
+  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false) => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
     const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
@@ -301,9 +301,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
       return s.totalQty !== 0 || s.totalValue !== 0 || r.totalQty !== 0 || r.totalValue !== 0;
     });
-    const colSpanEmpty = hasRep ? 9 : 8;
+    const colCount = (hasRep ? 3 : 2) + (hideQtyCols ? 2 : 6); // name+# + optional rep + value cols
+    const colSpanEmpty = colCount;
     return (
       <>
+        {!hideQtyCols && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
           <button
             onClick={() => toggleQtyRevealed()}
@@ -320,17 +322,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {qtyRevealed ? 'إخفاء الكميات' : 'إظهار الكميات'}
           </button>
         </div>
+        )}
       <div className="table-wrapper">
         <table className="data-table">
           <thead>
             <tr>
               <th>#</th><th>{nameLabel}</th>
               {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>📦 {qtyRevealed ? '▼' : '▶'}</th>
-              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 {qtyRevealed ? '▼' : '▶'}</th>
-              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>↩️ {qtyRevealed ? '▼' : '▶'}</th>
-              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 {qtyRevealed ? '▼' : '▶'}</th>
-              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅</th>
+              {!hideQtyCols && <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>📦 {qtyRevealed ? '▼' : '▶'}</th>}
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 {!hideQtyCols && (qtyRevealed ? '▼' : '▶')}</th>
+              {!hideQtyCols && <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>↩️ {qtyRevealed ? '▼' : '▶'}</th>}
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 {!hideQtyCols && (qtyRevealed ? '▼' : '▶')}</th>
+              {!hideQtyCols && <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅</th>}
               <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>🏆</th>
             </tr>
           </thead>
@@ -346,11 +349,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td>{i + 1}</td>
                   <td><strong>{row.name}</strong></td>
                   {hasRep && <td style={{ color: '#1e293b', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? <HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={true} /> : null}</td>
-                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? fmtVal(s.totalValue) : null}</td>
-                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? <HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={true} /> : null}</td>
-                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? fmtVal(r.totalValue) : null}</td>
-                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={true} /></td>
+                  {!hideQtyCols && <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? <HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={true} /> : null}</td>}
+                  <td style={{ color: '#1d4ed8' }}>{hideQtyCols ? fmtVal(s.totalValue) : (qtyRevealed ? fmtVal(s.totalValue) : null)}</td>
+                  {!hideQtyCols && <td style={{ color: '#dc2626' }}>{qtyRevealed ? <HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={true} /> : null}</td>}
+                  <td style={{ color: '#dc2626' }}>{hideQtyCols ? fmtVal(r.totalValue) : (qtyRevealed ? fmtVal(r.totalValue) : null)}</td>
+                  {!hideQtyCols && <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={true} /></td>}
                   <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(netVal)}</td>
                 </tr>
               );
@@ -365,11 +368,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr style={{ background: '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
-                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? <HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={true} /> : null}</td>
-                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? fmtVal(totSalesVal) : null}</td>
-                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? <HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={true} /> : null}</td>
-                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? fmtVal(totRetVal) : null}</td>
-                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={true} /></td>
+                  {!hideQtyCols && <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? <HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={true} /> : null}</td>}
+                  <td style={{ color: '#1d4ed8' }}>{hideQtyCols ? fmtVal(totSalesVal) : (qtyRevealed ? fmtVal(totSalesVal) : null)}</td>
+                  {!hideQtyCols && <td style={{ color: '#dc2626' }}>{qtyRevealed ? <HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={true} /> : null}</td>}
+                  <td style={{ color: '#dc2626' }}>{hideQtyCols ? fmtVal(totRetVal) : (qtyRevealed ? fmtVal(totRetVal) : null)}</td>
+                  {!hideQtyCols && <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={true} /></td>}
                   <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>
                 </tr>
               );
@@ -858,7 +861,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
           {isNet ? (
             <>
-              {activeTab === 'area' && renderNetTable(commReport.byArea, commReturnsReport?.byArea ?? [], t.reports.colArea)}
+              {activeTab === 'area' && renderNetTable(commReport.byArea, commReturnsReport?.byArea ?? [], t.reports.colArea, true)}
               {activeTab === 'item' && renderNetTable(commReport.byItem, commReturnsReport?.byItem ?? [], t.reports.colItem)}
             </>
           ) : (
@@ -936,9 +939,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
           {isNet ? (
             <>
-              {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea)}
+              {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea, true)}
               {activeTab === 'item' && renderNetTable(sciReport.byItem, sciReturnsReport?.byItem ?? [], t.reports.colItem)}
-              {activeTab === 'rep'  && renderNetTable(sciReport.byRep,  sciReturnsReport?.byRep  ?? [], t.reports.colCommRep)}
+              {activeTab === 'rep'  && renderNetTable(sciReport.byRep,  sciReturnsReport?.byRep  ?? [], t.reports.colCommRep, true)}
             </>
           ) : (
             <>
