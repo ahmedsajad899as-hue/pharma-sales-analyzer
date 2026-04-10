@@ -797,8 +797,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </div>
           </div>
           <div className="tabs">
-            <button className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍 {t.reports.tabByArea}</button>
-            <button className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊 {t.reports.tabByItem}</button>
+            <button title={t.reports.tabByArea}   className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
+            <button title={t.reports.tabByItem}   className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
           </div>
           {isNet ? (
             <>
@@ -858,9 +858,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
 
           <div className="tabs">
-            <button className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍 {t.reports.tabByArea}</button>
-            <button className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊 {t.reports.tabByItem}</button>
-            <button className={`tab ${activeTab === 'rep'  ? 'tab--active' : ''}`} onClick={() => setActiveTab('rep')}>👤 {t.reports.tabByCommRep}</button>
+            <button title={t.reports.tabByArea}    className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
+            <button title={t.reports.tabByItem}    className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
+            <button title={t.reports.tabByCommRep} className={`tab ${activeTab === 'rep'  ? 'tab--active' : ''}`} onClick={() => setActiveTab('rep')}>👤</button>
           </div>
           {isNet ? (
             <>
