@@ -83,6 +83,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'area' | 'item' | 'rep'>('area');
+  const [showInfoTags, setShowInfoTags] = useState(false);
   const [reportView, setReportView] = useState<ReportView>('sales');
   const [exporting, setExporting]           = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
@@ -824,21 +825,37 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return (
         <>
           <div className="report-summary">
-            <div className="report-summary-title">{t.reports.sciReportTitle} <strong>{sciReport.repName}</strong></div>
+            <div className="report-summary-title">🔬 <strong>{sciReport.repName}</strong></div>
 
-            {/* Info tags */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.75rem 0' }}>
-              {sciReport.assignedCommercialReps.map(r => (
-                <span key={r.id} className="tag tag--green">💰 {r.name}</span>
-              ))}
-              {sciReport.assignedAreas.map(a => (
-                <span key={a.id} className="tag tag--purple">📍 {a.name}</span>
-              ))}
-              {sciReport.assignedItems.map(i => (
-                <span key={i.id} className="tag tag--orange">💊 {i.name}</span>
-              ))}
-              {sciReport.assignedCommercialReps.length === 0 && (
-                <span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}>⚠️ {t.reports.noCommRepsAssigned}</span>
+            {/* Info tags — hidden by default, toggle on click */}
+            <div style={{ margin: '0.6rem 0' }}>
+              <button
+                onClick={() => setShowInfoTags(v => !v)}
+                style={{
+                  background: showInfoTags ? '#ede9fe' : '#f3f4f6',
+                  border: `1px solid ${showInfoTags ? '#c4b5fd' : '#e5e7eb'}`,
+                  borderRadius: 20, padding: '4px 14px', cursor: 'pointer',
+                  fontSize: '1rem', color: showInfoTags ? '#6d28d9' : '#6b7280',
+                }}
+                title={showInfoTags ? 'إخفاء التفاصيل' : 'عرض المناطق والمندوبين والأيتمات'}
+              >
+                {showInfoTags ? '🔼' : '🔽'}
+              </button>
+              {showInfoTags && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
+                  {sciReport.assignedCommercialReps.map(r => (
+                    <span key={r.id} className="tag tag--green">💰 {r.name}</span>
+                  ))}
+                  {sciReport.assignedAreas.map(a => (
+                    <span key={a.id} className="tag tag--purple">📍 {a.name}</span>
+                  ))}
+                  {sciReport.assignedItems.map(i => (
+                    <span key={i.id} className="tag tag--orange">💊 {i.name}</span>
+                  ))}
+                  {sciReport.assignedCommercialReps.length === 0 && (
+                    <span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}>⚠️ {t.reports.noCommRepsAssigned}</span>
+                  )}
+                </div>
               )}
             </div>
 
