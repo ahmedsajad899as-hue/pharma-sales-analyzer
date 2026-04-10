@@ -461,7 +461,7 @@ tr:hover {
   flex-shrink: 0;
 }
 
-.stat-card-value { font-size: clamp(11px, 1.8vw, 26px); font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-card-value { font-size: clamp(11px, 1.5vw, 22px); font-weight: 700; line-height: 1.25; overflow-wrap: break-word; }
 .stat-card-label { font-size: 13px; color: #64748b; margin-top: 4px; }
 .stat-card-body  { min-width: 0; flex: 1; }
 
@@ -1335,7 +1335,7 @@ tr:hover {
   }
 
   .stat-card-icon  { width: 40px; height: 40px; font-size: 18px; border-radius: 10px; }
-  .stat-card-value { font-size: clamp(10px, 3vw, 20px); white-space: nowrap; }
+  .stat-card-value { font-size: clamp(10px, 2.5vw, 18px); }
   .stat-card-label { font-size: 11px; }
 
   /* ── Quick actions ── */
@@ -2931,7 +2931,7 @@ select.comm-input { cursor: pointer; }
   .stats-grid--3,
   .stats-grid--4 { grid-template-columns: 1fr 1fr; }
 
-  .stat-card-value { font-size: clamp(10px, 3.5vw, 18px); white-space: nowrap; }
+  .stat-card-value { font-size: clamp(10px, 3vw, 16px); }
 
   .page { padding: 12px 10px; }
 
