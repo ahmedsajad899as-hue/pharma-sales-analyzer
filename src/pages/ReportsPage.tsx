@@ -416,6 +416,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               position: 'relative',
             }}>
             <span style={{ fontSize: isActive ? 24 : 17, lineHeight: 1, transition: 'font-size 0.2s' }}>{icon}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: isActive ? 1 : 0.7 }}>{label}</span>
             {isActive && (
               <span style={{
                 position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)',
