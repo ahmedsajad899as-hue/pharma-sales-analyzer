@@ -784,16 +784,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <div className="report-summary">
             <div className="report-summary-title">{t.reports.commReportTitle} <strong>{commReport.repName}</strong></div>
             {renderViewToggle(true, (commReturnsReport?.totalQty ?? 0) > 0)}
-            <div className="stats-grid stats-grid--3" style={{ marginTop: 16 }}>
-              <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#6366f1'}` }}>
-                <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#eef2ff', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>📦</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>
-                    <HiddenQty value={isNet ? netQtyTotal : (viewData?.totalQty ?? 0)} fmt={fmt} signed={isNet} style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1', fontWeight: 800, fontSize: 22 }} />
-                  </div>
-                  <div className="stat-card-label">{isNet ? t.reports.statNetQty : t.reports.statTotalQty}</div>
-                </div>
-              </div>
+            <div style={{ marginTop: 16, maxWidth: 360 }}>
               <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981'}` }}>
                 <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#d1fae5', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981' }}>💰</div>
                 <div className="stat-card-body">
@@ -801,13 +792,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     {isNet ? fmtValSigned(netValTotal) : fmtVal(viewData?.totalValue ?? 0)}
                   </div>
                   <div className="stat-card-label">{isNet ? currStatNet : currStatTotal}</div>
-                </div>
-              </div>
-              <div className="stat-card" style={{ borderTop: '4px solid #0ea5e9' }}>
-                <div className="stat-card-icon" style={{ background: '#e0f2fe', color: '#0ea5e9' }}>📍</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#0ea5e9' }}>{viewData?.byArea?.length ?? 0}</div>
-                  <div className="stat-card-label">{t.reports.statAreaCount}</div>
                 </div>
               </div>
             </div>
@@ -860,16 +844,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
             {renderViewToggle(true, (sciReturnsReport?.totalQty ?? 0) > 0)}
 
-            <div className="stats-grid stats-grid--4" style={{ marginTop: 16 }}>
-              <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#6366f1'}` }}>
-                <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#eef2ff', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>📦</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1' }}>
-                    <HiddenQty value={isNet ? netQtyTotal : (viewData?.totalQty ?? 0)} fmt={fmt} signed={isNet} style={{ color: isNet ? (netQtyTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#6366f1', fontWeight: 800, fontSize: 22 }} />
-                  </div>
-                  <div className="stat-card-label">{isNet ? t.reports.statNetQty : t.reports.statTotalQty}</div>
-                </div>
-              </div>
+            <div style={{ marginTop: 16, maxWidth: 360 }}>
               <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981'}` }}>
                 <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#d1fae5', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981' }}>💰</div>
                 <div className="stat-card-body">
@@ -877,20 +852,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     {isNet ? fmtValSigned(netValTotal) : fmtVal(viewData?.totalValue ?? 0)}
                   </div>
                   <div className="stat-card-label">{isNet ? currStatNet : currStatTotal}</div>
-                </div>
-              </div>
-              <div className="stat-card" style={{ borderTop: '4px solid #0ea5e9' }}>
-                <div className="stat-card-icon" style={{ background: '#e0f2fe', color: '#0ea5e9' }}>📍</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#0ea5e9' }}>{viewData?.byArea?.length ?? 0}</div>
-                  <div className="stat-card-label">{t.reports.statAreaCount}</div>
-                </div>
-              </div>
-              <div className="stat-card" style={{ borderTop: '4px solid #f59e0b' }}>
-                <div className="stat-card-icon" style={{ background: '#fef3c7', color: '#f59e0b' }}>👤</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#f59e0b' }}>{viewData?.byRep?.length ?? 0}</div>
-                  <div className="stat-card-label">{t.reports.statCommReps}</div>
                 </div>
               </div>
             </div>
