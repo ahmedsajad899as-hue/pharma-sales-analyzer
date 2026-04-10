@@ -128,6 +128,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   // Currency conversion state
   const [redetecting, setRedetecting] = useState<number | null>(null);
   const [currencyModal, setCurrencyModal] = useState<UploadedFile | null>(null);
+  const [currModalSource, setCurrModalSource] = useState<'IQD' | 'USD'>('IQD');
   const [currModalMode, setCurrModalMode] = useState<'IQD' | 'USD'>('IQD');
   const [currModalRate, setCurrModalRate] = useState<string>('1500');
   const [savingCurrency, setSavingCurrency] = useState(false);
@@ -234,6 +235,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   const openCurrencyModal = (f: UploadedFile) => {
     setCurrencyModal(f);
+    setCurrModalSource(f.detectedCurrency === 'USD' ? 'USD' : 'IQD');
     setCurrModalMode(f.currencyMode === 'USD' ? 'USD' : 'IQD');
     setCurrModalRate(String(f.exchangeRate ?? 1500));
     setCurrSaveMsg('');
@@ -249,7 +251,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const res = await fetch(`${API}/api/files/${currencyModal.id}/currency`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ currencyMode: currModalMode, exchangeRate: rate }),
+        body: JSON.stringify({ currencyMode: currModalMode, exchangeRate: rate, sourceCurrency: currModalSource }),
       });
       if (!res.ok) throw new Error();
       setCurrSaveMsg(t.upload.currencySaved);
@@ -599,14 +601,6 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         }}>
                           {f.detectedCurrency === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
                         </span>
-                        <button
-                          title="إعادة تشخيص العملة تلقائياً"
-                          onClick={() => redetectCurrency(f)}
-                          disabled={redetecting === f.id}
-                          style={{ marginRight: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: '1px 3px', opacity: redetecting === f.id ? 0.5 : 0.7 }}
-                        >
-                          {redetecting === f.id ? '⏳' : '🔄'}
-                        </button>
                       </td>
                       <td><strong>{f.originalName}</strong></td>
                       <td>{f.rowCount.toLocaleString('ar-IQ')}</td>
@@ -720,17 +714,41 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem', fontWeight: 700 }}>{t.upload.currencyModalTitle}</h3>
-            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#6b7280' }}>{currencyModal.originalName}</p>
+            <p style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', color: '#6b7280' }}>{currencyModal.originalName}</p>
 
-            {/* Detected currency info */}
-            <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '0.55rem 0.85rem', marginBottom: '1.1rem', fontSize: '0.83rem' }}>
-              <span style={{ fontWeight: 700, color: '#0369a1' }}>{t.upload.currencyDetectedLabel}:</span>{' '}
-              <span style={{ color: '#0c4a6e', fontWeight: 600 }}>
-                {currencyModal.detectedCurrency === 'USD' ? t.upload.currencyUSD : t.upload.currencyIQD}
-              </span>
+            {/* Source currency — what the file data is in */}
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.5rem', color: '#374151' }}>
+              {t.upload.currencySourceLabel}
+            </label>
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {(['IQD', 'USD'] as const).map(mode => (
+                <label
+                  key={mode}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    border: `2px solid ${currModalSource === mode ? (mode === 'USD' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'}`,
+                    borderRadius: 10, padding: '0.6rem 0.9rem', cursor: 'pointer',
+                    background: currModalSource === mode ? (mode === 'USD' ? '#fef9c3' : '#eff6ff') : '#f9fafb',
+                    fontWeight: currModalSource === mode ? 700 : 400, fontSize: '0.9rem',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="currSource"
+                    value={mode}
+                    checked={currModalSource === mode}
+                    onChange={() => setCurrModalSource(mode)}
+                    style={{ accentColor: mode === 'USD' ? '#f59e0b' : '#3b82f6' }}
+                  />
+                  {mode === 'IQD' ? t.upload.currencyIQD : t.upload.currencyUSD}
+                </label>
+              ))}
             </div>
 
-            {/* Currency toggle */}
+            {/* Target display currency — what to convert to */}
+            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.5rem', color: '#374151' }}>
+              {t.upload.currencyTargetLabel}
+            </label>
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
               {(['IQD', 'USD'] as const).map(mode => (
                 <label
@@ -756,8 +774,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               ))}
             </div>
 
-            {/* Exchange rate — shown only when USD selected */}
-            {currModalMode === 'USD' && (
+            {/* Exchange rate — shown only when source ≠ target */}
+            {currModalSource !== currModalMode && (
               <div style={{ marginBottom: '1.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.4rem', color: '#374151' }}>
                   {t.upload.currencyRate}

@@ -473,6 +473,8 @@ const translations = {
       currencyBadgeUSD: '$ دولار',
       currencyCurrentLabel: 'العملة الحالية:',
       currencyDetectedLabel: '🔍 العملة المكتشفة تلقائياً',
+      currencySourceLabel: 'العملة الأصلية في الملف:',
+      currencyTargetLabel: 'عرض الأرقام بـ:',
       colCurrency: 'العملة',
     },
 
@@ -987,6 +989,8 @@ const translations = {
       currencyBadgeUSD: '$ USD',
       currencyCurrentLabel: 'Current currency:',
       currencyDetectedLabel: '🔍 Auto-detected currency',
+      currencySourceLabel: 'File original currency:',
+      currencyTargetLabel: 'Display numbers in:',
       colCurrency: 'Currency',
     },
 

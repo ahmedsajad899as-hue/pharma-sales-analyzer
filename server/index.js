@@ -981,11 +981,11 @@ app.delete('/api/files/:id', async (req, res) => {
 });
 
 // ── Currency settings per file ───────────────────────────────
-// PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate }
+// PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate, sourceCurrency? }
 app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-  const { currencyMode, exchangeRate } = req.body;
+  const { currencyMode, exchangeRate, sourceCurrency } = req.body;
   if (!['IQD', 'USD'].includes(currencyMode)) {
     return res.status(400).json({ error: 'currencyMode يجب أن يكون IQD أو USD' });
   }
@@ -998,10 +998,11 @@ app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {
       where: { id, ...(req.user?.id ? { userId: req.user.id } : {}) },
     });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
-    await prisma.uploadedFile.update({
-      where: { id },
-      data: { currencyMode, exchangeRate: rate },
-    });
+    const updateData = { currencyMode, exchangeRate: rate };
+    if (sourceCurrency && ['IQD', 'USD'].includes(sourceCurrency)) {
+      updateData.detectedCurrency = sourceCurrency;
+    }
+    await prisma.uploadedFile.update({ where: { id }, data: updateData });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1242,18 +1243,27 @@ app.post('/api/analyze', async (req, res) => {
     filters = filters || {};
 
     // جلب إعداد العملة للملف — خارج أي block حتى يكون متاحاً في الـ prompt
-    let fileCurrencyMode = 'IQD';
-    let fileExchangeRate = 1500;
+    let fileCurrencyMode   = 'IQD'; // العملة المراد عرضها (الهدف)
+    let fileSourceCurrency = 'IQD'; // العملة الأصلية للملف
+    let fileExchangeRate   = 1500;
     if (fileId) {
       const fileInfo = await prisma.uploadedFile.findUnique({
         where: { id: Number(fileId) },
-        select: { currencyMode: true, exchangeRate: true },
+        select: { currencyMode: true, exchangeRate: true, detectedCurrency: true },
       });
       if (fileInfo) {
-        fileCurrencyMode = fileInfo.currencyMode || 'IQD';
-        fileExchangeRate = fileInfo.exchangeRate || 1500;
+        fileCurrencyMode   = fileInfo.currencyMode     || 'IQD';
+        fileExchangeRate   = fileInfo.exchangeRate     || 1500;
+        fileSourceCurrency = fileInfo.detectedCurrency || 'IQD';
       }
     }
+    // دالة تحويل: IQD→USD تقسيم، USD→IQD ضرب، نفس العملة لا تحويل
+    const convertValue = (v) => {
+      const n = v || 0;
+      if (fileSourceCurrency === 'IQD' && fileCurrencyMode === 'USD') return Math.round(n / fileExchangeRate);
+      if (fileSourceCurrency === 'USD' && fileCurrencyMode === 'IQD') return Math.round(n * fileExchangeRate);
+      return Math.round(n);
+    };
 
     // إذا لم تُرسل بيانات، نجلبها من قاعدة البيانات
     if (!data || data.length === 0) {
@@ -1284,9 +1294,7 @@ app.post('/api/analyze', async (req, res) => {
         'المنطقة':     s.area?.name           ?? 'غير محدد',
         'الصنف':       s.item?.name           ?? 'غير محدد',
         'الكمية':      Math.round(s.quantity  || 0),
-        'القيمة':      fileCurrencyMode === 'USD'
-          ? Math.round((s.totalValue || 0) / fileExchangeRate)
-          : Math.round(s.totalValue || 0),
+        'القيمة':      convertValue(s.totalValue),
       }));
     }
 
@@ -1314,7 +1322,13 @@ app.post('/api/analyze', async (req, res) => {
 - عدد السجلات الكلي: ${data.length}
 - الأعمدة: ${columns.join(', ')}
 - الفلاتر المطبقة: ${JSON.stringify(filters)}
-- وحدة القيمة النقدية: ${fileCurrencyMode === 'USD' ? 'دولار أمريكي ($) — تم تحويل الأسعار من الدينار العراقي بسعر ' + fileExchangeRate + ' دينار/دولار' : 'دينار عراقي (IQD)'}
+- وحدة القيمة النقدية: ${
+  fileCurrencyMode === fileSourceCurrency
+    ? (fileCurrencyMode === 'USD' ? 'دولار أمريكي ($)' : 'دينار عراقي (IQD)')
+    : fileCurrencyMode === 'USD'
+      ? 'دولار أمريكي ($) — تم تحويل الأسعار من الدينار العراقي بسعر ' + fileExchangeRate + ' دينار/دولار'
+      : 'دينار عراقي (IQD) — تم تحويل الأسعار من الدولار الأمريكي بسعر ' + fileExchangeRate + ' دينار/دولار'
+}
 
 ⚠️ مهم: استخدم وحدة العملة الصحيحة أعلاه في جميع الجداول والأرقام التي تعرضها.
 
