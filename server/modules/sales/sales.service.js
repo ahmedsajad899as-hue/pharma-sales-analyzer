@@ -319,9 +319,9 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── Auto-detect currency from median totalValue ──────────
-  // Iraq pharma: IQD values are typically > 5,000 per row (even smallest packs)
-  // USD values are typically < 2,000 per row
-  const CURRENCY_THRESHOLD = 5000;
+  // Iraq pharma: IQD row totals typically 50,000 – 10,000,000 IQD
+  // USD row totals typically $5 – $5,000 → well below 100,000
+  const CURRENCY_THRESHOLD = 100000;
   const nonZeroValues = validRows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
   const median = nonZeroValues.length > 0
     ? nonZeroValues[Math.floor(nonZeroValues.length / 2)]
