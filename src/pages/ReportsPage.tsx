@@ -744,25 +744,50 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </select>
           )}
 
-          {/* Combined date range block */}
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: (fromDate || toDate) ? '#ede9fe' : '#f1f5f9',
-            border: `1.5px solid ${(fromDate || toDate) ? '#a5b4fc' : '#e2e8f0'}`,
-            borderRadius: 10, padding: '4px 10px', cursor: 'pointer',
-          }}>
-            <span style={{ fontSize: 16 }}>📅</span>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-              title={t.reports.fromDate}
-              style={{ border: 'none', background: 'transparent', fontSize: 12, color: '#374151', outline: 'none', width: 110, cursor: 'pointer' }} />
-            <span style={{ color: '#94a3b8', fontSize: 12 }}>→</span>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-              title={t.reports.toDate}
-              style={{ border: 'none', background: 'transparent', fontSize: 12, color: '#374151', outline: 'none', width: 110, cursor: 'pointer' }} />
+          {/* Combined date range block — icon only, hidden inputs */}
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+            <label
+              title={fromDate && toDate ? `${fromDate} → ${toDate}` : fromDate ? `من ${fromDate}` : toDate ? `إلى ${toDate}` : `${t.reports.fromDate} / ${t.reports.toDate}`}
+              style={{
+                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                background: (fromDate || toDate) ? '#6366f1' : '#f1f5f9',
+                border: `1.5px solid ${(fromDate || toDate) ? '#6366f1' : '#e2e8f0'}`,
+                boxShadow: (fromDate || toDate) ? '0 2px 8px #6366f144' : 'none',
+                fontSize: 20, transition: 'all 0.2s',
+              }}
+            >
+              📅
+              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+            </label>
             {(fromDate || toDate) && (
               <span onClick={() => { setFromDate(''); setToDate(''); }}
-                style={{ fontSize: 12, color: '#94a3b8', cursor: 'pointer', padding: '0 2px' }}>✕</span>
+                style={{
+                  position: 'absolute', top: -6, right: -6,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: '#ef4444', color: '#fff', fontSize: 10,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', fontWeight: 700, lineHeight: 1,
+                }}>✕</span>
             )}
+          </div>
+          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+            <label
+              title={toDate || t.reports.toDate}
+              style={{
+                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                background: toDate ? '#6366f1' : '#f1f5f9',
+                border: `1.5px solid ${toDate ? '#6366f1' : '#e2e8f0'}`,
+                boxShadow: toDate ? '0 2px 8px #6366f144' : 'none',
+                fontSize: 20, transition: 'all 0.2s',
+              }}
+            >
+              📅
+              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+            </label>
           </div>
 
           {/* Generate icon button */}
