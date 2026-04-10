@@ -302,25 +302,6 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 : `🔀 ${t.upload.dedupUnified} ${dedupResult.count} ${t.upload.dedupNamesUnit} ${showDedupDetail ? '▲' : '▼'}`}
             </span>
           )}
-          <button
-            className="btn btn--secondary"
-            onClick={cleanupOrphans}
-            disabled={cleaning}
-            title={t.upload.cleaningTitle}
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            {cleaning ? t.upload.cleaningProgress : t.upload.cleaningBtn}
-          </button>
-          <button
-            className="btn btn--secondary"
-            onClick={() => dedupNames(false)}
-            disabled={deduping}
-            title={t.upload.dedupScanTitle}
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            {deduping ? t.upload.dedupProgress : t.upload.dedupScanBtn}
-          </button>
-        </div>
       </div>
 
       {/* Active files banner */}

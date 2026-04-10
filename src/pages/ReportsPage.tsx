@@ -345,7 +345,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr key={key}>
                   <td>{i + 1}</td>
                   <td><strong>{row.name}</strong></td>
-                  {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
+                  {hasRep && <td style={{ color: '#1e293b', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
                   <td style={{ color: '#1d4ed8' }}>{collCols.sq ? null : <HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} />}</td>
                   <td style={{ color: '#1d4ed8' }}>{collCols.sv ? null : fmtVal(s.totalValue)}</td>
                   <td style={{ color: '#dc2626' }}>{collCols.rq ? null : <HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} />}</td>
