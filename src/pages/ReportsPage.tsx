@@ -256,7 +256,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const fmtVal = (n: number) => {
     const v = convertVal(n || 0);
     return fileCurrencyMode === 'USD'
-      ? parseFloat(v.toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      ? Math.round(v).toLocaleString('en-US')
       : Math.round(v).toLocaleString('ar-IQ-u-nu-latn');
   };
   const fmtValSigned = (n: number) => n >= 0 ? `+${fmtVal(Math.abs(n))}` : `-${fmtVal(Math.abs(n))}`;
