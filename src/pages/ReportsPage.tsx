@@ -603,7 +603,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const hasRep   = rows.some(r => r.repName);
     const salesRows = rows.filter(r => !r.isZero);
     const zeroRows  = rows.filter(r => r.isZero);
-    const colCount  = hasRep ? 6 : 5;
+    const colCount  = hasRep ? 5 : 4;
     return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
@@ -631,7 +631,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {hasRep && <th>👤 {t.reports.colCommRep}</th>}
             <th>{t.reports.colQty}</th>
             <th>{currColHeader}</th>
-            <th>{t.reports.colPct}</th>
           </tr>
         </thead>
         <tbody>
@@ -644,12 +643,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
                 <td><HiddenQty value={row.totalQty} fmt={fmt} forceReveal={qtyRevealed} /></td>
                 <td>{fmtVal(row.totalValue)}</td>
-                <td>
-                  <div className="pct-bar-wrapper">
-                    <div className="pct-bar" style={{ width: `${pct}%` }} />
-                    <span>{pct}%</span>
-                  </div>
-                </td>
               </tr>
             );
           })}
@@ -687,12 +680,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {hasRep && <td style={{ color: '#94a3b8' }}>—</td>}
               <td style={{ color: '#94a3b8' }}>0</td>
               <td style={{ color: '#94a3b8' }}>0</td>
-              <td>
-                <div className="pct-bar-wrapper">
-                  <div className="pct-bar" style={{ width: '0%', background: '#e2e8f0' }} />
-                  <span style={{ color: '#94a3b8' }}>0%</span>
-                </div>
-              </td>
             </tr>
           ))}
         </tbody>
