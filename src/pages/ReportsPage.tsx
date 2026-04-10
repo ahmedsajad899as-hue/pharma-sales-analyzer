@@ -600,13 +600,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     }
   };
 
-  const renderBreakdownTable = (rows: BreakdownRow[], totalValue: number, nameLabel: string) => {
+  const renderBreakdownTable = (rows: BreakdownRow[], totalValue: number, nameLabel: string, hideQtyCols = false) => {
     const hasRep   = rows.some(r => r.repName);
     const salesRows = rows.filter(r => !r.isZero);
     const zeroRows  = rows.filter(r => r.isZero);
-    const colCount  = hasRep ? 5 : 4;
+    const colCount  = hasRep ? (hideQtyCols ? 3 : 4) : (hideQtyCols ? 2 : 3);
     return (
     <>
+      {!hideQtyCols && (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
         <button
           onClick={() => toggleQtyRevealed()}
@@ -623,6 +624,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {qtyRevealed ? 'إخفاء الكميات' : 'إظهار الكميات'}
         </button>
       </div>
+      )}
     <div className="table-wrapper">
       <table className="data-table">
         <thead>
@@ -630,7 +632,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <th>#</th>
             <th>{nameLabel}</th>
             {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-            <th>{t.reports.colQty}</th>
+            {!hideQtyCols && <th>{t.reports.colQty}</th>}
             <th>{currColHeader}</th>
           </tr>
         </thead>
@@ -642,7 +644,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <td>{i + 1}</td>
                 <td><strong>{row.name}</strong></td>
                 {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                <td><HiddenQty value={row.totalQty} fmt={fmt} forceReveal={qtyRevealed} /></td>
+                {!hideQtyCols && <td><HiddenQty value={row.totalQty} fmt={fmt} forceReveal={qtyRevealed} /></td>}
                 <td>{fmtVal(row.totalValue)}</td>
               </tr>
             );
@@ -679,7 +681,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 </span>
               </td>
               {hasRep && <td style={{ color: '#94a3b8' }}>—</td>}
-              <td style={{ color: '#94a3b8' }}>0</td>
+              {!hideQtyCols && <td style={{ color: '#94a3b8' }}>0</td>}
               <td style={{ color: '#94a3b8' }}>0</td>
             </tr>
           ))}
@@ -862,7 +864,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </>
           ) : (
             <>
-              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea)}
+              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, true)}
               {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem)}
             </>
           )}
@@ -941,9 +943,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </>
           ) : (
             <>
-              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea)}
+              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, true)}
               {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem)}
-              {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep)}
+              {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep, true)}
             </>
           )}
         </>
