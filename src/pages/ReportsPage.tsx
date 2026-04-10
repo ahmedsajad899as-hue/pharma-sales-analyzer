@@ -91,6 +91,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
   const [qtyRevealed, setQtyRevealed]         = useState(false);
+  const [collCols, setCollCols] = useState({ sq: true, sv: true, rq: true, rv: true, nq: true, nv: true });
+  const toggleCol = (k: keyof typeof collCols) => setCollCols(p => ({ ...p, [k]: !p[k] }));
 
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
@@ -324,12 +326,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <tr>
               <th>#</th><th>{nameLabel}</th>
               {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-              <th style={{ background: '#dbeafe', color: '#1e40af' }}>📦 {t.reports.colSalesQty}</th>
-              <th style={{ background: '#dbeafe', color: '#1e40af' }}>💰 {t.reports.colSalesVal}</th>
-              <th style={{ background: '#fee2e2', color: '#991b1b' }}>↩ {t.reports.colRetQty}</th>
-              <th style={{ background: '#fee2e2', color: '#991b1b' }}>💸 {t.reports.colRetVal}</th>
-              <th style={{ background: '#d1fae5', color: '#065f46' }}>✅ {t.reports.colNetQty}</th>
-              <th style={{ background: '#d1fae5', color: '#065f46' }}>🏆 {t.reports.colNetVal}</th>
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colSalesQty} onClick={() => toggleCol('sq')}>📦 {collCols.sq ? '▶' : '▼'}</th>
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colSalesVal} onClick={() => toggleCol('sv')}>💰 {collCols.sv ? '▶' : '▼'}</th>
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colRetQty} onClick={() => toggleCol('rq')}>↩️ {collCols.rq ? '▶' : '▼'}</th>
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colRetVal} onClick={() => toggleCol('rv')}>💸 {collCols.rv ? '▶' : '▼'}</th>
+              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colNetQty} onClick={() => toggleCol('nq')}>✅ {collCols.nq ? '▶' : '▼'}</th>
+              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colNetVal} onClick={() => toggleCol('nv')}>🏆 {collCols.nv ? '▶' : '▼'}</th>
             </tr>
           </thead>
           <tbody>
@@ -344,12 +346,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td>{i + 1}</td>
                   <td><strong>{row.name}</strong></td>
                   {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#1d4ed8' }}>{fmtVal(s.totalValue)}</td>
-                  <td style={{ color: '#dc2626' }}><HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#dc2626' }}>{fmtVal(r.totalValue)}</td>
-                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(netVal)}</td>
+                  <td style={{ color: '#1d4ed8' }}>{collCols.sq ? null : <HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} />}</td>
+                  <td style={{ color: '#1d4ed8' }}>{collCols.sv ? null : fmtVal(s.totalValue)}</td>
+                  <td style={{ color: '#dc2626' }}>{collCols.rq ? null : <HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} />}</td>
+                  <td style={{ color: '#dc2626' }}>{collCols.rv ? null : fmtVal(r.totalValue)}</td>
+                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nq ? null : <HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} />}</td>
+                  <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nv ? null : fmtValSigned(netVal)}</td>
                 </tr>
               );
             })}
@@ -363,12 +365,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr style={{ background: '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
-                  <td style={{ color: '#1d4ed8' }}><HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#1d4ed8' }}>{fmtVal(totSalesVal)}</td>
-                  <td style={{ color: '#dc2626' }}><HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#dc2626' }}>{fmtVal(totRetVal)}</td>
-                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>
+                  <td style={{ color: '#1d4ed8' }}>{collCols.sq ? null : <HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} />}</td>
+                  <td style={{ color: '#1d4ed8' }}>{collCols.sv ? null : fmtVal(totSalesVal)}</td>
+                  <td style={{ color: '#dc2626' }}>{collCols.rq ? null : <HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} />}</td>
+                  <td style={{ color: '#dc2626' }}>{collCols.rv ? null : fmtVal(totRetVal)}</td>
+                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nq ? null : <HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} />}</td>
+                  <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nv ? null : fmtValSigned(totSalesVal - totRetVal)}</td>
                 </tr>
               );
             })()}
@@ -745,13 +747,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </select>
             </div>
           )}
-          <div className="form-group">
-            <label className="form-label">{t.reports.fromDate}</label>
-            <input type="date" className="form-input" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}>
+            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{t.reports.fromDate}</span>
+            <label title={fromDate || t.reports.fromDate} style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 10, background: fromDate ? '#6366f1' : '#e2e8f0', boxShadow: fromDate ? '0 2px 8px #6366f155' : 'none', transition: 'background 0.2s' }}>
+              <span style={{ fontSize: 20, pointerEvents: 'none' }}>📅</span>
+              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+            </label>
+            {fromDate && <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, direction: 'ltr' }}>{fromDate}</span>}
           </div>
-          <div className="form-group">
-            <label className="form-label">{t.reports.toDate}</label>
-            <input type="date" className="form-input" value={toDate} onChange={e => setToDate(e.target.value)} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}>
+            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>{t.reports.toDate}</span>
+            <label title={toDate || t.reports.toDate} style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 10, background: toDate ? '#6366f1' : '#e2e8f0', boxShadow: toDate ? '0 2px 8px #6366f155' : 'none', transition: 'background 0.2s' }}>
+              <span style={{ fontSize: 20, pointerEvents: 'none' }}>📅</span>
+              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+            </label>
+            {toDate && <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, direction: 'ltr' }}>{toDate}</span>}
           </div>
           <div className="form-group form-group--center">
             <button className="btn btn--primary btn--full"
@@ -792,7 +802,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return (
         <>
           <div className="report-summary">
-            <div className="report-summary-title">{t.reports.commReportTitle} <strong>{commReport.repName}</strong></div>
+
             {renderViewToggle(true, (commReturnsReport?.totalQty ?? 0) > 0)}
             <div style={{ marginTop: 16, maxWidth: 360 }}>
               <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981'}` }}>
@@ -834,7 +844,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return (
         <>
           <div className="report-summary">
-            <div className="report-summary-title">🔬 <strong>{sciReport.repName}</strong></div>
+
 
             {/* Info tags — hidden by default, toggle on click */}
             <div style={{ margin: '0.6rem 0' }}>
