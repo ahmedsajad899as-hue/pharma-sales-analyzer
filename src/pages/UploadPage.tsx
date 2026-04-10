@@ -302,6 +302,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 : `🔀 ${t.upload.dedupUnified} ${dedupResult.count} ${t.upload.dedupNamesUnit} ${showDedupDetail ? '▲' : '▼'}`}
             </span>
           )}
+        </div>
       </div>
 
       {/* Active files banner */}
