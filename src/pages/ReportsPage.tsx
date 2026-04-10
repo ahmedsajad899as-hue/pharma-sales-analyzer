@@ -91,6 +91,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [exportProgress, setExportProgress]   = useState('');
   const [qtyRevealed, setQtyRevealed]         = useState(false);
 
+  // Currency conversion — loaded from active file settings
+  const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
+  const [fileExchangeRate, setFileExchangeRate] = useState<number>(1500);
+
   // AI assistant page-action listener
   useEffect(() => {
     const handler = (e: Event) => {
@@ -120,8 +124,25 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setCommRepId('');
       setCommReport(null);
       setSciReport(null);
+      setFileCurrencyMode('IQD');
+      setFileExchangeRate(1500);
       return;
     }
+    // Load currency settings from the first active file
+    fetch(`/api/files`, { headers: authH() })
+      .then(r => r.json())
+      .then((json: any) => {
+        const allFiles: any[] = Array.isArray(json.data) ? json.data : [];
+        const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
+        if (activeFile) {
+          setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
+          setFileExchangeRate(activeFile.exchangeRate || 1500);
+        } else {
+          setFileCurrencyMode('IQD');
+          setFileExchangeRate(1500);
+        }
+      }).catch(() => {});
+
     const repsUrl = `/api/representatives?fileIds=${activeFileIds.join(',')}`;
     fetch(repsUrl, { headers: authH() })
       .then(r => r.json())
@@ -218,6 +239,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
   const fmtSigned = (n: number) => (n >= 0 ? '+' : '') + fmt(n);
 
+  // Currency-aware value formatting
+  const convFactor = fileCurrencyMode === 'USD' ? 1 / fileExchangeRate : 1;
+  const fmtVal = (n: number) => {
+    const v = (n || 0) * convFactor;
+    return fileCurrencyMode === 'USD'
+      ? parseFloat(v.toFixed(2)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : Math.round(v).toLocaleString('ar-IQ-u-nu-latn');
+  };
+  const fmtValSigned = (n: number) => n >= 0 ? `+${fmtVal(Math.abs(n))}` : `-${fmtVal(Math.abs(n))}`;
+  const currColHeader  = fileCurrencyMode === 'USD' ? `القيمة ($)` : t.reports.colValDinar;
+  const currStatTotal  = fileCurrencyMode === 'USD' ? `إجمالي القيمة ($)` : t.reports.statTotalVal;
+  const currStatNet    = fileCurrencyMode === 'USD' ? `صافي القيمة ($)` : t.reports.statNetVal;
+
   /* ─── Net breakdown table ─── */
   const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string) => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
@@ -276,11 +310,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td><strong>{row.name}</strong></td>
                   {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
                   <td style={{ color: '#1d4ed8' }}><HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#1d4ed8' }}>{fmt(s.totalValue)}</td>
+                  <td style={{ color: '#1d4ed8' }}>{fmtVal(s.totalValue)}</td>
                   <td style={{ color: '#dc2626' }}><HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#dc2626' }}>{fmt(r.totalValue)}</td>
+                  <td style={{ color: '#dc2626' }}>{fmtVal(r.totalValue)}</td>
                   <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netVal)}</td>
+                  <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(netVal)}</td>
                 </tr>
               );
             })}
@@ -295,11 +329,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
                   <td style={{ color: '#1d4ed8' }}><HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#1d4ed8' }}>{fmt(totSalesVal)}</td>
+                  <td style={{ color: '#1d4ed8' }}>{fmtVal(totSalesVal)}</td>
                   <td style={{ color: '#dc2626' }}><HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: '#dc2626' }}>{fmt(totRetVal)}</td>
+                  <td style={{ color: '#dc2626' }}>{fmtVal(totRetVal)}</td>
                   <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} /></td>
-                  <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesVal - totRetVal)}</td>
+                  <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>
                 </tr>
               );
             })()}
@@ -561,7 +595,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <th>{nameLabel}</th>
             {hasRep && <th>👤 {t.reports.colCommRep}</th>}
             <th>{t.reports.colQty}</th>
-            <th>{t.reports.colValDinar}</th>
+            <th>{currColHeader}</th>
             <th>{t.reports.colPct}</th>
           </tr>
         </thead>
@@ -574,7 +608,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <td><strong>{row.name}</strong></td>
                 {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
                 <td><HiddenQty value={row.totalQty} fmt={fmt} forceReveal={qtyRevealed} /></td>
-                <td>{fmt(row.totalValue)}</td>
+                <td>{fmtVal(row.totalValue)}</td>
                 <td>
                   <div className="pct-bar-wrapper">
                     <div className="pct-bar" style={{ width: `${pct}%` }} />
@@ -752,9 +786,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#d1fae5', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981' }}>💰</div>
                 <div className="stat-card-body">
                   <div className="stat-card-value" style={{ color: isNet ? (netValTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#10b981' }}>
-                    {isNet ? fmtSigned(netValTotal) : fmt(viewData?.totalValue ?? 0)}
+                    {isNet ? fmtValSigned(netValTotal) : fmtVal(viewData?.totalValue ?? 0)}
                   </div>
-                  <div className="stat-card-label">{isNet ? t.reports.statNetVal : t.reports.statTotalVal}</div>
+                  <div className="stat-card-label">{isNet ? currStatNet : currStatTotal}</div>
                 </div>
               </div>
               <div className="stat-card" style={{ borderTop: '4px solid #0ea5e9' }}>
@@ -828,9 +862,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#d1fae5', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981' }}>💰</div>
                 <div className="stat-card-body">
                   <div className="stat-card-value" style={{ color: isNet ? (netValTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#10b981' }}>
-                    {isNet ? fmtSigned(netValTotal) : fmt(viewData?.totalValue ?? 0)}
+                    {isNet ? fmtValSigned(netValTotal) : fmtVal(viewData?.totalValue ?? 0)}
                   </div>
-                  <div className="stat-card-label">{isNet ? t.reports.statNetVal : t.reports.statTotalVal}</div>
+                  <div className="stat-card-label">{isNet ? currStatNet : currStatTotal}</div>
                 </div>
               </div>
               <div className="stat-card" style={{ borderTop: '4px solid #0ea5e9' }}>
