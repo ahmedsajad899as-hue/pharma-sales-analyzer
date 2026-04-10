@@ -602,19 +602,6 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       <td>{fmtDate(f.uploadedAt)}</td>
                       <td style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         <button
-                          className="btn btn--secondary"
-                          style={{
-                            padding: '4px 14px', fontSize: '0.8rem',
-                            background: isActive ? '#dcfce7' : undefined,
-                            color: isActive ? '#15803d' : undefined,
-                            border: isActive ? '1px solid #86efac' : undefined,
-                            fontWeight: isActive ? 700 : undefined,
-                          }}
-                          onClick={() => onFileActivated(f.id)}
-                        >
-                          {isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
-                        </button>
-                        <button
                           className="btn btn--primary"
                           style={{ padding: '4px 12px', fontSize: '0.8rem' }}
                           onClick={() => handleAnalyze(f)}
@@ -638,12 +625,17 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           </button>
                         )}
                         <button
-                          title={t.upload.syncTitle}
-                          style={{ padding: '4px 10px', fontSize: '0.8rem', background: syncDone === f.id ? '#d1fae5' : '#e0f2fe', color: syncDone === f.id ? '#065f46' : '#0369a1', border: `1px solid ${syncDone === f.id ? '#6ee7b7' : '#7dd3fc'}`, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                          onClick={() => syncAssignments(f.id)}
-                          disabled={syncing === f.id}
+                          className="btn btn--secondary"
+                          style={{
+                            padding: '4px 14px', fontSize: '0.8rem',
+                            background: isActive ? '#dcfce7' : undefined,
+                            color: isActive ? '#15803d' : undefined,
+                            border: isActive ? '1px solid #86efac' : undefined,
+                            fontWeight: isActive ? 700 : undefined,
+                          }}
+                          onClick={() => onFileActivated(f.id)}
                         >
-                          {syncing === f.id ? '⏳' : syncDone === f.id ? t.upload.syncDone : t.upload.syncBtn}
+                          {isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
                         </button>
                         {confirmId === f.id ? (
                           <>
