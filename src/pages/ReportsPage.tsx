@@ -91,8 +91,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
   const [qtyRevealed, setQtyRevealed]         = useState(false);
-  const [collCols, setCollCols] = useState({ sq: true, sv: true, rq: true, rv: true, nq: true, nv: true });
-  const toggleCol = (k: keyof typeof collCols) => setCollCols(p => ({ ...p, [k]: !p[k] }));
 
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
@@ -326,12 +324,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <tr>
               <th>#</th><th>{nameLabel}</th>
               {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colSalesQty} onClick={() => toggleCol('sq')}>📦 {collCols.sq ? '▶' : '▼'}</th>
-              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colSalesVal} onClick={() => toggleCol('sv')}>💰 {collCols.sv ? '▶' : '▼'}</th>
-              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colRetQty} onClick={() => toggleCol('rq')}>↩️ {collCols.rq ? '▶' : '▼'}</th>
-              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colRetVal} onClick={() => toggleCol('rv')}>💸 {collCols.rv ? '▶' : '▼'}</th>
-              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colNetQty} onClick={() => toggleCol('nq')}>✅ {collCols.nq ? '▶' : '▼'}</th>
-              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }} title={t.reports.colNetVal} onClick={() => toggleCol('nv')}>🏆 {collCols.nv ? '▶' : '▼'}</th>
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>📦 {qtyRevealed ? '▼' : '▶'}</th>
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 {qtyRevealed ? '▼' : '▶'}</th>
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>↩️ {qtyRevealed ? '▼' : '▶'}</th>
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 {qtyRevealed ? '▼' : '▶'}</th>
+              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅</th>
+              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>🏆</th>
             </tr>
           </thead>
           <tbody>
@@ -346,12 +344,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <td>{i + 1}</td>
                   <td><strong>{row.name}</strong></td>
                   {hasRep && <td style={{ color: '#1e293b', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                  <td style={{ color: '#1d4ed8' }}>{collCols.sq ? null : <HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} />}</td>
-                  <td style={{ color: '#1d4ed8' }}>{collCols.sv ? null : fmtVal(s.totalValue)}</td>
-                  <td style={{ color: '#dc2626' }}>{collCols.rq ? null : <HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} />}</td>
-                  <td style={{ color: '#dc2626' }}>{collCols.rv ? null : fmtVal(r.totalValue)}</td>
-                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nq ? null : <HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} />}</td>
-                  <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nv ? null : fmtValSigned(netVal)}</td>
+                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? <HiddenQty value={s.totalQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={true} /> : null}</td>
+                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? fmtVal(s.totalValue) : null}</td>
+                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? <HiddenQty value={r.totalQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={true} /> : null}</td>
+                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? fmtVal(r.totalValue) : null}</td>
+                  <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={netQty} fmt={fmt} signed style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={true} /></td>
+                  <td style={{ fontWeight: 700, color: netVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(netVal)}</td>
                 </tr>
               );
             })}
@@ -365,12 +363,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr style={{ background: '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
-                  <td style={{ color: '#1d4ed8' }}>{collCols.sq ? null : <HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={qtyRevealed} />}</td>
-                  <td style={{ color: '#1d4ed8' }}>{collCols.sv ? null : fmtVal(totSalesVal)}</td>
-                  <td style={{ color: '#dc2626' }}>{collCols.rq ? null : <HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={qtyRevealed} />}</td>
-                  <td style={{ color: '#dc2626' }}>{collCols.rv ? null : fmtVal(totRetVal)}</td>
-                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nq ? null : <HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={qtyRevealed} />}</td>
-                  <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{collCols.nv ? null : fmtValSigned(totSalesVal - totRetVal)}</td>
+                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? <HiddenQty value={totSalesQty} fmt={fmt} style={{ color: '#1d4ed8' }} forceReveal={true} /> : null}</td>
+                  <td style={{ color: '#1d4ed8' }}>{qtyRevealed ? fmtVal(totSalesVal) : null}</td>
+                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? <HiddenQty value={totRetQty} fmt={fmt} style={{ color: '#dc2626' }} forceReveal={true} /> : null}</td>
+                  <td style={{ color: '#dc2626' }}>{qtyRevealed ? fmtVal(totRetVal) : null}</td>
+                  <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}><HiddenQty value={totSalesQty - totRetQty} fmt={fmt} signed style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }} forceReveal={true} /></td>
+                  <td style={{ color: totSalesVal - totRetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>
                 </tr>
               );
             })()}
