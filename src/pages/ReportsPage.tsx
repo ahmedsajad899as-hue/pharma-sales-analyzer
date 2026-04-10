@@ -306,16 +306,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <button
             onClick={() => setQtyRevealed(r => !r)}
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              padding: '5px 14px', borderRadius: '8px', border: '1px solid',
-              fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-              background: qtyRevealed ? '#1e40af' : '#f1f5f9',
-              color: qtyRevealed ? '#fff' : '#475569',
-              borderColor: qtyRevealed ? '#1e40af' : '#cbd5e1',
-              transition: 'all 0.15s',
+              display: 'inline-flex', alignItems: 'center', gap: '5px',
+              padding: '3px 10px', borderRadius: '6px', border: '1px solid',
+              fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+              background: qtyRevealed ? '#1e40af' : '#f8fafc',
+              color: qtyRevealed ? '#fff' : '#64748b',
+              borderColor: qtyRevealed ? '#1e40af' : '#e2e8f0',
+              transition: 'all 0.15s', letterSpacing: '0.3px',
             }}
           >
-            {qtyRevealed ? '🙈 إخفاء الكميات' : '👁 إظهار الكميات'}
+            {qtyRevealed ? 'إخفاء الكميات' : 'إظهار الكميات'}
           </button>
         </div>
       <div className="table-wrapper">
@@ -610,16 +610,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         <button
           onClick={() => setQtyRevealed(r => !r)}
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            padding: '5px 14px', borderRadius: '8px', border: '1px solid',
-            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-            background: qtyRevealed ? '#1e40af' : '#f1f5f9',
-            color: qtyRevealed ? '#fff' : '#475569',
-            borderColor: qtyRevealed ? '#1e40af' : '#cbd5e1',
-            transition: 'all 0.15s',
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            padding: '3px 10px', borderRadius: '6px', border: '1px solid',
+            fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+            background: qtyRevealed ? '#1e40af' : '#f8fafc',
+            color: qtyRevealed ? '#fff' : '#64748b',
+            borderColor: qtyRevealed ? '#1e40af' : '#e2e8f0',
+            transition: 'all 0.15s', letterSpacing: '0.3px',
           }}
         >
-          {qtyRevealed ? '🙈 إخفاء الكميات' : '👁 إظهار الكميات'}
+          {qtyRevealed ? 'إخفاء الكميات' : 'إظهار الكميات'}
         </button>
       </div>
     <div className="table-wrapper">
