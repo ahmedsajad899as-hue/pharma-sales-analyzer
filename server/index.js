@@ -1215,6 +1215,20 @@ app.post('/api/analyze', async (req, res) => {
     let { data, filters, fileId } = req.body;
     filters = filters || {};
 
+    // جلب إعداد العملة للملف — خارج أي block حتى يكون متاحاً في الـ prompt
+    let fileCurrencyMode = 'IQD';
+    let fileExchangeRate = 1500;
+    if (fileId) {
+      const fileInfo = await prisma.uploadedFile.findUnique({
+        where: { id: Number(fileId) },
+        select: { currencyMode: true, exchangeRate: true },
+      });
+      if (fileInfo) {
+        fileCurrencyMode = fileInfo.currencyMode || 'IQD';
+        fileExchangeRate = fileInfo.exchangeRate || 1500;
+      }
+    }
+
     // إذا لم تُرسل بيانات، نجلبها من قاعدة البيانات
     if (!data || data.length === 0) {
       const dbSales = await prisma.sale.findMany({
@@ -1238,21 +1252,7 @@ app.post('/api/analyze', async (req, res) => {
         });
       }
 
-      // جلب إعداد العملة للملف
-      let fileCurrencyMode = 'IQD';
-      let fileExchangeRate = 1500;
-      if (fileId) {
-        const fileInfo = await prisma.uploadedFile.findUnique({
-          where: { id: Number(fileId) },
-          select: { currencyMode: true, exchangeRate: true },
-        });
-        if (fileInfo) {
-          fileCurrencyMode = fileInfo.currencyMode || 'IQD';
-          fileExchangeRate = fileInfo.exchangeRate || 1500;
-        }
-      }
-
-      // تحويل إلى صيغة مقروءة للـ AI
+      // تحويل إلى صيغة مقروءة للـ AI مع تطبيق تحويل العملة إن كان مفعّلاً
       data = dbSales.map(s => ({
         'اسم المندوب': s.representative?.name ?? 'غير محدد',
         'المنطقة':     s.area?.name           ?? 'غير محدد',
