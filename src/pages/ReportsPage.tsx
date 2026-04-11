@@ -24,6 +24,19 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const [selEnd, setSelEnd]           = useState<{ r: number; c: number } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const gridRef  = useRef<HTMLDivElement>(null);
+
+  // ── Auto-scroll while dragging selection near edges ──────
+  const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isSelecting || !gridRef.current) return;
+    const el = gridRef.current;
+    const rect = el.getBoundingClientRect();
+    const thr = 50; const spd = 14;
+    if      (e.clientY < rect.top    + thr) el.scrollTop  -= spd;
+    else if (e.clientY > rect.bottom - thr) el.scrollTop  += spd;
+    if      (e.clientX < rect.left   + thr) el.scrollLeft -= spd;
+    else if (e.clientX > rect.right  - thr) el.scrollLeft += spd;
+  };
 
   const sheet = sheets[activeIdx];
   const setRows = (rows: string[][]) =>
@@ -87,12 +100,17 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   };
 
   // Column totals — sum numeric values in data rows
-  const colTotals = Array.from({ length: colCount }, (_, ci) =>
-    sheet.rows.slice(1).reduce((acc, row) => {
-      const v = parseFloat(row[ci] ?? '');
-      return acc + (isNaN(v) ? 0 : v);
-    }, 0)
-  );
+  // Skip: unit-price columns, and grand-total rows (first cell is empty string)
+  const colTotals: (number | null)[] = Array.from({ length: colCount }, (_, ci) => {
+    const header = (sheet.rows[0]?.[ci] ?? '');
+    if (/\bسعر.*الوحد|الوحد.*سعر|unit.?price|price.?per\b/i.test(header)) return null;
+    return sheet.rows.slice(1)
+      .filter(row => row[0] !== '')        // skip grand-total rows (empty # cell)
+      .reduce((acc, row) => {
+        const v = parseFloat(row[ci] ?? '');
+        return acc + (isNaN(v) ? 0 : v);
+      }, 0);
+  });
 
   // Selection stats
   const selNums: number[] = [];
@@ -170,9 +188,11 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
 
         {/* Grid */}
         <div
+          ref={gridRef}
           style={{ flex: 1, overflow: 'auto', padding: '0' }}
           onMouseUp={() => setIsSelecting(false)}
           onMouseLeave={() => setIsSelecting(false)}
+          onMouseMove={handleGridMouseMove}
         >
           <table style={{ borderCollapse: 'collapse', minWidth: '100%', fontSize: 12 }}>
             <thead>
@@ -274,7 +294,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                 <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', background: '#dcfce7', textAlign: 'center', fontSize: 11, color: '#16a34a', padding: '4px 0' }}>Σ</td>
                 {colTotals.map((total, ci) => (
                   <td key={ci} style={{ padding: '4px 8px', border: '1px solid #bbf7d0', textAlign: 'right', color: total !== 0 ? '#15803d' : '#d1d5db', whiteSpace: 'nowrap', fontSize: 12, direction: 'ltr' }}>
-                    {total !== 0 ? total.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '−'}
+                    {total === null ? '' : total !== 0 ? total.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '−'}
                   </td>
                 ))}
               </tr>
