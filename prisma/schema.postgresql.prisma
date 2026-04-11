@@ -182,6 +182,7 @@ model Item {
   userItemAssignments UserItemAssignment[]
   pharmacyVisitItems  PharmacyVisitItem[]
   commercialItems     CommercialInvoiceItem[]
+  fmsPlanItems        FmsPlanItem[]
 
   @@unique([name, userId])
   @@index([userId])
