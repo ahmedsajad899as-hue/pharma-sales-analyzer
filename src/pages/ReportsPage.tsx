@@ -20,6 +20,9 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const [editVal, setEditVal]         = useState('');
   const [dragCol, setDragCol]         = useState<number | null>(null);
   const [dragOverCol, setDragOverCol] = useState<number | null>(null);
+  const [selStart, setSelStart]       = useState<{ r: number; c: number } | null>(null);
+  const [selEnd, setSelEnd]           = useState<{ r: number; c: number } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sheet = sheets[activeIdx];
@@ -73,6 +76,39 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   };
 
   const colCount = sheet.rows[0]?.length ?? 0;
+
+  // Clear selection when switching sheets
+  useEffect(() => { setSelStart(null); setSelEnd(null); }, [activeIdx]);
+
+  const isInSel = (r: number, c: number) => {
+    if (!selStart || !selEnd) return false;
+    return r >= Math.min(selStart.r, selEnd.r) && r <= Math.max(selStart.r, selEnd.r)
+        && c >= Math.min(selStart.c, selEnd.c) && c <= Math.max(selStart.c, selEnd.c);
+  };
+
+  // Column totals — sum numeric values in data rows
+  const colTotals = Array.from({ length: colCount }, (_, ci) =>
+    sheet.rows.slice(1).reduce((acc, row) => {
+      const v = parseFloat(row[ci] ?? '');
+      return acc + (isNaN(v) ? 0 : v);
+    }, 0)
+  );
+
+  // Selection stats
+  const selNums: number[] = [];
+  if (selStart && selEnd) {
+    for (let r = Math.min(selStart.r, selEnd.r); r <= Math.max(selStart.r, selEnd.r); r++) {
+      for (let c = Math.min(selStart.c, selEnd.c); c <= Math.max(selStart.c, selEnd.c); c++) {
+        const v = parseFloat(sheet.rows[r]?.[c] ?? '');
+        if (!isNaN(v)) selNums.push(v);
+      }
+    }
+  }
+  const selSum = selNums.reduce((a, b) => a + b, 0);
+  const selNumericCount = selNums.length;
+  const selCellCount = selStart && selEnd
+    ? (Math.abs(selStart.r - selEnd.r) + 1) * (Math.abs(selStart.c - selEnd.c) + 1)
+    : 0;
 
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
@@ -129,10 +165,15 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
           <span>✏️ انقر على خلية للتعديل</span>
           <span>↔️ اسحب رأس العمود لإعادة الترتيب</span>
           <span>✕ حذف الصف / العمود</span>
+          <span>🖱️ اسحب بالماوس لتحديد خلايا ومعرفة مجموعها</span>
         </div>
 
         {/* Grid */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '0' }}>
+        <div
+          style={{ flex: 1, overflow: 'auto', padding: '0' }}
+          onMouseUp={() => setIsSelecting(false)}
+          onMouseLeave={() => setIsSelecting(false)}
+        >
           <table style={{ borderCollapse: 'collapse', minWidth: '100%', fontSize: 12 }}>
             <thead>
               <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -175,7 +216,9 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                   <td
                     key={ci}
                     onDoubleClick={() => startEdit(0, ci)}
-                    style={{ padding: '4px 8px', border: '1px solid #bae6fd', fontWeight: 700, color: '#0c4a6e', cursor: 'text', whiteSpace: 'nowrap', background: '#e0f2fe' }}
+                    onMouseDown={() => { setSelStart({ r: 0, c: ci }); setSelEnd({ r: 0, c: ci }); setIsSelecting(true); setEditCell(null); }}
+                    onMouseEnter={() => { if (isSelecting) setSelEnd({ r: 0, c: ci }); }}
+                    style={{ padding: '4px 8px', border: `1px solid ${isInSel(0, ci) ? '#93c5fd' : '#bae6fd'}`, fontWeight: 700, color: '#0c4a6e', cursor: 'cell', whiteSpace: 'nowrap', background: isInSel(0, ci) ? '#bfdbfe' : '#e0f2fe', userSelect: 'none' }}
                   >
                     {editCell?.r === 0 && editCell.c === ci ? (
                       <input
@@ -204,8 +247,10 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                       <td
                         key={ci}
                         onDoubleClick={() => startEdit(actualRi, ci)}
-                        style={{ padding: '3px 8px', border: '1px solid #e5e7eb', cursor: 'text', whiteSpace: 'nowrap',
-                          background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : undefined }}
+                        onMouseDown={() => { setSelStart({ r: actualRi, c: ci }); setSelEnd({ r: actualRi, c: ci }); setIsSelecting(true); setEditCell(null); }}
+                        onMouseEnter={() => { if (isSelecting) setSelEnd({ r: actualRi, c: ci }); }}
+                        style={{ padding: '3px 8px', border: `1px solid ${isInSel(actualRi, ci) ? '#93c5fd' : '#e5e7eb'}`, cursor: 'cell', whiteSpace: 'nowrap', userSelect: 'none',
+                          background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : isInSel(actualRi, ci) ? '#dbeafe' : undefined }}
                       >
                         {editCell?.r === actualRi && editCell.c === ci ? (
                           <input
@@ -224,12 +269,27 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr style={{ background: '#f0fdf4', fontWeight: 700 }}>
+                <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', background: '#dcfce7', textAlign: 'center', fontSize: 11, color: '#16a34a', padding: '4px 0' }}>Σ</td>
+                {colTotals.map((total, ci) => (
+                  <td key={ci} style={{ padding: '4px 8px', border: '1px solid #bbf7d0', textAlign: 'right', color: total !== 0 ? '#15803d' : '#d1d5db', whiteSpace: 'nowrap', fontSize: 12, direction: 'ltr' }}>
+                    {total !== 0 ? total.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '−'}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
           </table>
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '10px 20px', borderTop: '1px solid #e5e7eb', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#6b7280' }}>
+        <div style={{ padding: '10px 20px', borderTop: '1px solid #e5e7eb', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#6b7280', gap: 8, flexWrap: 'wrap' }}>
           <span>📋 {sheet.rows.length > 0 ? sheet.rows.length - 1 : 0} صف · {colCount} عمود</span>
+          {selNumericCount > 0 && (
+            <span style={{ color: '#1d4ed8', fontWeight: 600, background: '#dbeafe', padding: '3px 10px', borderRadius: 6 }}>
+              خلايا: {selCellCount} &nbsp;·&nbsp; أرقام: {selNumericCount} &nbsp;·&nbsp; المجموع: {selSum.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            </span>
+          )}
           <button
             onClick={exportModified}
             style={{
@@ -716,7 +776,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           let raw: any = {};
           try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
           const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-          const dataRow = headers.map(h => { const v = raw[h]; if (isDateKey(h)) return fmtDateCell(v); return typeof v === 'number' ? Math.round(v * 100) / 100 : (v ?? ''); });
+          const dataRow = headers.map(h => { const v = raw[h]; if (isDateKey(h)) return fmtDateCell(v); if (typeof v !== 'number') return v ?? ''; const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h); return Math.round((isPriceCol ? convertVal(v) : v) * 100) / 100; });
           return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
         }),
       ];
@@ -726,7 +786,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       [...sciCol, t.reports.exportColRecordType, t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate],
       ...sales.map(s => {
         const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(s.totalValue || 0), fmtDateCell(s.saleDate)];
+        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(convertVal(s.totalValue || 0)), fmtDateCell(s.saleDate)];
         return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
       }),
     ];
@@ -754,7 +814,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const sales: any[] = json.data ?? [];
       const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
       const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(netVal))]);
+      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(convertVal(netVal)))]);
       const rows = buildSheet(sales);
       result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
     }
@@ -774,7 +834,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       }
       const netQty2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
       const netVal2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(netVal2))]);
+      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(convertVal(netVal2)))]);
       const rows = buildSheet(sales2, sciName);
       result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
     }
@@ -826,7 +886,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const sales: any[] = json.data ?? [];
         const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
         const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(netVal)]);
+        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(convertVal(netVal))]);
         addSheet(`${t.reports.exportCommPrefix}-${repName}`, buildSheet(sales));  // no sciRepName for commercial
       }
 
@@ -847,7 +907,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         }
         const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
         const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(netVal)]);
+        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(convertVal(netVal))]);
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
       }
 
@@ -1242,35 +1302,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </div>
 
             <div className="export-modal-grid" style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              {/* Commercial Reps */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <strong style={{ color: '#374151', fontSize: 14 }}>💼 {t.reports.exportCommLabel} ({commReps.length})</strong>
-                  <button style={{ fontSize: 12, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
-                    onClick={() => {
-                      const s = new Set(selCommIds);
-                      commReps.every(r => s.has(r.id)) ? commReps.forEach(r => s.delete(r.id)) : commReps.forEach(r => s.add(r.id));
-                      setSelCommIds(s);
-                    }}>
-                    {commReps.every(r => selCommIds.has(r.id)) && commReps.length > 0 ? t.reports.exportDeselectAll : t.reports.exportSelectAll}
-                  </button>
-                </div>
-                <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {commReps.length === 0
-                    ? <span style={{ color: '#9ca3af', fontSize: 13 }}>{t.reports.exportNoReps}</span>
-                    : commReps.map(r => (
-                      <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: selCommIds.has(r.id) ? '#eef2ff' : '#f9fafb', border: `1px solid ${selCommIds.has(r.id) ? '#a5b4fc' : '#e5e7eb'}` }}>
-                        <input type="checkbox" checked={selCommIds.has(r.id)} onChange={e => {
-                          const s = new Set(selCommIds);
-                          e.target.checked ? s.add(r.id) : s.delete(r.id);
-                          setSelCommIds(s);
-                        }} />
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
-                      </label>
-                    ))}
-                </div>
-              </div>
-
               {/* Scientific Reps */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1293,6 +1324,35 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           const s = new Set(selSciIds);
                           e.target.checked ? s.add(r.id) : s.delete(r.id);
                           setSelSciIds(s);
+                        }} />
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
+                      </label>
+                    ))}
+                </div>
+              </div>
+
+              {/* Commercial Reps */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <strong style={{ color: '#374151', fontSize: 14 }}>💼 {t.reports.exportCommLabel} ({commReps.length})</strong>
+                  <button style={{ fontSize: 12, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
+                    onClick={() => {
+                      const s = new Set(selCommIds);
+                      commReps.every(r => s.has(r.id)) ? commReps.forEach(r => s.delete(r.id)) : commReps.forEach(r => s.add(r.id));
+                      setSelCommIds(s);
+                    }}>
+                    {commReps.every(r => selCommIds.has(r.id)) && commReps.length > 0 ? t.reports.exportDeselectAll : t.reports.exportSelectAll}
+                  </button>
+                </div>
+                <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {commReps.length === 0
+                    ? <span style={{ color: '#9ca3af', fontSize: 13 }}>{t.reports.exportNoReps}</span>
+                    : commReps.map(r => (
+                      <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: selCommIds.has(r.id) ? '#eef2ff' : '#f9fafb', border: `1px solid ${selCommIds.has(r.id) ? '#a5b4fc' : '#e5e7eb'}` }}>
+                        <input type="checkbox" checked={selCommIds.has(r.id)} onChange={e => {
+                          const s = new Set(selCommIds);
+                          e.target.checked ? s.add(r.id) : s.delete(r.id);
+                          setSelCommIds(s);
                         }} />
                         <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
                       </label>
