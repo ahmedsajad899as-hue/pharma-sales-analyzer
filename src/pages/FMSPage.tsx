@@ -345,14 +345,10 @@ export default function FMSPage() {
   return (
     <div style={{ padding: '20px 16px', maxWidth: 1100, margin: '0 auto', direction: 'rtl', fontFamily: 'inherit' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1e293b' }}>🧪 FMS — عينات مجانية شهرية</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>تعيين العينات الشهرية المجانية لكل مندوب علمي</p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8 }}>
           {plans.length > 0 && (
-            <button onClick={exportExcel} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#10b981', color: '#fff', fontWeight: 700, fontSize: 13 }}>📥 تصدير Excel</button>
+            <button onClick={exportExcel} title="تصدير Excel" style={{ padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#10b981', color: '#fff', fontWeight: 700, fontSize: 16 }}>📥</button>
           )}
           <button onClick={openNew} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13 }}>+ خطة جديدة</button>
         </div>
