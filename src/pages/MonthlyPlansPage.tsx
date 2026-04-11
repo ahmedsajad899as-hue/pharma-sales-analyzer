@@ -1641,9 +1641,9 @@ export default function MonthlyPlansPage() {
                         <div style={{ background: pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#3b82f6', width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
                       </div>
                       <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>{pct}%</p>
-                      {isManagerOrAdmin && (
+                      {(isManagerOrAdmin || (isFieldRep && p.scientificRepId === authUser?.linkedRepId)) && (
                         <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                          {p.assignedUserId ? (
+                          {isManagerOrAdmin && (p.assignedUserId ? (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                               <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>
                                 🔗 {p.assignedUser?.username ?? 'مُحوَّل'}
@@ -1660,7 +1660,7 @@ export default function MonthlyPlansPage() {
                               onClick={e => openTransferModal(e, p)}>
                               📤 تحويل للمندوب
                             </button>
-                          )}
+                          ))}
                           <button
                             style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600, marginTop: 6 }}
                             onClick={e => deletePlan(e, p.id)}>
