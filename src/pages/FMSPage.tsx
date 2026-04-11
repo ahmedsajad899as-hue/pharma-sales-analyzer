@@ -235,13 +235,20 @@ export default function FMSPage() {
     [plans]
   );
 
+  const [isMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
   const [editingCell, setEditingCell] = useState<{ planId: number; itemName: string } | null>(null);
   const [editingVal,  setEditingVal]  = useState('');
   const [selection,   setSelection]  = useState<Set<string>>(new Set());
   const [fillVal,     setFillVal]    = useState('');
 
-  // Rect-selection via mousedown+drag
-  const selAnchor  = useRef<{ ri: number; ci: number } | null>(null);
+  // Always-fresh refs so commitEdit never reads stale closure
+  const editingCellRef = useRef<{ planId: number; itemName: string } | null>(null);
+  const editingValRef  = useRef('');
+  editingCellRef.current = editingCell;
+  editingValRef.current  = editingVal;
+
+  const selAnchor   = useRef<{ ri: number; ci: number } | null>(null);
   const isSelecting = useRef(false);
 
   const cellKey = (planId: number, itemName: string) => `${planId}|${itemName}`;
@@ -269,11 +276,13 @@ export default function FMSPage() {
     } catch { /* silent */ }
   }, [authH]);
 
+  // Use refs so onBlur always sees freshest cell even with batched state updates
   const commitEdit = useCallback(() => {
-    if (!editingCell) return;
-    patchCell(editingCell.planId, editingCell.itemName, parseInt(editingVal) || 0);
+    const cell = editingCellRef.current;
+    if (!cell) return;
+    patchCell(cell.planId, cell.itemName, parseInt(editingValRef.current) || 0);
     setEditingCell(null);
-  }, [editingCell, editingVal, patchCell]);
+  }, [patchCell]);
 
   const applyFill = () => {
     const qty = parseInt(fillVal) || 0;
@@ -285,9 +294,9 @@ export default function FMSPage() {
     setFillVal('');
   };
 
+  // No e.preventDefault() so touch-scroll still works on mobile
   const onCellMouseDown = (ri: number, ci: number, e: React.MouseEvent) => {
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
-    e.preventDefault();
     isSelecting.current = true;
     selAnchor.current = { ri, ci };
     setSelection(rectSelection(ri, ci, ri, ci, plans, allItemNames));
@@ -376,6 +385,58 @@ export default function FMSPage() {
           <div style={{ fontSize: 40, marginBottom: 12 }}>🧪</div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>لا توجد خطط لهذا الشهر</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>اضغط "+ خطة جديدة" لإضافة خطة</div>
+        </div>
+      ) : isMobile ? (
+        /* ── Mobile: card-per-plan view ── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {plans.map(plan => (
+            <div key={plan.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+              {/* Card header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+                <div style={{ color: '#fff' }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{plan.scientificRep.name}</div>
+                  <div style={{ fontSize: 11, opacity: 0.85 }}>{MONTHS[plan.month - 1]} {plan.year} — {plan.items.length} صنف / {plan.items.reduce((s, it) => s + it.quantity, 0)} وحدة</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => openEdit(plan)} style={{ padding: '5px 10px', borderRadius: 7, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>✏️</button>
+                  <button onClick={() => deletePlan(plan.id)} style={{ padding: '5px 10px', borderRadius: 7, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer', fontSize: 13 }}>🗑️</button>
+                </div>
+              </div>
+              {/* Items list */}
+              <div>
+                {allItemNames.map((itemName, i) => {
+                  const it = plan.items.find(r => r.itemName === itemName);
+                  const qty = it?.quantity ?? 0;
+                  const isEditing = editingCell?.planId === plan.id && editingCell?.itemName === itemName;
+                  return (
+                    <div key={itemName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, flex: 1, paddingLeft: 10 }}>{itemName}</span>
+                      {isEditing ? (
+                        <input
+                          autoFocus type="number" min="0" value={editingVal}
+                          onChange={e => setEditingVal(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
+                          style={{ width: 80, padding: '6px 8px', borderRadius: 7, border: '2px solid #6366f1', textAlign: 'center', fontSize: 14, outline: 'none' }}
+                        />
+                      ) : (
+                        <span
+                          onClick={() => { setEditingCell({ planId: plan.id, itemName }); setEditingVal(qty > 0 ? String(qty) : ''); }}
+                          style={{ background: qty > 0 ? '#dbeafe' : '#f1f5f9', color: qty > 0 ? '#1d4ed8' : '#94a3b8', borderRadius: 8, padding: '5px 18px', fontWeight: 700, fontSize: 14, minWidth: 50, textAlign: 'center', cursor: 'pointer', display: 'inline-block' }}
+                        >
+                          {qty > 0 ? qty : '—'}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 14px', background: '#f0fdf4', fontWeight: 700 }}>
+                  <span style={{ color: '#15803d', fontSize: 13 }}>الإجمالي</span>
+                  <span style={{ background: '#bbf7d0', color: '#15803d', borderRadius: 8, padding: '4px 18px', fontWeight: 700, fontSize: 14 }}>{plan.items.reduce((s, it) => s + it.quantity, 0)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
           <div
