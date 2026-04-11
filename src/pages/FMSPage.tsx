@@ -115,9 +115,9 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     switch (e.key) {
       case 'ArrowUp':    e.preventDefault(); moveCell(-1, 0); break;
       case 'ArrowDown':  e.preventDefault(); moveCell(1, 0); break;
-      case 'ArrowLeft':  e.preventDefault(); moveCell(0, -1); break;
-      case 'ArrowRight': e.preventDefault(); moveCell(0, 1); break;
-      case 'Tab':        e.preventDefault(); moveCell(0, e.shiftKey ? -1 : 1); break;
+      case 'ArrowLeft':  e.preventDefault(); moveCell(0, 1); break;
+      case 'ArrowRight': e.preventDefault(); moveCell(0, -1); break;
+      case 'Tab':        e.preventDefault(); moveCell(0, e.shiftKey ? 1 : -1); break;
       case 'Enter':
       case 'F2':         e.preventDefault(); startEdit(focusedCell.r, focusedCell.c); break;
       case 'Delete':
@@ -260,7 +260,7 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                     onMouseEnter={() => { if (isSelecting) setSelEnd({ r: 0, c: ci }); }}
                     style={{ padding: '4px 8px', border: focusedCell?.r === 0 && focusedCell?.c === ci && !editCell ? '2px solid #22c55e' : `1px solid ${isInSel(0, ci) ? '#93c5fd' : '#bae6fd'}`, fontWeight: 700, color: '#0c4a6e', cursor: 'cell', whiteSpace: 'nowrap', background: isInSel(0, ci) ? '#bfdbfe' : '#e0f2fe', userSelect: 'none' }}>
                     {editCell?.r === 0 && editCell.c === ci ? (
-                      <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'Tab') { e.preventDefault(); commitAndMove(0, e.shiftKey ? -1 : 1); } else if (e.key === 'ArrowDown') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'ArrowUp') { e.preventDefault(); commitAndMove(-1, 0); } else if (e.key === 'Escape') { setEditCell(null); gridRef.current?.focus(); } }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
+                      <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'Tab') { e.preventDefault(); commitAndMove(0, e.shiftKey ? 1 : -1); } else if (e.key === 'ArrowDown') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'ArrowUp') { e.preventDefault(); commitAndMove(-1, 0); } else if (e.key === 'Escape') { setEditCell(null); gridRef.current?.focus(); } }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
                     ) : String(cell ?? '')}
                   </td>
                 ))}
@@ -280,7 +280,7 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                         onMouseEnter={() => { if (isSelecting) setSelEnd({ r: actualRi, c: ci }); }}
                         style={{ padding: '3px 8px', border: focusedCell?.r === actualRi && focusedCell?.c === ci && !editCell ? '2px solid #22c55e' : `1px solid ${isInSel(actualRi, ci) ? '#93c5fd' : '#e5e7eb'}`, cursor: 'cell', whiteSpace: 'nowrap', userSelect: 'none', background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : isInSel(actualRi, ci) ? '#dbeafe' : undefined }}>
                         {editCell?.r === actualRi && editCell.c === ci ? (
-                          <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'Tab') { e.preventDefault(); commitAndMove(0, e.shiftKey ? -1 : 1); } else if (e.key === 'ArrowDown') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'ArrowUp') { e.preventDefault(); commitAndMove(-1, 0); } else if (e.key === 'Escape') { setEditCell(null); gridRef.current?.focus(); } }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
+                          <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'Tab') { e.preventDefault(); commitAndMove(0, e.shiftKey ? 1 : -1); } else if (e.key === 'ArrowDown') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'ArrowUp') { e.preventDefault(); commitAndMove(-1, 0); } else if (e.key === 'Escape') { setEditCell(null); gridRef.current?.focus(); } }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
                         ) : String(row[ci] ?? '')}
                       </td>
                     ))}
