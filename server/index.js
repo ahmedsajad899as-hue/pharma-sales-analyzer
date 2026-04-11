@@ -1684,12 +1684,15 @@ app.post('/api/fms', requireAuth, async (req, res) => {
 
     let plan;
     if (existing) {
-      await prisma.fmsPlanItem.deleteMany({ where: { fmsPlanId: existing.id } });
+      // Merge: append new items (skip items with same name that already exist)
+      const existingItems = await prisma.fmsPlanItem.findMany({ where: { fmsPlanId: existing.id } });
+      const existingNames = new Set(existingItems.map(it => it.itemName.toLowerCase()));
+      const newItems = items.filter(it => !existingNames.has(String(it.itemName).toLowerCase()));
       plan = await prisma.fmsPlan.update({
         where: { id: existing.id },
         data: {
-          notes: notes?.trim() || null,
-          items: { create: items.map(it => ({ itemId: it.itemId ? parseInt(it.itemId) : null, itemName: String(it.itemName), quantity: parseInt(it.quantity) || 0 })) },
+          notes: notes?.trim() || existing.notes,
+          items: { create: newItems.map(it => ({ itemId: it.itemId ? parseInt(it.itemId) : null, itemName: String(it.itemName), quantity: parseInt(it.quantity) || 0 })) },
         },
         include: { scientificRep: { select: { id: true, name: true } }, items: true },
       });

@@ -163,7 +163,7 @@ export default function FMSPage() {
   const openNew = () => {
     setEditPlan(null);
     setFormRepId('');
-    setFormRepIds(new Set(sciReps.map(r => r.id)));
+    setFormRepIds(new Set());
     setFormMonth(filterMonth);
     setFormYear(filterYear);
     setFormNotes('');
