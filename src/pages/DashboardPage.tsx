@@ -14,7 +14,7 @@ interface DailyRep { id: number; name: string; }
 interface DailyCallsData { visits: VisitPoint[]; reps: DailyRep[]; total: number; }
 
 // Arabic normalization for search matching (handles أإآ→ا, ة→ه, ى→ي, tashkeel)
-const normArabic = (s: string) => String(s ?? '').trim().toLowerCase()
+const normArabic = (s: string) => String(s ?? '').normalize('NFKC').trim().toLowerCase()
   .replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
   .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ');
 
@@ -2904,7 +2904,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden' }}>
                     {[...clSuggestions].sort((a: any, b: any) => (a._inPlan === b._inPlan ? 0 : a._inPlan ? -1 : 1)).map((entry: any) => (
                       <div
-                        key={entry.id}
+                        key={entry.doctor?.id ?? entry.id}
                         onMouseDown={() => selectClEntry(entry)}
                         style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
                         onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
