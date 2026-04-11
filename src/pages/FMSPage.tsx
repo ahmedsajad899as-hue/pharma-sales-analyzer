@@ -17,6 +17,237 @@ interface FmsPlan {
 
 const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
+/* ─────────────────────────────────────────────────────────
+   FMSExcelPreviewModal — editable preview before export
+───────────────────────────────────────────────────────── */
+interface FmsPreviewSheet { name: string; rows: string[][]; }
+
+function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
+  sheets: FmsPreviewSheet[];
+  onClose: () => void;
+  fileName: string;
+}) {
+  const [sheets, setSheets]           = useState<FmsPreviewSheet[]>(initSheets);
+  const [activeIdx, setActiveIdx]     = useState(0);
+  const [editCell, setEditCell]       = useState<{ r: number; c: number } | null>(null);
+  const [editVal, setEditVal]         = useState('');
+  const [dragCol, setDragCol]         = useState<number | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<number | null>(null);
+  const [selStart, setSelStart]       = useState<{ r: number; c: number } | null>(null);
+  const [selEnd, setSelEnd]           = useState<{ r: number; c: number } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const gridRef  = useRef<HTMLDivElement>(null);
+
+  const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isSelecting || !gridRef.current) return;
+    const el = gridRef.current;
+    const rect = el.getBoundingClientRect();
+    const thr = 50; const spd = 14;
+    if      (e.clientY < rect.top    + thr) el.scrollTop  -= spd;
+    else if (e.clientY > rect.bottom - thr) el.scrollTop  += spd;
+    if      (e.clientX < rect.left   + thr) el.scrollLeft -= spd;
+    else if (e.clientX > rect.right  - thr) el.scrollLeft += spd;
+  };
+
+  const sheet = sheets[activeIdx];
+  const setRows = (rows: string[][]) =>
+    setSheets(prev => prev.map((s, i) => i === activeIdx ? { ...s, rows } : s));
+
+  const startEdit = (r: number, c: number) => {
+    setEditCell({ r, c });
+    setEditVal(sheet.rows[r]?.[c] ?? '');
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+  const commitEdit = () => {
+    if (!editCell) return;
+    setRows(sheet.rows.map((row, ri) =>
+      ri === editCell.r ? row.map((v, ci) => ci === editCell.c ? editVal : v) : row
+    ));
+    setEditCell(null);
+  };
+
+  const deleteRow = (ri: number) => setRows(sheet.rows.filter((_, i) => i !== ri));
+  const deleteCol = (ci: number) => setRows(sheet.rows.map(row => row.filter((_, i) => i !== ci)));
+
+  const onDragStart = (ci: number) => setDragCol(ci);
+  const onDragOver  = (e: React.DragEvent, ci: number) => { e.preventDefault(); setDragOverCol(ci); };
+  const onDrop      = (ci: number) => {
+    if (dragCol === null || dragCol === ci) { setDragCol(null); setDragOverCol(null); return; }
+    setRows(sheet.rows.map(row => {
+      const r = [...row];
+      const [removed] = r.splice(dragCol, 1);
+      r.splice(ci, 0, removed);
+      return r;
+    }));
+    setDragCol(null); setDragOverCol(null);
+  };
+
+  const exportModified = () => {
+    const wb = XLSX.utils.book_new();
+    sheets.forEach(s => {
+      const ws = XLSX.utils.aoa_to_sheet(s.rows);
+      if (s.rows[0]) ws['!cols'] = s.rows[0].map((_, ci) => ({ wch: ci === 0 ? 30 : 14 }));
+      XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+    });
+    XLSX.writeFile(wb, fileName);
+    onClose();
+  };
+
+  const colCount = sheet.rows[0]?.length ?? 0;
+  useEffect(() => { setSelStart(null); setSelEnd(null); }, [activeIdx]);
+
+  const isInSel = (r: number, c: number) => {
+    if (!selStart || !selEnd) return false;
+    return r >= Math.min(selStart.r, selEnd.r) && r <= Math.max(selStart.r, selEnd.r)
+        && c >= Math.min(selStart.c, selEnd.c) && c <= Math.max(selStart.c, selEnd.c);
+  };
+
+  const colTotals: (number | null)[] = Array.from({ length: colCount }, (_, ci) =>
+    sheet.rows.slice(1).reduce((acc, row) => {
+      const v = parseFloat(row[ci] ?? '');
+      return acc + (isNaN(v) ? 0 : v);
+    }, 0)
+  );
+
+  const selNums: number[] = [];
+  if (selStart && selEnd) {
+    for (let r = Math.min(selStart.r, selEnd.r); r <= Math.max(selStart.r, selEnd.r); r++)
+      for (let c = Math.min(selStart.c, selEnd.c); c <= Math.max(selStart.c, selEnd.c); c++) {
+        const v = parseFloat(sheet.rows[r]?.[c] ?? '');
+        if (!isNaN(v)) selNums.push(v);
+      }
+  }
+  const selSum = selNums.reduce((a, b) => a + b, 0);
+  const selNumericCount = selNums.length;
+  const selCellCount = selStart && selEnd
+    ? (Math.abs(selStart.r - selEnd.r) + 1) * (Math.abs(selStart.c - selEnd.c) + 1) : 0;
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#fff', borderRadius: 16, width: '96vw', maxWidth: 1300,
+        maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 25px 60px rgba(0,0,0,.25)', overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>📊</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>معاينة وتحرير بيانات التصدير</div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>{fileName}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={exportModified} style={{ padding: '7px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, fontSize: 13 }}>📥 تصدير Excel</button>
+            <button onClick={onClose} className="modal-close" style={{ position: 'static' }}>✕</button>
+          </div>
+        </div>
+        {/* Sheet Tabs */}
+        <div style={{ display: 'flex', gap: 4, padding: '8px 16px 0', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', overflowX: 'auto', flexShrink: 0 }}>
+          {sheets.map((s, i) => (
+            <button key={i} onClick={() => setActiveIdx(i)} style={{
+              padding: '5px 14px', borderRadius: '8px 8px 0 0', border: '1px solid',
+              borderBottomColor: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600,
+              background: i === activeIdx ? '#fff' : '#f1f5f9',
+              borderColor: i === activeIdx ? '#e5e7eb' : 'transparent',
+              color: i === activeIdx ? '#1e293b' : '#64748b', marginBottom: -1,
+            }}>{s.name}</button>
+          ))}
+        </div>
+        {/* Hints */}
+        <div style={{ padding: '6px 16px', background: '#fffbeb', borderBottom: '1px solid #fde68a', fontSize: 11, color: '#92400e', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <span>✏️ انقر على خلية للتعديل</span>
+          <span>↔️ اسحب رأس العمود لإعادة الترتيب</span>
+          <span>✕ حذف الصف / العمود</span>
+          <span>🖱️ اسحب بالماوس لتحديد خلايا ومعرفة مجموعها</span>
+        </div>
+        {/* Grid */}
+        <div ref={gridRef} style={{ flex: 1, overflow: 'auto' }}
+          onMouseUp={() => setIsSelecting(false)}
+          onMouseLeave={() => setIsSelecting(false)}
+          onMouseMove={handleGridMouseMove}>
+          <table style={{ borderCollapse: 'collapse', minWidth: '100%', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
+                <th style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', background: '#f8fafc' }} />
+                {Array.from({ length: colCount }, (_, ci) => (
+                  <th key={ci} draggable onDragStart={() => onDragStart(ci)} onDragOver={e => onDragOver(e, ci)} onDrop={() => onDrop(ci)} onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
+                    style={{ padding: '4px 6px', border: '1px solid #e5e7eb', textAlign: 'center', cursor: 'grab', userSelect: 'none', whiteSpace: 'nowrap', background: dragOverCol === ci ? '#dbeafe' : ci === dragCol ? '#fef3c7' : '#f1f5f9', position: 'relative', minWidth: ci === 0 ? 160 : 80 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                      <span style={{ color: '#94a3b8', fontSize: 10 }}>⠿</span>
+                      <span>{String.fromCharCode(65 + ci)}</span>
+                      <button onClick={() => deleteCol(ci)} title="حذف العمود" style={{ padding: '0 3px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 10, lineHeight: '14px', marginRight: 2 }}>✕</button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+              <tr style={{ background: '#e0f2fe', position: 'sticky', top: 28, zIndex: 9 }}>
+                <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', textAlign: 'center', background: '#f8fafc' }}>
+                  <button onClick={() => deleteRow(0)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
+                </td>
+                {(sheet.rows[0] ?? []).map((cell, ci) => (
+                  <td key={ci} onDoubleClick={() => startEdit(0, ci)}
+                    onMouseDown={() => { setSelStart({ r: 0, c: ci }); setSelEnd({ r: 0, c: ci }); setIsSelecting(true); setEditCell(null); }}
+                    onMouseEnter={() => { if (isSelecting) setSelEnd({ r: 0, c: ci }); }}
+                    style={{ padding: '4px 8px', border: `1px solid ${isInSel(0, ci) ? '#93c5fd' : '#bae6fd'}`, fontWeight: 700, color: '#0c4a6e', cursor: 'cell', whiteSpace: 'nowrap', background: isInSel(0, ci) ? '#bfdbfe' : '#e0f2fe', userSelect: 'none' }}>
+                    {editCell?.r === 0 && editCell.c === ci ? (
+                      <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
+                    ) : String(cell ?? '')}
+                  </td>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sheet.rows.slice(1).map((row, ri) => {
+                const actualRi = ri + 1;
+                return (
+                  <tr key={actualRi} style={{ background: actualRi % 2 === 0 ? '#f8fafc' : '#fff' }}>
+                    <td style={{ width: 28, minWidth: 28, textAlign: 'center', borderRight: '1px solid #e5e7eb', color: '#9ca3af', fontSize: 10 }}>
+                      <button onClick={() => deleteRow(actualRi)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
+                    </td>
+                    {Array.from({ length: colCount }, (_, ci) => (
+                      <td key={ci} onDoubleClick={() => startEdit(actualRi, ci)}
+                        onMouseDown={() => { setSelStart({ r: actualRi, c: ci }); setSelEnd({ r: actualRi, c: ci }); setIsSelecting(true); setEditCell(null); }}
+                        onMouseEnter={() => { if (isSelecting) setSelEnd({ r: actualRi, c: ci }); }}
+                        style={{ padding: '3px 8px', border: `1px solid ${isInSel(actualRi, ci) ? '#93c5fd' : '#e5e7eb'}`, cursor: 'cell', whiteSpace: 'nowrap', userSelect: 'none', background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : isInSel(actualRi, ci) ? '#dbeafe' : undefined }}>
+                        {editCell?.r === actualRi && editCell.c === ci ? (
+                          <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
+                        ) : String(row[ci] ?? '')}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#f0fdf4', fontWeight: 700 }}>
+                <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', background: '#dcfce7', textAlign: 'center', fontSize: 11, color: '#16a34a', padding: '4px 0' }}>Σ</td>
+                {colTotals.map((total, ci) => (
+                  <td key={ci} style={{ padding: '4px 8px', border: '1px solid #bbf7d0', textAlign: 'right', color: total !== 0 ? '#15803d' : '#d1d5db', whiteSpace: 'nowrap', fontSize: 12, direction: 'ltr' }}>
+                    {total !== 0 ? total!.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '−'}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {/* Footer */}
+        <div style={{ padding: '10px 20px', borderTop: '1px solid #e5e7eb', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#6b7280', gap: 8, flexWrap: 'wrap' }}>
+          <span>📋 {sheet.rows.length > 0 ? sheet.rows.length - 1 : 0} صف · {colCount} عمود</span>
+          {selNumericCount > 0 && (
+            <span style={{ color: '#1d4ed8', fontWeight: 600, background: '#dbeafe', padding: '3px 10px', borderRadius: 6 }}>
+              خلايا: {selCellCount} · أرقام: {selNumericCount} · المجموع: {selSum.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            </span>
+          )}
+          <button onClick={exportModified} style={{ padding: '7px 22px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, fontSize: 13 }}>📥 تصدير هذا الملف</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Bulk-picker sub-component ─── */
 function BulkItemPicker({ items, existing, onAdd, onClose }: {
   items: Item[];
@@ -316,28 +547,44 @@ export default function FMSPage() {
     } catch { setError('فشل في الحذف'); }
   };
 
+  const [showExcelPreview, setShowExcelPreview] = useState(false);
+  const [previewSheets, setPreviewSheets] = useState<FmsPreviewSheet[]>([]);
+  const [previewFileName, setPreviewFileName] = useState('');
+
   const exportExcel = () => {
-    const wb = XLSX.utils.book_new();
-    const summaryRows: any[][] = [['المندوب العلمي', 'الشهر', 'السنة', 'الملاحظات', 'عدد الأصناف', 'إجمالي الكميات']];
-    plans.forEach(p => {
-      summaryRows.push([p.scientificRep.name, MONTHS[p.month - 1], p.year, p.notes ?? '', p.items.length, p.items.reduce((s, it) => s + it.quantity, 0)]);
+    // ── Sheet 1: Pivot table — items × reps ──────────────────
+    const allItems = Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName))));
+    const headerRow = ['اسم المادة', ...plans.map(p => p.scientificRep.name), 'الإجمالي'];
+    const dataRows = allItems.map(itemName => {
+      const qtys = plans.map(p => {
+        const it = p.items.find(r => r.itemName === itemName);
+        return it ? String(it.quantity) : '';
+      });
+      const total = plans.reduce((s, p) => {
+        const it = p.items.find(r => r.itemName === itemName);
+        return s + (it?.quantity ?? 0);
+      }, 0);
+      return [itemName, ...qtys, total > 0 ? String(total) : ''];
     });
-    const summWs = XLSX.utils.aoa_to_sheet(summaryRows);
-    summWs['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 8 }, { wch: 30 }, { wch: 12 }, { wch: 16 }];
-    XLSX.utils.book_append_sheet(wb, summWs, 'ملخص');
+    const totalsRow = ['الإجمالي',
+      ...plans.map(p => String(p.items.reduce((s, it) => s + it.quantity, 0))),
+      String(plans.reduce((s, p) => s + p.items.reduce((ss, it) => ss + it.quantity, 0), 0))
+    ];
+    const pivotRows = [headerRow, ...dataRows, totalsRow];
+
+    // ── Sheet 2: Per-rep detail ───────────────────────────────
+    const detailRows: string[][] = [['المندوب', 'الشهر', 'السنة', 'الصنف', 'الكمية']];
     plans.forEach(p => {
-      const rows: any[][] = [
-        [`المندوب: ${p.scientificRep.name} — ${MONTHS[p.month - 1]} ${p.year}`], [],
-        ['#', 'الصنف', 'الكمية'],
-        ...p.items.map((it, i) => [i + 1, it.itemName, it.quantity]),
-        [], ['', 'الإجمالي', p.items.reduce((s, it) => s + it.quantity, 0)],
-      ];
-      if (p.notes) rows.push(['', 'ملاحظات:', p.notes]);
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{ wch: 5 }, { wch: 35 }, { wch: 12 }];
-      XLSX.utils.book_append_sheet(wb, ws, p.scientificRep.name.slice(0, 31));
+      p.items.forEach(it => detailRows.push([p.scientificRep.name, MONTHS[p.month - 1], String(p.year), it.itemName, String(it.quantity)]));
     });
-    XLSX.writeFile(wb, `FMS_${MONTHS[parseInt(filterMonth) - 1]}_${filterYear}.xlsx`);
+
+    const fname = `FMS_${MONTHS[parseInt(filterMonth) - 1]}_${filterYear}.xlsx`;
+    setPreviewSheets([
+      { name: `${MONTHS[parseInt(filterMonth) - 1]} ${filterYear}`, rows: pivotRows.map(r => r.map(String)) },
+      { name: 'تفصيل', rows: detailRows },
+    ]);
+    setPreviewFileName(fname);
+    setShowExcelPreview(true);
   };
 
   const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - 2 + i));
@@ -694,6 +941,15 @@ export default function FMSPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Excel Preview Modal ── */}
+      {showExcelPreview && (
+        <FMSExcelPreviewModal
+          sheets={previewSheets}
+          fileName={previewFileName}
+          onClose={() => setShowExcelPreview(false)}
+        />
       )}
     </div>
   );
