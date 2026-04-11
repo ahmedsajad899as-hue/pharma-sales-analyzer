@@ -55,6 +55,20 @@ export function normalizeStr(s) {
 }
 
 /**
+ * Normalise common spelling variants found in Arabic-market drug names.
+ * (e.g. "jel" → "gel" — transliteration differences from Arabic packaging)
+ */
+function normalizeSpelling(s) {
+  return s
+    .replace(/\bjel\b/g, 'gel')     // jel ↔ gel
+    .replace(/\bjelatin\b/g, 'gelatin')
+    .replace(/\binj\.?\b/g, 'inj')
+    .replace(/\bsupp\.?\b/g, 'supp')
+    .replace(/\bsoln?\.?\b/g, 'solution')
+    .replace(/\bconc\.?\b/g, 'conc');
+}
+
+/**
  * Returns true when the two names have conflicting CORE numbers (i.e. different doses).
  *
  * Logic:
@@ -71,8 +85,11 @@ export function normalizeStr(s) {
  *   []           vs ["25","30"]       → one empty  → false (don't block)
  */
 function hasDifferentCoreNumbers(a, b) {
-  const numsA = (a.match(/\d+/g) || []);
-  const numsB = (b.match(/\d+/g) || []);
+  // Strip percentage-concentration patterns ("1%", "%1", "0.1%") before extracting
+  // dose numbers — concentrations like "1%/0.1%" are NOT dose-distinguishing quantities.
+  const stripConc = s => s.replace(/\d+(?:\.\d+)?%|%\d+(?:\.\d+)?/g, '');
+  const numsA = (stripConc(a).match(/\d+/g) || []);
+  const numsB = (stripConc(b).match(/\d+/g) || []);
   if (numsA.length === 0 || numsB.length === 0) return false;
   const shorter = numsA.length <= numsB.length ? numsA : numsB;
   const longer  = numsA.length <= numsB.length ? numsB : numsA;
@@ -95,14 +112,24 @@ function hasDifferentCoreNumbers(a, b) {
  */
 function wordOverlapRatio(a, b) {
   const DOSE_RE = /^\d+(\w{0,4})?$/; // "500", "25mg", "30tab", "60cap", "50mcg" …
+  // Also filter percentage-concentration tokens like "1%", "%1", "0.1%"
+  const CONC_RE = /^%?\d+(?:\.\d+)?%?$/;
   const sig = s =>
     s.split(/[\s\/\-]+/)
-     .filter(w => w.length > 2 && !DOSE_RE.test(w));
+     .filter(w => w.length > 2 && !DOSE_RE.test(w) && !CONC_RE.test(w));
   const wa = sig(a), wb = sig(b);
   if (wa.length === 0 || wb.length === 0) return 0;
   const shorter = wa.length <= wb.length ? wa : wb;
   const longer  = wa.length <= wb.length ? wb : wa;
-  const matched = shorter.filter(w => longer.some(lw => lw.includes(w) || w.includes(lw)));
+  // Use fuzzy word-level similarity (≥0.8) in addition to substring matching
+  // This catches spelling variants like "gel" ↔ "jel"
+  const wordSim = (w1, w2) => {
+    if (w1.includes(w2) || w2.includes(w1)) return true;
+    const maxL = Math.max(w1.length, w2.length);
+    if (maxL === 0) return true;
+    return (1 - levenshtein(w1, w2) / maxL) >= 0.75;
+  };
+  const matched = shorter.filter(w => longer.some(lw => wordSim(w, lw)));
   return matched.length / shorter.length;
 }
 
@@ -117,8 +144,8 @@ function wordOverlapRatio(a, b) {
  * @returns {boolean}
  */
 export function areSimilar(nameA, nameB, { lev = 0.85, prefixRatio = 0.55, wordOverlap = 0.8 } = {}) {
-  const a = normalizeStr(nameA);
-  const b = normalizeStr(nameB);
+  const a = normalizeSpelling(normalizeStr(nameA));
+  const b = normalizeSpelling(normalizeStr(nameB));
 
   if (a === b) return false; // identical → already same DB record, nothing to flag
 
