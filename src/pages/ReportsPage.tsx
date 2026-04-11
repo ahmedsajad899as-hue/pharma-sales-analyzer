@@ -752,9 +752,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
       const json = await res.json();
       const sales: any[] = json.data ?? [];
-      const totalQty = sales.reduce((s, r) => s + (r.quantity  || 0), 0);
-      const totalVal = sales.reduce((s, r) => s + (r.totalValue|| 0), 0);
-      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(totalQty)), String(Math.round(totalVal))]);
+      const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
+      const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
+      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(netVal))]);
       const rows = buildSheet(sales);
       result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
     }
@@ -766,16 +766,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const d = rJson.data ?? rJson;
       const sciName       = d.scientificRep?.name ?? rep?.name ?? `${t.reports.exportSciType} ${repId}`;
       const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
-      let sales: any[] = [];
+      let sales2: any[] = [];
       if (assignedIds.length > 0) {
         const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${repId}&${qStr}`, { headers: authH() });
         const sJson = await sRes.json();
-        sales = sJson.data ?? [];
+        sales2 = sJson.data ?? [];
       }
-      const totalQty = sales.reduce((s, r) => s + (r.quantity  || 0), 0);
-      const totalVal = sales.reduce((s, r) => s + (r.totalValue|| 0), 0);
-      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(totalQty)), String(Math.round(totalVal))]);
-      const rows = buildSheet(sales, sciName);
+      const netQty2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
+      const netVal2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
+      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(netVal2))]);
+      const rows = buildSheet(sales2, sciName);
       result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
     }
 
@@ -824,9 +824,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
         const json = await res.json();
         const sales: any[] = json.data ?? [];
-        const totalQty = sales.reduce((s, r) => s + (r.quantity  || 0), 0);
-        const totalVal = sales.reduce((s, r) => s + (r.totalValue|| 0), 0);
-        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(totalQty), Math.round(totalVal)]);
+        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
+        const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
+        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportCommPrefix}-${repName}`, buildSheet(sales));  // no sciRepName for commercial
       }
 
@@ -845,9 +845,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           const sJson = await sRes.json();
           sales = sJson.data ?? [];
         }
-        const totalQty = sales.reduce((s, r) => s + (r.quantity  || 0), 0);
-        const totalVal = sales.reduce((s, r) => s + (r.totalValue|| 0), 0);
-        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(totalQty), Math.round(totalVal)]);
+        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
+        const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
+        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
       }
 
