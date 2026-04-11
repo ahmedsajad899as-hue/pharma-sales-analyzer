@@ -615,10 +615,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       <td><strong>{f.originalName}</strong></td>
                       <td>{f.rowCount.toLocaleString('ar-IQ')}</td>
                       <td>{fmtDate(f.uploadedAt)}</td>
-                      <td style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <td style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         <button
                           className="btn btn--primary"
-                          style={{ padding: '4px 12px', fontSize: '0.8rem' }}
+                          title={t.upload.btnAnalyze}
+                          style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32 }}
                           onClick={() => handleAnalyze(f)}
                           disabled={analyzing && analyzeFile?.id === f.id}
                         >
@@ -628,21 +629,22 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           <button
                             title={t.upload.currencyModalTitle}
                             style={{
-                              padding: '4px 10px', fontSize: '0.8rem',
+                              padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32,
                               background: f.currencyMode === 'USD' ? '#fef9c3' : '#f3f4f6',
                               color: f.currencyMode === 'USD' ? '#92400e' : '#374151',
                               border: `1px solid ${f.currencyMode === 'USD' ? '#fcd34d' : '#d1d5db'}`,
-                              borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: f.currencyMode === 'USD' ? 700 : undefined,
+                              borderRadius: 6, cursor: 'pointer', fontWeight: f.currencyMode === 'USD' ? 700 : undefined,
                             }}
                             onClick={() => openCurrencyModal(f)}
                           >
-                            {t.upload.btnCurrency}{f.currencyMode === 'USD' && <span style={{ marginRight: 4 }}>$</span>}
+                            {t.upload.btnCurrency}{f.currencyMode === 'USD' && <span style={{ marginRight: 2, fontSize: 11 }}>$</span>}
                           </button>
                         )}
                         <button
                           className="btn btn--secondary"
+                          title={isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
                           style={{
-                            padding: '4px 14px', fontSize: '0.8rem',
+                            padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32,
                             background: isActive ? '#dcfce7' : undefined,
                             color: isActive ? '#15803d' : undefined,
                             border: isActive ? '1px solid #86efac' : undefined,
@@ -657,14 +659,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                             <span style={{ fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>{t.upload.confirmDelete}</span>
                             <button
                               className="btn btn--danger"
-                              style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                              title={t.upload.confirmDeleteBtn}
+                              style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
                               onClick={() => deleteFile(f.id)}
                               disabled={deleting === f.id}
                             >
                               {deleting === f.id ? '⏳' : t.upload.confirmDeleteBtn}
                             </button>
                             <button
-                              style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}
+                              title={t.upload.cancel}
+                              style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32, background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}
                               onClick={() => setConfirmId(null)}
                             >
                               {t.upload.cancel}
@@ -672,7 +676,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           </>
                         ) : (
                           <button
-                            style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 6, cursor: 'pointer' }}
+                            title={t.upload.deleteBtn}
+                            style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 6, cursor: 'pointer' }}
                             onClick={() => setConfirmId(f.id)}
                             disabled={deleting === f.id}
                           >
