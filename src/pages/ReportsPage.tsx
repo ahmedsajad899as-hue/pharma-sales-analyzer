@@ -329,12 +329,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <tr>
               <th>#</th><th>{nameLabel}</th>
               {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-              {!hideQtyCols && <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>📦 {qtyRevealed ? '▼' : '▶'}</th>}
-              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 {!hideQtyCols && (qtyRevealed ? '▼' : '▶')}</th>
-              {!hideQtyCols && <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>↩️ {qtyRevealed ? '▼' : '▶'}</th>}
-              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 {!hideQtyCols && (qtyRevealed ? '▼' : '▶')}</th>
+              {!hideQtyCols && <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>� {qtyRevealed ? '▼' : '▶'}</th>}
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span>{!hideQtyCols && (qtyRevealed ? ' ▼' : ' ▶')}</th>
+              {!hideQtyCols && <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>📉 {qtyRevealed ? '▼' : '▶'}</th>}
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span>{!hideQtyCols && (qtyRevealed ? ' ▼' : ' ▶')}</th>
               {!hideQtyCols && <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅</th>}
-              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>🏆</th>
+              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>⚖️ <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span></th>
             </tr>
           </thead>
           <tbody>
@@ -388,9 +388,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const renderViewToggle = (hasSales: boolean, hasReturns: boolean) => (
     <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {[
-        { key: 'sales'   as ReportView, icon: '📦', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
-        { key: 'returns' as ReportView, icon: '↩️',  label: t.reports.colRetQty,  bg: '#ef4444', glow: '#ef444444', border: '#b91c1c' },
-        { key: 'net'     as ReportView, icon: '🏆', label: t.reports.viewNet,     bg: '#10b981', glow: '#10b98144', border: '#065f46' },
+        { key: 'sales'   as ReportView, icon: '�', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
+        { key: 'returns' as ReportView, icon: '📉', label: t.reports.colRetQty,  bg: '#ef4444', glow: '#ef444444', border: '#b91c1c' },
+        { key: 'net'     as ReportView, icon: '⚖️', label: t.reports.viewNet,     bg: '#10b981', glow: '#10b98144', border: '#065f46' },
       ].map(({ key, icon, label, bg, glow, border }) => {
         const isActive = reportView === key;
         const isDisabled = key === 'returns' && !hasReturns;
