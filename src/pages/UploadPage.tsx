@@ -589,13 +589,27 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         </span>
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <span style={{
-                          display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                          background: f.detectedCurrency === 'USD' ? '#fef3c7' : '#dbeafe',
-                          color: f.detectedCurrency === 'USD' ? '#92400e' : '#1d4ed8',
-                          border: `1px solid ${f.detectedCurrency === 'USD' ? '#fcd34d' : '#93c5fd'}`,
-                        }}>
-                          {f.detectedCurrency === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {/* العملة الأصلية للفايل */}
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            background: f.detectedCurrency === 'USD' ? '#fef3c7' : '#dbeafe',
+                            color: f.detectedCurrency === 'USD' ? '#92400e' : '#1d4ed8',
+                            border: `1px solid ${f.detectedCurrency === 'USD' ? '#fcd34d' : '#93c5fd'}`,
+                          }}>
+                            {f.detectedCurrency === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
+                          </span>
+                          {/* سهم التحويل */}
+                          <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 700, lineHeight: 1 }}>←</span>
+                          {/* العملة المحددة للعرض */}
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            background: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fef9c3' : '#dcfce7',
+                            color: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#92400e' : '#15803d',
+                            border: `1px solid ${(f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fcd34d' : '#86efac'}`,
+                          }}>
+                            {(f.currencyMode ?? f.detectedCurrency) === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
+                          </span>
                         </span>
                       </td>
                       <td><strong>{f.originalName}</strong></td>
