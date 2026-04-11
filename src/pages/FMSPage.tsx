@@ -293,20 +293,20 @@ export default function FMSPage() {
   const onMouseUp = useCallback(() => {
     if (!isDragging.current || !dragOrigin.current) return;
     isDragging.current = false;
+    const origin = dragOrigin.current;
+    const qty = dragOriginQty.current;
+    dragOrigin.current = null;
     setSelection(prev => {
       if (prev.size <= 1) return prev;
-      // Apply origin qty to all selected cells (except origin itself which already has it)
-      const qty = dragOriginQty.current;
       prev.forEach(key => {
         const [pId, ...nameParts] = key.split('|');
         const iName = nameParts.join('|');
-        if (pId !== String(dragOrigin.current!.planId) || iName !== dragOrigin.current!.itemName) {
+        if (pId !== String(origin.planId) || iName !== origin.itemName) {
           patchCell(parseInt(pId), iName, qty);
         }
       });
       return prev;
     });
-    dragOrigin.current = null;
   }, [patchCell]);
 
   const deletePlan = async (id: number) => {
