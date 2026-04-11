@@ -597,14 +597,60 @@ export default function FMSPage() {
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
     isSelecting.current = true;
     selAnchor.current = { ri, ci };
+    setFocusedCell({ ri, ci });
     setSelection(rectSelection(ri, ci, ri, ci, plans, allItemNames));
     setEditingCell(null);
+    setTimeout(() => mainGridRef.current?.focus(), 0);
   };
   const onCellMouseEnter = (ri: number, ci: number) => {
     if (!isSelecting.current || !selAnchor.current) return;
     setSelection(rectSelection(selAnchor.current.ri, selAnchor.current.ci, ri, ci, plans, allItemNames));
   };
   const onMouseUp = () => { isSelecting.current = false; };
+
+  const mainGridRef = useRef<HTMLDivElement>(null);
+  const [focusedCell, setFocusedCell] = useState<{ ri: number; ci: number } | null>(null);
+
+  const commitEditAndMove = (dr: number, dc: number) => {
+    const cell = editingCellRef.current;
+    if (!cell) return;
+    patchCell(cell.planId, cell.itemName, parseInt(editingValRef.current) || 0);
+    setEditingCell(null);
+    const curRi = allItemNames.indexOf(cell.itemName);
+    const curCi = plans.findIndex(p => p.id === cell.planId);
+    const nr = Math.max(0, Math.min(allItemNames.length - 1, curRi + dr));
+    const nc = Math.max(0, Math.min(plans.length - 1, curCi + dc));
+    setFocusedCell({ ri: nr, ci: nc });
+    setTimeout(() => mainGridRef.current?.focus(), 0);
+  };
+
+  const handleMainGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (editingCell) return;
+    if (!focusedCell) return;
+    const { ri, ci } = focusedCell;
+    switch (e.key) {
+      case 'ArrowUp':    e.preventDefault(); setFocusedCell({ ri: Math.max(0, ri - 1), ci }); break;
+      case 'ArrowDown':  e.preventDefault(); setFocusedCell({ ri: Math.min(allItemNames.length - 1, ri + 1), ci }); break;
+      case 'ArrowLeft':  e.preventDefault(); setFocusedCell({ ri, ci: Math.min(plans.length - 1, ci + 1) }); break;
+      case 'ArrowRight': e.preventDefault(); setFocusedCell({ ri, ci: Math.max(0, ci - 1) }); break;
+      case 'Tab':        e.preventDefault(); setFocusedCell({ ri, ci: Math.max(0, Math.min(plans.length - 1, ci + (e.shiftKey ? 1 : -1))) }); break;
+      case 'Enter':
+      case 'F2': {
+        e.preventDefault();
+        const plan = plans[ci]; const itemName = allItemNames[ri];
+        if (plan && itemName) { const qty = plan.items.find(it => it.itemName === itemName)?.quantity ?? 0; setEditingCell({ planId: plan.id, itemName }); setEditingVal(qty > 0 ? String(qty) : ''); setSelection(new Set([cellKey(plan.id, itemName)])); }
+        break;
+      }
+      case 'Delete':
+      case 'Backspace': { e.preventDefault(); const plan = plans[ci]; if (plan) patchCell(plan.id, allItemNames[ri], 0); break; }
+      default:
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          const plan = plans[ci]; const itemName = allItemNames[ri];
+          if (plan && itemName) { setEditingCell({ planId: plan.id, itemName }); setEditingVal(e.key); setSelection(new Set([cellKey(plan.id, itemName)])); }
+        }
+    }
+  };
 
   const deletePlan = async (id: number) => {
     if (!confirm('هل تريد حذف هذه الخطة؟')) return;
@@ -750,10 +796,13 @@ export default function FMSPage() {
         </div>
       ) : (
           <div
+            ref={mainGridRef}
+            tabIndex={0}
             data-no-sidebar-swipe
-            style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', userSelect: 'none' }}
+            style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', userSelect: 'none', outline: 'none' }}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
+            onKeyDown={handleMainGridKeyDown}
           >
             {/* Fill toolbar */}
             {selection.size > 0 && (
@@ -773,16 +822,16 @@ export default function FMSPage() {
             )}
             <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: '100%' }}>
               <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #d1d5db' }}>
-                  <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151', borderLeft: '1px solid #e5e7eb', minWidth: 200, position: 'sticky', right: 0, background: '#f1f5f9', zIndex: 2 }}>
+                <tr style={{ background: '#dbeafe', borderBottom: '2px solid #93c5fd' }}>
+                  <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#1e40af', borderLeft: '1px solid #bfdbfe', minWidth: 200, position: 'sticky', right: 0, background: '#dbeafe', zIndex: 2 }}>
                     اسم المادة
                   </th>
                   {plans.map(plan => (
-                    <th key={plan.id} style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600, color: '#1e293b', borderLeft: '1px solid #e5e7eb', minWidth: 110 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', marginBottom: 5, whiteSpace: 'nowrap' }}>{plan.scientificRep.name}</div>
+                    <th key={plan.id} style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#1e40af', borderLeft: '1px solid #bfdbfe', minWidth: 110 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', marginBottom: 4, whiteSpace: 'nowrap' }}>{plan.scientificRep.name}</div>
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                        <button onClick={() => openEdit(plan)} title="تعديل" style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4f46e5', cursor: 'pointer', fontSize: 11 }}>✏️</button>
-                        <button onClick={() => deletePlan(plan.id)} title="حذف" style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11 }}>🗑️</button>
+                        <button onClick={() => openEdit(plan)} title="تعديل" style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #c7d2fe', background: 'rgba(255,255,255,0.7)', color: '#4f46e5', cursor: 'pointer', fontSize: 11 }}>✏️</button>
+                        <button onClick={() => deletePlan(plan.id)} title="حذف" style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: 'rgba(255,255,255,0.7)', color: '#dc2626', cursor: 'pointer', fontSize: 11 }}>🗑️</button>
                       </div>
                     </th>
                   ))}
@@ -797,36 +846,38 @@ export default function FMSPage() {
                       const qty = it?.quantity ?? 0;
                       const key = cellKey(plan.id, itemName);
                       const isSelected = selection.has(key);
+                      const isFocused = focusedCell?.ri === ri && focusedCell?.ci === ci;
                       const isEditing = editingCell?.planId === plan.id && editingCell?.itemName === itemName;
                       return (
                         <td
                           key={plan.id}
                           style={{
-                            padding: '4px 6px', textAlign: 'center', borderLeft: '1px solid #f1f5f9',
+                            padding: '4px 10px', textAlign: 'right', borderLeft: '1px solid #f1f5f9',
                             background: isSelected ? '#eef2ff' : undefined,
-                            outline: isSelected ? '2px solid #818cf8' : undefined,
-                            outlineOffset: -2, cursor: 'cell',
+                            outline: isFocused && !isEditing ? '2px solid #22c55e' : isSelected ? '2px solid #818cf8' : 'none',
+                            outlineOffset: '-2px', cursor: 'cell',
                           }}
                           onMouseDown={e => onCellMouseDown(ri, ci, e)}
                           onMouseEnter={() => onCellMouseEnter(ri, ci)}
-                          onDoubleClick={() => {
-                            setEditingCell({ planId: plan.id, itemName });
-                            setEditingVal(qty > 0 ? String(qty) : '');
-                            setSelection(new Set([key]));
-                          }}
                         >
                           {isEditing ? (
                             <input
                               autoFocus type="number" min="0" value={editingVal}
                               onChange={e => setEditingVal(e.target.value)}
                               onBlur={commitEdit}
-                              onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
-                              style={{ width: 70, padding: '3px 6px', borderRadius: 5, border: '2px solid #6366f1', textAlign: 'center', fontSize: 13, outline: 'none' }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); commitEditAndMove(1, 0); }
+                                else if (e.key === 'Tab') { e.preventDefault(); commitEditAndMove(0, e.shiftKey ? 1 : -1); }
+                                else if (e.key === 'ArrowDown') { e.preventDefault(); commitEditAndMove(1, 0); }
+                                else if (e.key === 'ArrowUp') { e.preventDefault(); commitEditAndMove(-1, 0); }
+                                else if (e.key === 'Escape') { setEditingCell(null); mainGridRef.current?.focus(); }
+                              }}
+                              style={{ width: 70, padding: '3px 6px', borderRadius: 5, border: '2px solid #6366f1', textAlign: 'right', fontSize: 13, outline: 'none' }}
                             />
                           ) : qty > 0 ? (
-                            <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 6, padding: '2px 12px', fontWeight: 700, fontSize: 12, display: 'inline-block', minWidth: 36 }}>{qty}</span>
+                            <span style={{ color: '#1e293b', fontSize: 13 }}>{qty}</span>
                           ) : (
-                            <span style={{ color: '#d1d5db', fontSize: 12 }}>—</span>
+                            <span style={{ color: '#d1d5db', fontSize: 13 }}>—</span>
                           )}
                         </td>
                       );
@@ -836,12 +887,10 @@ export default function FMSPage() {
               </tbody>
               <tfoot>
                 <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
-                  <td style={{ padding: '8px 14px', color: '#15803d', position: 'sticky', right: 0, background: '#f0fdf4', zIndex: 1 }}>الإجمالي</td>
+                  <td style={{ padding: '8px 14px', color: '#15803d', fontWeight: 700, position: 'sticky', right: 0, background: '#f0fdf4', zIndex: 1 }}>الإجمالي</td>
                   {plans.map(plan => (
-                    <td key={plan.id} style={{ padding: '8px 10px', textAlign: 'center' }}>
-                      <span style={{ background: '#bbf7d0', color: '#15803d', borderRadius: 6, padding: '2px 12px', fontWeight: 700, fontSize: 12 }}>
-                        {plan.items.reduce((s, it) => s + it.quantity, 0)}
-                      </span>
+                    <td key={plan.id} style={{ padding: '8px 10px', textAlign: 'right', color: '#15803d', fontWeight: 700, fontSize: 13 }}>
+                      {plan.items.reduce((s, it) => s + it.quantity, 0)}
                     </td>
                   ))}
                 </tr>
