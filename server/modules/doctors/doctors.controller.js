@@ -34,23 +34,22 @@ export async function visitsByArea(req, res, next) {
       const linkedRepId = userRow?.linkedRepId;
 
       // ── 1. أسماء المناطق المعيّنة ─────────────────────────────
-      // Priority: UserAreaAssignment (SA) → if empty, fall back to ScientificRepArea
-      const userAreaRows = await prisma.userAreaAssignment.findMany({
-        where: { userId },
-        include: { area: { select: { id: true, name: true } } },
-      });
-
-      let sourceRows = userAreaRows;
-      if (userAreaRows.length === 0 && linkedRepId) {
-        // No SA assignment → fall back to ScientificRepArea
-        sourceRows = await prisma.scientificRepArea.findMany({
-          where: { scientificRepId: linkedRepId },
+      // Union of both sources: UserAreaAssignment (SA) + ScientificRepArea (manager)
+      const [userAreaRows, repAreaRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({
+          where: { userId },
           include: { area: { select: { id: true, name: true } } },
-        });
-      }
+        }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({
+              where: { scientificRepId: linkedRepId },
+              include: { area: { select: { id: true, name: true } } },
+            })
+          : Promise.resolve([]),
+      ]);
 
       const assignedAreaMap = new Map();
-      for (const row of sourceRows) {
+      for (const row of [...userAreaRows, ...repAreaRows]) {
         if (row.area) assignedAreaMap.set(row.area.id, row.area);
       }
       const assignedAreas   = [...assignedAreaMap.values()];
@@ -58,7 +57,7 @@ export async function visitsByArea(req, res, next) {
       fieldRepAssignedNormSet = assignedNormSet;
       fieldRepAssignedAreas   = assignedAreas;
 
-      console.log('[visitsByArea] userId:', userId, 'source:', userAreaRows.length > 0 ? 'UserAreaAssignment' : 'ScientificRepArea', 'assignedAreas:', assignedAreas.map(a => a.name));
+      console.log('[visitsByArea] userId:', userId, 'userAreaRows:', userAreaRows.length, 'repAreaRows:', repAreaRows.length, 'total assignedAreas:', assignedAreas.length, assignedAreas.map(a => a.name));
 
       if (assignedNormSet.size === 0) {
         return res.json({ areas: [] });
