@@ -298,7 +298,7 @@ export default function FMSPage() {
         </label>
       </div>
 
-      {/* Plans list */}
+      {/* Plans matrix */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>جاري التحميل...</div>
       ) : plans.length === 0 ? (
@@ -307,56 +307,68 @@ export default function FMSPage() {
           <div style={{ fontSize: 15, fontWeight: 600 }}>لا توجد خطط لهذا الشهر</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>اضغط "+ خطة جديدة" لإضافة خطة</div>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {plans.map(plan => (
-            <div key={plan.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#6366f1,#4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16 }}>🔬</div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{plan.scientificRep.name}</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>{MONTHS[plan.month - 1]} {plan.year} — {plan.items.length} صنف / {plan.items.reduce((s, it) => s + it.quantity, 0)} وحدة</div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => openEdit(plan)} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4f46e5', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✏️ تعديل</button>
-                  <button onClick={() => deletePlan(plan.id)} style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>🗑️ حذف</button>
-                </div>
-              </div>
-              <div style={{ padding: '10px 16px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#f1f5f9' }}>
-                      <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>#</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>الصنف</th>
-                      <th style={{ padding: '6px 10px', textAlign: 'center', fontWeight: 600, color: '#374151' }}>الكمية</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plan.items.map((it, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '6px 10px', color: '#9ca3af', fontSize: 11 }}>{i + 1}</td>
-                        <td style={{ padding: '6px 10px', fontWeight: 500 }}>{it.itemName}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-                          <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 6, padding: '2px 10px', fontWeight: 700, fontSize: 12 }}>{it.quantity}</span>
+      ) : (() => {
+        const allItemNames = Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName))));
+        return (
+          <div style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: '100%' }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #d1d5db' }}>
+                  <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#374151', borderLeft: '1px solid #e5e7eb', minWidth: 200, position: 'sticky', right: 0, background: '#f1f5f9', zIndex: 2 }}>
+                    اسم المادة
+                  </th>
+                  {plans.map(plan => (
+                    <th key={plan.id} style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600, color: '#1e293b', borderLeft: '1px solid #e5e7eb', minWidth: 110 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', marginBottom: 5, whiteSpace: 'nowrap' }}>{plan.scientificRep.name}</div>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                        <button onClick={() => openEdit(plan)} title="تعديل" style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4f46e5', cursor: 'pointer', fontSize: 11 }}>✏️</button>
+                        <button onClick={() => deletePlan(plan.id)} title="حذف" style={{ padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11 }}>🗑️</button>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allItemNames.map((itemName, i) => (
+                  <tr key={itemName} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                    <td style={{ padding: '7px 14px', fontWeight: 500, color: '#1e293b', borderLeft: '1px solid #f1f5f9', position: 'sticky', right: 0, background: i % 2 === 0 ? '#fff' : '#fafafa', zIndex: 1 }}>{itemName}</td>
+                    {plans.map(plan => {
+                      const it = plan.items.find(r => r.itemName === itemName);
+                      return (
+                        <td key={plan.id} style={{ padding: '7px 10px', textAlign: 'center', borderLeft: '1px solid #f1f5f9' }}>
+                          {it
+                            ? <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 6, padding: '2px 12px', fontWeight: 700, fontSize: 12 }}>{it.quantity}</span>
+                            : <span style={{ color: '#d1d5db', fontSize: 12 }}>—</span>}
                         </td>
-                      </tr>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
+                  <td style={{ padding: '8px 14px', color: '#15803d', position: 'sticky', right: 0, background: '#f0fdf4', zIndex: 1 }}>الإجمالي</td>
+                  {plans.map(plan => (
+                    <td key={plan.id} style={{ padding: '8px 10px', textAlign: 'center' }}>
+                      <span style={{ background: '#bbf7d0', color: '#15803d', borderRadius: 6, padding: '2px 12px', fontWeight: 700, fontSize: 12 }}>
+                        {plan.items.reduce((s, it) => s + it.quantity, 0)}
+                      </span>
+                    </td>
+                  ))}
+                </tr>
+                {plans.some(p => p.notes) && (
+                  <tr style={{ background: '#fffbeb', borderTop: '1px solid #fde68a' }}>
+                    <td style={{ padding: '6px 14px', fontSize: 11, color: '#92400e', position: 'sticky', right: 0, background: '#fffbeb', zIndex: 1 }}>📝 ملاحظات</td>
+                    {plans.map(plan => (
+                      <td key={plan.id} style={{ padding: '6px 10px', fontSize: 11, color: '#92400e', textAlign: 'center' }}>{plan.notes ?? ''}</td>
                     ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: '#f0fdf4', fontWeight: 700 }}>
-                      <td colSpan={2} style={{ padding: '6px 10px', color: '#15803d' }}>الإجمالي</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'center', color: '#15803d' }}>{plan.items.reduce((s, it) => s + it.quantity, 0)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-                {plan.notes && <div style={{ marginTop: 8, fontSize: 12, color: '#64748b', background: '#fffbeb', padding: '6px 10px', borderRadius: 6 }}>📝 {plan.notes}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                  </tr>
+                )}
+              </tfoot>
+            </table>
+          </div>
+        );
+      })()}
 
       {/* Bulk picker */}
       {showPicker && (
