@@ -2902,7 +2902,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 {/* Autocomplete dropdown */}
                 {clShowSugg && clSuggestions.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '4px', overflow: 'hidden' }}>
-                    {clSuggestions.map((entry: any) => (
+                    {[...clSuggestions].sort((a: any, b: any) => (a._inPlan === b._inPlan ? 0 : a._inPlan ? -1 : 1)).map((entry: any) => (
                       <div
                         key={entry.id}
                         onMouseDown={() => selectClEntry(entry)}
