@@ -63,7 +63,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const { token } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
-  const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'commercial');
+  const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'scientific');
 
   // Commercial
   const [commReps, setCommReps]   = useState<Rep[]>([]);
@@ -719,11 +719,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       {/* Mode toggle */}
       <div className="tabs" style={{ marginBottom: 0 }}>
-        <button className={`tab ${mode === 'commercial' ? 'tab--active' : ''}`} onClick={() => { setMode('commercial'); setError(''); setCommReport(null); }}>
-          💰 {t.reports.modeCommercial}
-        </button>
         <button className={`tab ${mode === 'scientific' ? 'tab--active' : ''}`} onClick={() => { setMode('scientific'); setError(''); setSciReport(null); }}>
           🔬 {t.reports.modeScientific}
+        </button>
+        <button className={`tab ${mode === 'commercial' ? 'tab--active' : ''}`} onClick={() => { setMode('commercial'); setError(''); setCommReport(null); }}>
+          💰 {t.reports.modeCommercial}
         </button>
       </div>
 
