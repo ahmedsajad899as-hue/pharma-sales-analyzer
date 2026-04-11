@@ -33,52 +33,21 @@ export async function visitsByArea(req, res, next) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
 
-      // ── 1. أسماء المناطق المعيّنة ─────────────────────────────
-      // Union of both sources: UserAreaAssignment (SA) + ScientificRepArea (manager)
-      const [userAreaRows, repAreaRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({
-          where: { userId },
-          include: { area: { select: { id: true, name: true } } },
-        }),
+      // ── 1. Get rep's assigned area IDs ────────────────────────
+      // Union of both sources using raw areaId column (same as list endpoint)
+      const [uaRows, saRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
         linkedRepId
-          ? prisma.scientificRepArea.findMany({
-              where: { scientificRepId: linkedRepId },
-              include: { area: { select: { id: true, name: true } } },
-            })
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
           : Promise.resolve([]),
       ]);
+      const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
 
-      const assignedAreaMap = new Map();
-      for (const row of [...userAreaRows, ...repAreaRows]) {
-        if (row.area) assignedAreaMap.set(row.area.id, row.area);
-      }
-      const assignedAreas   = [...assignedAreaMap.values()];
-      const assignedNormSet = new Set(assignedAreas.map(a => normArea(a.name)));
-      fieldRepAssignedNormSet = assignedNormSet;
-      fieldRepAssignedAreas   = assignedAreas;
+      console.log('[visitsByArea] userId:', userId, 'repAreaIds:', repAreaIds);
 
-      console.log('[visitsByArea] userId:', userId, 'userAreaRows:', userAreaRows.length, 'repAreaRows:', repAreaRows.length, 'total assignedAreas:', assignedAreas.length, assignedAreas.map(a => a.name));
+      if (repAreaIds.length === 0) return res.json({ areas: [] });
 
-      if (assignedNormSet.size === 0) {
-        return res.json({ areas: [] });
-      }
-
-      // ── 2. manager userId ─────────────────────────────────────
-      let managerId = null;
-      if (linkedRepId) {
-        const repRow = await prisma.scientificRepresentative.findUnique({
-          where: { id: linkedRepId }, select: { userId: true },
-        });
-        managerId = repRow?.userId ?? null;
-      }
-      if (!managerId) {
-        const mgr = await prisma.userManagerAssignment.findFirst({
-          where: { userId }, select: { managerId: true },
-        });
-        managerId = mgr?.managerId ?? null;
-      }
-
-      // ── 3. زيارات المندوب للشهر ───────────────────────────────
+      // ── 2. Get rep's visits for the period ───────────────────
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
           scientificRepId: linkedRepId ?? -1,
@@ -97,41 +66,20 @@ export async function visitsByArea(req, res, next) {
         visitsByDoc.get(v.doctorId).push(v);
       }
 
-      // ── 4. أطباء Doctor table في المناطق المعيّنة ────────────
-      // Query by areaId directly (same as list endpoint) so ALL doctors in
-      // the assigned areas are included regardless of which manager owns them
-      const dbDoctorsByNorm = new Map(); // normName(doctorName) → doctor
-      const allAreaIds = assignedAreas.map(a => a.id).filter(id => id != null);
-      if (allAreaIds.length > 0) {
-        const areaDocs = await prisma.doctor.findMany({
-          where: { areaId: { in: allAreaIds } },
-          include: {
-            area:       { select: { id: true, name: true } },
-            targetItem: { select: { id: true, name: true } },
-          },
-        });
-        for (const d of areaDocs) {
-          dbDoctorsByNorm.set(normArea(d.name), d);
-        }
-      }
+      // ── 3. Fetch doctors - IDENTICAL query to list endpoint ──
+      // Uses areaId: { in: repAreaIds } - exact same as list no-q branch
+      // No deduplication by name - each doctor row is a separate record
+      const rawDocs = await prisma.doctor.findMany({
+        where: { areaId: { in: repAreaIds } },
+        include: {
+          area:       { select: { id: true, name: true } },
+          targetItem: { select: { id: true, name: true } },
+        },
+        orderBy: { name: 'asc' },
+      });
 
-      // ── 5. بناء قائمة الأطباء النهائية من Doctor table فقط ───
-      // (لا نضيف أطباء السيرفي حتى يتطابق العدد مع قائمة الأطباء)
-      const mergedMap = new Map(); // key = normArea(name)
-
-      for (const [key, d] of dbDoctorsByNorm) {
-        const normKey = normArea(d.area.name);
-        const canonicalArea = assignedAreas.find(a => normArea(a.name) === normKey) ?? d.area;
-        mergedMap.set(key, {
-          id: d.id, name: d.name, specialty: d.specialty ?? null,
-          pharmacyName: d.pharmacyName ?? null,
-          area: canonicalArea, targetItem: d.targetItem, isActive: d.isActive,
-          visits: visitsByDoc.get(d.id) ?? [],
-        });
-      }
-
-      doctors = [...mergedMap.values()];
-      console.log('[visitsByArea] db:', dbDoctorsByNorm.size, 'total:', doctors.length);
+      doctors = rawDocs.map(d => ({ ...d, visits: visitsByDoc.get(d.id) ?? [] }));
+      console.log('[visitsByArea] repAreaIds count:', repAreaIds.length, 'doctors:', doctors.length);
 
     } else {
       // للمدير: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
@@ -243,10 +191,8 @@ export async function visitsByArea(req, res, next) {
       writingCount: g.doctors.filter(d => d.isWriting).length,
     });
 
-    // For field reps: only show areas that are in the assigned set
-    const filteredAreaEntries = fieldRepAssignedNormSet
-      ? [...areaMap.entries()].filter(([key]) => fieldRepAssignedNormSet.has(key))
-      : [...areaMap.entries()];
+    // For field reps: all doctors were already fetched by exact areaId - no extra filtering needed
+    const filteredAreaEntries = [...areaMap.entries()];
 
     const areas = filteredAreaEntries.map(([, g]) => toStats(g))
       .sort((a, b) => b.visitedCount - a.visitedCount);
