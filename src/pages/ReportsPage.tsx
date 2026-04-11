@@ -4,6 +4,247 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   ExcelPreviewModal — spreadsheet-like editor before export
+───────────────────────────────────────────────────────────────────────────── */
+interface PreviewSheet { name: string; rows: string[][]; }
+
+function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
+  sheets: PreviewSheet[];
+  onClose: () => void;
+  fileName: string;
+}) {
+  const [sheets, setSheets]           = useState<PreviewSheet[]>(initSheets);
+  const [activeIdx, setActiveIdx]     = useState(0);
+  const [editCell, setEditCell]       = useState<{ r: number; c: number } | null>(null);
+  const [editVal, setEditVal]         = useState('');
+  const [dragCol, setDragCol]         = useState<number | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const sheet = sheets[activeIdx];
+  const setRows = (rows: string[][]) =>
+    setSheets(prev => prev.map((s, i) => i === activeIdx ? { ...s, rows } : s));
+
+  // ── Cell edit ────────────────────────────────────────────
+  const startEdit = (r: number, c: number) => {
+    setEditCell({ r, c });
+    setEditVal(sheet.rows[r]?.[c] ?? '');
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+  const commitEdit = () => {
+    if (!editCell) return;
+    const newRows = sheet.rows.map((row, ri) =>
+      ri === editCell.r ? row.map((v, ci) => ci === editCell.c ? editVal : v) : row
+    );
+    setRows(newRows);
+    setEditCell(null);
+  };
+
+  // ── Delete row / col ─────────────────────────────────────
+  const deleteRow = (ri: number) => setRows(sheet.rows.filter((_, i) => i !== ri));
+  const deleteCol = (ci: number) => setRows(sheet.rows.map(row => row.filter((_, i) => i !== ci)));
+
+  // ── Column drag-reorder ───────────────────────────────────
+  const onDragStart = (ci: number) => setDragCol(ci);
+  const onDragOver  = (e: React.DragEvent, ci: number) => { e.preventDefault(); setDragOverCol(ci); };
+  const onDrop      = (ci: number) => {
+    if (dragCol === null || dragCol === ci) { setDragCol(null); setDragOverCol(null); return; }
+    const newRows = sheet.rows.map(row => {
+      const r = [...row];
+      const [removed] = r.splice(dragCol, 1);
+      r.splice(ci, 0, removed);
+      return r;
+    });
+    setRows(newRows);
+    setDragCol(null);
+    setDragOverCol(null);
+  };
+
+  // ── Export modified data ──────────────────────────────────
+  const exportModified = () => {
+    const wb = XLSX.utils.book_new();
+    sheets.forEach(s => {
+      const ws = XLSX.utils.aoa_to_sheet(s.rows);
+      if (s.rows[0]) ws['!cols'] = s.rows[0].map(() => ({ wch: 22 }));
+      XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+    });
+    XLSX.writeFile(wb, fileName);
+  };
+
+  const colCount = sheet.rows[0]?.length ?? 0;
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 16, width: '96vw', maxWidth: 1200,
+          maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 25px 60px rgba(0,0,0,.25)', overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>📊</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>معاينة وتحرير بيانات التصدير</div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>{fileName}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={exportModified}
+              style={{
+                padding: '7px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, fontSize: 13,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              📥 تصدير Excel
+            </button>
+            <button onClick={onClose} className="modal-close" style={{ position: 'static' }}>✕</button>
+          </div>
+        </div>
+
+        {/* Sheet Tabs */}
+        <div style={{ display: 'flex', gap: 4, padding: '8px 16px 0', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', overflowX: 'auto', flexShrink: 0 }}>
+          {sheets.map((s, i) => (
+            <button key={i} onClick={() => setActiveIdx(i)} style={{
+              padding: '5px 14px', borderRadius: '8px 8px 0 0', border: '1px solid',
+              borderBottomColor: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600,
+              background: i === activeIdx ? '#fff' : '#f1f5f9',
+              borderColor: i === activeIdx ? '#e5e7eb' : 'transparent',
+              color: i === activeIdx ? '#1e293b' : '#64748b',
+              marginBottom: -1,
+            }}>
+              {s.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Hints */}
+        <div style={{ padding: '6px 16px', background: '#fffbeb', borderBottom: '1px solid #fde68a', fontSize: 11, color: '#92400e', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <span>✏️ انقر على خلية للتعديل</span>
+          <span>↔️ اسحب رأس العمود لإعادة الترتيب</span>
+          <span>✕ حذف الصف / العمود</span>
+        </div>
+
+        {/* Grid */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '0' }}>
+          <table style={{ borderCollapse: 'collapse', minWidth: '100%', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
+                {/* Row-delete gutter */}
+                <th style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', background: '#f8fafc' }} />
+                {/* Col number header */}
+                {Array.from({ length: colCount }, (_, ci) => (
+                  <th
+                    key={ci}
+                    draggable
+                    onDragStart={() => onDragStart(ci)}
+                    onDragOver={e => onDragOver(e, ci)}
+                    onDrop={() => onDrop(ci)}
+                    onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
+                    style={{
+                      padding: '4px 6px', border: '1px solid #e5e7eb', textAlign: 'center',
+                      cursor: 'grab', userSelect: 'none', whiteSpace: 'nowrap',
+                      background: dragOverCol === ci ? '#dbeafe' : ci === dragCol ? '#fef3c7' : '#f1f5f9',
+                      position: 'relative', minWidth: 80,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                      <span style={{ color: '#94a3b8', fontSize: 10 }}>⠿</span>
+                      <span>{String.fromCharCode(65 + ci)}</span>
+                      <button
+                        onClick={() => deleteCol(ci)}
+                        title="حذف العمود"
+                        style={{ padding: '0 3px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 10, lineHeight: '14px', marginRight: 2 }}
+                      >✕</button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+              {/* Actual header row (row 0) */}
+              <tr style={{ background: '#e0f2fe', position: 'sticky', top: 28, zIndex: 9 }}>
+                <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', textAlign: 'center', background: '#f8fafc' }}>
+                  <button onClick={() => deleteRow(0)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
+                </td>
+                {(sheet.rows[0] ?? []).map((cell, ci) => (
+                  <td
+                    key={ci}
+                    onDoubleClick={() => startEdit(0, ci)}
+                    style={{ padding: '4px 8px', border: '1px solid #bae6fd', fontWeight: 700, color: '#0c4a6e', cursor: 'text', whiteSpace: 'nowrap', background: '#e0f2fe' }}
+                  >
+                    {editCell?.r === 0 && editCell.c === ci ? (
+                      <input
+                        ref={inputRef}
+                        value={editVal}
+                        onChange={e => setEditVal(e.target.value)}
+                        onBlur={commitEdit}
+                        onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }}
+                        style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }}
+                        autoFocus
+                      />
+                    ) : String(cell ?? '')}
+                  </td>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sheet.rows.slice(1).map((row, ri) => {
+                const actualRi = ri + 1;
+                return (
+                  <tr key={actualRi} style={{ background: actualRi % 2 === 0 ? '#f8fafc' : '#fff' }}>
+                    <td style={{ width: 28, minWidth: 28, textAlign: 'center', borderRight: '1px solid #e5e7eb', color: '#9ca3af', fontSize: 10 }}>
+                      <button onClick={() => deleteRow(actualRi)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
+                    </td>
+                    {Array.from({ length: colCount }, (_, ci) => (
+                      <td
+                        key={ci}
+                        onDoubleClick={() => startEdit(actualRi, ci)}
+                        style={{ padding: '3px 8px', border: '1px solid #e5e7eb', cursor: 'text', whiteSpace: 'nowrap',
+                          background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : undefined }}
+                      >
+                        {editCell?.r === actualRi && editCell.c === ci ? (
+                          <input
+                            ref={inputRef}
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={commitEdit}
+                            onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }}
+                            style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }}
+                            autoFocus
+                          />
+                        ) : String(row[ci] ?? '')}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '10px 20px', borderTop: '1px solid #e5e7eb', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#6b7280' }}>
+          <span>📋 {sheet.rows.length > 0 ? sheet.rows.length - 1 : 0} صف · {colCount} عمود</span>
+          <button
+            onClick={exportModified}
+            style={{
+              padding: '7px 22px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', fontWeight: 700, fontSize: 13,
+            }}
+          >
+            📥 تصدير هذا الملف
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Quantity cell — hidden by default, click to reveal, click again to hide.
  *  forceReveal overrides local state when provided (used by global toggle). */
 function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; fmt: (n: number) => string; style?: React.CSSProperties; signed?: boolean; forceReveal?: boolean }) {
@@ -93,6 +334,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [tabQtyRevealed, setTabQtyRevealed]   = useState<Record<string, boolean>>({});
   const qtyRevealed = tabQtyRevealed[activeTab] ?? false;
   const toggleQtyRevealed = () => setTabQtyRevealed(p => ({ ...p, [activeTab]: !p[activeTab] }));
+
+  // Preview modal state
+  const [showPreviewModal, setShowPreviewModal]   = useState(false);
+  const [previewSheets, setPreviewSheets]         = useState<PreviewSheet[]>([]);
+  const [previewLoading, setPreviewLoading]       = useState(false);
+  const previewFileName = `تقرير_${new Date().toISOString().slice(0,10)}.xlsx`;
 
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
@@ -440,6 +687,107 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     </div>
   );
 
+  /* ─── Build sheet AOA from raw sales (shared by doExport + buildPreviewData) ─── */
+  const buildSheet = (sales: any[], sciRepName?: string): any[][] => {
+    if (sales.length === 0) return [[t.reports.noDataTable]];
+    const fmtDateCell = (v: any): any => {
+      if (v instanceof Date) return v.toLocaleDateString('en-GB');
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+        const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
+      }
+      if (typeof v === 'number' && v > 25000 && v < 60000) {
+        const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+        return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
+      }
+      return v;
+    };
+    const isDateKey = (k: string) => /تاريخ|date/i.test(k);
+    const allKeys = new Set<string>();
+    let hasRaw = false;
+    sales.forEach(s => {
+      if (s.rawData) { hasRaw = true; try { Object.keys(JSON.parse(s.rawData)).forEach((k: string) => allKeys.add(k)); } catch {} }
+    });
+    if (hasRaw && allKeys.size > 0) {
+      const headers = [...allKeys];
+      const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
+      return [
+        [...sciCol, t.reports.exportColRecordType, ...headers],
+        ...sales.map(s => {
+          let raw: any = {};
+          try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
+          const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
+          const dataRow = headers.map(h => { const v = raw[h]; if (isDateKey(h)) return fmtDateCell(v); return typeof v === 'number' ? Math.round(v * 100) / 100 : (v ?? ''); });
+          return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
+        }),
+      ];
+    }
+    const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
+    return [
+      [...sciCol, t.reports.exportColRecordType, t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate],
+      ...sales.map(s => {
+        const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
+        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(s.totalValue || 0), fmtDateCell(s.saleDate)];
+        return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
+      }),
+    ];
+  };
+
+  /* ─── Build preview sheets (same data as export, returned as AOA) ─── */
+  const buildPreviewData = async (): Promise<PreviewSheet[]> => {
+    const qp = new URLSearchParams();
+    if (fromDate)    qp.set('startDate', fromDate);
+    if (toDate)      qp.set('endDate',   toDate);
+    if (activeFileIds.length > 0) qp.set('fileIds', activeFileIds.join(','));
+    const qStr = qp.toString();
+
+    const result: PreviewSheet[] = [];
+    const summaryData: string[][] = [
+      ['#', t.reports.exportSumType, t.reports.exportColRepName, t.reports.exportSumTotalQty, t.reports.exportSumTotalVal]
+    ];
+    let idx = 1;
+
+    for (const repId of Array.from(selCommIds)) {
+      const rep = commReps.find(r => r.id === repId);
+      const repName = rep?.name ?? `${t.reports.exportCommType} ${repId}`;
+      const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
+      const json = await res.json();
+      const sales: any[] = json.data ?? [];
+      const totalQty = sales.reduce((s, r) => s + (r.quantity  || 0), 0);
+      const totalVal = sales.reduce((s, r) => s + (r.totalValue|| 0), 0);
+      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(totalQty)), String(Math.round(totalVal))]);
+      const rows = buildSheet(sales);
+      result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+    }
+
+    for (const repId of Array.from(selSciIds)) {
+      const rep = sciReps.find(r => r.id === repId);
+      const rRes  = await fetch(`/api/scientific-reps/${repId}/report?${qStr}`, { headers: authH() });
+      const rJson = await rRes.json();
+      const d = rJson.data ?? rJson;
+      const sciName       = d.scientificRep?.name ?? rep?.name ?? `${t.reports.exportSciType} ${repId}`;
+      const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
+      let sales: any[] = [];
+      if (assignedIds.length > 0) {
+        const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&${qStr}`, { headers: authH() });
+        const sJson = await sRes.json();
+        sales = sJson.data ?? [];
+      }
+      const totalQty = sales.reduce((s, r) => s + (r.quantity  || 0), 0);
+      const totalVal = sales.reduce((s, r) => s + (r.totalValue|| 0), 0);
+      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(totalQty)), String(Math.round(totalVal))]);
+      const rows = buildSheet(sales, sciName);
+      result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+    }
+
+    if (summaryData.length > 1) {
+      const gQty = summaryData.slice(1).reduce((s, r) => s + Number(r[3] || 0), 0);
+      const gVal = summaryData.slice(1).reduce((s, r) => s + Number(r[4] || 0), 0);
+      summaryData.push(['', t.reports.exportGrandTotal, '', String(gQty), String(gVal)]);
+    }
+    result.unshift({ name: t.reports.exportSummarySheet, rows: summaryData });
+    return result;
+  };
+
   /* ─── Export with rep selection ─── */
   const doExport = async () => {
     if (selCommIds.size === 0 && selSciIds.size === 0) {
@@ -456,79 +804,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (toDate)      qp.set('endDate',   toDate);
       if (activeFileIds.length > 0) qp.set('fileIds', activeFileIds.join(','));
       const qStr = qp.toString();
-
-      // Build a sheet from raw sale rows
-      // sciRepName: if provided, prepend an "اسم المندوب العلمي" column
-      const buildSheet = (sales: any[], sciRepName?: string): any[][] => {
-        if (sales.length === 0) return [[t.reports.noDataTable]];
-
-        // Helper: detect & format date values to DD/MM/YYYY
-        const fmtDate = (v: any): any => {
-          if (v instanceof Date) return v.toLocaleDateString('en-GB');
-          if (typeof v === 'string') {
-            // ISO date string: "2026-03-02T..." or "2026-03-02"
-            if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
-              const d = new Date(v);
-              return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
-            }
-          }
-          if (typeof v === 'number' && v > 25000 && v < 60000) {
-            // Excel serial date (approx 1970–2060)
-            const d = new Date(Math.round((v - 25569) * 86400 * 1000));
-            return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
-          }
-          return v;
-        };
-
-        // Detect if a column key is a date column
-        const isDateKey = (k: string) =>
-          /تاريخ|date/i.test(k);
-
-        // Collect original Excel column names from rawData
-        const allKeys = new Set<string>();
-        let hasRaw = false;
-        sales.forEach(s => {
-          if (s.rawData) {
-            hasRaw = true;
-            try { Object.keys(JSON.parse(s.rawData)).forEach((k: string) => allKeys.add(k)); } catch {}
-          }
-        });
-        if (hasRaw && allKeys.size > 0) {
-          const headers = [...allKeys];
-          const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
-          return [
-            [...sciCol, t.reports.exportColRecordType, ...headers],
-            ...sales.map(s => {
-              let raw: any = {};
-              try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
-              const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-              const dataRow = headers.map(h => {
-                const v = raw[h];
-                if (isDateKey(h)) return fmtDate(v);
-                return typeof v === 'number' ? Math.round(v * 100) / 100 : (v ?? '');
-              });
-              return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
-            }),
-          ];
-        }
-        // Fallback — no rawData stored (old uploads)
-        const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
-        return [
-          [...sciCol, t.reports.exportColRecordType, t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate],
-          ...sales.map(s => {
-            const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-            const dataRow = [
-              s.representative?.name ?? '',
-              s.area?.name ?? '',
-              s.item?.name ?? '',
-              Math.round(s.quantity || 0),
-              Math.round(s.totalValue || 0),
-              fmtDate(s.saleDate),
-            ];
-            return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
-          }),
-        ];
-      };
 
       const addSheet = (name: string, rows: any[][]) => {
         const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -1035,6 +1310,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn--secondary" style={{ padding: '8px 16px' }} onClick={() => setShowExportModal(false)}>{t.reports.exportCancel}</button>
                 <button
+                  onClick={async () => {
+                    if (selCommIds.size + selSciIds.size === 0) return;
+                    setPreviewLoading(true);
+                    try {
+                      const sheets = await buildPreviewData();
+                      setPreviewSheets(sheets);
+                      setShowPreviewModal(true);
+                    } catch (e: any) { setError('فشل تحميل المعاينة: ' + e.message); }
+                    finally { setPreviewLoading(false); }
+                  }}
+                  disabled={selCommIds.size + selSciIds.size === 0 || previewLoading}
+                  style={{
+                    padding: '8px 18px', borderRadius: 8, border: '1.5px solid #6366f1',
+                    cursor: (selCommIds.size + selSciIds.size) === 0 ? 'not-allowed' : 'pointer',
+                    background: '#f5f3ff', color: '#4f46e5', fontWeight: 700, fontSize: 14,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    opacity: (selCommIds.size + selSciIds.size) === 0 ? 0.5 : 1,
+                  }}
+                >
+                  {previewLoading ? '⏳' : '👁️'} معاينة
+                </button>
+                <button
                   onClick={doExport}
                   disabled={selCommIds.size + selSciIds.size === 0}
                   style={{
@@ -1050,6 +1347,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Excel Preview Modal ── */}
+      {showPreviewModal && previewSheets.length > 0 && (
+        <ExcelPreviewModal
+          sheets={previewSheets}
+          fileName={previewFileName}
+          onClose={() => setShowPreviewModal(false)}
+        />
       )}
 
       {/* ── Bottom warning bar when no file is active ── */}
