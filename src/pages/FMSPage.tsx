@@ -221,14 +221,6 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
             }}>{s.name}</button>
           ))}
         </div>
-        {/* Hints */}
-        <div style={{ padding: '6px 16px', background: '#fffbeb', borderBottom: '1px solid #fde68a', fontSize: 11, color: '#92400e', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <span>⬆⬇⬅➡ التنقل بالأسهم بين الخلايا</span>
-          <span>⌨️ اكتب مباشرة لتعديل الخلية</span>
-          <span>↔️ اسحب رأس العمود لإعادة الترتيب</span>
-          <span>✕ حذف الصف / العمود</span>
-          <span>🖱️ اسحب بالماوس لتحديد خلايا ومعرفة مجموعها</span>
-        </div>
         {/* Grid */}
         <div ref={gridRef} tabIndex={0} style={{ flex: 1, overflow: 'auto', outline: 'none' }}
           onMouseUp={() => setIsSelecting(false)}
