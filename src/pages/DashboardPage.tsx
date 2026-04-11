@@ -683,7 +683,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     const normVal = normArabic(val);
     const planMatches = planEntries
       .filter((e: any) => normArabic(e.doctor.name).includes(normVal))
-      .slice(0, 5)
       .map((e: any) => ({ ...e, _inPlan: true }));
     setClSuggestions(planMatches);
     setClShowSugg(planMatches.length > 0);
