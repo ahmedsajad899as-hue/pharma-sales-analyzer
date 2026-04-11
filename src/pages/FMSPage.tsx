@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 
@@ -229,85 +229,75 @@ export default function FMSPage() {
     finally { setSaving(false); }
   };
 
-  // ── Inline-edit state ─────────────────────────────────────
-  // editingCell: { planId, itemName } — which cell is being typed in
+  // ── Grid state ────────────────────────────────────────────
+  const allItemNames = useMemo(
+    () => Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName)))),
+    [plans]
+  );
+
   const [editingCell, setEditingCell] = useState<{ planId: number; itemName: string } | null>(null);
   const [editingVal,  setEditingVal]  = useState('');
-
-  // selection: Set of "planId|itemName"
   const [selection,   setSelection]  = useState<Set<string>>(new Set());
-  const dragOrigin    = useRef<{ planId: number; itemName: string } | null>(null);
-  const isDragging    = useRef(false);
-  const dragOriginQty = useRef<number>(0);
+  const [fillVal,     setFillVal]    = useState('');
+
+  // Rect-selection via mousedown+drag
+  const selAnchor  = useRef<{ ri: number; ci: number } | null>(null);
+  const isSelecting = useRef(false);
 
   const cellKey = (planId: number, itemName: string) => `${planId}|${itemName}`;
 
+  const rectSelection = useCallback((r1: number, c1: number, r2: number, c2: number, currentPlans: FmsPlan[], currentItems: string[]) => {
+    const s = new Set<string>();
+    for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+      for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+        if (currentItems[r] && currentPlans[c]) s.add(cellKey(currentPlans[c].id, currentItems[r]));
+      }
+    }
+    return s;
+  }, []);
+
   const patchCell = useCallback(async (planId: number, itemName: string, quantity: number) => {
-    // Optimistically update local state
     setPlans(prev => prev.map(p => {
       if (p.id !== planId) return p;
       const has = p.items.find(it => it.itemName === itemName);
-      if (quantity <= 0) {
-        return { ...p, items: p.items.filter(it => it.itemName !== itemName) };
-      }
-      if (has) {
-        return { ...p, items: p.items.map(it => it.itemName === itemName ? { ...it, quantity } : it) };
-      }
+      if (quantity <= 0) return { ...p, items: p.items.filter(it => it.itemName !== itemName) };
+      if (has) return { ...p, items: p.items.map(it => it.itemName === itemName ? { ...it, quantity } : it) };
       return { ...p, items: [...p.items, { itemName, quantity, itemId: null }] };
     }));
     try {
-      await fetch('/api/fms/cell', {
-        method: 'PATCH',
-        headers: authH(),
-        body: JSON.stringify({ planId, itemName, quantity }),
-      });
-    } catch { /* silent — grid already updated */ }
+      await fetch('/api/fms/cell', { method: 'PATCH', headers: authH(), body: JSON.stringify({ planId, itemName, quantity }) });
+    } catch { /* silent */ }
   }, [authH]);
 
   const commitEdit = useCallback(() => {
     if (!editingCell) return;
-    const qty = parseInt(editingVal) || 0;
-    patchCell(editingCell.planId, editingCell.itemName, qty);
+    patchCell(editingCell.planId, editingCell.itemName, parseInt(editingVal) || 0);
     setEditingCell(null);
   }, [editingCell, editingVal, patchCell]);
 
-  const startEdit = (planId: number, itemName: string, currentQty: number) => {
-    setEditingCell({ planId, itemName });
-    setEditingVal(currentQty > 0 ? String(currentQty) : '');
-    setSelection(new Set([cellKey(planId, itemName)]));
+  const applyFill = () => {
+    const qty = parseInt(fillVal) || 0;
+    selection.forEach(key => {
+      const idx = key.indexOf('|');
+      patchCell(parseInt(key.slice(0, idx)), key.slice(idx + 1), qty);
+    });
+    setSelection(new Set());
+    setFillVal('');
   };
 
-  // Drag-to-fill: mousedown on a cell starts drag
-  const onCellMouseDown = (planId: number, itemName: string, qty: number, e: React.MouseEvent) => {
+  const onCellMouseDown = (ri: number, ci: number, e: React.MouseEvent) => {
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
     e.preventDefault();
-    isDragging.current = true;
-    dragOrigin.current = { planId, itemName };
-    dragOriginQty.current = qty;
-    setSelection(new Set([cellKey(planId, itemName)]));
+    isSelecting.current = true;
+    selAnchor.current = { ri, ci };
+    setSelection(rectSelection(ri, ci, ri, ci, plans, allItemNames));
+    setEditingCell(null);
   };
-  const onCellMouseEnter = (planId: number, itemName: string) => {
-    if (!isDragging.current || !dragOrigin.current) return;
-    setSelection(prev => new Set([...prev, cellKey(planId, itemName)]));
+  const onCellMouseEnter = (ri: number, ci: number) => {
+    if (!isSelecting.current || !selAnchor.current) return;
+    setSelection(rectSelection(selAnchor.current.ri, selAnchor.current.ci, ri, ci, plans, allItemNames));
   };
-  const onMouseUp = useCallback(() => {
-    if (!isDragging.current || !dragOrigin.current) return;
-    isDragging.current = false;
-    const origin = dragOrigin.current;
-    const qty = dragOriginQty.current;
-    dragOrigin.current = null;
-    setSelection(prev => {
-      if (prev.size <= 1) return prev;
-      prev.forEach(key => {
-        const [pId, ...nameParts] = key.split('|');
-        const iName = nameParts.join('|');
-        if (pId !== String(origin.planId) || iName !== origin.itemName) {
-          patchCell(parseInt(pId), iName, qty);
-        }
-      });
-      return prev;
-    });
-  }, [patchCell]);
+  const onMouseUp = () => { isSelecting.current = false; };
 
   const deletePlan = async (id: number) => {
     if (!confirm('هل تريد حذف هذه الخطة؟')) return;
@@ -387,17 +377,26 @@ export default function FMSPage() {
           <div style={{ fontSize: 15, fontWeight: 600 }}>لا توجد خطط لهذا الشهر</div>
           <div style={{ fontSize: 13, marginTop: 6 }}>اضغط "+ خطة جديدة" لإضافة خطة</div>
         </div>
-      ) : (() => {
-        const allItemNames = Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName))));
-        return (
+      ) : (
           <div
             style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', userSelect: 'none' }}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
           >
-            {selection.size > 1 && (
-              <div style={{ padding: '6px 14px', background: '#eef2ff', fontSize: 12, color: '#4f46e5', borderBottom: '1px solid #c7d2fe' }}>
-                💡 اسحب من خلية لنقل قيمتها — {selection.size} خلية محددة
+            {/* Fill toolbar */}
+            {selection.size > 0 && (
+              <div style={{ padding: '8px 14px', background: '#eef2ff', borderBottom: '1px solid #c7d2fe', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#4f46e5', fontWeight: 600 }}>✅ {selection.size} خلية محددة</span>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>اكتب القيمة واضغط تطبيق:</span>
+                <input
+                  type="number" min="0" value={fillVal}
+                  onChange={e => setFillVal(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && applyFill()}
+                  placeholder="الكمية..."
+                  style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid #818cf8', fontSize: 13, textAlign: 'center' }}
+                />
+                <button onClick={applyFill} style={{ padding: '4px 14px', borderRadius: 6, border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✅ تطبيق</button>
+                <button onClick={() => { setSelection(new Set()); setFillVal(''); }} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #c7d2fe', background: '#fff', color: '#4f46e5', fontSize: 12, cursor: 'pointer' }}>✕ إلغاء</button>
               </div>
             )}
             <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: '100%' }}>
@@ -418,10 +417,10 @@ export default function FMSPage() {
                 </tr>
               </thead>
               <tbody>
-                {allItemNames.map((itemName, i) => (
-                  <tr key={itemName} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <td style={{ padding: '7px 14px', fontWeight: 500, color: '#1e293b', borderLeft: '1px solid #f1f5f9', position: 'sticky', right: 0, background: i % 2 === 0 ? '#fff' : '#fafafa', zIndex: 1 }}>{itemName}</td>
-                    {plans.map(plan => {
+                {allItemNames.map((itemName, ri) => (
+                  <tr key={itemName} style={{ borderBottom: '1px solid #f1f5f9', background: ri % 2 === 0 ? '#fff' : '#fafafa' }}>
+                    <td style={{ padding: '7px 14px', fontWeight: 500, color: '#1e293b', borderLeft: '1px solid #f1f5f9', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : '#fafafa', zIndex: 1 }}>{itemName}</td>
+                    {plans.map((plan, ci) => {
                       const it = plan.items.find(r => r.itemName === itemName);
                       const qty = it?.quantity ?? 0;
                       const key = cellKey(plan.id, itemName);
@@ -436,16 +435,17 @@ export default function FMSPage() {
                             outline: isSelected ? '2px solid #818cf8' : undefined,
                             outlineOffset: -2, cursor: 'cell',
                           }}
-                          onMouseDown={e => onCellMouseDown(plan.id, itemName, qty, e)}
-                          onMouseEnter={() => onCellMouseEnter(plan.id, itemName)}
-                          onDoubleClick={() => startEdit(plan.id, itemName, qty)}
+                          onMouseDown={e => onCellMouseDown(ri, ci, e)}
+                          onMouseEnter={() => onCellMouseEnter(ri, ci)}
+                          onDoubleClick={() => {
+                            setEditingCell({ planId: plan.id, itemName });
+                            setEditingVal(qty > 0 ? String(qty) : '');
+                            setSelection(new Set([key]));
+                          }}
                         >
                           {isEditing ? (
                             <input
-                              autoFocus
-                              type="number"
-                              min="0"
-                              value={editingVal}
+                              autoFocus type="number" min="0" value={editingVal}
                               onChange={e => setEditingVal(e.target.value)}
                               onBlur={commitEdit}
                               onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingCell(null); }}
@@ -484,8 +484,7 @@ export default function FMSPage() {
               </tfoot>
             </table>
           </div>
-        );
-      })()}
+      )}
 
       {/* Bulk picker */}
       {showPicker && (
