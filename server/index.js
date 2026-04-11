@@ -1715,6 +1715,35 @@ app.post('/api/fms', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/fms/cell — update a single item quantity in a plan
+app.patch('/api/fms/cell', requireAuth, async (req, res) => {
+  try {
+    const { planId, itemName, quantity } = req.body;
+    if (!planId || !itemName || quantity === undefined) {
+      return res.status(400).json({ error: 'planId, itemName, quantity مطلوبة' });
+    }
+    const qty = parseInt(quantity);
+    // Find the item in the plan
+    const existing = await prisma.fmsPlanItem.findFirst({
+      where: { fmsPlanId: parseInt(planId), itemName: String(itemName) },
+    });
+    if (existing) {
+      if (qty <= 0) {
+        await prisma.fmsPlanItem.delete({ where: { id: existing.id } });
+      } else {
+        await prisma.fmsPlanItem.update({ where: { id: existing.id }, data: { quantity: qty } });
+      }
+    } else if (qty > 0) {
+      await prisma.fmsPlanItem.create({
+        data: { fmsPlanId: parseInt(planId), itemName: String(itemName), quantity: qty },
+      });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/fms/:id
 app.delete('/api/fms/:id', requireAuth, async (req, res) => {
   try {
