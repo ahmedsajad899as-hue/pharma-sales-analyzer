@@ -1475,7 +1475,7 @@ export default function MonthlyPlansPage() {
 
       {/* ── Top bar: plan selector ── */}
       {/* Field reps: hide top bar entirely once a plan is open */}
-      <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: isFieldRep && activePlan ? 'none' : 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+      <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: activePlan ? 'none' : 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>📅 البلانات الشهرية</h2>
 
         {/* Rep filter: managers only */}
