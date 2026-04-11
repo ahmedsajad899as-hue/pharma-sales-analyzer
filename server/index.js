@@ -381,9 +381,10 @@ app.post('/api/areas', async (req, res) => {
 
 // ── Raw sales rows for export (by commercial rep IDs) ────────
 // GET /api/export/raw-sales?commRepIds=1,2&fileIds=3,4&startDate=...&endDate=...&recordType=sale|return
+// Optional: sciRepId=X  → apply same area+item filtering as the report endpoint
 app.get('/api/export/raw-sales', async (req, res) => {
   try {
-    const { commRepIds, fileId, fileIds, startDate, endDate, recordType } = req.query;
+    const { commRepIds, fileId, fileIds, startDate, endDate, recordType, sciRepId } = req.query;
     const userId = req.user?.id ?? null;
     const repIds = commRepIds
       ? String(commRepIds).split(',').map(Number).filter(Boolean)
@@ -401,10 +402,41 @@ app.get('/api/export/raw-sales', async (req, res) => {
         ? { uploadedFileId: parsedFileIds[0] }
         : { uploadedFileId: { in: parsedFileIds } };
 
+    // ── Scientific rep area+item filtering (same cross-user resolution as report) ──
+    let areaFilter   = {};
+    let itemFilter   = {};
+    if (sciRepId) {
+      const sciId = Number(sciRepId);
+      if (!isNaN(sciId)) {
+        const [areaLinks, itemLinks] = await Promise.all([
+          prisma.scientificRepArea.findMany({
+            where: { scientificRepId: sciId },
+            select: { area: { select: { name: true } } },
+          }),
+          prisma.scientificRepItem.findMany({
+            where: { scientificRepId: sciId },
+            select: { item: { select: { name: true } } },
+          }),
+        ]);
+        if (areaLinks.length) {
+          const areaNames = areaLinks.map(l => l.area.name);
+          const matchingAreas = await prisma.area.findMany({ where: { name: { in: areaNames } }, select: { id: true } });
+          areaFilter = { areaId: { in: matchingAreas.map(a => a.id) } };
+        }
+        if (itemLinks.length) {
+          const itemNames = itemLinks.map(l => l.item.name);
+          const matchingItems = await prisma.item.findMany({ where: { name: { in: itemNames } }, select: { id: true } });
+          itemFilter = { itemId: { in: matchingItems.map(i => i.id) } };
+        }
+      }
+    }
+
     const where = {
       representativeId: { in: repIds },
       ...(userId ? { userId } : {}),
       ...fileIdsFilter,
+      ...areaFilter,
+      ...itemFilter,
       ...(startDate || endDate ? {
         saleDate: {
           ...(startDate ? { gte: new Date(startDate) } : {}),

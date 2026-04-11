@@ -768,7 +768,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
       let sales: any[] = [];
       if (assignedIds.length > 0) {
-        const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&${qStr}`, { headers: authH() });
+        const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${repId}&${qStr}`, { headers: authH() });
         const sJson = await sRes.json();
         sales = sJson.data ?? [];
       }
@@ -841,7 +841,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
         let sales: any[] = [];
         if (assignedIds.length > 0) {
-          const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&${qStr}`, { headers: authH() });
+          const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${repId}&${qStr}`, { headers: authH() });
           const sJson = await sRes.json();
           sales = sJson.data ?? [];
         }
