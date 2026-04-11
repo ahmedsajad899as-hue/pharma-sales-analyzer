@@ -870,6 +870,8 @@ export default function FMSPage() {
                                 else if (e.key === 'Tab') { e.preventDefault(); commitEditAndMove(0, e.shiftKey ? 1 : -1); }
                                 else if (e.key === 'ArrowDown') { e.preventDefault(); commitEditAndMove(1, 0); }
                                 else if (e.key === 'ArrowUp') { e.preventDefault(); commitEditAndMove(-1, 0); }
+                                else if (e.key === 'ArrowLeft') { e.preventDefault(); commitEditAndMove(0, 1); }
+                                else if (e.key === 'ArrowRight') { e.preventDefault(); commitEditAndMove(0, -1); }
                                 else if (e.key === 'Escape') { setEditingCell(null); mainGridRef.current?.focus(); }
                               }}
                               style={{ width: 70, padding: '3px 6px', borderRadius: 5, border: '2px solid #6366f1', textAlign: 'right', fontSize: 13, outline: 'none' }}
