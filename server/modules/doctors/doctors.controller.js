@@ -98,20 +98,20 @@ export async function visitsByArea(req, res, next) {
       }
 
       // ── 4. أطباء Doctor table في المناطق المعيّنة ────────────
-      // (من حساب المدير — المصدر الصحيح لكل الأطباء)
+      // Query by areaId directly (same as list endpoint) so ALL doctors in
+      // the assigned areas are included regardless of which manager owns them
       const dbDoctorsByNorm = new Map(); // normName(doctorName) → doctor
-      if (managerId) {
-        const managerDocs = await prisma.doctor.findMany({
-          where: { userId: managerId },
+      const allAreaIds = assignedAreas.map(a => a.id).filter(id => id != null);
+      if (allAreaIds.length > 0) {
+        const areaDocs = await prisma.doctor.findMany({
+          where: { areaId: { in: allAreaIds } },
           include: {
             area:       { select: { id: true, name: true } },
             targetItem: { select: { id: true, name: true } },
           },
         });
-        for (const d of managerDocs) {
-          if (d.area && assignedNormSet.has(normArea(d.area.name))) {
-            dbDoctorsByNorm.set(normArea(d.name), d);
-          }
+        for (const d of areaDocs) {
+          dbDoctorsByNorm.set(normArea(d.name), d);
         }
       }
 
