@@ -19,6 +19,7 @@ const _importUsers           = () => import('./pages/UsersPage');
 const _importCommercial      = () => import('./pages/CommercialRepPage');
 const _importAI              = () => import('./components/AIAssistant');
 const _importSurvey          = () => import('./pages/SurveyPage');
+const _importFMS             = () => import('./pages/FMSPage');
 
 const DashboardPage       = lazy(_importDashboard);
 const RepAnalysisPage     = lazy(_importRepAnalysis);
@@ -32,6 +33,7 @@ const UsersPage           = lazy(_importUsers);
 const CommercialRepPage   = lazy(_importCommercial);
 const AIAssistant         = lazy(_importAI);
 const SurveyPage          = lazy(_importSurvey);
+const FMSPage             = lazy(_importFMS);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -40,7 +42,7 @@ function preloadAllChunks() {
     _importDashboard(); _importRepAnalysis(); _importUpload();
     _importRepresentatives(); _importScientificReps(); _importDoctors();
     _importMonthlyPlans(); _importReports(); _importUsers();
-    _importCommercial(); _importAI(); _importSurvey();
+    _importCommercial(); _importAI(); _importSurvey(); _importFMS();
   });
 }
 
@@ -73,7 +75,8 @@ export type PageId =
   | 'users'
   | 'rep-analysis'
   | 'commercial'
-  | 'master-survey';
+  | 'master-survey'
+  | 'fms';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -262,7 +265,7 @@ function AppInner() {
   // By the time the user taps a page icon, data is already loaded.
   const allPageIds: PageId[] = [
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
-    'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey',
+    'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms',
   ];
   useEffect(() => {
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 2000));
@@ -316,6 +319,7 @@ function AppInner() {
     { id: 'rep-analysis',    node: <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
     { id: 'commercial',      node: <CommercialRepPage /> },
     { id: 'master-survey',   node: <SurveyPage /> },
+    { id: 'fms',             node: <FMSPage /> },
   ];
 
   return (

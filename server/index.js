@@ -1628,6 +1628,100 @@ app.post('/api/pharmacy-visits', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════
+// FMS — Free Monthly Samples (عينات مجانية شهرية)
+// ════════════════════════════════════════════════════════════
+
+// GET /api/fms — list all plans (company_manager / admin sees all for their users)
+app.get('/api/fms', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const role   = req.user?.role ?? '';
+    const { month, year, repId } = req.query;
+    const MANAGER_ROLES = ['admin', 'manager', 'company_manager', 'product_manager', 'office_manager'];
+
+    const where = {};
+    if (!MANAGER_ROLES.includes(role)) {
+      where.userId = userId;
+    } else if (userId) {
+      where.userId = userId;
+    }
+    if (month) where.month = parseInt(month);
+    if (year)  where.year  = parseInt(year);
+    if (repId) where.scientificRepId = parseInt(repId);
+
+    const plans = await prisma.fmsPlan.findMany({
+      where,
+      include: {
+        scientificRep: { select: { id: true, name: true } },
+        items: true,
+      },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }, { scientificRepId: 'asc' }],
+    });
+    res.json({ success: true, data: plans });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/fms — create / upsert a monthly sample plan for a rep
+app.post('/api/fms', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const { scientificRepId, month, year, notes, items } = req.body;
+
+    if (!scientificRepId || !month || !year) {
+      return res.status(400).json({ error: 'المندوب والشهر والسنة مطلوبة' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'يجب إضافة صنف واحد على الأقل' });
+    }
+
+    // Upsert: delete existing items and recreate
+    const existing = await prisma.fmsPlan.findUnique({
+      where: { scientificRepId_month_year: { scientificRepId: parseInt(scientificRepId), month: parseInt(month), year: parseInt(year) } },
+    });
+
+    let plan;
+    if (existing) {
+      await prisma.fmsPlanItem.deleteMany({ where: { fmsPlanId: existing.id } });
+      plan = await prisma.fmsPlan.update({
+        where: { id: existing.id },
+        data: {
+          notes: notes?.trim() || null,
+          items: { create: items.map(it => ({ itemId: it.itemId ? parseInt(it.itemId) : null, itemName: String(it.itemName), quantity: parseInt(it.quantity) || 0 })) },
+        },
+        include: { scientificRep: { select: { id: true, name: true } }, items: true },
+      });
+    } else {
+      plan = await prisma.fmsPlan.create({
+        data: {
+          scientificRepId: parseInt(scientificRepId),
+          month: parseInt(month),
+          year:  parseInt(year),
+          notes: notes?.trim() || null,
+          userId,
+          items: { create: items.map(it => ({ itemId: it.itemId ? parseInt(it.itemId) : null, itemName: String(it.itemName), quantity: parseInt(it.quantity) || 0 })) },
+        },
+        include: { scientificRep: { select: { id: true, name: true } }, items: true },
+      });
+    }
+    res.json({ success: true, data: plan });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/fms/:id
+app.delete('/api/fms/:id', requireAuth, async (req, res) => {
+  try {
+    await prisma.fmsPlan.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/doctor-visits — save a doctor visit without a monthly plan ─────
 app.post('/api/doctor-visits', async (req, res) => {
   try {

@@ -64,8 +64,7 @@ model User {
   interactionAsActor  UserInteractionPermission[] @relation("InteractionActor")
   interactionAsTarget UserInteractionPermission[] @relation("InteractionTarget")
   invoiceSheets       InvoiceSheet[]
-
-  // Commercial module relations
+  fmsPlans            FmsPlan[]
   pharmacies          Pharmacy[]              @relation("PharmacyOwner")
   assignedInvoices    CommercialInvoice[]     @relation("AssignedInvoices")
   createdInvoices     CommercialInvoice[]     @relation("CreatedInvoices")
@@ -316,6 +315,7 @@ model ScientificRepresentative {
   monthlyPlans   MonthlyPlan[]
   doctorVisits   DoctorVisit[]
   pharmacyVisits PharmacyVisit[]
+  fmsPlans       FmsPlan[]
   linkedUsers    User[]                    @relation("UserLinkedRep")
   locationPoints RepLocationPoint[]
 
@@ -618,6 +618,44 @@ model PharmacyVisitItem {
 
   @@index([pharmacyVisitId])
   @@map("pharmacy_visit_items")
+}
+
+// ════════════════════════════════════════════════════════════
+// FMS — Free Monthly Samples (عينات مجانية شهرية)
+// ════════════════════════════════════════════════════════════
+model FmsPlan {
+  id              Int      @id @default(autoincrement())
+  month           Int      // 1-12
+  year            Int
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userId          Int?
+  user            User?                    @relation(fields: [userId], references: [id])
+  scientificRepId Int
+  scientificRep   ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+
+  items FmsPlanItem[]
+
+  @@unique([scientificRepId, month, year])
+  @@index([userId])
+  @@index([scientificRepId])
+  @@map("fms_plans")
+}
+
+model FmsPlanItem {
+  id        Int     @id @default(autoincrement())
+  fmsPlanId Int
+  itemId    Int?
+  itemName  String  // stored name (resolved or free-text)
+  quantity  Int
+
+  fmsPlan FmsPlan @relation(fields: [fmsPlanId], references: [id], onDelete: Cascade)
+  item    Item?   @relation(fields: [itemId], references: [id])
+
+  @@index([fmsPlanId])
+  @@map("fms_plan_items")
 }
 
 // ════════════════════════════════════════════════════════════
