@@ -567,7 +567,7 @@ model PharmacyVisit {
   pharmacyName    String
   areaId          Int?
   areaName        String?  // free-text fallback when areaId is null
-  scientificRepId Int
+  scientificRepId Int?
   visitDate       DateTime
   notes           String?
   isDoubleVisit   Boolean  @default(false) // زيارة مزدوجة مع مدير/سوبرفايزر
@@ -576,9 +576,9 @@ model PharmacyVisit {
   createdAt       DateTime @default(now())
 
   userId        Int?
-  user          User?                    @relation(fields: [userId], references: [id])
-  area          Area?                    @relation(fields: [areaId], references: [id])
-  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+  user          User?                     @relation(fields: [userId], references: [id])
+  area          Area?                     @relation(fields: [areaId], references: [id])
+  scientificRep ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
   items         PharmacyVisitItem[]
   likes         PharmacyVisitLike[]
 
