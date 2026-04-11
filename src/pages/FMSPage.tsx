@@ -31,13 +31,15 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const [activeIdx, setActiveIdx]     = useState(0);
   const [editCell, setEditCell]       = useState<{ r: number; c: number } | null>(null);
   const [editVal, setEditVal]         = useState('');
+  const [focusedCell, setFocusedCell] = useState<{ r: number; c: number } | null>(null);
   const [dragCol, setDragCol]         = useState<number | null>(null);
   const [dragOverCol, setDragOverCol] = useState<number | null>(null);
   const [selStart, setSelStart]       = useState<{ r: number; c: number } | null>(null);
   const [selEnd, setSelEnd]           = useState<{ r: number; c: number } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const gridRef  = useRef<HTMLDivElement>(null);
+  const inputRef      = useRef<HTMLInputElement>(null);
+  const gridRef       = useRef<HTMLDivElement>(null);
+  const committingRef = useRef(false);
 
   const handleGridMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isSelecting || !gridRef.current) return;
@@ -54,17 +56,81 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const setRows = (rows: string[][]) =>
     setSheets(prev => prev.map((s, i) => i === activeIdx ? { ...s, rows } : s));
 
-  const startEdit = (r: number, c: number) => {
+  const colCount = sheet.rows[0]?.length ?? 0;
+
+  const startEdit = (r: number, c: number, initialVal?: string) => {
+    setFocusedCell({ r, c });
     setEditCell({ r, c });
-    setEditVal(sheet.rows[r]?.[c] ?? '');
-    setTimeout(() => inputRef.current?.select(), 0);
+    const val = initialVal !== undefined ? initialVal : (sheet.rows[r]?.[c] ?? '');
+    setEditVal(val);
+    setTimeout(() => {
+      if (initialVal !== undefined) inputRef.current?.focus();
+      else inputRef.current?.select();
+    }, 0);
   };
+
   const commitEdit = () => {
-    if (!editCell) return;
+    if (!editCell || committingRef.current) return;
+    committingRef.current = true;
     setRows(sheet.rows.map((row, ri) =>
       ri === editCell.r ? row.map((v, ci) => ci === editCell.c ? editVal : v) : row
     ));
     setEditCell(null);
+    committingRef.current = false;
+  };
+
+  // Commit + move to adjacent cell (keyboard Enter / Tab / Arrow from input)
+  const commitAndMove = (dr: number, dc: number) => {
+    if (!editCell || committingRef.current) return;
+    committingRef.current = true;
+    const newRows = sheet.rows.map((row, ri) =>
+      ri === editCell.r ? row.map((v, ci) => ci === editCell.c ? editVal : v) : row
+    );
+    setRows(newRows);
+    const rowCount = newRows.length;
+    const nr = Math.max(0, Math.min(rowCount - 1, editCell.r + dr));
+    const nc = Math.max(0, Math.min(colCount - 1, editCell.c + dc));
+    setFocusedCell({ r: nr, c: nc });
+    setSelStart({ r: nr, c: nc });
+    setSelEnd({ r: nr, c: nc });
+    setEditCell(null);
+    setTimeout(() => { committingRef.current = false; gridRef.current?.focus(); }, 0);
+  };
+
+  // Arrow-key navigation when not editing
+  const moveCell = (dr: number, dc: number) => {
+    const cur = focusedCell;
+    if (!cur) return;
+    const rowCount = sheet.rows.length;
+    const nr = Math.max(0, Math.min(rowCount - 1, cur.r + dr));
+    const nc = Math.max(0, Math.min(colCount - 1, cur.c + dc));
+    setFocusedCell({ r: nr, c: nc });
+    setSelStart({ r: nr, c: nc });
+    setSelEnd({ r: nr, c: nc });
+  };
+
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (editCell) return; // input handles its own keys
+    if (!focusedCell) return;
+    switch (e.key) {
+      case 'ArrowUp':    e.preventDefault(); moveCell(-1, 0); break;
+      case 'ArrowDown':  e.preventDefault(); moveCell(1, 0); break;
+      case 'ArrowLeft':  e.preventDefault(); moveCell(0, -1); break;
+      case 'ArrowRight': e.preventDefault(); moveCell(0, 1); break;
+      case 'Tab':        e.preventDefault(); moveCell(0, e.shiftKey ? -1 : 1); break;
+      case 'Enter':
+      case 'F2':         e.preventDefault(); startEdit(focusedCell.r, focusedCell.c); break;
+      case 'Delete':
+      case 'Backspace':  e.preventDefault();
+        setRows(sheet.rows.map((row, ri) =>
+          ri === focusedCell.r ? row.map((v, ci) => ci === focusedCell.c ? '' : v) : row
+        )); break;
+      default:
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          startEdit(focusedCell.r, focusedCell.c, e.key);
+        }
+    }
   };
 
   const deleteRow = (ri: number) => setRows(sheet.rows.filter((_, i) => i !== ri));
@@ -94,8 +160,7 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     onClose();
   };
 
-  const colCount = sheet.rows[0]?.length ?? 0;
-  useEffect(() => { setSelStart(null); setSelEnd(null); }, [activeIdx]);
+  useEffect(() => { setSelStart(null); setSelEnd(null); setFocusedCell(null); }, [activeIdx]);
 
   const isInSel = (r: number, c: number) => {
     if (!selStart || !selEnd) return false;
@@ -158,16 +223,18 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
         </div>
         {/* Hints */}
         <div style={{ padding: '6px 16px', background: '#fffbeb', borderBottom: '1px solid #fde68a', fontSize: 11, color: '#92400e', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <span>✏️ انقر على خلية للتعديل</span>
+          <span>⬆⬇⬅➡ التنقل بالأسهم بين الخلايا</span>
+          <span>⌨️ اكتب مباشرة لتعديل الخلية</span>
           <span>↔️ اسحب رأس العمود لإعادة الترتيب</span>
           <span>✕ حذف الصف / العمود</span>
           <span>🖱️ اسحب بالماوس لتحديد خلايا ومعرفة مجموعها</span>
         </div>
         {/* Grid */}
-        <div ref={gridRef} style={{ flex: 1, overflow: 'auto' }}
+        <div ref={gridRef} tabIndex={0} style={{ flex: 1, overflow: 'auto', outline: 'none' }}
           onMouseUp={() => setIsSelecting(false)}
           onMouseLeave={() => setIsSelecting(false)}
-          onMouseMove={handleGridMouseMove}>
+          onMouseMove={handleGridMouseMove}
+          onKeyDown={handleGridKeyDown}>
           <table style={{ borderCollapse: 'collapse', minWidth: '100%', fontSize: 12 }}>
             <thead>
               <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -188,12 +255,12 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                   <button onClick={() => deleteRow(0)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
                 </td>
                 {(sheet.rows[0] ?? []).map((cell, ci) => (
-                  <td key={ci} onDoubleClick={() => startEdit(0, ci)}
-                    onMouseDown={() => { setSelStart({ r: 0, c: ci }); setSelEnd({ r: 0, c: ci }); setIsSelecting(true); setEditCell(null); }}
+                  <td key={ci}
+                    onMouseDown={() => { setFocusedCell({ r: 0, c: ci }); setSelStart({ r: 0, c: ci }); setSelEnd({ r: 0, c: ci }); setIsSelecting(true); setEditCell(null); setTimeout(() => gridRef.current?.focus(), 0); }}
                     onMouseEnter={() => { if (isSelecting) setSelEnd({ r: 0, c: ci }); }}
-                    style={{ padding: '4px 8px', border: `1px solid ${isInSel(0, ci) ? '#93c5fd' : '#bae6fd'}`, fontWeight: 700, color: '#0c4a6e', cursor: 'cell', whiteSpace: 'nowrap', background: isInSel(0, ci) ? '#bfdbfe' : '#e0f2fe', userSelect: 'none' }}>
+                    style={{ padding: '4px 8px', border: focusedCell?.r === 0 && focusedCell?.c === ci && !editCell ? '2px solid #22c55e' : `1px solid ${isInSel(0, ci) ? '#93c5fd' : '#bae6fd'}`, fontWeight: 700, color: '#0c4a6e', cursor: 'cell', whiteSpace: 'nowrap', background: isInSel(0, ci) ? '#bfdbfe' : '#e0f2fe', userSelect: 'none' }}>
                     {editCell?.r === 0 && editCell.c === ci ? (
-                      <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
+                      <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'Tab') { e.preventDefault(); commitAndMove(0, e.shiftKey ? -1 : 1); } else if (e.key === 'ArrowDown') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'ArrowUp') { e.preventDefault(); commitAndMove(-1, 0); } else if (e.key === 'Escape') { setEditCell(null); gridRef.current?.focus(); } }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
                     ) : String(cell ?? '')}
                   </td>
                 ))}
@@ -208,12 +275,12 @@ function FMSExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                       <button onClick={() => deleteRow(actualRi)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
                     </td>
                     {Array.from({ length: colCount }, (_, ci) => (
-                      <td key={ci} onDoubleClick={() => startEdit(actualRi, ci)}
-                        onMouseDown={() => { setSelStart({ r: actualRi, c: ci }); setSelEnd({ r: actualRi, c: ci }); setIsSelecting(true); setEditCell(null); }}
+                      <td key={ci}
+                        onMouseDown={() => { setFocusedCell({ r: actualRi, c: ci }); setSelStart({ r: actualRi, c: ci }); setSelEnd({ r: actualRi, c: ci }); setIsSelecting(true); setEditCell(null); setTimeout(() => gridRef.current?.focus(), 0); }}
                         onMouseEnter={() => { if (isSelecting) setSelEnd({ r: actualRi, c: ci }); }}
-                        style={{ padding: '3px 8px', border: `1px solid ${isInSel(actualRi, ci) ? '#93c5fd' : '#e5e7eb'}`, cursor: 'cell', whiteSpace: 'nowrap', userSelect: 'none', background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : isInSel(actualRi, ci) ? '#dbeafe' : undefined }}>
+                        style={{ padding: '3px 8px', border: focusedCell?.r === actualRi && focusedCell?.c === ci && !editCell ? '2px solid #22c55e' : `1px solid ${isInSel(actualRi, ci) ? '#93c5fd' : '#e5e7eb'}`, cursor: 'cell', whiteSpace: 'nowrap', userSelect: 'none', background: editCell?.r === actualRi && editCell.c === ci ? '#eff6ff' : isInSel(actualRi, ci) ? '#dbeafe' : undefined }}>
                         {editCell?.r === actualRi && editCell.c === ci ? (
-                          <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditCell(null); }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
+                          <input ref={inputRef} value={editVal} onChange={e => setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'Tab') { e.preventDefault(); commitAndMove(0, e.shiftKey ? -1 : 1); } else if (e.key === 'ArrowDown') { e.preventDefault(); commitAndMove(1, 0); } else if (e.key === 'ArrowUp') { e.preventDefault(); commitAndMove(-1, 0); } else if (e.key === 'Escape') { setEditCell(null); gridRef.current?.focus(); } }} style={{ border: '1.5px solid #3b82f6', borderRadius: 4, padding: '1px 4px', width: '100%', minWidth: 60, fontSize: 12 }} autoFocus />
                         ) : String(row[ci] ?? '')}
                       </td>
                     ))}
