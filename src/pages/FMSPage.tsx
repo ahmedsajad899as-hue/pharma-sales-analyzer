@@ -462,7 +462,7 @@ export default function FMSPage() {
 
   // ── Grid state ────────────────────────────────────────────
   const allItemNames = useMemo(
-    () => Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName)))),
+    () => Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName)))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
     [plans]
   );
 
@@ -553,7 +553,7 @@ export default function FMSPage() {
 
   const exportExcel = () => {
     // ── Sheet 1: Pivot table — items × reps ──────────────────
-    const allItems = Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName))));
+    const allItems = Array.from(new Set(plans.flatMap(p => p.items.map(it => it.itemName)))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     const headerRow = ['اسم المادة', ...plans.map(p => p.scientificRep.name), 'الإجمالي'];
     const dataRows = allItems.map(itemName => {
       const qtys = plans.map(p => {
