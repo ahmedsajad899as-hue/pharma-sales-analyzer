@@ -39,8 +39,52 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   };
 
   const sheet = sheets[activeIdx];
+
+  // ── Sync summary sheet after any edit to a data sheet ────
+  const recalcSummary = (sheetIdx: number, newRows: string[][], prev: PreviewSheet[]): PreviewSheet[] => {
+    const updated = prev.map((s, i) => i === sheetIdx ? { ...s, rows: newRows } : s);
+    if (sheetIdx === 0 || !prev[0]) return updated;
+
+    const header  = newRows[0] ?? [];
+    const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
+    const qtyCol  = header.findIndex(h => /كمية|qty|quantity/i.test(h));
+    const valCol  = header.findIndex(h =>
+      !/سعر.*وحد|unit.?price/i.test(h) && /قيمة|إجمالي|total.*val|val.*total/i.test(h));
+
+    const dataRows = newRows.slice(1);
+    const sum = (col: number) => col < 0 ? null : dataRows.reduce((s, row) => {
+      const v = parseFloat(row[col] ?? ''); if (isNaN(v)) return s;
+      const isRet = rtCol >= 0 && /↩|ارجاع|return/i.test(row[rtCol] ?? '');
+      return s + (isRet ? -Math.abs(v) : Math.abs(v));
+    }, 0);
+
+    const tQty = sum(qtyCol);
+    const tVal = sum(valCol);
+
+    const summaryRows = prev[0].rows.map((row, ri) => {
+      if (ri !== sheetIdx) return row;
+      return row.map((v, ci) =>
+        ci === 3 && tQty !== null ? String(Math.round(tQty)) :
+        ci === 4 && tVal !== null ? String(Math.round(tVal)) : v
+      );
+    });
+
+    // Recalc grand total row (col 0 is empty)
+    const newSummary = [...summaryRows];
+    const gtIdx = newSummary.findIndex((row, ri) => ri > 0 && row[0] === '');
+    if (gtIdx >= 0) {
+      const gQty = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[3]) || 0), 0);
+      const gVal = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[4]) || 0), 0);
+      newSummary[gtIdx] = newSummary[gtIdx].map((v, ci) =>
+        ci === 3 ? String(Math.round(gQty)) : ci === 4 ? String(Math.round(gVal)) : v
+      );
+    }
+
+    return updated.map((s, i) => i === 0 ? { ...s, rows: newSummary } : s);
+  };
+
   const setRows = (rows: string[][]) =>
-    setSheets(prev => prev.map((s, i) => i === activeIdx ? { ...s, rows } : s));
+    setSheets(prev => recalcSummary(activeIdx, rows, prev));
 
   // ── Cell edit ────────────────────────────────────────────
   const startEdit = (r: number, c: number) => {
