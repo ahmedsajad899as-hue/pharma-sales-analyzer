@@ -1738,15 +1738,16 @@ export default function MonthlyPlansPage() {
 
                 {/* ── Tools overflow menu: managers only ── */}
                 {!isFieldRep && (
-                  <div style={{ position: 'relative' }}>
+                  <div style={{ position: 'relative', marginRight: 'auto' }}>
                     <button
                       onClick={() => setShowToolsMenu(v => !v)}
-                      style={{ ...btnStyle('#64748b'), display: 'flex', alignItems: 'center', gap: 5 }}>
-                      ⋯ أدوات
+                      style={{ ...btnStyle('#64748b'), padding: '6px 10px', minWidth: 36 }}
+                      title="أدوات">
+                      ⋯
                     </button>
                     {showToolsMenu && (
                       <div style={{
-                        position: 'absolute', top: '110%', left: 0, zIndex: 300,
+                        position: 'absolute', top: '110%', right: 0, zIndex: 300,
                         background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
                         padding: 6, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                         direction: 'rtl',
