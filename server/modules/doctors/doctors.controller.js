@@ -115,17 +115,11 @@ export async function visitsByArea(req, res, next) {
         }
       }
 
-      // ── 5. أطباء السيرفي الرئيسي في المناطق المعيّنة ─────────
-      // يُضاف فقط من لا يوجد في Doctor table (dedup بالاسم)
-      const activeSurvey = await prisma.masterSurvey.findFirst({
-        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
-      });
-
+      // ── 5. بناء قائمة الأطباء النهائية من Doctor table فقط ───
+      // (لا نضيف أطباء السيرفي حتى يتطابق العدد مع قائمة الأطباء)
       const mergedMap = new Map(); // key = normArea(name)
 
-      // أولاً: Doctor table (له أولوية لأن عنده زيارات حقيقية)
       for (const [key, d] of dbDoctorsByNorm) {
-        // Normalize display area to the canonical ASSIGNED area name
         const normKey = normArea(d.area.name);
         const canonicalArea = assignedAreas.find(a => normArea(a.name) === normKey) ?? d.area;
         mergedMap.set(key, {
@@ -136,32 +130,8 @@ export async function visitsByArea(req, res, next) {
         });
       }
 
-      // ثانياً: السيرفي (فقط من لا يوجد في Doctor table)
-      if (activeSurvey) {
-        const surveyDocs = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: activeSurvey.id },
-          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
-        });
-        for (const sd of surveyDocs) {
-          if (!sd.areaName?.trim()) continue;
-          if (!assignedNormSet.has(normArea(sd.areaName))) continue;
-          const key = normArea(sd.name);
-          if (mergedMap.has(key)) continue; // موجود في Doctor table
-          const areaDisplay = assignedAreas.find(a => normArea(a.name) === normArea(sd.areaName))
-            ?? { id: null, name: sd.areaName.trim() };
-          mergedMap.set(key, {
-            id: `survey:${sd.id}`, name: sd.name, specialty: sd.specialty ?? null,
-            pharmacyName: sd.pharmacyName ?? null,
-            area: areaDisplay, targetItem: null, isActive: true,
-            visits: [],
-          });
-        }
-      }
-
       doctors = [...mergedMap.values()];
-      console.log('[visitsByArea] db:', dbDoctorsByNorm.size,
-        'survey-only added:', doctors.length - dbDoctorsByNorm.size,
-        'total:', doctors.length);
+      console.log('[visitsByArea] db:', dbDoctorsByNorm.size, 'total:', doctors.length);
 
     } else {
       // للمدير: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
