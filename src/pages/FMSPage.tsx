@@ -129,6 +129,7 @@ export default function FMSPage() {
   const [showPicker,  setShowPicker]  = useState(false);
   const [editPlan,    setEditPlan]    = useState<FmsPlan | null>(null);
   const [formRepId,   setFormRepId]   = useState('');
+  const [formRepIds,  setFormRepIds]  = useState<Set<number>>(new Set());
   const [formMonth,   setFormMonth]   = useState(String(new Date().getMonth() + 1));
   const [formYear,    setFormYear]    = useState(String(new Date().getFullYear()));
   const [formNotes,   setFormNotes]   = useState('');
@@ -161,7 +162,8 @@ export default function FMSPage() {
 
   const openNew = () => {
     setEditPlan(null);
-    setFormRepId(sciReps[0] ? String(sciReps[0].id) : '');
+    setFormRepId('');
+    setFormRepIds(new Set(sciReps.map(r => r.id)));
     setFormMonth(filterMonth);
     setFormYear(filterYear);
     setFormNotes('');
@@ -200,16 +202,26 @@ export default function FMSPage() {
   };
 
   const savePlan = async () => {
-    if (!formRepId) { setError('اختر مندوباً'); return; }
+    if (editPlan && !formRepId) { setError('اختر مندوباً'); return; }
+    if (!editPlan && formRepIds.size === 0) { setError('اختر مندوباً على الأقل'); return; }
     const validItems = formItems.filter(it => it.itemName.trim() && it.quantity > 0);
     if (validItems.length === 0) { setError('أضف صنفاً واحداً على الأقل بكمية أكبر من صفر'); return; }
     setSaving(true); setError('');
     try {
-      const body = { scientificRepId: formRepId, month: formMonth, year: formYear, notes: formNotes, items: validItems };
-      const r = await fetch('/api/fms', { method: 'POST', headers: authH(), body: JSON.stringify(body) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'خطأ في الحفظ');
-      setSuccess('تم الحفظ بنجاح ✓');
+      if (editPlan) {
+        const body = { scientificRepId: formRepId, month: formMonth, year: formYear, notes: formNotes, items: validItems };
+        const r = await fetch('/api/fms', { method: 'POST', headers: authH(), body: JSON.stringify(body) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'خطأ في الحفظ');
+        setSuccess('تم الحفظ بنجاح ✓');
+      } else {
+        const repIds = [...formRepIds];
+        await Promise.all(repIds.map(repId => {
+          const body = { scientificRepId: String(repId), month: formMonth, year: formYear, notes: formNotes, items: validItems };
+          return fetch('/api/fms', { method: 'POST', headers: authH(), body: JSON.stringify(body) });
+        }));
+        setSuccess(`تم حفظ ${repIds.length} ${repIds.length === 1 ? 'خطة' : 'خطط'} بنجاح ✓`);
+      }
       setShowForm(false);
       loadPlans();
       setTimeout(() => setSuccess(''), 3000);
@@ -370,26 +382,74 @@ export default function FMSPage() {
             <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px' }}>
               {error && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
-                  المندوب العلمي *
-                  <select value={formRepId} onChange={e => setFormRepId(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
-                    {sciReps.map(r => <option key={r.id} value={String(r.id)}>{r.name}</option>)}
-                  </select>
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
-                  الشهر *
-                  <select value={formMonth} onChange={e => setFormMonth(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
-                    {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
-                  </select>
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
-                  السنة *
-                  <select value={formYear} onChange={e => setFormYear(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
-                    {years.map(y => <option key={y}>{y}</option>)}
-                  </select>
-                </label>
-              </div>
+              {editPlan ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
+                    المندوب العلمي
+                    <div style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f8fafc', fontSize: 13, color: '#374151' }}>
+                      {sciReps.find(r => r.id === parseInt(formRepId))?.name ?? '—'}
+                    </div>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
+                    الشهر *
+                    <select value={formMonth} onChange={e => setFormMonth(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                      {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
+                    السنة *
+                    <select value={formYear} onChange={e => setFormYear(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                      {years.map(y => <option key={y}>{y}</option>)}
+                    </select>
+                  </label>
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                        المندوبون العلميون *{formRepIds.size > 0 && <span style={{ color: '#6366f1', marginRight: 4 }}>({formRepIds.size} محدد)</span>}
+                      </span>
+                      <button type="button"
+                        onClick={() => setFormRepIds(formRepIds.size === sciReps.length ? new Set() : new Set(sciReps.map(r => r.id)))}
+                        style={{ fontSize: 11, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                        {formRepIds.size === sciReps.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e5e7eb', maxHeight: 150, overflowY: 'auto' }}>
+                      {sciReps.map(rep => (
+                        <label key={rep.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 20, cursor: 'pointer',
+                          background: formRepIds.has(rep.id) ? '#eef2ff' : '#fff',
+                          border: `1px solid ${formRepIds.has(rep.id) ? '#818cf8' : '#e5e7eb'}`,
+                          color: formRepIds.has(rep.id) ? '#4f46e5' : '#374151',
+                          fontWeight: formRepIds.has(rep.id) ? 600 : 400,
+                          fontSize: 12, userSelect: 'none',
+                        }}>
+                          <input type="checkbox" checked={formRepIds.has(rep.id)}
+                            onChange={() => setFormRepIds(prev => { const s = new Set(prev); s.has(rep.id) ? s.delete(rep.id) : s.add(rep.id); return s; })}
+                            style={{ width: 13, height: 13 }} />
+                          {rep.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
+                      الشهر *
+                      <select value={formMonth} onChange={e => setFormMonth(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                        {MONTHS.map((m, i) => <option key={i} value={String(i + 1)}>{m}</option>)}
+                      </select>
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
+                      السنة *
+                      <select value={formYear} onChange={e => setFormYear(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                        {years.map(y => <option key={y}>{y}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                </>
+              )}
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>الأصناف والكميات ({formItems.filter(r => r.itemName.trim()).length})</span>
@@ -443,7 +503,7 @@ export default function FMSPage() {
               <button onClick={() => setShowForm(false)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13 }}>إلغاء</button>
               <button onClick={savePlan} disabled={saving}
                 style={{ padding: '8px 22px', borderRadius: 8, border: 'none', cursor: saving ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13, opacity: saving ? 0.7 : 1 }}>
-                {saving ? '⏳ جاري الحفظ...' : '✅ حفظ'}
+                {saving ? '⏳ جاري الحفظ...' : editPlan ? '✅ حفظ' : `✅ حفظ${!editPlan && formRepIds.size > 1 ? ` (${formRepIds.size} خطط)` : ''}`}
               </button>
             </div>
           </div>
