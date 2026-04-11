@@ -138,6 +138,63 @@ export async function addDoctor(req, res, next) {
       },
     });
     await logEntry(surveyId, 'doctor', doc.id, 'create', null, doc, req.user.id);
+
+    // ── Sync Survey → Doctor table ──────────────────────────
+    // Add this doctor to all managers who have reps assigned to this area
+    try {
+      if (areaName?.trim()) {
+        // Find all areas matching this areaName (normalized)
+        const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+        const normN = s => String(s ?? '').trim().toLowerCase()
+          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, '');
+        const matchingAreaIds = allAreas
+          .filter(a => normN(a.name) === normN(areaName))
+          .map(a => a.id);
+
+        if (matchingAreaIds.length > 0) {
+          // Find all users (managers) who have doctors in these areas
+          const ownerRows = await prisma.doctor.findMany({
+            where: { areaId: { in: matchingAreaIds } },
+            select: { userId: true },
+            distinct: ['userId'],
+          });
+          const ownerUserIds = ownerRows.map(r => r.userId).filter(Boolean);
+
+          for (const ownerUserId of ownerUserIds) {
+            // Check if doctor already exists for this user
+            const existingDoc = await prisma.doctor.findFirst({
+              where: { userId: ownerUserId, name: { equals: name.trim() } },
+              select: { id: true, masterSurveyDoctorId: true },
+            });
+            if (existingDoc) {
+              // Link to survey if not already linked
+              if (!existingDoc.masterSurveyDoctorId) {
+                await prisma.doctor.update({
+                  where: { id: existingDoc.id },
+                  data: { masterSurveyDoctorId: doc.id },
+                });
+              }
+            } else {
+              // Create new doctor for this manager
+              const resolvedAreaId = matchingAreaIds[0];
+              await prisma.doctor.create({
+                data: {
+                  name:                name.trim(),
+                  specialty:           specialty    ?? null,
+                  pharmacyName:        pharmacyName ?? null,
+                  notes:               notes        ?? null,
+                  areaId:              resolvedAreaId,
+                  userId:              ownerUserId,
+                  masterSurveyDoctorId: doc.id,
+                },
+              });
+            }
+          }
+        }
+      }
+    } catch (_) { /* sync failure should not block survey doctor creation */ }
+
     res.status(201).json({ success: true, data: doc });
   } catch (e) { next(e); }
 }

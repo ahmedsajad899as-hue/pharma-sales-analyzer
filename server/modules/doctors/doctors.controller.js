@@ -591,12 +591,60 @@ export async function create(req, res, next) {
       }
     }
 
+    // ── Sync Doctor → MasterSurvey ────────────────────────────
+    // Find active survey; upsert this doctor by name (normalized)
+    const normN = s => String(s ?? '').trim().toLowerCase()
+      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      .replace(/[ًٌٍَُِّْ]/g, '');
+    let masterSurveyDoctorId = null;
+    try {
+      const activeSurvey = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+      });
+      if (activeSurvey) {
+        // Resolve area name from areaId
+        const areaRow = resolvedAreaId
+          ? await prisma.area.findUnique({ where: { id: resolvedAreaId }, select: { name: true } })
+          : null;
+        const areaNameStr = areaRow?.name ?? areaName ?? null;
+        // Find existing survey doctor by normalized name
+        const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: activeSurvey.id }, select: { id: true, name: true },
+        });
+        const existing = allSurveyDocs.find(d => normN(d.name) === normN(name));
+        if (existing) {
+          masterSurveyDoctorId = existing.id;
+          // Update survey doctor if we have new info
+          await prisma.masterSurveyDoctor.update({
+            where: { id: existing.id },
+            data: {
+              ...(specialty    ? { specialty }    : {}),
+              ...(pharmacyName ? { pharmacyName } : {}),
+              ...(areaNameStr  ? { areaName: areaNameStr } : {}),
+            },
+          });
+        } else {
+          const created = await prisma.masterSurveyDoctor.create({
+            data: {
+              surveyId: activeSurvey.id,
+              name: name.trim(),
+              specialty: specialty ?? null,
+              pharmacyName: pharmacyName ?? null,
+              areaName: areaNameStr ?? null,
+            },
+          });
+          masterSurveyDoctorId = created.id;
+        }
+      }
+    } catch (_) { /* sync failure should not block doctor creation */ }
+
     const doctor = await prisma.doctor.create({
       data: {
         name, specialty, pharmacyName, notes,
         areaId:       resolvedAreaId ?? null,
         targetItemId: targetItemId ? parseInt(targetItemId) : null,
         userId,
+        ...(masterSurveyDoctorId ? { masterSurveyDoctorId } : {}),
       },
       include: {
         area:       { select: { id: true, name: true } },
@@ -650,6 +698,58 @@ export async function update(req, res, next) {
         ...(targetItemId !== undefined && { targetItemId: targetItemId ? parseInt(targetItemId) : null }),
       },
     });
+
+    // ── Sync Doctor update → MasterSurvey ──────────────────────
+    try {
+      const normN = s => String(s ?? '').trim().toLowerCase()
+        .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+        .replace(/[ًٌٍَُِّْ]/g, '');
+      const updatedDoc = await prisma.doctor.findUnique({
+        where: { id },
+        include: { area: { select: { name: true } } },
+      });
+      const activeSurvey = await prisma.masterSurvey.findFirst({
+        where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+      });
+      if (activeSurvey && updatedDoc) {
+        const surveyUpdateData = {};
+        if (name         !== undefined) surveyUpdateData.name         = updatedDoc.name;
+        if (specialty    !== undefined) surveyUpdateData.specialty    = updatedDoc.specialty;
+        if (pharmacyName !== undefined) surveyUpdateData.pharmacyName = updatedDoc.pharmacyName;
+        if (resolvedAreaId !== undefined) surveyUpdateData.areaName   = updatedDoc.area?.name ?? null;
+        if (Object.keys(surveyUpdateData).length > 0) {
+          if (updatedDoc.masterSurveyDoctorId) {
+            await prisma.masterSurveyDoctor.update({
+              where: { id: updatedDoc.masterSurveyDoctorId },
+              data: surveyUpdateData,
+            });
+          } else {
+            // Find by normalized name and link
+            const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
+              where: { surveyId: activeSurvey.id }, select: { id: true, name: true },
+            });
+            const match = allSurveyDocs.find(d => normN(d.name) === normN(updatedDoc.name));
+            if (match) {
+              await prisma.masterSurveyDoctor.update({ where: { id: match.id }, data: surveyUpdateData });
+              await prisma.doctor.update({ where: { id }, data: { masterSurveyDoctorId: match.id } });
+            } else {
+              // Not in survey yet — add it
+              const created = await prisma.masterSurveyDoctor.create({
+                data: {
+                  surveyId: activeSurvey.id,
+                  name:         updatedDoc.name,
+                  specialty:    updatedDoc.specialty    ?? null,
+                  pharmacyName: updatedDoc.pharmacyName ?? null,
+                  areaName:     updatedDoc.area?.name   ?? null,
+                },
+              });
+              await prisma.doctor.update({ where: { id }, data: { masterSurveyDoctorId: created.id } });
+            }
+          }
+        }
+      }
+    } catch (_) { /* sync failure should not block doctor update */ }
+
     res.json({ success: true });
   } catch (e) { next(e); }
 }
