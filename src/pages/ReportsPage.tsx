@@ -329,12 +329,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <tr>
               <th>#</th><th>{nameLabel}</th>
               {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-              {!hideQtyCols && <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>� {qtyRevealed ? '▼' : '▶'}</th>}
-              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span>{!hideQtyCols && (qtyRevealed ? ' ▼' : ' ▶')}</th>
-              {!hideQtyCols && <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>📉 {qtyRevealed ? '▼' : '▶'}</th>}
-              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span>{!hideQtyCols && (qtyRevealed ? ' ▼' : ' ▶')}</th>
-              {!hideQtyCols && <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅</th>}
-              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>⚖️ <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span></th>
+              {!hideQtyCols && <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>📈 Sales {qtyRevealed ? '▼' : '▶'}</th>}
+              <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 Sales <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span>{!hideQtyCols && (qtyRevealed ? ' ▼' : ' ▶')}</th>
+              {!hideQtyCols && <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>📉 Ret {qtyRevealed ? '▼' : '▶'}</th>}
+              <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 Ret <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span>{!hideQtyCols && (qtyRevealed ? ' ▼' : ' ▶')}</th>
+              {!hideQtyCols && <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅ Net</th>}
+              <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>⚖️ Net <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span></th>
             </tr>
           </thead>
           <tbody>
