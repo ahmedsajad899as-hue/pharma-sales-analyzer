@@ -1943,7 +1943,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
                             {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
                             {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
-                            <span style={{ fontSize: 10, color: '#94a3b8' }}>{isMultiDay ? `${date} ` : ''}{time}</span>
+                            <span style={{ fontSize: 10, color: '#94a3b8' }}>{time}</span>
                           </div>
                         </div>
 
@@ -1966,7 +1966,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         </div>
 
                         {/* Actions: notes + location + like stacked vertically */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                           {/* Notes */}
                           <div style={{ position: 'relative' }}>
                             <button
@@ -3733,7 +3733,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
                           {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
                           {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
-                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{isMultiDay ? date : ''} {time}</span>
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{time}</span>
                         </div>
                       </div>
 
@@ -3743,7 +3743,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       </div>
 
                       {/* Actions: notes + location + like stacked vertically */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                         {/* Notes */}
                         <div style={{ position: 'relative' }}>
                           <button
