@@ -3782,105 +3782,99 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 )}
               </div>
 
-              {/* Table */}
-              <div style={{ overflowX: 'auto', maxHeight: '380px', overflowY: 'auto' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>{(t.dashboard as any).dailyCallsColNum}</th>
-                      <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
-                      {isManagerOrAdmin && <th>{(t.dashboard as any).dailyCallsColRep}</th>}
-                      <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
-                      <th>{(t.dashboard as any).dailyCallsColItem}</th>
-                      <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
-                      <th>{(t.dashboard as any).dailyCallsColLocation}</th>
-                      <th style={{ width: 44 }}>❤️</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredVisits.map((v, idx) => (
-                      <tr key={v.id} style={(v as any)._outOfPlan ? { background: '#fff7ed' } : undefined}>
-                        <td>{idx + 1}</td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                            <strong>{v.doctor.name}</strong>
-                            {(v as any)._outOfPlan && (
-                              <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
-                            )}
-                          </div>
-                          {v.doctor.specialty && (
-                            <div style={{ fontSize: '11px', color: '#6b7280' }}>{v.doctor.specialty}</div>
+              {/* Cards List */}
+              <div style={{ maxHeight: 420, overflowY: 'auto', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {filteredVisits.map((v, idx) => {
+                  const isPharmacy = (v as any)._visitType === 'pharmacy';
+                  const isDouble   = (v as any)._isDoubleVisit;
+                  const isOutOfPlan = (v as any)._outOfPlan;
+                  const likes      = (v as any).likes ?? [];
+                  const likeCount  = likes.length;
+                  const { time, date } = fmtDateAndTime(v.visitDate);
+                  const repName    = v.scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '';
+                  const items: string[] = isPharmacy
+                    ? ((v as any).pharmItems ?? []).map((pi: any) => pi.item?.name || pi.itemName).filter(Boolean)
+                    : (v.item?.name ? [v.item.name] : []);
+                  const areaName   = v.doctor?.area?.name ?? '';
+
+                  return (
+                    <div key={v.id} style={{
+                      background: isOutOfPlan ? '#fff7ed' : '#f8fafc',
+                      border: `1px solid ${isOutOfPlan ? '#fed7aa' : '#e2e8f0'}`,
+                      borderRadius: 10,
+                      padding: '9px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      direction: 'rtl',
+                    }}>
+                      {/* Index */}
+                      <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, minWidth: 18, textAlign: 'center' }}>{idx + 1}</span>
+
+                      {/* Main info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {/* Name row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {isPharmacy && <span style={{ fontSize: 12 }}>🏪</span>}
+                          <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{v.doctor.name}</span>
+                          {v.doctor.specialty && !isPharmacy && (
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{v.doctor.specialty}</span>
                           )}
-                        </td>
-                        {isManagerOrAdmin && <td>{v.scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '—'}</td>}
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          {(() => { const { date, time } = fmtDateAndTime(v.visitDate); return isMultiDay ? <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></> : <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
-                        </td>
-                        <td>{v.item?.name ?? '—'}</td>
-                        <td>
-                          {renderFeedbackBadges(v.feedback || 'pending')}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {v.latitude != null
-                            ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '22px', padding: '2px', lineHeight: 1 }}>📍</button>
-                            : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
-                        </td>
-                        <td style={{ textAlign: 'center', position: 'relative' }}>
-                          {(() => {
-                            const likes = (v as any).likes ?? [];
-                            const likeCount = likes.length;
-                            const liked = !!(likes.find((l: any) => l.userId === user?.id));
-                            return (
-                              <div style={{ position: 'relative', display: 'inline-block' }}>
-                                <button
-                                  title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
-                                  disabled={!isManagerOrAdmin || likingVisit === v.id}
-                                  onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
-                                  onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
-                                  onMouseUp={() => clearTimeout(likeTimer.current)}
-                                  onMouseLeave={() => clearTimeout(likeTimer.current)}
-                                  onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
-                                  onTouchEnd={() => clearTimeout(likeTimer.current)}
-                                  style={{
-                                    position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                    width: 28, height: 28, borderRadius: '50%', padding: 0,
-                                    border: 'none', background: 'transparent',
-                                    cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
-                                    transition: 'opacity 0.15s',
-                                  }}>
-                                  <svg viewBox="0 0 24 24" width="16" height="16" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                                  {likeCount > 0 && (
-                                    <span style={{
-                                      position: 'absolute', top: -5, right: -5,
-                                      background: '#ef4444', color: '#fff', borderRadius: '50%',
-                                      fontSize: 9, fontWeight: 800, width: 15, height: 15,
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      lineHeight: 1, border: '1.5px solid #fff',
-                                    }}>{likeCount}</span>
-                                  )}
-                                </button>
-                                {showLikersId === v.id && (
-                                  <div style={{
-                                    position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-                                    background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
-                                    fontSize: 11, whiteSpace: 'nowrap', zIndex: 999,
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110,
-                                  }} onClick={() => setShowLikersId(null)}>
-                                    <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
-                                    {likeCount === 0
-                                      ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
-                                      : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)
-                                    }
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
+                          {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
+                        </div>
+                        {/* Details row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
+                          {items.length > 0 && (
+                            <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>
+                          )}
+                          {areaName && <span style={{ fontSize: 11, color: '#64748b' }}>📍 {areaName}</span>}
+                          {isManagerOrAdmin && repName && <span style={{ fontSize: 11, color: '#64748b' }}>👤 {repName}</span>}
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>{isMultiDay ? date : ''} {time}</span>
+                        </div>
+                      </div>
+
+                      {/* Feedback */}
+                      <div style={{ flexShrink: 0 }}>
+                        {renderFeedbackBadges(v.feedback || 'pending')}
+                      </div>
+
+                      {/* Location */}
+                      {v.latitude != null && (
+                        <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, padding: 0, flexShrink: 0 }}>📍</button>
+                      )}
+
+                      {/* Like */}
+                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                        <button
+                          disabled={!isManagerOrAdmin || likingVisit === v.id}
+                          onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
+                          onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                          onMouseUp={() => clearTimeout(likeTimer.current)}
+                          onMouseLeave={() => clearTimeout(likeTimer.current)}
+                          onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                          onTouchEnd={() => clearTimeout(likeTimer.current)}
+                          style={{
+                            position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'transparent',
+                            cursor: isManagerOrAdmin ? 'pointer' : 'default',
+                          }}>
+                          <svg viewBox="0 0 24 24" width="15" height="15" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                          {likeCount > 0 && (
+                            <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 9, fontWeight: 800, width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>
+                          )}
+                        </button>
+                        {showLikersId === v.id && (
+                          <div style={{ position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
+                            onClick={() => setShowLikersId(null)}>
+                            <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                            {likeCount === 0 ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div> : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
