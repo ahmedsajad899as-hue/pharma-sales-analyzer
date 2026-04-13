@@ -241,7 +241,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         setIsOpen(false);
       }
     } catch (e: any) {
-      setError(e.message || 'حدث خطأ');
+      const msg: string = e.message || '';
+      if (msg.includes('429') || msg.includes('Too Many Requests') || msg.includes('Quota') || msg.includes('quota')) {
+        setError('المساعد الذكي وصل لحد الاستخدام اليومي، يرجى المحاولة لاحقاً أو التواصل مع الدعم الفني.');
+      } else {
+        setError(msg || 'حدث خطأ');
+      }
     } finally {
       setIsProcessing(false);
     }

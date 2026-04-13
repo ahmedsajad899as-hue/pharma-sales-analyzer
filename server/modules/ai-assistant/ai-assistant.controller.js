@@ -1727,6 +1727,11 @@ export async function handleCommand(req, res) {
 
   } catch (err) {
     console.error('[ai-assistant] error:', err);
-    return res.status(500).json({ success: false, error: err.message || '\u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639' });
+    const msg = String(err?.message || '');
+    const is429 = msg.includes('429') || msg.includes('Too Many Requests') || msg.includes('quota') || msg.includes('Quota');
+    const friendly = is429
+      ? '\u0627\u0644\u0645\u0633\u0627\u0639\u062f \u0627\u0644\u0630\u0643\u064a \u0648\u0635\u0644 \u0644\u062d\u062f \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0627\u0644\u064a\u0648\u0645\u064a\u060c \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 \u0644\u0627\u062d\u0642\u0627\u064b.'
+      : (msg || '\u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639');
+    return res.status(is429 ? 429 : 500).json({ success: false, error: friendly });
   }
 }
