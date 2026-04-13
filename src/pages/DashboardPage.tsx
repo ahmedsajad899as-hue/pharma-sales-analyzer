@@ -1914,8 +1914,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         gap: 8,
                         direction: 'rtl',
                       }}>
-                        {/* Index */}
-                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, minWidth: 16, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                        {/* Index + Time */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{time}</span>
+                          <span style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 700 }}>{idx + 1}</span>
+                        </div>
 
                         {/* Main info */}
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1943,7 +1946,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
                             {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
                             {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
-                            <span style={{ fontSize: 10, color: '#94a3b8' }}>{time}</span>
                           </div>
                         </div>
 
@@ -3704,8 +3706,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       gap: 10,
                       direction: 'rtl',
                     }}>
-                      {/* Index */}
-                      <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, minWidth: 18, textAlign: 'center' }}>{idx + 1}</span>
+                      {/* Index + Time */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>{time}</span>
+                        <span style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 700 }}>{idx + 1}</span>
+                      </div>
 
                       {/* Main info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -3733,7 +3738,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
                           {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
                           {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
-                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{time}</span>
                         </div>
                       </div>
 
