@@ -1865,255 +1865,135 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               </div>
               <div
                 data-no-sidebar-swipe
-                style={{ overflowX: 'auto', maxHeight: callsCompact ? '75vh' : '520px', overflowY: 'auto' }}
-                onTouchStart={e => {
-                  if (e.touches.length === 2) {
-                    (e.currentTarget as any)._pinchStart = Math.hypot(
-                      e.touches[0].clientX - e.touches[1].clientX,
-                      e.touches[0].clientY - e.touches[1].clientY
-                    );
-                  }
-                }}
-                onTouchMove={e => {
-                  if (e.touches.length === 2 && (e.currentTarget as any)._pinchStart) {
-                    const dist = Math.hypot(
-                      e.touches[0].clientX - e.touches[1].clientX,
-                      e.touches[0].clientY - e.touches[1].clientY
-                    );
-                    const delta = dist - (e.currentTarget as any)._pinchStart;
-                    if (Math.abs(delta) > 30) {
-                      setCallsCompact(delta < 0);
-                      (e.currentTarget as any)._pinchStart = null;
-                    }
-                  }
-                }}
+                style={{ maxHeight: callsCompact ? '75vh' : '520px', overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}
               >
-                <table className={callsCompact ? 'data-table calls-compact' : 'data-table'}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 36 }}>#</th>
-                      <th>{(t.dashboard as any).dailyCallsColDoctor}</th>
-                      {isManagerOrAdmin && <th style={{ fontSize: '10px', padding: '4px 4px' }}>{(t.dashboard as any).dailyCallsColRep}</th>}
-                      <th style={{ fontSize: '10px', padding: '4px 4px', maxWidth: 80 }}>الصيدلية / المنطقة</th>
-                      <th>{isMultiDay ? 'التاريخ والوقت' : (t.dashboard as any).dailyCallsColTime}</th>
-                      <th style={{ fontSize: '10px', padding: '4px 4px', maxWidth: 80 }}>{(t.dashboard as any).dailyCallsColItem}</th>
-                      <th>{(t.dashboard as any).dailyCallsColFeedback}</th>
-                      <th>الملاحظات</th>
-                      <th style={{ width: 44, padding: '4px 2px', textAlign: 'center', fontSize: '11px' }}>📍 ❤️</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredVisits
-                      .slice()
-                      .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime())
-                      .reduce<React.ReactNode[]>((rows, v, idx, arr) => {
-                        // Date separator between days (only in multi-day view)
-                        const _spansDays = new Set(filteredVisits.map(fv => new Date(fv.visitDate).toLocaleDateString('ar-IQ'))).size > 1;
-                        if (_spansDays) {
-                          const curDay  = new Date(v.visitDate).toLocaleDateString('ar-IQ');
-                          const prevDay = idx > 0 ? new Date(arr[idx - 1].visitDate).toLocaleDateString('ar-IQ') : null;
-                          if (curDay !== prevDay) {
-                            const colCount = isManagerOrAdmin ? 9 : 8;
-                            rows.push(
-                              <tr key={`sep-${curDay}`} style={{ background: 'transparent' }}>
-                                <td colSpan={colCount} style={{ padding: idx === 0 ? '4px 0 0' : '12px 0 0', border: 'none' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                                    <div style={{ flex: 1, height: 2, background: '#e2e8f0' }} />
-                                    <span style={{
-                                      fontSize: 12, fontWeight: 800, color: '#fff',
-                                      background: '#475569',
-                                      borderRadius: 6, padding: '4px 16px',
-                                      whiteSpace: 'nowrap', letterSpacing: '0.3px',
-                                      boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                                    }}>
-                                      📅 {curDay}
-                                    </span>
-                                    <div style={{ flex: 1, height: 2, background: '#e2e8f0' }} />
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          }
-                        }
+                {filteredVisits
+                  .slice()
+                  .sort((a, b) => new Date(a.visitDate).getTime() - new Date(b.visitDate).getTime())
+                  .reduce<React.ReactNode[]>((rows, v, idx, arr) => {
+                    // Date separator in multi-day view
+                    const _spansDays = new Set(filteredVisits.map(fv => new Date(fv.visitDate).toLocaleDateString('ar-IQ'))).size > 1;
+                    if (_spansDays) {
+                      const curDay  = new Date(v.visitDate).toLocaleDateString('ar-IQ');
+                      const prevDay = idx > 0 ? new Date(arr[idx - 1].visitDate).toLocaleDateString('ar-IQ') : null;
+                      if (curDay !== prevDay) {
                         rows.push(
-                          <tr key={(v as any)._visitType === 'pharmacy' ? `ph-${v.id}` : v.id}
-                            style={
-                              (v as any)._isDoubleVisit || (v as any)._visitType === 'pharmacy'
-                                ? { background: '#f0fdfa' }
-                                : (v as any)._outOfPlan ? { background: '#fff7ed' } : undefined
-                            }>
-                          <td style={{ textAlign: 'center', color: '#94a3b8' }}>{idx + 1}</td>
-                          <td>
-                            {(v as any)._visitType === 'pharmacy' ? (
-                              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                                <strong style={{ fontSize: '15px' }}>🏪 {v.doctor.name}</strong>
-                                <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>صيدلية</span>
-                                {(v as any)._isDoubleVisit && (
-                                  <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
+                          <div key={`sep-${curDay}`} style={{ display: 'flex', alignItems: 'center', gap: 0, margin: idx === 0 ? '0 0 2px' : '6px 0 2px' }}>
+                            <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', background: '#475569', borderRadius: 6, padding: '3px 12px', whiteSpace: 'nowrap' }}>📅 {curDay}</span>
+                            <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                          </div>
+                        );
+                      }
+                    }
+
+                    const isPharmacy  = (v as any)._visitType === 'pharmacy';
+                    const isDouble    = (v as any)._isDoubleVisit;
+                    const isOutOfPlan = (v as any)._outOfPlan;
+                    const isPharm     = isPharmacy;
+                    const likeKey     = isPharm ? -v.id : v.id;
+                    const likes       = (v as any).likes ?? [];
+                    const likeCount   = likes.length;
+                    const { time, date } = fmtDateAndTime(v.visitDate);
+                    const repName     = (v as any).scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '';
+                    const areaName    = v.doctor?.area?.name ?? '';
+                    const pharmName   = v.doctor?.pharmacyName ?? '';
+                    const items: string[] = isPharmacy
+                      ? ((v as any).pharmItems ?? []).map((pi: any) => pi.item?.name || pi.itemName).filter(Boolean)
+                      : (v.item?.name ? [v.item.name] : []);
+
+                    rows.push(
+                      <div key={isPharm ? `ph-${v.id}` : v.id} style={{
+                        background: isPharmacy ? '#f0fdfa' : isOutOfPlan ? '#fff7ed' : '#f8fafc',
+                        border: `1px solid ${isPharmacy ? '#99f6e4' : isOutOfPlan ? '#fed7aa' : '#e2e8f0'}`,
+                        borderRadius: 9,
+                        padding: '7px 10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        direction: 'rtl',
+                      }}>
+                        {/* Index */}
+                        <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, minWidth: 16, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
+
+                        {/* Main info */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                            {isPharmacy && <span style={{ fontSize: 12 }}>🏪</span>}
+                            <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{v.doctor.name}</span>
+                            {v.doctor.specialty && !isPharmacy && <span style={{ fontSize: 11, color: '#94a3b8' }}>{v.doctor.specialty}</span>}
+                            {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
+                            {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                            {items.length > 0 && <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
+                            {pharmName && <span style={{ fontSize: 11, color: '#64748b' }}>🏥 {pharmName}</span>}
+                            {areaName  && <span style={{ fontSize: 11, color: '#64748b' }}>📍 {areaName}</span>}
+                            {isManagerOrAdmin && repName && <span style={{ fontSize: 11, color: '#64748b' }}>👤 {repName}</span>}
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{isMultiDay ? `${date} ` : ''}{time}</span>
+                            {v.notes && (
+                              <span
+                                onClick={() => setShowItemNotesId(showItemNotesId === -v.id ? null : -v.id)}
+                                style={{ fontSize: 11, cursor: 'pointer', position: 'relative' }}
+                              >📝
+                                {showItemNotesId === -v.id && (
+                                  <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 140, whiteSpace: 'normal', direction: 'rtl' }}
+                                    onClick={e => e.stopPropagation()}>{v.notes}</div>
                                 )}
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                                <strong style={{ fontSize: '15px' }}>{v.doctor.name}</strong>
-                                {(v as any)._outOfPlan && (
-                                  <span style={{ fontSize: '10px', background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>خارج البلان</span>
-                                )}
-                                {(v as any)._isDoubleVisit && (
-                                  <span style={{ fontSize: '10px', background: '#ccfbf1', color: '#0f766e', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>👥 مزدوجة</span>
-                                )}
-                              </div>
-                            )}
-                            {v.doctor.specialty && (
-                              <div style={{ fontSize: '12px', color: '#6b7280' }}>{v.doctor.specialty}</div>
-                            )}
-                          </td>
-                          {isManagerOrAdmin && <td style={{ fontSize: '11px', color: '#374151', whiteSpace: 'nowrap' }}>{(v as any).scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '—'}</td>}
-                          <td style={{ fontSize: '10px', color: '#374151', maxWidth: 80, overflow: 'hidden', padding: '3px 4px' }}>
-                            {(v as any)._visitType === 'pharmacy' ? (
-                              v.doctor.area?.name ? <div style={{ fontSize: '10px', color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.area.name}</div> : '—'
-                            ) : (
-                              v.doctor.pharmacyName || v.doctor.area?.name ? (
-                                <>
-                                  {v.doctor.pharmacyName && <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.pharmacyName}</div>}
-                                  {v.doctor.area?.name && (
-                                    <div style={{ fontSize: '9px', color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.doctor.area.name}</div>
-                                  )}
-                                </>
-                              ) : '—'
-                            )}
-                          </td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '13px' }}>
-                            {isMultiDay ? (() => { const { date, time } = fmtDateAndTime(v.visitDate); return <><div style={{ fontWeight: 600, color: '#374151' }}>{date}</div><div style={{ fontSize: '11px', color: '#6b7280' }}>{time}</div></>; })() : (() => { const { date, time } = fmtDateAndTime(v.visitDate); return <><div>{time}</div><div style={{ fontSize: '11px', color: '#9ca3af' }}>{date}</div></>; })()}
-                          </td>
-                          <td style={{ fontSize: '10px', maxWidth: 80, padding: '3px 4px', overflow: 'visible', position: 'relative' }}>
-                            {(v as any)._visitType === 'pharmacy' ? (
-                              (v as any).pharmItems?.length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                  {(v as any).pharmItems.map((pi: any, i: number) => {
-                                    const hasNotes = !!pi.notes;
-                                    return (
-                                      <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pi.item?.name ?? pi.itemName ?? '—'}</span>
-                                        {hasNotes && (
-                                          <span
-                                            onClick={() => setShowItemNotesId(showItemNotesId === v.id * 100 + i ? null : v.id * 100 + i)}
-                                            style={{ cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}
-                                          >📝
-                                            {showItemNotesId === v.id * 100 + i && (
-                                              <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}
-                                                onClick={e => e.stopPropagation()}>
-                                                {pi.notes}
-                                              </div>
-                                            )}
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              ) : '—'
-                            ) : (
-                              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.item?.name ?? '—'}</span>
-                                {v.notes && (
-                                  <span
-                                    onClick={() => setShowItemNotesId(showItemNotesId === -v.id ? null : -v.id)}
-                                    style={{ cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}
-                                  >📝
-                                    {showItemNotesId === -v.id && (
-                                      <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 120, whiteSpace: 'normal', direction: 'rtl' }}
-                                        onClick={e => e.stopPropagation()}>
-                                        {v.notes}
-                                      </div>
-                                    )}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            {(v as any)._visitType === 'pharmacy' ? (
-                              <span style={{ background: '#d1fae522', color: '#065f46', border: '1px solid #d1fae555', borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500 }}>صيدلية</span>
-                            ) : (
-                              <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
-                                {(v.feedback || 'pending').split(',').map((f: string, i: number) => (
-                                  <span key={i} style={{
-                                    background: (feedbackColor[f.trim()] ?? '#e5e7eb') + '22',
-                                    color:      feedbackColor[f.trim()] ?? '#374151',
-                                    border:     `1px solid ${feedbackColor[f.trim()] ?? '#e5e7eb'}55`,
-                                    borderRadius: '6px', padding: '2px 8px', fontSize: '12px', fontWeight: 500,
-                                  }}>{feedbackLabel(f.trim())}</span>
-                                ))}
                               </span>
                             )}
-                          </td>
-                          <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '200px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.5' }}>
-                            {v.notes || '—'}
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '2px', width: 44, position: 'relative' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-                              {v.latitude != null
-                                ? <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع على الخريطة" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', padding: '1px', lineHeight: 1 }}>📍</button>
-                                : <span style={{ color: '#d1d5db', fontSize: '10px', width: 18, display: 'inline-block' }}>—</span>}
-                              {(() => {
-                                const isPharm = (v as any)._visitType === 'pharmacy';
-                                const likeKey = isPharm ? -v.id : v.id;
-                                const likes = (v as any).likes ?? [];
-                                const likeCount = likes.length;
-                                return (
-                                  <div style={{ position: 'relative', display: 'inline-block' }}>
-                                    <button
-                                      title={isManagerOrAdmin ? 'إعجاب — اضغط مطولاً لعرض المعجبين' : 'اضغط مطولاً لعرض المعجبين'}
-                                      disabled={!isManagerOrAdmin || likingVisit === likeKey}
-                                      onClick={() => isManagerOrAdmin && (isPharm ? togglePharmLike(v.id) : toggleDashLike(v.id))}
-                                      onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
-                                      onMouseUp={() => clearTimeout(likeTimer.current)}
-                                      onMouseLeave={() => clearTimeout(likeTimer.current)}
-                                      onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
-                                      onTouchEnd={() => clearTimeout(likeTimer.current)}
-                                      style={{
-                                        position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                        width: 22, height: 22, borderRadius: '50%', padding: 0,
-                                        border: 'none', background: 'transparent',
-                                        cursor: isManagerOrAdmin ? 'pointer' : 'default', lineHeight: 1,
-                                        transition: 'opacity 0.15s',
-                                      }}>
-                                      <svg viewBox="0 0 24 24" width="12" height="12" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#9ca3af'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                                      {likeCount > 0 && (
-                                        <span style={{
-                                          position: 'absolute', top: -4, right: -4,
-                                          background: '#ef4444', color: '#fff', borderRadius: '50%',
-                                          fontSize: 8, fontWeight: 800, width: 13, height: 13,
-                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                          lineHeight: 1, border: '1.5px solid #fff',
-                                        }}>{likeCount}</span>
-                                      )}
-                                    </button>
-                                    {showLikersId === likeKey && (
-                                      <div style={{
-                                        position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-                                        background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px',
-                                        fontSize: 11, whiteSpace: 'nowrap', zIndex: 999,
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110,
-                                      }} onClick={() => setShowLikersId(null)}>
-                                        <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
-                                        {likeCount === 0
-                                          ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
-                                          : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)
-                                        }
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
+                          </div>
+                        </div>
+
+                        {/* Feedback */}
+                        <div style={{ flexShrink: 0 }}>
+                          {isPharmacy ? (
+                            <span style={{ background: '#ccfbf1', color: '#0f766e', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 600 }}>صيدلية</span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', gap: 3, flexWrap: 'wrap' }}>
+                              {(v.feedback || 'pending').split(',').map((f: string, i: number) => (
+                                <span key={i} style={{
+                                  background: (feedbackColor[f.trim()] ?? '#e5e7eb') + '22',
+                                  color: feedbackColor[f.trim()] ?? '#374151',
+                                  border: `1px solid ${feedbackColor[f.trim()] ?? '#e5e7eb'}55`,
+                                  borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 500,
+                                }}>{feedbackLabel(f.trim())}</span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Location */}
+                        {v.latitude != null && (
+                          <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 17, padding: 0, flexShrink: 0 }}>📍</button>
+                        )}
+
+                        {/* Like */}
+                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                          <button
+                            disabled={!isManagerOrAdmin || likingVisit === likeKey}
+                            onClick={() => isManagerOrAdmin && (isPharm ? togglePharmLike(v.id) : toggleDashLike(v.id))}
+                            onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
+                            onMouseUp={() => clearTimeout(likeTimer.current)}
+                            onMouseLeave={() => clearTimeout(likeTimer.current)}
+                            onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
+                            onTouchEnd={() => clearTimeout(likeTimer.current)}
+                            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', border: 'none', background: 'transparent', cursor: isManagerOrAdmin ? 'pointer' : 'default' }}>
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 8, fontWeight: 800, width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
+                          </button>
+                          {showLikersId === likeKey && (
+                            <div style={{ position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
+                              onClick={() => setShowLikersId(null)}>
+                              <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                              {likeCount === 0 ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div> : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)}
                             </div>
-                          </td>
-                        </tr>
-                        );
-                        return rows;
-                      }, [])}
-                  </tbody>
-                </table>
+                          )}
+                        </div>
+                      </div>
+                    );
+                    return rows;
+                  }, [])}
               </div>
 
               {/* ── Statistics summary ── */}
