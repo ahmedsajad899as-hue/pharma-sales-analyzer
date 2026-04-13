@@ -70,6 +70,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
   const [showLikersId, setShowLikersId] = useState<number | null>(null);
   const [showItemNotesId, setShowItemNotesId] = useState<number | null>(null);
+  const [visitInfoPopup, setVisitInfoPopup] = useState<number | null>(null);
   const likeTimer = useRef<any>(null);
 
   // ── Quick Call Log ──────────────────────────────────────────
@@ -1920,10 +1921,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                             {isPharmacy && <span style={{ fontSize: 11 }}>🏪</span>}
-                            <span style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>{v.doctor.name}</span>
-                            {v.doctor.specialty && !isPharmacy && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{v.doctor.specialty}</span></>}
-                            {pharmName && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{pharmName}</span></>}
-                            {areaName  && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{areaName}</span></>}
+                            <span style={{ position: 'relative' }}>
+                              <span
+                                style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', cursor: 'pointer', borderBottom: '1px dotted #94a3b8' }}
+                                onClick={e => { e.stopPropagation(); setVisitInfoPopup(visitInfoPopup === v.id ? null : v.id); }}
+                              >{v.doctor.name}</span>
+                              {visitInfoPopup === v.id && (
+                                <div
+                                  style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', fontSize: 12, zIndex: 1000, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 180, direction: 'rtl', lineHeight: 1.9, whiteSpace: 'nowrap' }}
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  {v.doctor.specialty && !isPharmacy && <div><span style={{ color: '#94a3b8', fontSize: 11 }}>الاختصاص: </span><span style={{ color: '#1e293b', fontWeight: 600 }}>{v.doctor.specialty}</span></div>}
+                                  {pharmName && <div><span style={{ color: '#94a3b8', fontSize: 11 }}>الصيدلية: </span><span style={{ color: '#1e293b', fontWeight: 600 }}>{pharmName}</span></div>}
+                                  {areaName  && <div><span style={{ color: '#94a3b8', fontSize: 11 }}>المنطقة: </span><span style={{ color: '#1e293b', fontWeight: 600 }}>{areaName}</span></div>}
+                                </div>
+                              )}
+                            </span>
                             {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
                             {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                           </div>
@@ -3695,10 +3708,22 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                           {isPharmacy && <span style={{ fontSize: 11 }}>🏪</span>}
-                          <span style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>{v.doctor.name}</span>
-                          {v.doctor.specialty && !isPharmacy && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{v.doctor.specialty}</span></>}
-                          {pharmName && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{pharmName}</span></>}
-                          {areaName  && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{areaName}</span></>}
+                          <span style={{ position: 'relative' }}>
+                            <span
+                              style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', cursor: 'pointer', borderBottom: '1px dotted #94a3b8' }}
+                              onClick={e => { e.stopPropagation(); setVisitInfoPopup(visitInfoPopup === v.id ? null : v.id); }}
+                            >{v.doctor.name}</span>
+                            {visitInfoPopup === v.id && (
+                              <div
+                                style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', fontSize: 12, zIndex: 1000, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 180, direction: 'rtl', lineHeight: 1.9, whiteSpace: 'nowrap' }}
+                                onClick={e => e.stopPropagation()}
+                              >
+                                {v.doctor.specialty && !isPharmacy && <div><span style={{ color: '#94a3b8', fontSize: 11 }}>الاختصاص: </span><span style={{ color: '#1e293b', fontWeight: 600 }}>{v.doctor.specialty}</span></div>}
+                                {pharmName && <div><span style={{ color: '#94a3b8', fontSize: 11 }}>الصيدلية: </span><span style={{ color: '#1e293b', fontWeight: 600 }}>{pharmName}</span></div>}
+                                {areaName  && <div><span style={{ color: '#94a3b8', fontSize: 11 }}>المنطقة: </span><span style={{ color: '#1e293b', fontWeight: 600 }}>{areaName}</span></div>}
+                              </div>
+                            )}
+                          </span>
                           {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
                           {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                         </div>
