@@ -2095,6 +2095,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
 
     const repId = req.query.repId ? parseInt(String(req.query.repId)) : null;
 
+    // Resolved scientificRepresentative id for rep roles (shared between doctor & pharmacy filters)
+    let resolvedRepId = null;
+
     // Build where filter
     const where = {
       visitDate: { gte: dayStart, lte: dayEnd },
@@ -2110,7 +2113,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       // JWT does not carry linkedRepId, so look it up from DB.
       const repUserRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const repLinkedId = repUserRow?.linkedRepId ?? null;
-      let resolvedRepId = repLinkedId;
+      resolvedRepId = repLinkedId;
       if (!resolvedRepId) {
         const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
         resolvedRepId = ownRep?.id ?? null;
