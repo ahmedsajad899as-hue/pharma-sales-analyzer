@@ -1918,19 +1918,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
                         {/* Main info */}
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                            {isPharmacy && <span style={{ fontSize: 12 }}>🏪</span>}
-                            <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{v.doctor.name}</span>
-                            {v.doctor.specialty && !isPharmacy && <span style={{ fontSize: 11, color: '#94a3b8' }}>{v.doctor.specialty}</span>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            {isPharmacy && <span style={{ fontSize: 11 }}>🏪</span>}
+                            <span style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>{v.doctor.name}</span>
+                            {v.doctor.specialty && !isPharmacy && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{v.doctor.specialty}</span></>}
+                            {pharmName && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{pharmName}</span></>}
+                            {areaName  && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{areaName}</span></>}
                             {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
                             {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-                            {items.length > 0 && <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
-                            {pharmName && <span style={{ fontSize: 11, color: '#64748b' }}>🏥 {pharmName}</span>}
-                            {areaName  && <span style={{ fontSize: 11, color: '#64748b' }}>📍 {areaName}</span>}
-                            {isManagerOrAdmin && repName && <span style={{ fontSize: 11, color: '#64748b' }}>👤 {repName}</span>}
-                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{isMultiDay ? `${date} ` : ''}{time}</span>
+                            {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
+                            {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
+                            <span style={{ fontSize: 10, color: '#94a3b8' }}>{isMultiDay ? `${date} ` : ''}{time}</span>
                             {v.notes && (
                               <span
                                 onClick={() => setShowItemNotesId(showItemNotesId === -v.id ? null : -v.id)}
@@ -3693,24 +3693,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
                       {/* Main info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        {/* Name row */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          {isPharmacy && <span style={{ fontSize: 12 }}>🏪</span>}
-                          <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{v.doctor.name}</span>
-                          {v.doctor.specialty && !isPharmacy && (
-                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{v.doctor.specialty}</span>
-                          )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          {isPharmacy && <span style={{ fontSize: 11 }}>🏪</span>}
+                          <span style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>{v.doctor.name}</span>
+                          {v.doctor.specialty && !isPharmacy && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{v.doctor.specialty}</span></>}
+                          {pharmName && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{pharmName}</span></>}
+                          {areaName  && <><span style={{ fontSize: 10, color: '#cbd5e1' }}>·</span><span style={{ fontSize: 10, color: '#94a3b8' }}>{areaName}</span></>}
                           {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
                           {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                         </div>
-                        {/* Details row */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-                          {items.length > 0 && (
-                            <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>
-                          )}
-                          {areaName && <span style={{ fontSize: 11, color: '#64748b' }}>📍 {areaName}</span>}
-                          {isManagerOrAdmin && repName && <span style={{ fontSize: 11, color: '#64748b' }}>👤 {repName}</span>}
-                          <span style={{ fontSize: 11, color: '#94a3b8' }}>{isMultiDay ? date : ''} {time}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                          {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
+                          {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
+                          <span style={{ fontSize: 10, color: '#94a3b8' }}>{isMultiDay ? date : ''} {time}</span>
                         </div>
                       </div>
 
