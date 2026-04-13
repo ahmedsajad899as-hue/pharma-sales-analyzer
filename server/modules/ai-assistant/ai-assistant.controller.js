@@ -1569,10 +1569,9 @@ export async function handleCommand(req, res) {
         pharmNames, areaNames,
       });
 
-      const genAI = new GoogleGenerativeAI(getNextApiKey());
-      async function callGeminiComm(parts, retries = 3, delayMs = 2000) {
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      async function callGeminiComm(parts, retries = 5, delayMs = 1000) {
         for (let attempt = 1; attempt <= retries; attempt++) {
+          const model = new GoogleGenerativeAI(getNextApiKey()).getGenerativeModel({ model: 'gemini-2.0-flash' });
           try {
             const result = await model.generateContent(parts);
             return result.response.text();
@@ -1650,13 +1649,12 @@ export async function handleCommand(req, res) {
       planNames:   [...new Set(plansRaw.map(p => p.scientificRep?.name).filter(Boolean))],
     });
 
-    const genAI = new GoogleGenerativeAI(apiKey);
     let geminiText;
 
-    // ── Retry helper: up to 3 attempts with exponential backoff on 429 ──
-    async function callGemini(parts, retries = 3, delayMs = 2000) {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    // ── Retry helper: rotate API key on each attempt on 429 ──
+    async function callGemini(parts, retries = 5, delayMs = 1000) {
       for (let attempt = 1; attempt <= retries; attempt++) {
+        const model = new GoogleGenerativeAI(getNextApiKey()).getGenerativeModel({ model: 'gemini-2.0-flash' });
         try {
           const result = await model.generateContent(parts);
           return result.response.text();
