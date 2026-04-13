@@ -1944,17 +1944,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
                             {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
                             <span style={{ fontSize: 10, color: '#94a3b8' }}>{isMultiDay ? `${date} ` : ''}{time}</span>
-                            {v.notes && (
-                              <span
-                                onClick={() => setShowItemNotesId(showItemNotesId === -v.id ? null : -v.id)}
-                                style={{ fontSize: 11, cursor: 'pointer', position: 'relative' }}
-                              >📝
-                                {showItemNotesId === -v.id && (
-                                  <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 140, whiteSpace: 'normal', direction: 'rtl' }}
-                                    onClick={e => e.stopPropagation()}>{v.notes}</div>
-                                )}
-                              </span>
-                            )}
                           </div>
                         </div>
 
@@ -1976,32 +1965,46 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           )}
                         </div>
 
-                        {/* Location */}
-                        {v.latitude != null && (
-                          <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 17, padding: 0, flexShrink: 0 }}>📍</button>
-                        )}
-
-                        {/* Like */}
-                        <div style={{ position: 'relative', flexShrink: 0 }}>
+                        {/* Actions: notes + location + like stacked vertically */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                          {/* Notes */}
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              onClick={() => v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id)}
+                              style={{ background: 'none', border: 'none', padding: 0, fontSize: 14, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px #f59e0b)' : 'none' }}
+                            >📝</button>
+                            {showItemNotesId === v.id && v.notes && (
+                              <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '7px 11px', fontSize: 11, zIndex: 1000, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', minWidth: 150, maxWidth: 230, whiteSpace: 'normal', direction: 'rtl', marginTop: 4 }}
+                                onClick={e => e.stopPropagation()}>{v.notes}</div>
+                            )}
+                          </div>
+                          {/* Location */}
                           <button
-                            disabled={!isManagerOrAdmin || likingVisit === likeKey}
-                            onClick={() => isManagerOrAdmin && (isPharm ? togglePharmLike(v.id) : toggleDashLike(v.id))}
-                            onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
-                            onMouseUp={() => clearTimeout(likeTimer.current)}
-                            onMouseLeave={() => clearTimeout(likeTimer.current)}
-                            onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
-                            onTouchEnd={() => clearTimeout(likeTimer.current)}
-                            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', border: 'none', background: 'transparent', cursor: isManagerOrAdmin ? 'pointer' : 'default' }}>
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                            {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 8, fontWeight: 800, width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
-                          </button>
-                          {showLikersId === likeKey && (
-                            <div style={{ position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
-                              onClick={() => setShowLikersId(null)}>
-                              <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
-                              {likeCount === 0 ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div> : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)}
-                            </div>
-                          )}
+                            onClick={() => v.latitude != null && setMapSingleVisit(v)}
+                            style={{ background: 'none', border: 'none', padding: 0, fontSize: 14, lineHeight: 1, cursor: v.latitude != null ? 'pointer' : 'default', opacity: v.latitude != null ? 1 : 0.2 }}
+                          >📍</button>
+                          {/* Like */}
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              disabled={!isManagerOrAdmin || likingVisit === likeKey}
+                              onClick={() => isManagerOrAdmin && (isPharm ? togglePharmLike(v.id) : toggleDashLike(v.id))}
+                              onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
+                              onMouseUp={() => clearTimeout(likeTimer.current)}
+                              onMouseLeave={() => clearTimeout(likeTimer.current)}
+                              onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
+                              onTouchEnd={() => clearTimeout(likeTimer.current)}
+                              style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'transparent', cursor: isManagerOrAdmin ? 'pointer' : 'default' }}>
+                              <svg viewBox="0 0 24 24" width="13" height="13" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                              {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 8, fontWeight: 800, width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
+                            </button>
+                            {showLikersId === likeKey && (
+                              <div style={{ position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
+                                onClick={() => setShowLikersId(null)}>
+                                <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                                {likeCount === 0 ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div> : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -3739,38 +3742,46 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         {renderFeedbackBadges(v.feedback || 'pending')}
                       </div>
 
-                      {/* Location */}
-                      {v.latitude != null && (
-                        <button onClick={() => setMapSingleVisit(v)} title="عرض الموقع" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, padding: 0, flexShrink: 0 }}>📍</button>
-                      )}
-
-                      {/* Like */}
-                      <div style={{ position: 'relative', flexShrink: 0 }}>
-                        <button
-                          disabled={!isManagerOrAdmin || likingVisit === v.id}
-                          onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
-                          onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
-                          onMouseUp={() => clearTimeout(likeTimer.current)}
-                          onMouseLeave={() => clearTimeout(likeTimer.current)}
-                          onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
-                          onTouchEnd={() => clearTimeout(likeTimer.current)}
-                          style={{
-                            position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'transparent',
-                            cursor: isManagerOrAdmin ? 'pointer' : 'default',
-                          }}>
-                          <svg viewBox="0 0 24 24" width="15" height="15" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                          {likeCount > 0 && (
-                            <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 9, fontWeight: 800, width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>
+                      {/* Actions: notes + location + like stacked vertically */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                        {/* Notes */}
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id)}
+                            style={{ background: 'none', border: 'none', padding: 0, fontSize: 15, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px #f59e0b)' : 'none' }}
+                          >📝</button>
+                          {showItemNotesId === v.id && v.notes && (
+                            <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '7px 11px', fontSize: 11, zIndex: 1000, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', minWidth: 150, maxWidth: 230, whiteSpace: 'normal', direction: 'rtl', marginTop: 4 }}
+                              onClick={e => e.stopPropagation()}>{v.notes}</div>
                           )}
-                        </button>
-                        {showLikersId === v.id && (
-                          <div style={{ position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
-                            onClick={() => setShowLikersId(null)}>
-                            <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
-                            {likeCount === 0 ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div> : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)}
-                          </div>
-                        )}
+                        </div>
+                        {/* Location */}
+                        <button
+                          onClick={() => v.latitude != null && setMapSingleVisit(v)}
+                          style={{ background: 'none', border: 'none', padding: 0, fontSize: 15, lineHeight: 1, cursor: v.latitude != null ? 'pointer' : 'default', opacity: v.latitude != null ? 1 : 0.2 }}
+                        >📍</button>
+                        {/* Like */}
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            disabled={!isManagerOrAdmin || likingVisit === v.id}
+                            onClick={() => isManagerOrAdmin && toggleDashLike(v.id)}
+                            onMouseDown={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                            onMouseUp={() => clearTimeout(likeTimer.current)}
+                            onMouseLeave={() => clearTimeout(likeTimer.current)}
+                            onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
+                            onTouchEnd={() => clearTimeout(likeTimer.current)}
+                            style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'transparent', cursor: isManagerOrAdmin ? 'pointer' : 'default' }}>
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 9, fontWeight: 800, width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
+                          </button>
+                          {showLikersId === v.id && (
+                            <div style={{ position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
+                              onClick={() => setShowLikersId(null)}>
+                              <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
+                              {likeCount === 0 ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div> : likes.map((l: any) => <div key={l.id}>👤 {l.user.username}</div>)}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
