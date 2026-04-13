@@ -183,23 +183,30 @@ export default function RepTrackingMap({ repId, repName, date, visitMarkers = []
 
     // ── Draw straight dashed line first (instant feedback) ─
     let tempPolyline: L.Polyline | null = null;
-    if (points.length >= 2) {
-      const straightLLs: L.LatLngExpression[] = points.map(p => [p.latitude, p.longitude]);
+
+    // Use GPS tracking points if available, otherwise fall back to visit markers
+    const routePoints: { latitude: number; longitude: number }[] =
+      points.length >= 2
+        ? points
+        : visitMarkers.length >= 2
+          ? visitMarkers.map(vm => ({ latitude: vm.lat, longitude: vm.lng }))
+          : [];
+
+    if (routePoints.length >= 2) {
+      const straightLLs: L.LatLngExpression[] = routePoints.map(p => [p.latitude, p.longitude]);
       tempPolyline = L.polyline(straightLLs, {
         color: '#93c5fd', weight: 3, opacity: 0.5, dashArray: '6 5',
       }).addTo(map);
     }
 
-    // ── Then fetch road-following route from ORS ───────────
-    if (points.length >= 2) {
+    // ── Then fetch road-following route from OSRM ─────────
+    if (routePoints.length >= 2) {
       setRouting(true);
-      buildRoadRoute(points).then(routeLatLngs => {
+      buildRoadRoute(routePoints as LocationPoint[]).then(routeLatLngs => {
         if (!leafletRef.current) return;
-        // Remove placeholder
         if (tempPolyline) { tempPolyline.remove(); tempPolyline = null; }
-        // Draw real road-following route
         L.polyline(routeLatLngs, {
-          color: '#2563eb',
+          color: points.length >= 2 ? '#2563eb' : '#7c3aed',
           weight: 5,
           opacity: 0.88,
         }).addTo(leafletRef.current);
@@ -325,17 +332,21 @@ export default function RepTrackingMap({ repId, repName, date, visitMarkers = []
               fontSize: 11, direction: 'rtl', display: 'flex', flexDirection: 'column', gap: 4,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 20, height: 4, background: '#2563eb', borderRadius: 2 }} />
-                <span style={{ color: '#374151' }}>مسار المندوب</span>
+                <div style={{ width: 20, height: 4, background: points.length >= 2 ? '#2563eb' : '#7c3aed', borderRadius: 2 }} />
+                <span style={{ color: '#374151' }}>{points.length >= 2 ? 'مسار المندوب' : 'مسار بين الزيارات'}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#10b981', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', flexShrink: 0 }} />
-                <span style={{ color: '#374151' }}>بداية اليوم</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#ef4444', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', flexShrink: 0 }} />
-                <span style={{ color: '#374151' }}>آخر نقطة</span>
-              </div>
+              {points.length >= 2 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#10b981', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>بداية اليوم</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#ef4444', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', flexShrink: 0 }} />
+                    <span style={{ color: '#374151' }}>آخر نقطة</span>
+                  </div>
+                </>
+              )}
               {visitMarkers.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div style={{ background: '#4f46e5', color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>زيارة</div>
