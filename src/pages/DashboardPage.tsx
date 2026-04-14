@@ -1938,7 +1938,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 </div>
                               )}
                             </span>
-                            {isDouble && <span style={{ fontSize: 13, lineHeight: 1 }}>👥</span>}
+                            {isDouble && <span style={{ fontSize: 13, lineHeight: 1, filter: 'grayscale(1)', opacity: 0.7 }}>👥</span>}
                             {isOutOfPlan && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
@@ -3730,7 +3730,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </div>
                             )}
                           </span>
-                          {isDouble && <span style={{ fontSize: 13, lineHeight: 1 }}>👥</span>}
+                          {isDouble && <span style={{ fontSize: 13, lineHeight: 1, filter: 'grayscale(1)', opacity: 0.7 }}>👥</span>}
                           {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
