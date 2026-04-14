@@ -1833,15 +1833,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             </div>
           ) : (
             <>
-              <div style={{ padding: '6px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setCallsCompact(p => !p)}
-                  title={callsCompact ? 'توسيع الجدول' : 'ضغط الجدول (عرض أكثر)'}
-                  style={{ marginRight: 'auto', background: callsCompact ? '#ede9fe' : 'none', border: `1px solid ${callsCompact ? '#a78bfa' : '#d1d5db'}`, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 13, color: callsCompact ? '#6d28d9' : '#6b7280', lineHeight: 1 }}
-                >
-                  {callsCompact ? '▲' : '▼'}
-                </button>
-              </div>
+
               {/* Filter bar */}
               <div style={{ padding: '5px 8px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'nowrap' }}>
                 <input
