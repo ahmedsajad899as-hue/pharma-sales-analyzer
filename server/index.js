@@ -2114,21 +2114,19 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (userId) where.userId = userId;
       if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
     } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
-      // Rep sees ONLY visits attributed to their ScientificRepresentative record.
-      // JWT does not carry linkedRepId, so look it up from DB.
+      // Rep sees visits they created (by userId) OR attributed to any of their ScientificRepresentative records.
+      // Collect all possible scientificRepresentative IDs for this user.
       const repUserRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const repLinkedId = repUserRow?.linkedRepId ?? null;
       resolvedRepId = repLinkedId;
-      if (!resolvedRepId) {
-        const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-        resolvedRepId = ownRep?.id ?? null;
-      }
-      if (resolvedRepId) {
-        where.scientificRepId = resolvedRepId;
-      } else {
-        // No ScientificRepresentative found — fall back to userId (edge case)
-        where.userId = userId;
-      }
+      // Also collect any ScientificRepresentative records where userId matches
+      const allRepRecords = await prisma.scientificRepresentative.findMany({ where: { userId }, select: { id: true } });
+      const allRepIds = [...new Set([repLinkedId, ...allRepRecords.map(r => r.id)].filter(Boolean))];
+      // Use OR: match by userId (visits I created) OR any of my scientificRepId values
+      where.OR = [
+        { userId },
+        ...(allRepIds.length > 0 ? [{ scientificRepId: { in: allRepIds } }] : []),
+      ];
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
@@ -2199,9 +2197,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (userId) pharmWhere.userId = userId;
       if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
     } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
-      // Same resolved repId from above — filter pharmacy visits the same way
-      if (resolvedRepId) pharmWhere.scientificRepId = resolvedRepId;
-      else if (userId) pharmWhere.userId = userId;
+      // Same OR logic as doctor visits: userId OR any scientificRepId
+      if (where.OR) pharmWhere.OR = where.OR;
+      else pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
     } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
