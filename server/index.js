@@ -1769,12 +1769,17 @@ app.post('/api/doctor-visits', async (req, res) => {
     }
 
     // Resolve scientificRepId — field reps only; managers always get null (tracked by userId)
+    // Priority must match GET /api/doctor-visits/daily: linkedRepId first, then ScientificRepresentative.findFirst
     const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'supervisor', 'product_manager',
                                    'office_manager', 'commercial_supervisor', 'commercial_team_leader']);
     let scientificRepId = null;
     if (!MANAGER_ROLES.has(role)) {
-      const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-      scientificRepId = repRow?.id ?? req.user?.linkedRepId ?? null;
+      const repUserRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      scientificRepId = repUserRow?.linkedRepId ?? null;
+      if (!scientificRepId) {
+        const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+        scientificRepId = repRow?.id ?? null;
+      }
       if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
     }
 
