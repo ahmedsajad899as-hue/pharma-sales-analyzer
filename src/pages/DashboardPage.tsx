@@ -1386,8 +1386,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     return map[fb] ?? fb;
   };
   const feedbackColor: Record<string, string> = {
-    writing:       '#10b981', stocked: '#8b5cf6', interested: '#6366f1',
-    not_interested:'#ef4444', unavailable: '#f59e0b', pending: '#0ea5e9',
+    writing:       '#475569', stocked: '#475569', interested: '#475569',
+    not_interested:'#475569', unavailable: '#475569', pending: '#475569',
   };
   // Render one or two feedback badges for a visit
   const renderFeedbackBadges = (fb: string) => {
@@ -1744,8 +1744,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               onClick={() => setIsDoubleVisit(p => !p)}
               style={{
                 padding: '6px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                background: isDoubleVisit ? '#7c3aed' : '#f3f4f6',
-                border: `2px solid ${isDoubleVisit ? '#7c3aed' : '#d1d5db'}`,
+                background: isDoubleVisit ? '#374151' : '#f3f4f6',
+                border: `2px solid ${isDoubleVisit ? '#374151' : '#d1d5db'}`,
                 borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#6b7280',
                 fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap',
               }}
@@ -1846,16 +1846,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   style={{ flex: 1, minWidth: 80, padding: '3px 8px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff', height: '26px' }}
                 />
                 <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'doctor' ? '#6366f1' : '#d1d5db'}`, background: fType === 'doctor' ? '#eef2ff' : '#fff', color: fType === 'doctor' ? '#4338ca' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  👨‍⚕️ <span>طبيب</span>
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'doctor' ? '#374151' : '#d1d5db'}`, background: fType === 'doctor' ? '#f1f5f9' : '#fff', color: fType === 'doctor' ? '#1e293b' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <span>طبيب</span>
                 </button>
                 <button onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#0d9488' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f0fdfa' : '#fff', color: fType === 'pharmacy' ? '#0f766e' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  🏪 <span>صيدلية</span>
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#374151' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f1f5f9' : '#fff', color: fType === 'pharmacy' ? '#1e293b' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <span>صيدلية</span>
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#0d9488' : '#d1d5db'}`, background: fDouble ? '#f0fdfa' : '#fff', color: fDouble ? '#0f766e' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  👥 <span>مزدوجة</span>
+                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : '#d1d5db'}`, background: fDouble ? '#f1f5f9' : '#fff', color: fDouble ? '#1e293b' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <span>مزدوجة</span>
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
@@ -1905,8 +1905,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
                     rows.push(
                       <div key={isPharm ? `ph-${v.id}` : v.id} style={{
-                        background: isPharmacy ? '#f0fdfa' : isOutOfPlan ? '#fff7ed' : '#f8fafc',
-                        border: `1px solid ${isPharmacy ? '#99f6e4' : isOutOfPlan ? '#fed7aa' : '#e2e8f0'}`,
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
                         borderRadius: 9,
                         padding: '7px 10px',
                         display: 'flex',
@@ -1940,11 +1940,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 </div>
                               )}
                             </span>
-                            {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
-                            {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
+                            {isDouble && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
+                            {isOutOfPlan && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-                            {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
+                            {items.length > 0 && <span style={{ fontSize: 10, color: '#475569', fontWeight: 600 }}>{items.join(' · ')}</span>}
                             {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
                           </div>
                         </div>
@@ -1952,7 +1952,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         {/* Feedback */}
                         <div style={{ flexShrink: 0 }}>
                           {isPharmacy ? (
-                            <span style={{ background: '#ccfbf1', color: '#0f766e', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 600 }}>صيدلية</span>
+                            <span style={{ background: '#f1f5f9', color: '#475569', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 600 }}>صيدلية</span>
                           ) : (
                             <span style={{ display: 'inline-flex', gap: 3, flexWrap: 'wrap' }}>
                               {(v.feedback || 'pending').split(',').map((f: string, i: number) => (
