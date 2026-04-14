@@ -264,6 +264,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
   useEffect(() => { loadDailyCalls(todayStr, todayStr, ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Close visit-info popup and notes popup on outside click
+  useEffect(() => {
+    const handler = () => {
+      setVisitInfoPopup(null);
+      setShowItemNotesId(null);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
   // AI assistant page-action listener
   // Use refs so handler always calls the LATEST version of async functions
   // (avoids stale-closure bug where activePlan is null from first render)
@@ -1968,7 +1978,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           {/* Notes */}
                           <div style={{ position: 'relative' }}>
                             <button
-                              onClick={() => v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id)}
+                              onClick={e => { e.stopPropagation(); v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id); }}
                               style={{ background: 'none', border: 'none', padding: 0, fontSize: 14, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px #f59e0b)' : 'none' }}
                             >📝</button>
                             {showItemNotesId === v.id && v.notes && (
@@ -3747,7 +3757,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         {/* Notes */}
                         <div style={{ position: 'relative' }}>
                           <button
-                            onClick={() => v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id)}
+                            onClick={e => { e.stopPropagation(); v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id); }}
                             style={{ background: 'none', border: 'none', padding: 0, fontSize: 15, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px #f59e0b)' : 'none' }}
                           >📝</button>
                           {showItemNotesId === v.id && v.notes && (
