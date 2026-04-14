@@ -1751,7 +1751,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               }}
             >
               {isDoubleVisit ? '👥' : '👤'}
-              <span style={{ fontSize: '9px' }}>{isDoubleVisit ? 'مزدوجة' : 'منفردة'}</span>
             </button>
             {hasFeature('daily_map') && callsData && callsData.visits.length > 0 && (
               <button
@@ -1825,9 +1824,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           ) : (
             <>
               <div style={{ padding: '6px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, fontSize: '11px', color: '#6b7280' }}>
-                  📞 {(t.dashboard as any).dailyCallsTotal}: <span style={{ fontSize: '13px', color: '#374151', fontWeight: 700 }}>{filteredVisits.length}</span>{filteredVisits.length !== callsData.visits.length && <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: '11px' }}> / {callsData.visits.length}</span>}
-                </span>
                 <button
                   onClick={() => setCallsCompact(p => !p)}
                   title={callsCompact ? 'توسيع الجدول' : 'ضغط الجدول (عرض أكثر)'}
