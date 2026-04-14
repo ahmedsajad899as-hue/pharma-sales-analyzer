@@ -1853,7 +1853,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
                   style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : '#d1d5db'}`, background: fDouble ? '#f1f5f9' : '#fff', color: fDouble ? '#1e293b' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  <span>مزدوجة</span>
+                  <span>👥</span>
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
@@ -1938,7 +1938,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 </div>
                               )}
                             </span>
-                            {isDouble && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
+                            {isDouble && <span style={{ fontSize: 13, lineHeight: 1 }}>👥</span>}
                             {isOutOfPlan && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
@@ -3668,7 +3668,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
                   style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? '#0d9488' : '#d1d5db'}`, background: fDouble ? '#f0fdfa' : '#fff', color: fDouble ? '#0f766e' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  👥 مزدوجة
+                  👥
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
@@ -3730,7 +3730,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               </div>
                             )}
                           </span>
-                          {isDouble && <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>مزدوجة</span>}
+                          {isDouble && <span style={{ fontSize: 13, lineHeight: 1 }}>👥</span>}
                           {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
