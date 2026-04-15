@@ -103,11 +103,12 @@ export async function visitsByArea(req, res, next) {
         const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
 
         // زيارات المندوب المحدد فقط
+        // — إذا توفر linkedRepId نبحث بـ scientificRepId، وإلا بـ userId للمندوب
+        const visitWhereRep = subLinkedRepId
+          ? { scientificRepId: subLinkedRepId, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+          : { userId: repUserId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
         const repVisits = await prisma.doctorVisit.findMany({
-          where: {
-            scientificRepId: subLinkedRepId ?? -1,
-            ...(dateFilter ? { visitDate: dateFilter } : {}),
-          },
+          where: visitWhereRep,
           select: {
             id: true, visitDate: true, feedback: true, notes: true,
             doctorId: true,
@@ -121,10 +122,10 @@ export async function visitsByArea(req, res, next) {
           visitsByDocRep.get(v.doctorId).push(v);
         }
 
-        // الأطباء في مناطق المندوب (أو جميع أطباء المدير إذا لم تُحدَّد مناطق)
+        // الأطباء في مناطق المندوب — نفس منطق المندوب بدون فلتر userId
         const doctorWhere = repAreaIds.length > 0
-          ? { userId, areaId: { in: repAreaIds } }
-          : { userId };
+          ? { areaId: { in: repAreaIds } }
+          : { userId }; // fallback إذا لم تُحدَّد مناطق
         const rawDocs = await prisma.doctor.findMany({
           where: doctorWhere,
           include: {
@@ -294,7 +295,9 @@ export async function pharmacyVisitsByArea(req, res, next) {
     const visitWhere = isFieldRep
       ? { scientificRepId: linkedRepId ?? -1, ...(dateFilter ? { visitDate: dateFilter } : {}) }
       : repUserIdPharma
-        ? { scientificRepId: subLinkedRepIdPharma ?? -1, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+        ? subLinkedRepIdPharma
+          ? { scientificRepId: subLinkedRepIdPharma, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+          : { userId: repUserIdPharma, ...(dateFilter ? { visitDate: dateFilter } : {}) }
         : { userId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
 
     const visits = await prisma.pharmacyVisit.findMany({
