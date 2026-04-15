@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import type { PageId } from '../../App';
 import { useAuth } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
@@ -37,46 +37,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSwitchPanel, setShowSwitchPanel] = useState(false);
 
-  // Swipe left to open mobile drawer
-  const touchStartX = useRef<number>(0);
-  const touchStartY = useRef<number>(0);
-  const swipeBlocked = useRef<boolean>(false);
-  useEffect(() => {
-    // Tags/roles that should NEVER trigger sidebar swipe
-    const INTERACTIVE = new Set(['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A', 'LABEL']);
-    const onTouchStart = (e: TouchEvent) => {
-      touchStartX.current = e.touches[0].clientX;
-      touchStartY.current = e.touches[0].clientY;
-      const target = e.target as Element;
-      // Block if: explicit opt-out attr, OR an interactive element, OR inside a scrollable container
-      swipeBlocked.current = !!(
-        target?.closest('[data-no-sidebar-swipe]') ||
-        INTERACTIVE.has((target as HTMLElement).tagName) ||
-        target?.closest('input, select, textarea, button, [role="slider"], [role="tab"], [role="tablist"]')
-      );
-    };
-    const onTouchEnd = (e: TouchEvent) => {
-      if (swipeBlocked.current) return;
-      const dx = touchStartX.current - e.changedTouches[0].clientX;
-      const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY);
-      // Require strictly horizontal gesture: dx must be dominant (dx > dy*2) and large enough
-      if (dy >= dx * 0.6 || Math.abs(dx) < 80) return;
-      // Swipe left (dx > 0): open drawer
-      if (!mobileMenuOpen && dx > 0) {
-        setMobileMenuOpen(true);
-      }
-      // Swipe right (dx < 0): close drawer
-      if (mobileMenuOpen && dx < 0) {
-        setMobileMenuOpen(false);
-      }
-    };
-    document.addEventListener('touchstart', onTouchStart, { passive: true });
-    document.addEventListener('touchend', onTouchEnd, { passive: true });
-    return () => {
-      document.removeEventListener('touchstart', onTouchStart);
-      document.removeEventListener('touchend', onTouchEnd);
-    };
-  }, [mobileMenuOpen]);
+
 
   // Dev env switcher — only visible on localhost
   const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
