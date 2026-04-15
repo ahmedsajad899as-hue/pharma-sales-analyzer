@@ -90,12 +90,12 @@ interface VisitArea {
 }
 
 const FEEDBACK_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  writing:       { label: 'يكتب ✓',        color: '#065f46', bg: '#d1fae5' },
-  interested:    { label: 'مهتم',           color: '#1d4ed8', bg: '#dbeafe' },
-  stocked:       { label: 'مخزن',           color: '#7c3aed', bg: '#ede9fe' },
-  not_interested:{ label: 'غير مهتم',       color: '#b45309', bg: '#fef3c7' },
-  unavailable:   { label: 'غير متواجد',     color: '#6b7280', bg: '#f3f4f6' },
-  pending:       { label: 'لم يُقرر',       color: '#6b7280', bg: '#f3f4f6' },
+  writing:       { label: 'يكتب ✓',        color: '#4338ca', bg: '#eef2ff' },
+  interested:    { label: 'مهتم',           color: '#475569', bg: '#f1f5f9' },
+  stocked:       { label: 'مخزن',           color: '#475569', bg: '#f1f5f9' },
+  not_interested:{ label: 'غير مهتم',       color: '#475569', bg: '#f1f5f9' },
+  unavailable:   { label: 'غير متواجد',     color: '#94a3b8', bg: '#f8fafc' },
+  pending:       { label: 'لم يُقرر',       color: '#94a3b8', bg: '#f8fafc' },
 };
 
 function fmt(dateStr: string) {
@@ -698,13 +698,13 @@ export default function DoctorsPage() {
         )}
         {activeTab === 'visits' && visitAnalysisType === 'pharmacies' && (
           <button onClick={loadPharmVisits} disabled={pharmVisitLoading}
-            style={{ ...btnStyle('#0ea5e9'), opacity: pharmVisitLoading ? 0.7 : 1 }}>
+            style={{ ...btnStyle('#6366f1'), opacity: pharmVisitLoading ? 0.7 : 1 }}>
             {pharmVisitLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
         )}
         {activeTab === 'pharmacies' && (
           <button onClick={loadSurveyPharmacies} disabled={surveyPharmLoading}
-            style={{ ...btnStyle('#0ea5e9'), opacity: surveyPharmLoading ? 0.7 : 1 }}>
+            style={{ ...btnStyle('#6366f1'), opacity: surveyPharmLoading ? 0.7 : 1 }}>
             {surveyPharmLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
         )}
@@ -875,7 +875,7 @@ export default function DoctorsPage() {
                 {/* Wish star */}
                 {(() => { const isW = wishedDoctors.has(d.id); return (
                   <button onClick={() => toggleWish(d.id, d.name)} title={isW ? 'إزالة من قائمة الطلبات' : 'أضف لقائمة الطلبات'} style={{
-                    background: isW ? '#e0f2fe' : 'transparent', border: `1.5px solid ${isW ? '#38bdf8' : '#cbd5e1'}`,
+                    background: isW ? '#eef2ff' : 'transparent', border: `1.5px solid ${isW ? '#6366f1' : '#cbd5e1'}`,
                     borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                     opacity: isW ? 1 : 0.45, transition: 'all 0.15s',
@@ -943,9 +943,9 @@ export default function DoctorsPage() {
               onClick={() => setVisitAnalysisType('pharmacies')}
               style={{
                 padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                border: `1.5px solid ${visitAnalysisType === 'pharmacies' ? '#0ea5e9' : '#e2e8f0'}`,
-                background: visitAnalysisType === 'pharmacies' ? '#e0f2fe' : '#f8fafc',
-                color: visitAnalysisType === 'pharmacies' ? '#0369a1' : '#64748b',
+                border: `1.5px solid ${visitAnalysisType === 'pharmacies' ? '#6366f1' : '#e2e8f0'}`,
+                background: visitAnalysisType === 'pharmacies' ? '#eef2ff' : '#f8fafc',
+                color: visitAnalysisType === 'pharmacies' ? '#4338ca' : '#64748b',
               }}>🏪 الصيدليات</button>
           </div>
 
@@ -1024,9 +1024,9 @@ export default function DoctorsPage() {
               <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 {[
                   { label: 'إجمالي الأطباء', value: total,   icon: '👥', accent: '#6366f1', clickable: 'total' },
-                  { label: 'تمت زيارتهم',    value: visited, icon: '✅', accent: '#10b981', clickable: 'visited' },
-                  { label: 'يكتبون الايتم',  value: writing, icon: '✍️', accent: '#f59e0b', clickable: 'writing' },
-                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: '📊', accent: '#3b82f6', clickable: 'coverage' },
+                  { label: 'تمت زيارتهم',    value: visited, icon: '✅', accent: '#6366f1', clickable: 'visited' },
+                  { label: 'يكتبون الايتم',  value: writing, icon: '✍️', accent: '#6366f1', clickable: 'writing' },
+                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: '📊', accent: '#6366f1', clickable: 'coverage' },
                 ].map(s => {
                   const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : s.clickable === 'total' ? showTotalPopup : false;
                   const borderColor  = isActiveCard ? s.accent : '#e2e8f0';
@@ -1374,9 +1374,9 @@ export default function DoctorsPage() {
             {wishedDoctors.size > 0 && (
               <button onClick={() => setShowWishPanel(v => !v)} style={{
                 padding: '7px 14px', borderRadius: 8,
-                border: `1.5px solid ${showWishPanel ? '#38bdf8' : '#bae6fd'}`,
-                background: showWishPanel ? '#e0f2fe' : '#f0f9ff',
-                color: '#0369a1', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                border: `1.5px solid ${showWishPanel ? '#6366f1' : '#e2e8f0'}`,
+                background: showWishPanel ? '#eef2ff' : '#f8fafc',
+                color: '#4338ca', cursor: 'pointer', fontSize: 13, fontWeight: 700,
               }}>
                 ⭐ قائمة الطلبات ({wishedDoctors.size})
               </button>
@@ -1389,18 +1389,18 @@ export default function DoctorsPage() {
             const wished  = allDocs.filter(d => wishedDoctors.has(d.id));
             return (
               <div style={{
-                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-                border: '1.5px solid #bae6fd', borderRadius: 16,
+                background: '#f8fafc',
+                border: '1.5px solid #e2e8f0', borderRadius: 16,
                 padding: '16px 18px', marginBottom: 18,
-                boxShadow: '0 2px 12px rgba(14,165,233,0.08)',
+                boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
               }}>
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 18 }}>📋</span>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0369a1' }}>أطباء مطلوبون في البلان</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#4338ca' }}>أطباء مطلوبون في البلان</span>
                     <span style={{
-                      background: '#0ea5e9', color: '#fff', borderRadius: 99,
+                      background: '#6366f1', color: '#fff', borderRadius: 99,
                       fontSize: 11, fontWeight: 700, padding: '1px 8px', minWidth: 22, textAlign: 'center',
                     }}>{wished.length}</span>
                   </div>
@@ -1412,8 +1412,8 @@ export default function DoctorsPage() {
                     localStorage.removeItem('wishedItems');
                     localStorage.removeItem('wishedDoctorNames');
                   }} style={{
-                    background: 'none', border: '1px solid #bae6fd', borderRadius: 7,
-                    padding: '3px 10px', fontSize: 11, color: '#0369a1', cursor: 'pointer', fontWeight: 600,
+                    background: 'none', border: '1px solid #e2e8f0', borderRadius: 7,
+                    padding: '3px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer', fontWeight: 600,
                   }}>مسح الكل</button>
                 </div>
 
@@ -1428,8 +1428,8 @@ export default function DoctorsPage() {
                     return (
                       <div key={d.id} style={{
                         background: '#fff', borderRadius: 12, padding: '12px 12px 10px',
-                        border: '1.5px solid #e0f2fe', direction: 'rtl',
-                        boxShadow: '0 1px 4px rgba(14,165,233,0.07)',
+                        border: '1.5px solid #e2e8f0', direction: 'rtl',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
                         position: 'relative',
                       }}>
                         {/* Remove button */}
@@ -1442,7 +1442,7 @@ export default function DoctorsPage() {
                         {/* Number badge */}
                         <span style={{
                           position: 'absolute', top: 8, right: 10,
-                          background: '#e0f2fe', color: '#0369a1',
+                          background: '#eef2ff', color: '#4338ca',
                           borderRadius: 99, fontSize: 10, fontWeight: 700,
                           padding: '1px 6px',
                         }}>{idx + 1}</span>
@@ -1456,8 +1456,8 @@ export default function DoctorsPage() {
                         <div style={{ position: 'relative' }}>
                           <div style={{
                             display: 'flex', alignItems: 'center',
-                            border: '1.5px solid #bae6fd', borderRadius: 8,
-                            background: '#f0f9ff', overflow: 'hidden',
+                            border: '1.5px solid #e2e8f0', borderRadius: 8,
+                            background: '#f8fafc', overflow: 'hidden',
                           }}>
                             <input
                               value={currentItem}
@@ -1467,7 +1467,7 @@ export default function DoctorsPage() {
                               placeholder="اختر الايتم..."
                               style={{
                                 flex: 1, padding: '5px 8px', fontSize: 12, border: 'none',
-                                background: 'transparent', color: '#0369a1', fontWeight: 600,
+                                background: 'transparent', color: '#4338ca', fontWeight: 600,
                                 outline: 'none', direction: 'rtl', minWidth: 0,
                               }}
                             />
@@ -1475,14 +1475,14 @@ export default function DoctorsPage() {
                               onMouseDown={e => { e.preventDefault(); toggleItemDrop(d.id); }}
                               style={{
                                 background: 'none', border: 'none', cursor: 'pointer',
-                                padding: '0 8px', color: '#7dd3fc', fontSize: 12, flexShrink: 0,
+                                padding: '0 8px', color: '#a5b4fc', fontSize: 12, flexShrink: 0,
                               }}>▾</button>
                           </div>
                           {showDrop && filteredItems.length > 0 && (
                             <div style={{
                               position: 'absolute', top: 'calc(100% + 3px)', right: 0, left: 0, zIndex: 200,
-                              background: '#fff', border: '1px solid #bae6fd', borderRadius: 9,
-                              boxShadow: '0 4px 16px rgba(14,165,233,0.13)',
+                              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 9,
+                              boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
                               maxHeight: 160, overflowY: 'auto',
                             }}>
                               {filteredItems.map(it => (
@@ -1490,12 +1490,12 @@ export default function DoctorsPage() {
                                   onMouseDown={() => { setWishedItem(d.id, it.name); toggleItemDrop(d.id, false); }}
                                   style={{
                                     padding: '7px 12px', fontSize: 12, cursor: 'pointer',
-                                    color: '#0369a1', fontWeight: 600,
-                                    borderBottom: '1px solid #f0f9ff',
-                                    background: currentItem === it.name ? '#e0f2fe' : '#fff',
+                                    color: '#4338ca', fontWeight: 600,
+                                    borderBottom: '1px solid #f8fafc',
+                                    background: currentItem === it.name ? '#eef2ff' : '#fff',
                                   }}
-                                  onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
-                                  onMouseLeave={e => (e.currentTarget.style.background = currentItem === it.name ? '#e0f2fe' : '#fff')}
+                                  onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                  onMouseLeave={e => (e.currentTarget.style.background = currentItem === it.name ? '#eef2ff' : '#fff')}
                                 >{it.name}</div>
                               ))}
                             </div>
@@ -1507,8 +1507,8 @@ export default function DoctorsPage() {
                 </div>
 
                 <div style={{
-                  marginTop: 12, fontSize: 12, color: '#0369a1',
-                  padding: '7px 12px', background: '#e0f2fe', borderRadius: 9,
+                  marginTop: 12, fontSize: 12, color: '#4338ca',
+                  padding: '7px 12px', background: '#eef2ff', borderRadius: 9,
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}>
                   <span>💡</span>
@@ -1652,7 +1652,7 @@ export default function DoctorsPage() {
 
                             {/* Wish button */}
                             <button onClick={() => toggleWish(doc.id, doc.name)} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
-                              background: isWished ? '#e0f2fe' : 'transparent', border: `1.5px solid ${isWished ? '#38bdf8' : '#cbd5e1'}`,
+                              background: isWished ? '#eef2ff' : 'transparent', border: `1.5px solid ${isWished ? '#6366f1' : '#cbd5e1'}`,
                               borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
                               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                               opacity: isWished ? 1 : 0.45,
@@ -1758,7 +1758,7 @@ export default function DoctorsPage() {
                       <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
                       <button style={{
                         fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                        border: '1px solid #0ea5e9', background: '#e0f2fe', color: '#0369a1',
+                        border: '1px solid #6366f1', background: '#eef2ff', color: '#4338ca',
                         cursor: 'default', whiteSpace: 'nowrap',
                       }}>الكل</button>
                       <button
@@ -1774,9 +1774,9 @@ export default function DoctorsPage() {
                       <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', flexShrink: 0 }}>📅</span>
                       <button onClick={() => { setPharmVisitMonthFilter(null); setShowPharmMonthPicker(false); }} style={{
                         fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                        border: `1px solid ${pharmVisitMonthFilter === null ? '#0ea5e9' : '#e2e8f0'}`,
-                        background: pharmVisitMonthFilter === null ? '#e0f2fe' : 'transparent',
-                        color: pharmVisitMonthFilter === null ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
+                        border: `1px solid ${pharmVisitMonthFilter === null ? '#6366f1' : '#e2e8f0'}`,
+                        background: pharmVisitMonthFilter === null ? '#eef2ff' : 'transparent',
+                        color: pharmVisitMonthFilter === null ? '#4338ca' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
                       }}>الكل</button>
                       {options.map(o => {
                         const active = pharmVisitMonthFilter?.month === o.month && pharmVisitMonthFilter?.year === o.year;
@@ -1785,9 +1785,9 @@ export default function DoctorsPage() {
                             onClick={() => setPharmVisitMonthFilter({ month: o.month, year: o.year })}
                             style={{
                               fontSize: 11, fontWeight: active ? 700 : 400, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                              border: `1px solid ${active ? '#0ea5e9' : '#e2e8f0'}`,
-                              background: active ? '#e0f2fe' : 'transparent',
-                              color: active ? '#0369a1' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
+                              border: `1px solid ${active ? '#6366f1' : '#e2e8f0'}`,
+                              background: active ? '#eef2ff' : 'transparent',
+                              color: active ? '#4338ca' : '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap',
                             }}>{o.label}</button>
                         );
                       })}
@@ -1803,8 +1803,8 @@ export default function DoctorsPage() {
                 return (
                   <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
                     {[
-                      { label: 'إجمالي الصيدليات', value: totalPharma, icon: '🏪', accent: '#0ea5e9' },
-                      { label: 'إجمالي الزيارات',  value: totalVisits, icon: '📍', accent: '#10b981' },
+                      { label: 'إجمالي الصيدليات', value: totalPharma, icon: '🏪', accent: '#6366f1' },
+                      { label: 'إجمالي الزيارات',  value: totalVisits, icon: '📍', accent: '#6366f1' },
                       { label: 'عدد المناطق',       value: pharmVisitAreas.length, icon: '🗺️', accent: '#6366f1' },
                     ].map(s => (
                       <div key={s.label} style={{
@@ -1867,8 +1867,8 @@ export default function DoctorsPage() {
                 if (filteredPharmas.length === 0 && searchQ) return null;
                 return (
                   <div key={key} style={{
-                    background: '#fff', borderRadius: 14, border: '1px solid #bae6fd',
-                    marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 6px rgba(14,165,233,0.05)',
+                    background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                    marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
                   }}>
                     {/* Area header */}
                     <button onClick={() => setPharmExpandedAreas(prev => {
@@ -1882,13 +1882,13 @@ export default function DoctorsPage() {
                     }}>
                       <div style={{
                         width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
-                        background: '#e0f2fe', display: 'flex', alignItems: 'center',
+                        background: '#eef2ff', display: 'flex', alignItems: 'center',
                         justifyContent: 'center', fontSize: 18,
                       }}>🏪</div>
                       <div style={{ flex: 1, textAlign: 'right' }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{area.name}</div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, color: '#0369a1', background: '#e0f2fe', borderRadius: 20, padding: '2px 9px' }}>
+                          <span style={{ fontSize: 12, color: '#4338ca', background: '#eef2ff', borderRadius: 20, padding: '2px 9px' }}>
                             🏪 {area.totalPharmacies} صيدلية
                           </span>
                           <span style={{ fontSize: 12, color: '#065f46', background: '#d1fae5', borderRadius: 20, padding: '2px 9px' }}>
@@ -1901,17 +1901,17 @@ export default function DoctorsPage() {
 
                     {/* Pharmacies list */}
                     {isOpen && (
-                      <div style={{ borderTop: '1px solid #e0f2fe', padding: '4px 0 8px' }}>
+                      <div style={{ borderTop: '1px solid #f1f5f9', padding: '4px 0 8px' }}>
                         {filteredPharmas.map(pharm => {
                           const pharmKey = `${key}-${pharm.name}`;
                           const isExpanded = expandedPharma.has(pharmKey);
                           return (
-                            <div key={pharmKey} style={{ borderBottom: '1px solid #f0f9ff' }}>
+                            <div key={pharmKey} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <div style={{
                                 display: 'flex', alignItems: 'center', gap: 10,
                                 padding: '10px 18px', direction: 'rtl',
                               }}>
-                                <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: '#0ea5e9' }} />
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: '#6366f1' }} />
                                 <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{pharm.name}</div>
                                 {pharm.visits.length > 0 ? (
                                   <button onClick={() => setExpandedPharma(prev => {
@@ -1919,8 +1919,8 @@ export default function DoctorsPage() {
                                     next.has(pharmKey) ? next.delete(pharmKey) : next.add(pharmKey);
                                     return next;
                                   })} style={{
-                                    fontSize: 12, color: '#0369a1', fontWeight: 600,
-                                    background: isExpanded ? '#bae6fd' : '#e0f2fe',
+                                    fontSize: 12, color: '#4338ca', fontWeight: 600,
+                                    background: isExpanded ? '#e0e7ff' : '#eef2ff',
                                     padding: '3px 8px', borderRadius: 10, flexShrink: 0,
                                     border: 'none', cursor: 'pointer',
                                   }}>
@@ -1935,7 +1935,7 @@ export default function DoctorsPage() {
                                 </span>
                               </div>
                               {isExpanded && pharm.visits.length > 0 && (
-                                <div style={{ background: '#f0f9ff', borderTop: '1px solid #e0f2fe', padding: '8px 18px' }}>
+                                <div style={{ background: '#f8fafc', borderTop: '1px solid #f1f5f9', padding: '8px 18px' }}>
                                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                                     <thead>
                                       <tr style={{ color: '#94a3b8', fontWeight: 600 }}>
@@ -1947,7 +1947,7 @@ export default function DoctorsPage() {
                                     </thead>
                                     <tbody>
                                       {pharm.visits.map((v, idx) => (
-                                        <tr key={v.id} style={{ borderTop: '1px solid #e0f2fe' }}>
+                                        <tr key={v.id} style={{ borderTop: '1px solid #f1f5f9' }}>
                                           <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{idx + 1}</td>
                                           <td style={{ padding: '5px 8px', color: '#374151', whiteSpace: 'nowrap' }}>{fmt(v.visitDate)}</td>
                                           <td style={{ padding: '5px 8px' }}>
@@ -2036,16 +2036,16 @@ export default function DoctorsPage() {
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button onClick={() => setSurveyPharmArea('all')} style={{
                     fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
-                    border: `1.5px solid ${surveyPharmArea === 'all' ? '#0ea5e9' : '#e2e8f0'}`,
-                    background: surveyPharmArea === 'all' ? '#e0f2fe' : '#f8fafc',
-                    color: surveyPharmArea === 'all' ? '#0369a1' : '#64748b',
+                    border: `1.5px solid ${surveyPharmArea === 'all' ? '#6366f1' : '#e2e8f0'}`,
+                    background: surveyPharmArea === 'all' ? '#eef2ff' : '#f8fafc',
+                    color: surveyPharmArea === 'all' ? '#4338ca' : '#64748b',
                   }}>الكل</button>
                   {areas.map(a => (
                     <button key={a} onClick={() => setSurveyPharmArea(prev => prev === a ? 'all' : a)} style={{
                       fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
-                      border: `1.5px solid ${surveyPharmArea === a ? '#0ea5e9' : '#e2e8f0'}`,
-                      background: surveyPharmArea === a ? '#e0f2fe' : '#f8fafc',
-                      color: surveyPharmArea === a ? '#0369a1' : '#64748b',
+                      border: `1.5px solid ${surveyPharmArea === a ? '#6366f1' : '#e2e8f0'}`,
+                      background: surveyPharmArea === a ? '#eef2ff' : '#f8fafc',
+                      color: surveyPharmArea === a ? '#4338ca' : '#64748b',
                     }}>{a}</button>
                   ))}
                 </div>
@@ -2084,13 +2084,13 @@ export default function DoctorsPage() {
                   {filtered.map(p => (
                     <div key={p.id} style={{
                       background: '#fff', borderRadius: 14, padding: '14px 16px',
-                      border: '1.5px solid #e0f2fe', boxShadow: '0 1px 6px rgba(14,165,233,0.07)',
+                      border: '1.5px solid #e2e8f0', boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
                       direction: 'rtl', position: 'relative',
                     }}>
                       {/* Edit / Delete buttons */}
                       <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4 }}>
                         <button onClick={() => openEditPharm(p)} title="تعديل"
-                          style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: '#0369a1' }}>✏️</button>
+                          style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: '#64748b' }}>✏️</button>
                         <button onClick={() => deletePharm(p.id)} title="حذف"
                           style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: '#dc2626' }}>🗑</button>
                       </div>
@@ -2113,7 +2113,7 @@ export default function DoctorsPage() {
                         )}
                         {p.areaName && (
                           <div style={{ marginTop: 4 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, background: '#e0f2fe', color: '#0369a1', borderRadius: 20, padding: '2px 10px' }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, background: '#eef2ff', color: '#4338ca', borderRadius: 20, padding: '2px 10px' }}>
                               {p.areaName}
                             </span>
                           </div>
