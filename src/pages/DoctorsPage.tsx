@@ -106,6 +106,8 @@ function fmt(dateStr: string) {
 export default function DoctorsPage() {
   const { token, user, hasFeature } = useAuth();
   const isCommercialRep = user?.role === 'commercial_rep';
+  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+  const isFieldRep  = FIELD_ROLES.includes(user?.role ?? '');
   const showDoctorFields    = hasFeature('doctor_fields');
   const showVisitAnalysis   = hasFeature('visit_analysis_tab');
   const showDoctorsList     = hasFeature('doctors_list_tab');
@@ -180,6 +182,10 @@ export default function DoctorsPage() {
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
+  // ── Rep filter (for managers only) ─────────────────────────
+  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; }
+  const [managerReps, setManagerReps]       = useState<ManagerRep[]>([]);
+  const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
   const [expandedAreas, setExpandedAreas]   = useState<Set<string>>(new Set());
   const [visitSearch, setVisitSearch]       = useState('');
   const [showOnlyVisited, setShowOnlyVisited] = useState(false);  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
@@ -309,14 +315,26 @@ export default function DoctorsPage() {
   const loadVisits = useCallback(async () => {
     setVisitLoading(true);
     try {
-      const params = visitMonthFilter ? `?month=${visitMonthFilter.month}&year=${visitMonthFilter.year}` : '';
-      const r = await fetch(`${API}/api/doctors/visits-by-area${params}`, { headers: H() });
+      const ps = new URLSearchParams();
+      if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
+      if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
+      const r = await fetch(`${API}/api/doctors/visits-by-area?${ps}`, { headers: H() });
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
       setVisitAreas(Array.isArray(j.areas) ? j.areas : []);
     } catch (e) { console.error('[visitsByArea] fetch error:', e); }
     finally { setVisitLoading(false); }
-  }, [token, visitMonthFilter]);
+  }, [token, visitMonthFilter, visitRepFilter]);
+
+  const loadManagerReps = useCallback(async () => {
+    if (isFieldRep) return;
+    try {
+      const r = await fetch(`${API}/api/doctors/sub-reps`, { headers: H() });
+      const j = await r.json();
+      setManagerReps(Array.isArray(j.reps) ? j.reps : []);
+    } catch (e) { console.error('[sub-reps] fetch error:', e); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -428,19 +446,21 @@ export default function DoctorsPage() {
       return changed ? next : prev;
     });
   }, [doctors]);
-  useEffect(() => { if (activeTab === 'visits') loadVisits(); }, [activeTab, loadVisits]);
+  useEffect(() => { if (activeTab === 'visits') { loadVisits(); loadManagerReps(); } }, [activeTab, loadVisits, loadManagerReps]);
 
   const loadPharmVisits = useCallback(async () => {
     setPharmVisitLoading(true);
     try {
-      const params = pharmVisitMonthFilter ? `?month=${pharmVisitMonthFilter.month}&year=${pharmVisitMonthFilter.year}` : '';
-      const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area${params}`, { headers: H() });
+      const ps = new URLSearchParams();
+      if (pharmVisitMonthFilter) { ps.set('month', String(pharmVisitMonthFilter.month)); ps.set('year', String(pharmVisitMonthFilter.year)); }
+      if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
+      const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area?${ps}`, { headers: H() });
       const j = await r.json();
       setPharmVisitAreas(Array.isArray(j.areas) ? j.areas : []);
     } catch (e) { console.error(e); }
     finally { setPharmVisitLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, pharmVisitMonthFilter]);
+  }, [token, pharmVisitMonthFilter, visitRepFilter]);
 
   const loadSurveyPharmacies = useCallback(async () => {
     if (!isCommercialRep) return;
@@ -881,6 +901,34 @@ export default function DoctorsPage() {
       {/* ── VISITS TAB ───────────────────────────────────── */}
       {activeTab === 'visits' && showVisitAnalysis && (
         <div>
+          {/* Rep selector (managers only) */}
+          {!isFieldRep && managerReps.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>👤 المندوب</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setVisitRepFilter(null)}
+                  style={{
+                    padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: `1.5px solid ${visitRepFilter === null ? '#6366f1' : '#e2e8f0'}`,
+                    background: visitRepFilter === null ? '#eef2ff' : '#f8fafc',
+                    color: visitRepFilter === null ? '#4338ca' : '#64748b',
+                  }}>الكل</button>
+                {managerReps.map(rep => (
+                  <button
+                    key={rep.userId}
+                    onClick={() => setVisitRepFilter(rep.userId)}
+                    style={{
+                      padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: `1.5px solid ${visitRepFilter === rep.userId ? '#6366f1' : '#e2e8f0'}`,
+                      background: visitRepFilter === rep.userId ? '#eef2ff' : '#f8fafc',
+                      color: visitRepFilter === rep.userId ? '#4338ca' : '#64748b',
+                    }}>{rep.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Analysis type toggle: doctors vs pharmacies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <button

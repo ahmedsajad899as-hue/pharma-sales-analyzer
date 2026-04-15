@@ -10,6 +10,7 @@ router.get('/specialties',            ctrl.specialtySuggestions);
 router.get('/pharmacy-names',         ctrl.pharmacyNameSuggestions);
 router.get('/visits-by-area',         ctrl.visitsByArea);
 router.get('/pharmacy-visits-by-area', ctrl.pharmacyVisitsByArea);
+router.get('/sub-reps',               ctrl.getManagerSubReps);
 router.get('/:id',               ctrl.getOne);
 router.post('/',            ctrl.create);
 router.post('/import',      upload.single('file'), ctrl.importExcel);

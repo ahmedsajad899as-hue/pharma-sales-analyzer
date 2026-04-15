@@ -82,7 +82,60 @@ export async function visitsByArea(req, res, next) {
       console.log('[visitsByArea] repAreaIds count:', repAreaIds.length, 'doctors:', doctors.length);
 
     } else {
-      // للمدير: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
+      // للمدير: فلترة حسب مندوب محدد أو جميع الأطباء
+      const repUserId = req.query.repUserId ? parseInt(req.query.repUserId) : null;
+
+      if (repUserId) {
+        // جلب معلومات المندوب المحدد
+        const subUser = await prisma.user.findUnique({
+          where: { id: repUserId },
+          select: { linkedRepId: true },
+        });
+        const subLinkedRepId = subUser?.linkedRepId ?? null;
+
+        // مناطق المندوب
+        const [uaRows, saRows] = await Promise.all([
+          prisma.userAreaAssignment.findMany({ where: { userId: repUserId }, select: { areaId: true } }),
+          subLinkedRepId
+            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: subLinkedRepId }, select: { areaId: true } })
+            : Promise.resolve([]),
+        ]);
+        const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
+
+        // زيارات المندوب المحدد فقط
+        const repVisits = await prisma.doctorVisit.findMany({
+          where: {
+            scientificRepId: subLinkedRepId ?? -1,
+            ...(dateFilter ? { visitDate: dateFilter } : {}),
+          },
+          select: {
+            id: true, visitDate: true, feedback: true, notes: true,
+            doctorId: true,
+            item: { select: { id: true, name: true } },
+          },
+          orderBy: { visitDate: 'desc' },
+        });
+        const visitsByDocRep = new Map();
+        for (const v of repVisits) {
+          if (!visitsByDocRep.has(v.doctorId)) visitsByDocRep.set(v.doctorId, []);
+          visitsByDocRep.get(v.doctorId).push(v);
+        }
+
+        // الأطباء في مناطق المندوب (أو جميع أطباء المدير إذا لم تُحدَّد مناطق)
+        const doctorWhere = repAreaIds.length > 0
+          ? { userId, areaId: { in: repAreaIds } }
+          : { userId };
+        const rawDocs = await prisma.doctor.findMany({
+          where: doctorWhere,
+          include: {
+            area:       { select: { id: true, name: true } },
+            targetItem: { select: { id: true, name: true } },
+          },
+          orderBy: { name: 'asc' },
+        });
+        doctors = rawDocs.map(d => ({ ...d, visits: visitsByDocRep.get(d.id) ?? [] }));
+      } else {
+      // الكل: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
       doctors = await prisma.doctor.findMany({
         where: { userId },
         include: {
@@ -149,6 +202,7 @@ export async function visitsByArea(req, res, next) {
         if (surveyMatch) return { ...d, area: surveyMatch };
         return d;
       });
+      } // end else (all reps)
     }
 
     const areaMap = new Map();   // key = normName(areaName)
@@ -226,9 +280,22 @@ export async function pharmacyVisitsByArea(req, res, next) {
       linkedRepId = userRow?.linkedRepId;
     }
 
+    // اختياري: فلترة حسب مندوب محدد (للمدير فقط)
+    const repUserIdPharma = (!isFieldRep && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
+    let subLinkedRepIdPharma = null;
+    if (repUserIdPharma) {
+      const subUserPharma = await prisma.user.findUnique({
+        where: { id: repUserIdPharma },
+        select: { linkedRepId: true },
+      });
+      subLinkedRepIdPharma = subUserPharma?.linkedRepId ?? null;
+    }
+
     const visitWhere = isFieldRep
       ? { scientificRepId: linkedRepId ?? -1, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-      : { userId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
+      : repUserIdPharma
+        ? { scientificRepId: subLinkedRepIdPharma ?? -1, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+        : { userId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
 
     const visits = await prisma.pharmacyVisit.findMany({
       where: visitWhere,
@@ -957,6 +1024,28 @@ export async function specialtySuggestions(req, res, next) {
 }
 
 // ── GET /pharmacy-names?q= — autocomplete pharmacy names from doctors ─
+// ─── Get subordinate reps of the current manager ─────────────────────────────
+export async function getManagerSubReps(req, res, next) {
+  try {
+    const managerId = req.user.id;
+    const subs = await prisma.userManagerAssignment.findMany({
+      where: { managerId },
+      include: {
+        user: {
+          select: { id: true, displayName: true, username: true, linkedRepId: true },
+        },
+      },
+      orderBy: { assignedAt: 'asc' },
+    });
+    const reps = subs.map(s => ({
+      userId:      s.user.id,
+      name:        s.user.displayName || s.user.username,
+      linkedRepId: s.user.linkedRepId,
+    }));
+    res.json({ reps });
+  } catch (e) { next(e); }
+}
+
 export async function pharmacyNameSuggestions(req, res, next) {
   try {
     const userId = req.user.id;
