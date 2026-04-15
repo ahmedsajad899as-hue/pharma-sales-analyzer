@@ -1753,11 +1753,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               title={isDoubleVisit ? 'زيارة مزدوجة — اضغط لإيقاف' : 'زيارة منفردة — اضغط لتفعيل الزيارة المزدوجة'}
               onClick={() => setIsDoubleVisit(p => !p)}
               style={{
-                padding: '6px 10px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                background: isDoubleVisit ? '#374151' : '#f3f4f6',
-                border: `2px solid ${isDoubleVisit ? '#374151' : '#d1d5db'}`,
-                borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#6b7280',
-                fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap',
+                padding: '6px 10px', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                background: isDoubleVisit ? '#374151' : '#eef2ff',
+                border: `2px solid ${isDoubleVisit ? '#374151' : '#6366f1'}`,
+                borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#4338ca',
+                fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap', lineHeight: 1, minWidth: 40,
               }}
             >
               {isDoubleVisit ? '👥' : '👤'}
@@ -1852,7 +1852,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <span>صيدلية</span>
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : '#d1d5db'}`, background: fDouble ? '#f1f5f9' : '#fff', color: fDouble ? '#1e293b' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  style={{ padding: '3px 8px', fontSize: '14px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : '#6366f1'}`, background: fDouble ? '#374151' : '#eef2ff', color: fDouble ? '#fff' : '#4338ca', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px', lineHeight: 1 }}>
                   <span>👥</span>
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
