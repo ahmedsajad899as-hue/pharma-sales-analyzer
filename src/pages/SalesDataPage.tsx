@@ -70,44 +70,23 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     const wRow = raw[wRowIdx] as unknown[];
     const rRow = rRowIdx >= 0 ? raw[rRowIdx] as unknown[] : [];
 
-    // Assign region names using Excel merge metadata so a region never bleeds
-    // into columns that have no region header above them.
-    // IMPORTANT: sheet cells use absolute Excel coordinates (from !ref origin),
-    // while rRowIdx/ci are relative raw-array indices — must add the sheet offset.
+    // Assign region names directly from raw[rRowIdx].
+    // When xlsx reads merged cells with {header:1}, only the FIRST cell of each
+    // merge gets the value — the rest are ''. So non-empty cells in rRow are
+    // exactly the starts of each region group. We span each region from its
+    // column up to (but not including) the next non-empty region cell.
+    // This never bleeds and requires no sheet-coordinate arithmetic.
     const regionByCol: string[] = new Array(wRow.length).fill('');
     if (rRowIdx >= 0) {
-      const sheetRange = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1');
-      const rowOffset = sheetRange.s.r; // absolute Excel row of raw[0]
-      const colOffset = sheetRange.s.c; // absolute Excel col of raw[][0]
-      const absRegRow = rowOffset + rRowIdx;
-      const merges = ((sheet as any)['!merges'] ?? []) as { s: { r: number; c: number }; e: { r: number; c: number } }[];
-
-      // Collect all region cells and their names
-      const regionEntries: { absCol: number; name: string }[] = [];
+      const regionCells: { ci: number; name: string }[] = [];
       for (let ci = 0; ci < wRow.length; ci++) {
-        const absCol = colOffset + ci;
-        const cell = sheet[XLSX.utils.encode_cell({ r: absRegRow, c: absCol })];
-        const rv = cell ? String(cell.v ?? '').trim() : '';
-        if (rv) regionEntries.push({ absCol, name: rv });
+        const rv = String(rRow[ci] ?? '').trim();
+        if (rv) regionCells.push({ ci, name: rv });
       }
-
-      // For each region cell, determine its exact column span
-      for (let ei = 0; ei < regionEntries.length; ei++) {
-        const { absCol, name } = regionEntries[ei];
-        const merge = merges.find(m => m.s.r === absRegRow && m.s.c === absCol);
-        let spanEnd: number;
-        if (merge) {
-          // Use the exact merge span — never bleeds beyond it
-          spanEnd = merge.e.c;
-        } else {
-          // No merge cell: span only until just before the next region cell.
-          // For the last region entry, it only covers its own column.
-          spanEnd = regionEntries[ei + 1] !== undefined ? regionEntries[ei + 1].absCol - 1 : absCol;
-        }
-        for (let absC = absCol; absC <= spanEnd; absC++) {
-          const relC = absC - colOffset;
-          if (relC >= 0 && relC < wRow.length) regionByCol[relC] = name;
-        }
+      for (let ei = 0; ei < regionCells.length; ei++) {
+        const { ci: start, name } = regionCells[ei];
+        const end = regionCells[ei + 1]?.ci ?? wRow.length;
+        for (let ci = start; ci < end; ci++) regionByCol[ci] = name;
       }
     }
 
