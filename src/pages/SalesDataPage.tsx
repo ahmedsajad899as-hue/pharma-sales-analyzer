@@ -70,26 +70,36 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     const wRow = raw[wRowIdx] as unknown[];
     const rRow = rRowIdx >= 0 ? raw[rRowIdx] as unknown[] : [];
 
-    // Propagate region names across merged cells
-    const regionByCol: string[] = [];
-    let lastReg = '';
-    wRow.forEach((_, ci) => {
-      const rv = String(rRow[ci] ?? '').trim();
-      if (rv) lastReg = rv;
-      regionByCol[ci] = lastReg;
-    });
+    // Assign region names using Excel merge metadata so a region never bleeds
+    // into columns that have no region header above them.
+    const regionByCol: string[] = new Array(wRow.length).fill('');
+    if (rRowIdx >= 0) {
+      const merges = ((sheet as any)['!merges'] ?? []) as { s: { r: number; c: number }; e: { r: number; c: number } }[];
+      for (let ci = 0; ci < wRow.length; ci++) {
+        const cellRef = XLSX.utils.encode_cell({ r: rRowIdx, c: ci });
+        const cell = sheet[cellRef];
+        const rv = cell ? String(cell.v ?? '').trim() : '';
+        if (!rv) continue;
+        // Find the merge that starts at this cell (if any)
+        const merge = merges.find(m => m.s.r === rRowIdx && m.s.c === ci);
+        if (merge) {
+          for (let col = merge.s.c; col <= merge.e.c; col++) regionByCol[col] = rv;
+        } else {
+          regionByCol[ci] = rv;
+        }
+      }
+    }
 
     // Detect where area/quantity columns start.
-    // Primary: if there is a region row, the first column that has a real region
-    // header is exactly where area columns start (price/fixed cols have no region above them).
-    // Fallback for single-row headers: first mostly-numeric column starting from ci=3.
+    // Primary: first column in regionByCol that has a region name.
+    // Fallback for single-row headers (no region row): first mostly-numeric col >= 3.
     let areaStart = Math.min(3, wRow.length);
     if (rRowIdx >= 0) {
-      const firstRegCol = rRow.findIndex(v => String(v ?? '').trim() !== '');
+      const firstRegCol = regionByCol.findIndex(r => r !== '');
       if (firstRegCol > 0) {
         areaStart = firstRegCol;
       } else {
-        // Region row exists but all cells are empty (unusual) — fall back to numeric
+        // Region row exists but no region names found — fall back to numeric
         for (let ci = 3; ci < wRow.length; ci++) {
           let hits = 0, checked = 0;
           for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 8, raw.length); ri++) {
