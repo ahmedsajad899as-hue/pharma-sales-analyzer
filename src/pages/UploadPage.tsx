@@ -30,7 +30,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [progress, setProgress]   = useState(0);
   const [error, setError]         = useState('');
   const [errorDetail, setErrorDetail] = useState('');
-  const [fileType, setFileType]   = useState<'sales' | 'returns' | 'auto'>('sales');
+  const [fileType, setFileType]   = useState<'sales' | 'returns' | 'auto' | 'matrix'>('sales');
 
   // Pre-upload currency picker
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -315,7 +315,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingRight: 8 }}>
             {activeFiles.map(f => (
               <span key={f.id} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 20, padding: '3px 12px', fontSize: 13, fontWeight: 600 }}>
-                {f.fileType === 'returns' ? '↩' : f.fileType === 'auto' ? '🔀' : '📦'} {f.originalName}
+                {f.fileType === 'returns' ? '↩' : f.fileType === 'auto' ? '🔀' : f.fileType === 'matrix' ? '📊' : '📦'} {f.originalName}
               </span>
             ))}
           </div>
@@ -364,6 +364,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 { type: 'sales',   label: t.upload.typeSales,   icon: '📦', color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', shadow: 'rgba(59,130,246,0.25)' },
                 { type: 'returns', label: t.upload.typeReturns, icon: '↩',  color: '#ef4444', bg: '#fff1f2', border: '#fecaca', shadow: 'rgba(239,68,68,0.25)' },
                 { type: 'auto',    label: t.upload.typeAuto,    icon: '🔀', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', shadow: 'rgba(139,92,246,0.25)' },
+                { type: 'matrix',  label: t.upload.typeMatrix,  icon: '📊', color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', shadow: 'rgba(8,145,178,0.25)' },
               ] as const).map(opt => (
                 <button
                   key={opt.type}
@@ -582,10 +583,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       <td>
                         <span style={{
                           display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                          background: f.fileType === 'returns' ? '#fee2e2' : f.fileType === 'auto' ? '#ede9fe' : '#dbeafe',
-                          color:      f.fileType === 'returns' ? '#dc2626'  : f.fileType === 'auto' ? '#6d28d9'  : '#1d4ed8',
+                          background: f.fileType === 'returns' ? '#fee2e2' : f.fileType === 'auto' ? '#ede9fe' : f.fileType === 'matrix' ? '#ecfeff' : '#dbeafe',
+                          color:      f.fileType === 'returns' ? '#dc2626'  : f.fileType === 'auto' ? '#6d28d9'  : f.fileType === 'matrix' ? '#0891b2'  : '#1d4ed8',
                         }}>
-                          {f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : t.upload.typeSalesLabel}
+                          {f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : f.fileType === 'matrix' ? t.upload.typeMatrixLabel : t.upload.typeSalesLabel}
                         </span>
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>

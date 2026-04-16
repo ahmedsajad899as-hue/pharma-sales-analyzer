@@ -107,9 +107,42 @@ export async function processUploadedFile(file, options = {}) {
   const fileBuffer = file.buffer || readFileSync(file.path);
   const workbook   = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
 
+  console.log(`[upload] fileType="${fileType}" | sheets in workbook:`, workbook.SheetNames);
+
+  // ── 1b. Matrix (cross-tabular pivot) format shortcut ─────
+  if (fileType === 'matrix') {
+    const ws         = workbook.Sheets[workbook.SheetNames[0]];
+    const matrixRows = parseMatrixSheet(ws);
+
+    if (matrixRows.length === 0) {
+      throw new AppError(
+        'لم يتم العثور على بيانات صالحة في ملف المصفوفة.\n' +
+        'تأكد من هيكل الملف: الصف الأول = أسماء المناطق (مدموجة ومُلوّنة)، ' +
+        'الصف الثاني = أسماء المذاخر، الأعمدة الأولى = كود الصنف، اسم الصنف، السعر.',
+        422,
+        'MATRIX_EMPTY',
+      );
+    }
+
+    // Inject the matrix flat rows directly as salesRows and skip the tabular parser
+    return await _finishProcessing({
+      salesRows:      matrixRows,
+      returnsRows:    [],
+      skippedRows:    [],
+      totalRows:      matrixRows.length,
+      file,
+      uploadedBy,
+      userId,
+      columnMapping,
+      fileType:       'sales',   // matrix output is always treated as sales
+      sourceCurrency,
+    });
+  }
+
+  // ── Standard tabular format below ────────────────────────
+
   // Decide which sheets to process and whether they are forced-return sheets
   const sheetsToProcess = [];
-  console.log(`[upload] fileType="${fileType}" | sheets in workbook:`, workbook.SheetNames);
   if (fileType === 'auto') {
     // Multi-sheet: process ALL sheets; detect type by sheet name
     for (const sn of workbook.SheetNames) {
@@ -221,6 +254,16 @@ export async function processUploadedFile(file, options = {}) {
     );
   }
 
+  // ── 3b–7. Shared finishing logic ─────────────────────────
+  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency });
+}
+
+// ─── _finishProcessing ─────────────────────────────────────────────────────────
+// Everything from fuzzy normalisation to bulk insert — shared by both the
+// standard tabular path and the matrix (cross-tabular) path.
+async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency }) {
+  const validRows = [...salesRows, ...returnsRows];
+
   // ── 3b. Fuzzy-name normalisation ─────────────────────────────────────────────
   // Compare incoming names against existing DB names (same userId) so that minor
   // spelling variants across files get collapsed to a single canonical name.
@@ -321,12 +364,8 @@ export async function processUploadedFile(file, options = {}) {
   // ── Determine currency: user-specified takes priority over auto-detection ──
   let detectedCurrency;
   if (sourceCurrency === 'IQD' || sourceCurrency === 'USD') {
-    // User explicitly chose the file's currency at upload time
     detectedCurrency = sourceCurrency;
   } else {
-    // Auto-detect from median totalValue as fallback
-    // Iraq pharma: IQD row totals typically 50,000 – 10,000,000 IQD
-    // USD row totals typically $5 – $5,000 → well below 100,000
     const CURRENCY_THRESHOLD = 100000;
     const nonZeroValues = validRows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
     const median = nonZeroValues.length > 0
@@ -336,12 +375,10 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 5. Record the file upload ────────────────────────────
-  // multer stores originalname as latin1 — decode to UTF-8 for Arabic filenames
   const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-  // For 'auto' mode store a descriptive fileType
   const storedFileType = fileType === 'auto'
     ? (salesRows.length > 0 && returnsRows.length > 0 ? 'auto' : returnsRows.length > 0 ? 'returns' : 'sales')
-    : fileType;
+    : (fileType === 'matrix' ? 'sales' : fileType);
   const uploadedFile = await createUploadedFile({
     filename:         file.filename || file.originalname,
     originalName:     originalName,
@@ -350,7 +387,7 @@ export async function processUploadedFile(file, options = {}) {
     userId,
     fileType:         storedFileType,
     detectedCurrency: detectedCurrency,
-    currencyMode:     detectedCurrency, // default display = detected
+    currencyMode:     detectedCurrency,
   });
 
   // ── 6. Bulk insert (split sales/returns) ────────────────
@@ -361,7 +398,7 @@ export async function processUploadedFile(file, options = {}) {
     customerId:       r.customer ? (customerMap[r.customer] ?? null) : null,
     quantity:         r.quantity,
     totalValue:       r.totalValue,
-    saleDate:         r.date ?? undefined,   // undefined → Prisma uses @default(now())
+    saleDate:         r.date ?? undefined,
     uploadedFileId:   uploadedFile.id,
     rawData:          r.rawData ?? null,
   }));
@@ -374,7 +411,6 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 7. Auto-assign areas & items to each rep ────────────
-  // Build unique (repId, areaId) and (repId, itemId) pairs from this file's data
   const repAreaPairs = [...new Map(
     validRows.map(r => [`${repMap[r.repName]}-${areaMap[r.area]}`, { representativeId: repMap[r.repName], areaId: areaMap[r.area] }])
   ).values()];
@@ -383,7 +419,6 @@ export async function processUploadedFile(file, options = {}) {
     validRows.map(r => [`${repMap[r.repName]}-${itemMap[r.item]}`, { representativeId: repMap[r.repName], itemId: itemMap[r.item] }])
   ).values()];
 
-  // Upsert into junction tables (SQLite-compatible — upsert each pair)
   await Promise.all([
     ...repAreaPairs.map(p => prisma.representativeArea.upsert({
       where:  { representativeId_areaId: p },
@@ -497,6 +532,198 @@ const EXCLUDED_HEADER_PATTERNS = [
 function isExcludedHeader(header) {
   const lower = header.toLowerCase().trim();
   return EXCLUDED_HEADER_PATTERNS.some(p => lower.includes(p.toLowerCase()));
+}
+
+// ─── Matrix (Cross-tabular Pivot) Format ─────────────────────────────────────
+
+/**
+ * Column header patterns that indicate an "item info" column (not a pharmacy column).
+ * Used by parseMatrixSheet to distinguish item-info columns from pharmacy-data columns.
+ */
+const ITEM_INFO_HEADER_PATTERNS = [
+  // Item code / ID
+  'item code', 'product code', 'drug code', 'code', 'sku', 'barcode',
+  'كود الصنف', 'كود', 'رمز الصنف', 'رمز', 'رقم الصنف',
+  // Item name
+  'item name', 'item', 'product name', 'product', 'drug name', 'drug',
+  'medicine name', 'medicine', 'brand name', 'brand',
+  'اسم الصنف', 'اسم المادة', 'اسم الدواء', 'اسم المنتج',
+  'صنف', 'مادة', 'دواء', 'منتج',
+  // Price
+  'unit price', 'price', 'cost', 'rate',
+  'سعر الوحدة', 'سعر الوحده', 'سعر', 'السعر', 'الثمن', 'ثمن', 'التكلفة', 'تكلفة',
+  // Currency
+  'currency', 'عملة', 'العملة',
+];
+
+/**
+ * Returns true if a header cell value matches known item-info column patterns.
+ * Used to distinguish fixed item-info columns (code / name / price) from
+ * dynamic pharmacy-quantity columns in a cross-tabular Excel matrix.
+ */
+function isItemInfoHeader(val) {
+  const lower = String(val).toLowerCase().trim();
+  return ITEM_INFO_HEADER_PATTERNS.some(p => lower === p || lower.includes(p));
+}
+
+/**
+ * Try to extract a company name from an item code.
+ * Example: "ALBALSAMIRAQIN/A"  →  "ALBALSAMIRAQIN"
+ *          "DevaTurkeyN/A"     →  "DevaTurkey"
+ * Returns empty string if no company can be inferred.
+ */
+function extractCompanyFromCode(code) {
+  if (!code) return '';
+  // Take the leading alphabetic sequence before / - N _ or digit
+  const match = String(code).match(/^([A-Za-z\u0600-\u06FF]+)/);
+  return match ? match[1].trim() : '';
+}
+
+/**
+ * Parse a cross-tabular (matrix / pivot) Excel sheet where:
+ *
+ *   Row 0  — Region names, typically in merged cells that each span several
+ *             pharmacy columns.  Columns A-C (or however many item-info cols
+ *             there are) are blank or have a fixed label in this row.
+ *   Row 1  — Pharmacy / warehouse names.  The first few columns hold labels
+ *             like "Item code", "Item", "Price".
+ *   Row 2+ — Data rows: col 0 = item code, col 1 = item name, col 2 = price,
+ *             remaining cols = quantity sold at each pharmacy.
+ *
+ * Returns an array of flat sale-record objects ready for entity resolution.
+ */
+function parseMatrixSheet(ws) {
+  const ref = ws['!ref'];
+  if (!ref) return [];
+
+  const range  = XLSX.utils.decode_range(ref);
+  const merges = ws['!merges'] || [];
+
+  // Helper: read the raw value of a cell (r=row, c=col, both absolute 0-based)
+  const cellVal = (r, c) => {
+    const addr = XLSX.utils.encode_cell({ r, c });
+    const cell = ws[addr];
+    return cell !== undefined ? cell.v : '';
+  };
+
+  // ── Step 1: Build colRegionMap using merge ranges in row 0 ──────────────────
+  // merged cell in row 0 → all its columns share the same region name
+  const colRegionMap = {}; // absolute col index → region name string
+
+  for (const merge of merges) {
+    if (merge.s.r !== range.s.r) continue; // only row-0 merges
+    const addr = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
+    const cell = ws[addr];
+    const regionName = cell ? String(cell.v || '').trim() : '';
+    if (!regionName) continue;
+    for (let c = merge.s.c; c <= merge.e.c; c++) {
+      colRegionMap[c] = regionName;
+    }
+  }
+
+  // Also pick up unmerged single-cell region names in row 0 that are not item-info
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    if (colRegionMap[c]) continue; // already set by a merge
+    const val = String(cellVal(range.s.r, c) || '').trim();
+    if (val && !isItemInfoHeader(val)) {
+      colRegionMap[c] = val;
+    }
+  }
+
+  // ── Step 2: Scan row 1 to identify item-info cols vs pharmacy cols ──────────
+  const colPharmacyMap  = {}; // absolute col index → pharmacy name
+  const itemInfoColsAbs = new Set();
+
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const val = String(cellVal(range.s.r + 1, c) || '').trim();
+    if (!val) continue;
+
+    if (isItemInfoHeader(val)) {
+      itemInfoColsAbs.add(c);
+    } else if (colRegionMap[c]) {
+      // Has a region → pharmacy column
+      colPharmacyMap[c] = val;
+    }
+  }
+
+  // ── Step 3: Identify roles within item-info columns ────────────────────────
+  let itemCodeCol = -1;
+  let itemNameCol = -1;
+  let priceCol    = -1;
+
+  for (const c of itemInfoColsAbs) {
+    const val = String(cellVal(range.s.r + 1, c) || '').trim().toLowerCase();
+    if (val.match(/code|كود|رمز|رقم/)) {
+      itemCodeCol = c;
+    } else if (val.match(/price|سعر|ثمن|تكلفة|cost/)) {
+      priceCol = c;
+    } else if (val.match(/item|name|صنف|دواء|مادة|منتج|اسم/)) {
+      itemNameCol = c;
+    }
+  }
+
+  // Positional fallback: first 3 item-info cols → code, name, price
+  if (itemCodeCol === -1 || itemNameCol === -1 || priceCol === -1) {
+    const sorted = [...itemInfoColsAbs].sort((a, b) => a - b);
+    if (itemCodeCol === -1 && sorted.length >= 1) itemCodeCol = sorted[0];
+    if (itemNameCol === -1 && sorted.length >= 2) itemNameCol = sorted[1];
+    if (priceCol    === -1 && sorted.length >= 3) priceCol    = sorted[2];
+  }
+
+  // Last-resort fallback: if NO item-info cols were detected at all,
+  // assume first 3 absolute columns are code / name / price
+  if (itemInfoColsAbs.size === 0) {
+    itemCodeCol = range.s.c;
+    itemNameCol = range.s.c + 1;
+    priceCol    = range.s.c + 2;
+  }
+
+  // ── Step 4: Parse data rows (row 2 onwards) ────────────────────────────────
+  const flatRows = [];
+
+  for (let r = range.s.r + 2; r <= range.e.r; r++) {
+    const itemName = itemNameCol >= 0 ? String(cellVal(r, itemNameCol) || '').trim() : '';
+    if (!itemName) continue; // skip blank / summary rows
+
+    const itemCode = itemCodeCol >= 0 ? String(cellVal(r, itemCodeCol) || '').trim() : '';
+    const price    = priceCol    >= 0 ? parseNumeric(cellVal(r, priceCol)) : 0;
+
+    // Build a raw-row snapshot for audit logging
+    const rawRow = {};
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const v = cellVal(r, c);
+      if (v !== '' && v !== undefined) rawRow[c] = v;
+    }
+
+    // Iterate all pharmacy columns for this item row
+    for (const [colStr, pharmacyName] of Object.entries(colPharmacyMap)) {
+      const c   = parseInt(colStr, 10);
+      const qty = parseNumeric(cellVal(r, c));
+      if (qty <= 0) continue; // no sale at this pharmacy
+
+      const regionName = colRegionMap[c] || 'غير محدد';
+      const totalVal   = price > 0 ? qty * price : qty;
+
+      flatRows.push({
+        repName:    'غير محدد',
+        area:       regionName,
+        item:       itemName,
+        company:    extractCompanyFromCode(itemCode) || undefined,
+        quantity:   qty,
+        totalValue: totalVal,
+        customer:   pharmacyName,
+        date:       undefined,
+        rawData:    JSON.stringify(rawRow),
+      });
+    }
+  }
+
+  console.log(`[matrix] Parsed ${flatRows.length} sale records from matrix sheet.`,
+    `Regions: [${[...new Set(Object.values(colRegionMap))].join(', ')}]`,
+    `Pharmacies: ${Object.keys(colPharmacyMap).length}`,
+  );
+
+  return flatRows;
 }
 
 /**
