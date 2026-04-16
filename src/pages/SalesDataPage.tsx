@@ -72,20 +72,41 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
 
     // Assign region names using Excel merge metadata so a region never bleeds
     // into columns that have no region header above them.
+    // IMPORTANT: sheet cells use absolute Excel coordinates (from !ref origin),
+    // while rRowIdx/ci are relative raw-array indices — must add the sheet offset.
     const regionByCol: string[] = new Array(wRow.length).fill('');
     if (rRowIdx >= 0) {
+      const sheetRange = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1');
+      const rowOffset = sheetRange.s.r; // absolute Excel row of raw[0]
+      const colOffset = sheetRange.s.c; // absolute Excel col of raw[][0]
+      const absRegRow = rowOffset + rRowIdx;
       const merges = ((sheet as any)['!merges'] ?? []) as { s: { r: number; c: number }; e: { r: number; c: number } }[];
+
+      // Collect all region cells and their names
+      const regionEntries: { absCol: number; name: string }[] = [];
       for (let ci = 0; ci < wRow.length; ci++) {
-        const cellRef = XLSX.utils.encode_cell({ r: rRowIdx, c: ci });
-        const cell = sheet[cellRef];
+        const absCol = colOffset + ci;
+        const cell = sheet[XLSX.utils.encode_cell({ r: absRegRow, c: absCol })];
         const rv = cell ? String(cell.v ?? '').trim() : '';
-        if (!rv) continue;
-        // Find the merge that starts at this cell (if any)
-        const merge = merges.find(m => m.s.r === rRowIdx && m.s.c === ci);
+        if (rv) regionEntries.push({ absCol, name: rv });
+      }
+
+      // For each region cell, determine its exact column span
+      for (let ei = 0; ei < regionEntries.length; ei++) {
+        const { absCol, name } = regionEntries[ei];
+        const merge = merges.find(m => m.s.r === absRegRow && m.s.c === absCol);
+        let spanEnd: number;
         if (merge) {
-          for (let col = merge.s.c; col <= merge.e.c; col++) regionByCol[col] = rv;
+          // Use the exact merge span — never bleeds beyond it
+          spanEnd = merge.e.c;
         } else {
-          regionByCol[ci] = rv;
+          // No merge cell: span only until just before the next region cell.
+          // For the last region entry, it only covers its own column.
+          spanEnd = regionEntries[ei + 1] !== undefined ? regionEntries[ei + 1].absCol - 1 : absCol;
+        }
+        for (let absC = absCol; absC <= spanEnd; absC++) {
+          const relC = absC - colOffset;
+          if (relC >= 0 && relC < wRow.length) regionByCol[relC] = name;
         }
       }
     }
