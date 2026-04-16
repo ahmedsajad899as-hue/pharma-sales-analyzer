@@ -201,6 +201,7 @@ export default function SalesDataPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [itemSearch, setItemSearch]       = useState('');
+  const [companyFilter, setCompanyFilter] = useState('all');
   const [regionFilter, setRegionFilter]   = useState('all');
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
   const [page, setPage]           = useState(1);
@@ -228,15 +229,29 @@ export default function SalesDataPage() {
     return colsInRegion;
   }, [activeFile, regionFilter, warehouseKeys]);
 
-  // Filtered rows by item search
+  // Auto-detect company column
+  const companyCol = useMemo(() => {
+    if (!activeFile) return '';
+    const keywords = ['company', 'comp', 'شركة', 'الشركة', 'vendor', 'supplier', 'brand', 'manufacture', 'principal'];
+    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
+    return activeFile.fixedCols.find((_, i) => keywords.some(k => lower[i].includes(k))) ?? '';
+  }, [activeFile]);
+
+  // Unique company values for pills
+  const companies = useMemo(() => {
+    if (!activeFile || !companyCol) return [];
+    return [...new Set(activeFile.rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
+  }, [activeFile, companyCol]);
+
+  // Filtered rows by item search + company filter
   const filteredRows = useMemo(() => {
     if (!activeFile) return [];
+    let rows = activeFile.rows;
     const q = itemSearch.trim().toLowerCase();
-    if (!q) return activeFile.rows;
-    return activeFile.rows.filter(row =>
-      activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q))
-    );
-  }, [activeFile, itemSearch]);
+    if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
+    if (companyFilter !== 'all' && companyCol) rows = rows.filter(row => String(row[companyCol] ?? '').trim() === companyFilter);
+    return rows;
+  }, [activeFile, itemSearch, companyFilter, companyCol]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
@@ -285,7 +300,7 @@ export default function SalesDataPage() {
       } else {
         setFiles(prev => { const next = [...prev, result as SalesFile]; saveFiles(next); return next; });
         setActiveId((result as SalesFile).id);
-        setItemSearch(''); setRegionFilter('all'); setWarehouseKeys(new Set()); setPage(1);
+        setItemSearch(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setPage(1);
         setShowImport(false);
         setImporting(false);
       }
@@ -305,6 +320,7 @@ export default function SalesDataPage() {
   };
 
   const selectRegion = (r: string) => { setRegionFilter(r); setWarehouseKeys(new Set()); setPage(1); };
+  const selectCompany = (c: string) => { setCompanyFilter(c); setPage(1); };
   const toggleWH = (key: string) => {
     setWarehouseKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
     setPage(1);
@@ -351,7 +367,7 @@ export default function SalesDataPage() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
           {files.map(f => (
             <div key={f.id} style={{ display: 'flex' }}>
-              <button onClick={() => { setActiveId(f.id); selectRegion('all'); setItemSearch(''); setPage(1); }}
+              <button onClick={() => { setActiveId(f.id); selectRegion('all'); setItemSearch(''); setCompanyFilter('all'); setPage(1); }}
                 style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                   border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none',
                   background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: activeId === f.id ? '#4338ca' : '#64748b',
@@ -417,6 +433,19 @@ export default function SalesDataPage() {
               </div>
               {itemSearch && <div style={{ fontSize: 11, color: '#10b981', marginTop: 4, fontWeight: 600 }}>✓ {filteredRows.length} ايتم مطابق</div>}
             </div>
+
+            {/* Company pills (shown only when a company column is detected) */}
+            {companyCol && companies.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركة</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => selectCompany('all')} style={fp(companyFilter === 'all')}>الكل</button>
+                  {companies.map(c => (
+                    <button key={c} onClick={() => selectCompany(c)} style={fp(companyFilter === c)}>{c}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Region pills */}
             <div style={{ marginBottom: regionFilter !== 'all' ? 12 : 0 }}>
