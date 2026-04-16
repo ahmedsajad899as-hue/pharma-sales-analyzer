@@ -150,17 +150,19 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       fixedCols.push(wv || rv || `col_${ci + 1}`);
     }
 
-    // Build area columns (deduplicate labels)
+    // Build area columns (deduplicate labels).
+    // Columns with no region assigned are price/total/info cols — skip them.
     const labelCount: Record<string, number> = {};
     const areaCols: ColMeta[] = [];
     for (let ci = areaStart; ci < wRow.length; ci++) {
       const wv = String(wRow[ci] ?? '').trim();
       const reg = regionByCol[ci] || '';
+      if (!reg) continue; // no region header → not a warehouse/quantity col
       if (!wv && !reg) continue;
       const rawLabel = wv || `${reg}_${ci}`;
       labelCount[rawLabel] = (labelCount[rawLabel] ?? 0) + 1;
       const label = labelCount[rawLabel] > 1 ? `${rawLabel}_${labelCount[rawLabel]}` : rawLabel;
-      areaCols.push({ key: `c${ci}`, label, region: reg || 'غير محدد', colIdx: ci });
+      areaCols.push({ key: `c${ci}`, label, region: reg, colIdx: ci });
     }
 
     // Build data rows
