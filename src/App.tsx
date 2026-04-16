@@ -20,6 +20,7 @@ const _importCommercial      = () => import('./pages/CommercialRepPage');
 const _importAI              = () => import('./components/AIAssistant');
 const _importSurvey          = () => import('./pages/SurveyPage');
 const _importFMS             = () => import('./pages/FMSPage');
+const _importSalesData       = () => import('./pages/SalesDataPage');
 
 const DashboardPage       = lazy(_importDashboard);
 const RepAnalysisPage     = lazy(_importRepAnalysis);
@@ -34,6 +35,7 @@ const CommercialRepPage   = lazy(_importCommercial);
 const AIAssistant         = lazy(_importAI);
 const SurveyPage          = lazy(_importSurvey);
 const FMSPage             = lazy(_importFMS);
+const SalesDataPage       = lazy(_importSalesData);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -42,7 +44,7 @@ function preloadAllChunks() {
     _importDashboard(); _importRepAnalysis(); _importUpload();
     _importRepresentatives(); _importScientificReps(); _importDoctors();
     _importMonthlyPlans(); _importReports(); _importUsers();
-    _importCommercial(); _importAI(); _importSurvey(); _importFMS();
+    _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
   });
 }
 
@@ -76,7 +78,8 @@ export type PageId =
   | 'rep-analysis'
   | 'commercial'
   | 'master-survey'
-  | 'fms';
+  | 'fms'
+  | 'sales-data';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -265,7 +268,7 @@ function AppInner() {
   // By the time the user taps a page icon, data is already loaded.
   const allPageIds: PageId[] = [
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
-    'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms',
+    'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
   ];
   useEffect(() => {
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 2000));
@@ -320,6 +323,7 @@ function AppInner() {
     { id: 'commercial',      node: <CommercialRepPage /> },
     { id: 'master-survey',   node: <SurveyPage /> },
     { id: 'fms',             node: <FMSPage /> },
+    { id: 'sales-data',      node: <SalesDataPage /> },
   ];
 
   return (
