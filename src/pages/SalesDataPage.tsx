@@ -67,11 +67,47 @@ export default function SalesDataPage() {
   }, [files, activeFileId]);
 
   // ── Search + Sort ────────────────────────────────────────────────
+  // Columns whose NAME matches the search query
+  const matchedColumns = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return new Set<string>();
+    return new Set(activeColumns.filter(c => c.toLowerCase().includes(q)));
+  }, [search, activeColumns]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let rows = q
-      ? activeRows.filter(row => Object.values(row).some(v => String(v ?? '').toLowerCase().includes(q)))
-      : activeRows;
+    if (!q) return activeRows;
+
+    // 1. Rows where any CELL VALUE matches
+    const cellMatches = activeRows.filter(row =>
+      Object.values(row).some(v => String(v ?? '').toLowerCase().includes(q))
+    );
+
+    // 2. If the query matches a COLUMN NAME, also include ALL rows
+    //    (the matched column will be highlighted in the table)
+    if (matchedColumns.size > 0 && cellMatches.length === 0) {
+      // sort: rows with non-empty value in matched column first
+      return [...activeRows].sort((a, b) => {
+        const matchedCol = [...matchedColumns][0];
+        const av = String(a[matchedCol] ?? '');
+        const bv = String(b[matchedCol] ?? '');
+        if (av && !bv) return -1;
+        if (!av && bv) return 1;
+        return 0;
+      });
+    }
+
+    // 3. Combine both (rows that matched a cell value OR are in a matched column)
+    const cellMatchSet = new Set(cellMatches.map((_, i) => i));
+    let rows = cellMatches;
+    if (matchedColumns.size > 0) {
+      // also include all rows, but put cell-match rows first
+      const colOnlyRows = activeRows.filter(row =>
+        !cellMatches.includes(row)
+      );
+      rows = [...cellMatches, ...colOnlyRows];
+    }
+
     if (sortCol) {
       rows = [...rows].sort((a, b) => {
         const av = String(a[sortCol] ?? '');
@@ -81,10 +117,15 @@ export default function SalesDataPage() {
       });
     }
     return rows;
-  }, [activeRows, search, sortCol, sortDir]);
+  }, [activeRows, search, sortCol, sortDir, matchedColumns]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Detect stale files imported before smart header fix (columns named EMPTY_x__)
+  const activeFile = files.find(f => f.id === activeFileId);
+  const hasStaleColumns = (activeFileId === 'all' ? files : activeFile ? [activeFile] : [])
+    .some(f => f.columns.some(c => /^EMPTY_\d+__?$/.test(c)));
 
   // ── Summary counts ───────────────────────────────────────────────
   const summary = useMemo(() => {
@@ -238,6 +279,38 @@ export default function SalesDataPage() {
         </div>
       )}
 
+      {/* Stale columns warning */}
+      {files.length > 0 && hasStaleColumns && (
+        <div style={{
+          background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 12,
+          padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: 13, color: '#92400e', direction: 'rtl',
+        }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong>أسماء الأعمدة غير صحيحة</strong> — هذا الملف رُفع قبل تحديث الاستيراد الذكي.
+            يرجى <strong>حذف الملف وإعادة رفعه</strong> لتظهر أسماء المخازن والمناطق بشكل صحيح.
+          </div>
+          <button onClick={() => { if (activeFileId !== 'all') deleteFile(activeFileId); }} style={{
+            padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+            background: '#fbbf24', color: '#fff', border: 'none', flexShrink: 0,
+          }}>🗑 حذف وإعادة رفع</button>
+        </div>
+      )}
+
+      {/* Matched column badge */}
+      {search && matchedColumns.size > 0 && (
+        <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>عمود مطابق:</span>
+          {[...matchedColumns].map(col => (
+            <span key={col} style={{
+              background: '#fef9c3', border: '1.5px solid #fbbf24', borderRadius: 20,
+              padding: '3px 12px', fontSize: 12, fontWeight: 700, color: '#92400e',
+            }}>📌 {col}</span>
+          ))}
+        </div>
+      )}
+
       {/* Files tab bar */}
       {files.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -351,7 +424,11 @@ export default function SalesDataPage() {
             )}
           </div>
           <span style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>
-            {search ? `${filtered.length} نتيجة` : `${activeRows.length} صف`}
+            {search
+              ? matchedColumns.size > 0 && filtered.length === activeRows.length
+                ? `عمود مطابق · ${activeRows.length} صف`
+                : `${filtered.length} نتيجة`
+              : `${activeRows.length} صف`}
             {activeColumns.length > 0 && ` · ${activeColumns.length} عمود`}
           </span>
         </div>
@@ -367,21 +444,26 @@ export default function SalesDataPage() {
                   <th style={{ padding: '10px 14px', fontWeight: 700, color: '#64748b', fontSize: 11, textAlign: 'right', width: 40, whiteSpace: 'nowrap' }}>
                     #
                   </th>
-                  {activeColumns.map(col => (
+                  {activeColumns.map(col => {
+                    const isColMatch = matchedColumns.has(col);
+                    return (
                     <th key={col}
                       onClick={() => handleSort(col)}
                       style={{
-                        padding: '10px 14px', fontWeight: 700, color: '#1e293b', fontSize: 12,
+                        padding: '10px 14px', fontWeight: 700, color: isColMatch ? '#92400e' : '#1e293b', fontSize: 12,
                         textAlign: 'right', whiteSpace: 'nowrap', cursor: 'pointer',
                         userSelect: 'none',
-                        background: sortCol === col ? '#eef2ff' : undefined,
+                        background: isColMatch ? '#fef9c3' : sortCol === col ? '#eef2ff' : undefined,
+                        boxShadow: isColMatch ? 'inset 0 -3px 0 #fbbf24' : undefined,
                       }}>
                       {col === '_file' ? '📄 الملف' : col}
+                      {isColMatch && <span style={{ marginRight: 4, fontSize: 10 }}>📌</span>}
                       {sortCol === col && (
                         <span style={{ marginRight: 4, fontSize: 10 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
                       )}
                     </th>
-                  ))}
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -396,10 +478,14 @@ export default function SalesDataPage() {
                     </td>
                     {activeColumns.map(col => {
                       const val = String(row[col] ?? '—');
-                      const isMatch = search.trim() && val.toLowerCase().includes(search.trim().toLowerCase());
+                      const isCellMatch = search.trim() && val.toLowerCase().includes(search.trim().toLowerCase());
+                      const isColMatch  = matchedColumns.has(col);
                       return (
-                        <td key={col} style={{ padding: '9px 14px', color: '#1e293b', maxWidth: 220, verticalAlign: 'top' }}>
-                          {isMatch ? (
+                        <td key={col} style={{
+                          padding: '9px 14px', color: '#1e293b', maxWidth: 220, verticalAlign: 'top',
+                          background: isColMatch ? '#fffef0' : undefined,
+                        }}>
+                          {isCellMatch ? (
                             <span style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 3px' }}>{val}</span>
                           ) : (
                             <span style={{ color: val === '—' ? '#d1d5db' : undefined }}>{val}</span>
