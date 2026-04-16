@@ -79,15 +79,36 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       regionByCol[ci] = lastReg;
     });
 
-    // Detect where area/numeric columns start
+    // Detect where area/quantity columns start.
+    // Primary: if there is a region row, the first column that has a real region
+    // header is exactly where area columns start (price/fixed cols have no region above them).
+    // Fallback for single-row headers: first mostly-numeric column starting from ci=3.
     let areaStart = Math.min(3, wRow.length);
-    for (let ci = 2; ci < wRow.length; ci++) {
-      let hits = 0, checked = 0;
-      for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 8, raw.length); ri++) {
-        const v = String((raw[ri] as unknown[])[ci] ?? '').replace(/,/g, '');
-        if (v !== '') { checked++; if (!isNaN(Number(v))) hits++; }
+    if (rRowIdx >= 0) {
+      const firstRegCol = rRow.findIndex(v => String(v ?? '').trim() !== '');
+      if (firstRegCol > 0) {
+        areaStart = firstRegCol;
+      } else {
+        // Region row exists but all cells are empty (unusual) — fall back to numeric
+        for (let ci = 3; ci < wRow.length; ci++) {
+          let hits = 0, checked = 0;
+          for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 8, raw.length); ri++) {
+            const v = String((raw[ri] as unknown[])[ci] ?? '').replace(/,/g, '');
+            if (v !== '') { checked++; if (!isNaN(Number(v))) hits++; }
+          }
+          if (checked >= 2 && hits / checked >= 0.6) { areaStart = ci; break; }
+        }
       }
-      if (checked >= 2 && hits / checked >= 0.6) { areaStart = ci; break; }
+    } else {
+      // No region row — single-row header
+      for (let ci = 3; ci < wRow.length; ci++) {
+        let hits = 0, checked = 0;
+        for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 8, raw.length); ri++) {
+          const v = String((raw[ri] as unknown[])[ci] ?? '').replace(/,/g, '');
+          if (v !== '') { checked++; if (!isNaN(Number(v))) hits++; }
+        }
+        if (checked >= 2 && hits / checked >= 0.6) { areaStart = ci; break; }
+      }
     }
 
     // Build fixed columns
