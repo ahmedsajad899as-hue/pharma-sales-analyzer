@@ -108,13 +108,41 @@ export default function SalesDataPage() {
         const data  = new Uint8Array(e.target!.result as ArrayBuffer);
         const wb    = XLSX.read(data, { type: 'array' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const raw   = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-        if (raw.length === 0) { setImportError('الملف لا يحتوي على بيانات'); setImporting(false); return; }
 
-        const columns = Object.keys(raw[0]).filter(c => c !== '__EMPTY');
-        const rows    = raw.map(r =>
-          Object.fromEntries(columns.map(c => [c, String(r[c] ?? '')]))
-        );
+        // Read as raw 2-D array first so we can find the real header row.
+        // Excel files often have a decorative title row or merged cells in row 0
+        // causing xlsx to name columns "__EMPTY_1", "__EMPTY_2", etc.
+        const raw2d = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+        if (raw2d.length === 0) { setImportError('الملف لا يحتوي على بيانات'); setImporting(false); return; }
+
+        // Find the row (within first 10 rows) that has the most non-empty cells.
+        // That row is the real header row.
+        let headerRowIdx = 0;
+        let maxNonEmpty = 0;
+        raw2d.slice(0, 10).forEach((row, idx) => {
+          const count = (row as unknown[]).filter(v => v !== '' && v !== null && v !== undefined).length;
+          if (count > maxNonEmpty) { maxNonEmpty = count; headerRowIdx = idx; }
+        });
+
+        const headerRow = raw2d[headerRowIdx] as unknown[];
+
+        // Build column names: use cell value; fall back to a plain Col_N label
+        const columns: string[] = headerRow.map((v, i) => {
+          const s = String(v ?? '').trim();
+          return s !== '' ? s : `عمود_${i + 1}`;
+        });
+
+        // Data rows = everything after the header row, skip completely empty rows
+        const rows: Record<string, string>[] = [];
+        for (let ri = headerRowIdx + 1; ri < raw2d.length; ri++) {
+          const rowArr = raw2d[ri] as unknown[];
+          const obj = Object.fromEntries(columns.map((c, ci) => [c, String(rowArr[ci] ?? '')]));
+          // Skip rows where every value is empty
+          if (Object.values(obj).every(v => v === '' || v === 'undefined')) continue;
+          rows.push(obj);
+        }
+
+        if (rows.length === 0) { setImportError('لم يتم العثور على صفوف بيانات بعد الترويسة'); setImporting(false); return; }
 
         const entry: SalesFile = {
           id:         uid(),
