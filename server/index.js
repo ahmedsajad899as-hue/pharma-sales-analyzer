@@ -2145,19 +2145,20 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         }
       } else {
         // No specific rep → show company reps' visits AND manager's own visits
-        const assignments = await prisma.userCompanyAssignment.findMany({
-          where: { userId },
-          select: { companyId: true },
-        });
+        const [assignments, managerRow] = await Promise.all([
+          prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }),
+          prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
+        ]);
         const companyIds = assignments.map(a => a.companyId);
+        const managerOfficeId = managerRow?.officeId ?? null;
         if (companyIds.length > 0) {
-          const repUsers = await prisma.user.findMany({
-            where: {
-              companyAssignments: { some: { companyId: { in: companyIds } } },
-              linkedRepId: { not: null },
-            },
-            select: { linkedRepId: true },
-          });
+          // Scope to same office to prevent cross-account leakage
+          const repUsersWhere = {
+            companyAssignments: { some: { companyId: { in: companyIds } } },
+            linkedRepId: { not: null },
+            ...(managerOfficeId ? { officeId: managerOfficeId } : { id: -1 }), // -1 = no match when no officeId
+          };
+          const repUsers = await prisma.user.findMany({ where: repUsersWhere, select: { linkedRepId: true } });
           const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
           // Always include manager's own visits (userId = managerId) alongside rep visits
           where.OR = [
@@ -2165,7 +2166,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
             { userId },  // manager's own visits (scientificRepId = null)
           ];
         } else {
-          // No company assignments: show all visits scoped to manager's userId
+          // No company assignments: show only visits created by this manager
           where.userId = userId;
         }
       }
@@ -2216,6 +2217,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         // Mirror the doctor visits OR clause: rep visits + manager's own
         if (where.OR) pharmWhere.OR = where.OR;
         else if (where.scientificRepId) pharmWhere.scientificRepId = where.scientificRepId;
+        else pharmWhere.userId = userId;  // no company assignments: scope to own userId only
       }
     } else {
       if (repId) pharmWhere.scientificRepId = repId;
