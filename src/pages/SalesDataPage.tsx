@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useMemo, useCallback } from 'react';
+﻿import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -196,6 +196,9 @@ export default function SalesDataPage() {
   const [page, setPage]           = useState(1);
   const [tab, setTab]             = useState<'table' | 'analysis'>('table');
   const [showValue, setShowValue] = useState(false);
+  const [colFilters, setColFilters]       = useState<Record<string, string[]>>({});
+  const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
+  const [filterSearch, setFilterSearch]   = useState('');
   const PAGE_SIZE = 50;
 
   const activeFile = files.find(f => f.id === activeId);
@@ -233,15 +236,18 @@ export default function SalesDataPage() {
     return [...new Set(activeFile.rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
   }, [activeFile, companyCol]);
 
-  // Filtered rows by item search + company filter
+  // Filtered rows by item search + company filter + column filters
   const filteredRows = useMemo(() => {
     if (!activeFile) return [];
     let rows = activeFile.rows;
     const q = itemSearch.trim().toLowerCase();
     if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
     if (companyFilter !== 'all' && companyCol) rows = rows.filter(row => String(row[companyCol] ?? '').trim() === companyFilter);
+    Object.entries(colFilters).forEach(([col, vals]) => {
+      if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
+    });
     return rows;
-  }, [activeFile, itemSearch, companyFilter, companyCol]);
+  }, [activeFile, itemSearch, companyFilter, companyCol, colFilters]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
@@ -297,6 +303,33 @@ export default function SalesDataPage() {
     );
   }, [activeFile]);
 
+  // Detect item code column
+  const itemCodeCol = useMemo(() => {
+    if (!activeFile) return '';
+    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
+    return activeFile.fixedCols.find((_, i) => ['code', 'كود', 'رمز', 'barcode', 'sku'].some(k => lower[i].includes(k))) ?? '';
+  }, [activeFile]);
+
+  // Unique values for the currently-open filter column
+  const colUniqueVals = useMemo(() => {
+    if (!activeFile || !openFilterCol) return [];
+    return [...new Set(activeFile.rows.map(r => String(r[openFilterCol] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [activeFile, openFilterCol]);
+
+  // Reset column filters when switching files
+  useEffect(() => { setColFilters({}); setOpenFilterCol(null); }, [activeId]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!openFilterCol) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-col-filter]')) setOpenFilterCol(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openFilterCol]);
+
   const totalPages = 1;
   const pageRows   = filteredRows;
 
@@ -313,7 +346,7 @@ export default function SalesDataPage() {
       } else {
         setFiles(prev => { const next = [...prev, result as SalesFile]; saveFiles(next); return next; });
         setActiveId((result as SalesFile).id);
-        setItemSearch(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setPage(1);
+        setItemSearch(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
         setShowImport(false);
         setImporting(false);
       }
@@ -530,7 +563,84 @@ export default function SalesDataPage() {
                     )}
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                       <th style={thS}>#</th>
-                      {activeFile.fixedCols.map((c, i) => <th key={i} style={thS}>{c}</th>)}
+                      {activeFile.fixedCols.map((c, i) => {
+                        const isFilterable = c === itemNameCol || c === itemCodeCol;
+                        const activeVals = colFilters[c] ?? [];
+                        const hasFilter = activeVals.length > 0;
+                        const visibleVals = colUniqueVals.filter(v => !filterSearch || v.toLowerCase().includes(filterSearch.toLowerCase()));
+                        const allSelected = activeVals.length === 0;
+                        return (
+                          <th key={i} style={{ ...thS, position: 'relative' }} data-col-filter={isFilterable ? c : undefined}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'center' }}>
+                              <span>{c}</span>
+                              {isFilterable && (
+                                <button
+                                  onClick={e => { e.stopPropagation(); setOpenFilterCol(openFilterCol === c ? null : c); setFilterSearch(''); }}
+                                  title="فلتر"
+                                  style={{ background: hasFilter ? '#eef2ff' : 'none', border: hasFilter ? '1px solid #a5b4fc' : 'none', borderRadius: 4, cursor: 'pointer', padding: '1px 4px', color: hasFilter ? '#4338ca' : '#94a3b8', fontSize: 11, lineHeight: 1 }}
+                                >
+                                  {hasFilter ? `▼ ${activeVals.length}` : '▽'}
+                                </button>
+                              )}
+                            </div>
+                            {/* Filter Dropdown */}
+                            {isFilterable && openFilterCol === c && (
+                              <div data-col-filter={c} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
+                                {/* Search */}
+                                <div style={{ padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
+                                  <input
+                                    autoFocus
+                                    value={filterSearch}
+                                    onChange={e => setFilterSearch(e.target.value)}
+                                    placeholder="بحث في القيم..."
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                                  />
+                                </div>
+                                {/* Select all / clear */}
+                                <div style={{ padding: '5px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 10, alignItems: 'center' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', fontWeight: allSelected ? 700 : 400, color: allSelected ? '#4338ca' : '#475569' }}>
+                                    <input type="checkbox" checked={allSelected} onChange={() => setColFilters(prev => { const n = { ...prev }; delete n[c]; return n; })} />
+                                    الكل
+                                  </label>
+                                  {hasFilter && (
+                                    <button onClick={() => setColFilters(prev => { const n = { ...prev }; delete n[c]; return n; })} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginRight: 'auto' }}>
+                                      مسح الفلتر ✕
+                                    </button>
+                                  )}
+                                </div>
+                                {/* Values list */}
+                                <div style={{ overflowY: 'auto', maxHeight: 220 }}>
+                                  {visibleVals.length === 0
+                                    ? <div style={{ padding: '12px 14px', color: '#94a3b8', fontSize: 12 }}>لا توجد نتائج</div>
+                                    : visibleVals.map(val => {
+                                      const checked = activeVals.includes(val);
+                                      return (
+                                        <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', cursor: 'pointer', background: checked ? '#eef2ff' : undefined, fontSize: 12 }}>
+                                          <input type="checkbox" checked={checked} onChange={() => {
+                                            setColFilters(prev => {
+                                              const cur = prev[c] ?? [];
+                                              const next = cur.includes(val) ? cur.filter(v => v !== val) : [...cur, val];
+                                              const n = { ...prev };
+                                              if (next.length === 0) delete n[c]; else n[c] = next;
+                                              return n;
+                                            });
+                                          }} />
+                                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{val}</span>
+                                        </label>
+                                      );
+                                    })
+                                  }
+                                </div>
+                                {/* Close */}
+                                <div style={{ padding: '6px 10px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+                                  <button onClick={() => setOpenFilterCol(null)} style={{ padding: '4px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>تطبيق</button>
+                                </div>
+                              </div>
+                            )}
+                          </th>
+                        );
+                      })}
                       {displayCols.map(col => (
                         <th key={col.key} style={{ ...thA, background: isRT(col) ? '#eef2ff' : '#f8fafc', color: isRT(col) ? '#4338ca' : '#1e293b', borderRight: isRT(col) ? '2px solid #c7d2fe' : undefined, borderLeft: isRT(col) ? '2px solid #c7d2fe' : undefined }}>
                           {col.label}
