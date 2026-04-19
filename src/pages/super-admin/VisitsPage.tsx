@@ -62,7 +62,17 @@ export default function VisitsPage() {
   const { token } = useSuperAdmin();
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
-  const [tab, setTab] = useState<'doctor' | 'pharmacy'>('doctor');
+  const [tab, setTab] = useState<'doctor' | 'pharmacy' | 'activity'>('doctor');
+
+  // ── Activity Log state ──────────────────────────────────────
+  const [actLogs,    setActLogs]    = useState<any[]>([]);
+  const [actTotal,   setActTotal]   = useState(0);
+  const [actLoading, setActLoading] = useState(false);
+  const [actPage,    setActPage]    = useState(1);
+  const [actSearch,  setActSearch]  = useState('');
+  const [actDateFrom, setActDateFrom] = useState('');
+  const [actDateTo,   setActDateTo]   = useState('');
+  const ACT_LIMIT = 50;
 
   const [visits,  setVisits]  = useState<Visit[]>([]);
   const [total,   setTotal]   = useState(0);
@@ -143,6 +153,23 @@ export default function VisitsPage() {
 
   useEffect(() => { if (tab === 'doctor')   load(); },      [load, tab]);
   useEffect(() => { if (tab === 'pharmacy') loadPharm(); }, [loadPharm, tab]);
+
+  const loadActivity = useCallback(() => {
+    setActLoading(true);
+    const params = new URLSearchParams({
+      page: String(actPage), limit: String(ACT_LIMIT),
+      ...(actSearch   && { search:   actSearch }),
+      ...(actDateFrom && { dateFrom: actDateFrom }),
+      ...(actDateTo   && { dateTo:   actDateTo }),
+    });
+    fetch(`/api/super-admin/activity-logs?${params}`, { headers: H() })
+      .then(r => r.json())
+      .then(d => { if (d.success) { setActLogs(d.data); setActTotal(d.total); } })
+      .catch(() => {})
+      .finally(() => setActLoading(false));
+  }, [H, actPage, actSearch, actDateFrom, actDateTo]);
+
+  useEffect(() => { if (tab === 'activity') loadActivity(); }, [loadActivity, tab]);
 
   const handleDelete = async (v: Visit) => {
     if (!confirm(`حذف زيارة "${v.doctor.name}" بتاريخ ${new Date(v.visitDate).toLocaleDateString('ar-IQ')}؟`)) return;
@@ -272,9 +299,121 @@ export default function VisitsPage() {
             background: tab === 'pharmacy' ? '#0f766e' : '#f1f5f9', color: tab === 'pharmacy' ? '#fff' : '#64748b' }}>
            زيارات الصيدليات
         </button>
+        <button onClick={() => setTab('activity')}
+          style={{ padding: '9px 22px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14,
+            background: tab === 'activity' ? '#7c3aed' : '#f1f5f9', color: tab === 'activity' ? '#fff' : '#64748b' }}>
+          🕵️ سجل الحركات
+        </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+      {/* ── Activity Log Tab ──────────────────────────────────── */}
+      {tab === 'activity' && (
+        <div>
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+            <input
+              value={actSearch} onChange={e => { setActSearch(e.target.value); setActPage(1); }}
+              placeholder="🔍 بحث باسم المستخدم أو الإجراء أو التفاصيل..."
+              style={{ flex: 1, minWidth: 240, padding: '10px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14, outline: 'none' }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ fontSize: 12, color: '#64748b' }}>من:</label>
+              <input type="date" value={actDateFrom} onChange={e => { setActDateFrom(e.target.value); setActPage(1); }}
+                style={{ padding: '9px 10px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ fontSize: 12, color: '#64748b' }}>إلى:</label>
+              <input type="date" value={actDateTo} onChange={e => { setActDateTo(e.target.value); setActPage(1); }}
+                style={{ padding: '9px 10px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14 }} />
+            </div>
+            <button onClick={loadActivity} style={{ padding: '9px 18px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+              🔄 تحديث
+            </button>
+          </div>
+
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>
+            إجمالي الحركات المسجلة: {actTotal.toLocaleString('en')}
+          </div>
+
+          {actLoading
+            ? <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>جاري التحميل...</div>
+            : actLogs.length === 0
+              ? <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد حركات</div>
+              : (
+                <div style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, direction: 'rtl' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        {['#', 'التاريخ والوقت', 'الحساب', 'الدور', 'الإجراء', 'الوحدة', 'التفاصيل', 'IP'].map(h => (
+                          <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {actLogs.map((log, idx) => {
+                        const dt = new Date(log.createdAt);
+                        const dateStr = `${dt.getFullYear()}/${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`;
+                        const timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}:${String(dt.getSeconds()).padStart(2,'0')}`;
+                        const actionColor = log.action === 'login' ? '#10b981' : log.action === 'logout' ? '#ef4444' : log.action?.startsWith('DELETE') ? '#f97316' : '#6366f1';
+                        return (
+                          <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#faf5ff')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                            <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 11 }}>{(actPage-1)*ACT_LIMIT + idx + 1}</td>
+                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', color: '#374151' }}>
+                              <div style={{ fontWeight: 600 }}>{dateStr}</div>
+                              <div style={{ fontSize: 11, color: '#94a3b8' }}>{timeStr}</div>
+                            </td>
+                            <td style={{ padding: '8px 12px', fontWeight: 600, color: '#0f172a' }}>
+                              {log.user?.displayName || log.user?.username || <span style={{ color: '#cbd5e1' }}>—</span>}
+                              {log.user?.username && log.user?.displayName && (
+                                <div style={{ fontSize: 10, color: '#94a3b8' }}>@{log.user.username}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '8px 10px' }}>
+                              {log.user?.role
+                                ? <span style={{ background: '#f1f5f9', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#475569' }}>{log.user.role}</span>
+                                : <span style={{ color: '#cbd5e1' }}>—</span>}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <span style={{ background: actionColor + '18', color: actionColor, borderRadius: 6, padding: '3px 10px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>
+                                {log.action}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 10px', color: '#64748b', fontSize: 12 }}>{log.module || '—'}</td>
+                            <td style={{ padding: '8px 12px', color: '#374151', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.details ?? ''}>
+                              {log.details || '—'}
+                            </td>
+                            <td style={{ padding: '8px 10px', color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>{log.ipAddress || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+          }
+
+          {/* Pagination */}
+          {actTotal > ACT_LIMIT && (
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+              <button onClick={() => setActPage(p => Math.max(1, p-1))} disabled={actPage === 1}
+                style={{ padding: '7px 16px', background: actPage===1?'#f1f5f9':'#7c3aed', color: actPage===1?'#94a3b8':'#fff', border: 'none', borderRadius: 8, cursor: actPage===1?'default':'pointer', fontWeight: 600 }}>
+                ‹ السابق
+              </button>
+              <span style={{ padding: '7px 14px', fontSize: 13, color: '#64748b' }}>
+                صفحة {actPage} من {Math.ceil(actTotal/ACT_LIMIT)}
+              </span>
+              <button onClick={() => setActPage(p => p+1)} disabled={actPage >= Math.ceil(actTotal/ACT_LIMIT)}
+                style={{ padding: '7px 16px', background: actPage>=Math.ceil(actTotal/ACT_LIMIT)?'#f1f5f9':'#7c3aed', color: actPage>=Math.ceil(actTotal/ACT_LIMIT)?'#94a3b8':'#fff', border: 'none', borderRadius: 8, cursor: actPage>=Math.ceil(actTotal/ACT_LIMIT)?'default':'pointer', fontWeight: 600 }}>
+                التالي ›
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab !== 'activity' && <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <input
           value={search} onChange={e => { setSearch(e.target.value); setPage(1); setPharmPage(1); }}
           placeholder={tab === 'doctor' ? ' بحث باسم الطبيب أو المندوب أو الملاحظات...' : ' بحث باسم الصيدلية أو المنطقة أو المندوب...'}
@@ -306,7 +445,7 @@ export default function VisitsPage() {
              مسح الفلتر
           </button>
         )}
-      </div>
+      </div>}
 
       {tab === 'doctor' && (
         <>

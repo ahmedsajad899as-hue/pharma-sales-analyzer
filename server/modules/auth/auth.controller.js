@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../../lib/prisma.js';
+import { logActivity } from '../../lib/activityLogger.js';
 
 const JWT_SECRET  = process.env.JWT_SECRET  || 'pharma-sales-secret-key-2026';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
@@ -34,6 +35,19 @@ export async function login(req, res) {
       token,
       user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null, displayName: user.displayName ?? null, permissions: user.permissions ?? null },
     });
+
+    // Log the login action (fire-and-forget)
+    logActivity({ userId: user.id, action: 'login', module: 'auth', details: `تسجيل دخول — ${user.username} (${user.role})`, req });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+/** POST /api/auth/logout  (requires auth) */
+export async function logout(req, res) {
+  try {
+    logActivity({ userId: req.user.id, action: 'logout', module: 'auth', details: `تسجيل خروج — ${req.user.username}`, req });
+    res.json({ success: true, message: 'تم تسجيل الخروج.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

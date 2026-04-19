@@ -226,6 +226,57 @@ export async function impersonateUser(req, res) {
 }
 
 // ── List scientific offices for filter dropdowns ───────────────────────────
+// ── List activity logs ─────────────────────────────────────────────────────
+export async function listActivityLogs(req, res) {
+  try {
+    const LIMIT = Math.min(parseInt(req.query.limit) || 50, 200);
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
+    const skip  = (page - 1) * LIMIT;
+
+    const search    = req.query.search ?? '';
+    const dateFrom  = req.query.dateFrom  ? new Date(req.query.dateFrom)  : undefined;
+    const dateTo    = req.query.dateTo    ? new Date(req.query.dateTo + 'T23:59:59') : undefined;
+    const action    = req.query.action    || undefined;
+    const module    = req.query.module    || undefined;
+
+    const where = {
+      ...(search    ? { OR: [
+        { action:  { contains: search, mode: 'insensitive' } },
+        { details: { contains: search, mode: 'insensitive' } },
+        { user: { OR: [
+          { username:    { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } },
+        ]}},
+      ]} : {}),
+      ...(dateFrom || dateTo ? { createdAt: {
+        ...(dateFrom ? { gte: dateFrom } : {}),
+        ...(dateTo   ? { lte: dateTo   } : {}),
+      }} : {}),
+      ...(action ? { action: { contains: action, mode: 'insensitive' } } : {}),
+      ...(module ? { module: { contains: module, mode: 'insensitive' } } : {}),
+    };
+
+    const [logs, total] = await prisma.$transaction([
+      prisma.activityLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: LIMIT,
+        select: {
+          id: true, action: true, module: true, details: true,
+          ipAddress: true, createdAt: true,
+          user: { select: { id: true, username: true, displayName: true, role: true } },
+        },
+      }),
+      prisma.activityLog.count({ where }),
+    ]);
+
+    res.json({ success: true, data: logs, total });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 export async function listOfficesForFilter(req, res) {
   try {
     const offices = await prisma.scientificOffice.findMany({

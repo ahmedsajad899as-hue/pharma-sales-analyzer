@@ -79,6 +79,7 @@ model User {
   surveyPharmacyEdits MasterSurveyPharmacy[]  @relation("SurveyPharmacyEditor")
   surveyEditLogs      MasterSurveyEditLog[]   @relation("SurveyEditLogUser")
   surveyHiddenFor     MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
+  activityLogs        ActivityLog[]
 
   @@index([officeId])
   @@map("users")
@@ -1137,4 +1138,22 @@ model AppNotification {
   @@index([isRead])
   @@index([createdAt])
   @@map("app_notifications")
+}
+
+// ─── Activity Log (سجل حركات المستخدمين) ──────────────────
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String   // login | logout | create_visit | delete_visit | ...
+  module    String?  // visits | doctors | plans | survey | ...
+  details   String?  // JSON or short description
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("activity_logs")
 }

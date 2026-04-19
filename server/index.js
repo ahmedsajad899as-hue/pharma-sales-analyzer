@@ -13,6 +13,7 @@ import prisma from './lib/prisma.js';
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
+import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap } from './lib/fuzzyMatch.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
@@ -64,6 +65,7 @@ const imageUpload = multer({
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use(activityMiddleware); // Log non-GET authenticated actions
 
 // ── Serve React frontend in production (BEFORE auth) ─────────
 const __serverDir = path.dirname(fileURLToPath(import.meta.url));

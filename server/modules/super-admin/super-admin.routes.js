@@ -17,6 +17,7 @@ import {
   bulkDeletePharmacyVisits,
   listOfficesForFilter,
   listCompaniesForFilter,
+  listActivityLogs,
 } from './super-admin.controller.js';
 import { requireSuperAdmin, requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -49,6 +50,9 @@ router.delete('/pharmacy-visits',           requireMasterAdmin, bulkDeletePharma
 // Filter option lists (master only)
 router.get('/offices-for-filter',   requireMasterAdmin, listOfficesForFilter);
 router.get('/companies-for-filter', requireMasterAdmin, listCompaniesForFilter);
+
+// Activity logs (master only)
+router.get('/activity-logs', requireMasterAdmin, listActivityLogs);
 
 // Any super admin can impersonate a user
 router.post('/impersonate/:userId', requireSuperAdmin, impersonateUser);
