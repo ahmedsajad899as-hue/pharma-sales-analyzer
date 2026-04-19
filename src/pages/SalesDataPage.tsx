@@ -195,6 +195,7 @@ export default function SalesDataPage() {
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
   const [page, setPage]           = useState(1);
   const [tab, setTab]             = useState<'table' | 'analysis'>('table');
+  const [showValue, setShowValue] = useState(false);
   const PAGE_SIZE = 50;
 
   const activeFile = files.find(f => f.id === activeId);
@@ -262,6 +263,29 @@ export default function SalesDataPage() {
       .sort((a, b) => b.total - a.total)
       .slice(0, 15);
   }, [filteredRows, displayCols, activeFile]);
+
+  // Detect price column (for monetary value mode)
+  const priceCol = useMemo(() => {
+    if (!activeFile) return '';
+    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
+    return (
+      activeFile.fixedCols.find((_, i) =>
+        ['price', 'سعر', 'السعر', 'unit price', 'سعر الوحدة', 'سعر الوحده', 'cost', 'تكلفة'].some(k => lower[i].includes(k))
+      ) ?? ''
+    );
+  }, [activeFile]);
+
+  // Returns display value: if showValue is on, multiply qty by price
+  const cellDisplay = useCallback((row: Record<string, string>, col: ViewCol): number => {
+    const qty = cellVal(row, col);
+    if (!showValue || !priceCol) return qty;
+    const price = toNum(row[priceCol] ?? '');
+    return price > 0 ? qty * price : qty;
+  }, [showValue, priceCol]);
+
+  const rowDisplay = useCallback((row: Record<string, string>, cols: ViewCol[]): number =>
+    cols.reduce((s, col) => s + cellDisplay(row, col), 0)
+  , [cellDisplay]);
 
   // Detect item name column
   const itemNameCol = useMemo(() => {
@@ -395,7 +419,7 @@ export default function SalesDataPage() {
               { icon: '💊', label: 'إجمالي الايتمات',      value: activeFile.rows.length },
               { icon: '📍', label: 'المناطق',               value: activeFile.regions.length },
               { icon: '🏪', label: 'المذاخر',               value: activeFile.areaCols.length },
-              { icon: '🔢', label: 'مجموع المبيعات المرئية', value: fmtNum(grandTotal) },
+              { icon: '🔢', label: showValue ? 'مجموع القيمة المالية' : 'مجموع المبيعات المرئية', value: fmtNum(showValue ? filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0) : grandTotal) },
             ].map(s => (
               <div key={s.label} style={{ flex: '1 1 120px', background: '#fff', borderRadius: 12, padding: '12px 16px', border: '1.5px solid #e2e8f0', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                 <div style={{ fontSize: 20 }}>{s.icon}</div>
@@ -461,11 +485,26 @@ export default function SalesDataPage() {
             )}
           </div>
 
-          {/* Tab switcher */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+          {/* Tab switcher + value toggle */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             {([['table', '📋 الجدول'], ['analysis', '📈 التحليل']] as [string, string][]).map(([id, lbl]) => (
               <button key={id} onClick={() => setTab(id as 'table' | 'analysis')} style={fp(tab === id)}>{lbl}</button>
             ))}
+            {tab === 'table' && priceCol && (
+              <button
+                onClick={() => setShowValue(v => !v)}
+                title={showValue ? 'إخفاء القيمة المالية والعودة للكميات' : 'عرض القيمة المالية (الكمية × السعر)'}
+                style={{
+                  padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: `1.5px solid ${showValue ? '#f59e0b' : '#e2e8f0'}`,
+                  background: showValue ? '#fffbeb' : '#f8fafc',
+                  color: showValue ? '#b45309' : '#64748b',
+                  boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
+                  transition: 'all 0.15s',
+                }}>
+                {showValue ? '💰 قيمة مالية ✓' : '💰 قيمة مالية'}
+              </button>
+            )}
           </div>
 
           {/* TABLE VIEW */}
@@ -504,7 +543,7 @@ export default function SalesDataPage() {
                     {pageRows.length === 0
                       ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
                       : pageRows.map((row, idx) => {
-                        const rt = rowTotal(row, displayCols);
+                        const rt = rowDisplay(row, displayCols);
                         return (
                           <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
@@ -520,14 +559,14 @@ export default function SalesDataPage() {
                               );
                             })}
                             {displayCols.map(col => {
-                              const v = cellVal(row, col);
+                              const v = cellDisplay(row, col);
                               return (
-                                <td key={col.key} style={{ ...tdA, background: isRT(col) && v > 0 ? '#f0fdf4' : undefined, color: v > 0 ? '#1e293b' : '#e2e8f0', fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
+                                <td key={col.key} style={{ ...tdA, background: isRT(col) && v > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined, color: v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0', fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
                                   {fmtNum(v)}
                                 </td>
                               );
                             })}
-                            <td style={{ ...tdA, background: rt > 0 ? '#f0fdf4' : undefined, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 700 }}>{fmtNum(rt)}</td>
+                            <td style={{ ...tdA, background: rt > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined, color: rt > 0 ? (showValue ? '#92400e' : '#065f46') : '#e2e8f0', fontWeight: 700 }}>{fmtNum(rt)}</td>
                           </tr>
                         );
                       })
@@ -539,9 +578,9 @@ export default function SalesDataPage() {
                         المجموع ({filteredRows.length} ايتم)
                       </td>
                       {displayCols.map(col => (
-                        <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>{fmtNum(grandTotals[col.key] ?? 0)}</td>
+                        <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
                       ))}
-                      <td style={{ ...tdA, color: '#065f46', fontWeight: 800 }}>{fmtNum(grandTotal)}</td>
+                      <td style={{ ...tdA, color: '#065f46', fontWeight: 800 }}>{fmtNum(filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0))}</td>
                     </tr>
                   </tfoot>
                 </table>
