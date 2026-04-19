@@ -327,7 +327,7 @@ export default function SalesDataPage() {
         <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 18px', marginBottom: 18 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>📁 رفع ملف Excel / CSV</div>
           <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px', lineHeight: 1.7 }}>
-            البرنامج يدعم ملفات بترويسة صف واحد (كود · اسم · سعر · مخازن) أو صفين (منطقة مدمجة فوق أسماء المخازن). البيانات محفوظة محلياً في المتصفح.
+            البرنامج يدعم ملفات بترويسة صف واحد (كود · اسم · سعر · مذاخر) أو صفين (منطقة مدمجة فوق أسماء المذاخر). البيانات محفوظة محلياً في المتصفح.
           </p>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" disabled={importing}
@@ -386,7 +386,7 @@ export default function SalesDataPage() {
             {[
               { icon: '💊', label: 'إجمالي الايتمات',      value: activeFile.rows.length },
               { icon: '📍', label: 'المناطق',               value: activeFile.regions.length },
-              { icon: '🏪', label: 'المخازن',               value: activeFile.areaCols.length },
+              { icon: '🏪', label: 'المذاخر',               value: activeFile.areaCols.length },
               { icon: '🔢', label: 'مجموع المبيعات المرئية', value: fmtNum(grandTotal) },
             ].map(s => (
               <div key={s.label} style={{ flex: '1 1 120px', background: '#fff', borderRadius: 12, padding: '12px 16px', border: '1.5px solid #e2e8f0', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
