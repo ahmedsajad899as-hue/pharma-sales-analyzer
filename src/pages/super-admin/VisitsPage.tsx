@@ -413,7 +413,9 @@ export default function VisitsPage() {
         </div>
       )}
 
-      {tab !== 'activity' && <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+      {tab !== 'activity' && (
+      <>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         <input
           value={search} onChange={e => { setSearch(e.target.value); setPage(1); setPharmPage(1); }}
           placeholder={tab === 'doctor' ? ' بحث باسم الطبيب أو المندوب أو الملاحظات...' : ' بحث باسم الصيدلية أو المنطقة أو المندوب...'}
@@ -445,7 +447,9 @@ export default function VisitsPage() {
              مسح الفلتر
           </button>
         )}
-      </div>}
+      </div>
+      </>
+      )}
 
       {tab === 'doctor' && (
         <>
