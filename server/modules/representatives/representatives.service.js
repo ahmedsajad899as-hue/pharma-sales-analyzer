@@ -36,7 +36,10 @@ export async function getRepresentativeById(id) {
  * @param {{ isActive?: boolean }} filters
  */
 export async function listRepresentatives(filters = {}, fileIds = null, userId = null) {
-  const reps = await repRepo.listRepresentatives({ ...filters }, fileIds);
+  const reps = await repRepo.listRepresentatives(
+    { ...filters, ...(userId != null ? { userId } : {}) },
+    fileIds
+  );
   return reps.map(r => ({
     ...r,
     areasCount: r._count?.areas ?? 0,
