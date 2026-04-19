@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../context/AuthContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ColMeta {
@@ -24,16 +25,19 @@ type ViewCol = ColMeta | RegionTotalCol;
 function isRT(col: ViewCol): col is RegionTotalCol { return 'isRegionTotal' in col; }
 
 // ── Persistence ────────────────────────────────────────────────────────────────
-const STORE_KEY = 'sales_data_v3';
-function loadFiles(): SalesFile[] {
+const STORE_KEY_PREFIX = 'sales_data_v3';
+function storeKey(userId: number | null | undefined) {
+  return userId ? `${STORE_KEY_PREFIX}_${userId}` : STORE_KEY_PREFIX;
+}
+function loadFiles(userId: number | null | undefined): SalesFile[] {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(storeKey(userId));
     if (!raw) return [];
     return (JSON.parse(raw) as any[]).filter(f => 'fixedCols' in f) as SalesFile[];
   } catch { return []; }
 }
-function saveFiles(files: SalesFile[]) {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(files)); } catch {}
+function saveFiles(files: SalesFile[], userId: number | null | undefined) {
+  try { localStorage.setItem(storeKey(userId), JSON.stringify(files)); } catch {}
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -182,8 +186,10 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function SalesDataPage() {
-  const [files, setFiles]           = useState<SalesFile[]>(loadFiles);
-  const [activeId, setActiveId]     = useState<string>(() => loadFiles()[0]?.id ?? '');
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [files, setFiles]           = useState<SalesFile[]>(() => loadFiles(userId));
+  const [activeId, setActiveId]     = useState<string>(() => loadFiles(userId)[0]?.id ?? '');
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting]   = useState(false);
   const [importErr, setImportErr]   = useState('');
@@ -344,7 +350,7 @@ export default function SalesDataPage() {
         setImportErr(result);
         setImporting(false);
       } else {
-        setFiles(prev => { const next = [...prev, result as SalesFile]; saveFiles(next); return next; });
+        setFiles(prev => { const next = [...prev, result as SalesFile]; saveFiles(next, userId); return next; });
         setActiveId((result as SalesFile).id);
         setItemSearch(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
         setShowImport(false);
@@ -359,7 +365,7 @@ export default function SalesDataPage() {
     if (!confirm('حذف هذا الملف؟')) return;
     setFiles(prev => {
       const next = prev.filter(f => f.id !== id);
-      saveFiles(next);
+      saveFiles(next, userId);
       if (activeId === id) setActiveId(next[0]?.id ?? '');
       return next;
     });
