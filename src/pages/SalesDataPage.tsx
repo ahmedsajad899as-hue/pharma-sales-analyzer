@@ -86,6 +86,8 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       for (let ei = 0; ei < regionCells.length; ei++) {
         const { ci: start, name } = regionCells[ei];
         const end = regionCells[ei + 1]?.ci ?? wRow.length;
+        // Skip assigning region name if it's a total/sum header
+        if (/مجموع|اجمالي|إجمالي|الاجمالي|الإجمالي|مجموع كلي|الكلي|grand.?total|total.?iraq|total.?all|sub.?total|subtotal|overall/i.test(name)) continue;
         for (let ci = start; ci < end; ci++) regionByCol[ci] = name;
       }
     }
@@ -131,6 +133,11 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
 
     // Build area columns (deduplicate labels).
     // Columns with no region assigned are price/total/info cols — skip them.
+    // Also skip any column whose label looks like a grand-total / subtotal.
+    const isTotalLabel = (s: string) =>
+      /مجموع|اجمالي|إجمالي|الاجمالي|الإجمالي|مجموع كلي|الكلي|grand.?total|total.?iraq|total.?all|sub.?total|subtotal|overall/i
+        .test(s);
+
     const labelCount: Record<string, number> = {};
     const areaCols: ColMeta[] = [];
     for (let ci = areaStart; ci < wRow.length; ci++) {
@@ -138,6 +145,7 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       const reg = regionByCol[ci] || '';
       if (!reg) continue; // no region header → not a warehouse/quantity col
       if (!wv && !reg) continue;
+      if (isTotalLabel(wv) || isTotalLabel(reg)) continue; // skip total columns
       const rawLabel = wv || `${reg}_${ci}`;
       labelCount[rawLabel] = (labelCount[rawLabel] ?? 0) + 1;
       const label = labelCount[rawLabel] > 1 ? `${rawLabel}_${labelCount[rawLabel]}` : rawLabel;
