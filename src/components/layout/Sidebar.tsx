@@ -72,11 +72,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // Feature-to-page mapping — pages hidden when feature is disabled
   // Multiple keys can map to the same page; any disabled key will hide that page
   const featurePageMap: Record<string, PageId> = {
-    monthly_plans: 'monthly-plans',
-    reports:       'reports',
-    rep_analysis:  'rep-analysis',
-    rep_files:     'rep-analysis',
-    users_list:    'users',
+    monthly_plans:  'monthly-plans',
+    reports:        'reports',
+    rep_analysis:   'rep-analysis',
+    rep_files:      'rep-analysis',
+    users_list:     'users',
+    master_survey:  'master-survey',
   };
 
   // empty roles array = visible to all; otherwise check role inclusion
