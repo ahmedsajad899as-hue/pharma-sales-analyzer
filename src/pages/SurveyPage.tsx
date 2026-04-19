@@ -142,7 +142,7 @@ export default function SurveyPage() {
 
   const importAllDoctors = async () => {
     if (!selectedSurvey) return;
-    if (isCompanyManager && !selectedRepId) {
+    if (isCompanyManager && !selectedRepId && reps.length > 0) {
       showToast('❌ الرجاء اختيار مندوب قبل الاستيراد');
       return;
     }
@@ -158,7 +158,7 @@ export default function SurveyPage() {
 
   const importDoctor = async (docId: number) => {
     if (!selectedSurvey) return;
-    if (isCompanyManager && !selectedRepId) {
+    if (isCompanyManager && !selectedRepId && reps.length > 0) {
       showToast('❌ الرجاء اختيار مندوب قبل الاستيراد');
       return;
     }
