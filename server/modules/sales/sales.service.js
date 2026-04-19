@@ -567,6 +567,16 @@ function isItemInfoHeader(val) {
 }
 
 /**
+ * Returns true if a header cell looks like a grand-total / subtotal column.
+ * Such columns must be excluded from the pharmacy-column map so their values
+ * are never recorded as sales to a specific warehouse/pharmacy.
+ */
+function isTotalHeader(val) {
+  const lower = String(val).toLowerCase().trim();
+  return /مجموع|اجمالي|إجمالي|الاجمالي|الإجمالي|مجموع كلي|الكلي|grand.?total|total.?iraq|total.?all|sub.?total|subtotal|overall|sum/.test(lower);
+}
+
+/**
  * Try to extract a company name from an item code.
  * Example: "ALBALSAMIRAQIN/A"  →  "ALBALSAMIRAQIN"
  *          "DevaTurkeyN/A"     →  "DevaTurkey"
@@ -616,6 +626,7 @@ function parseMatrixSheet(ws) {
     const cell = ws[addr];
     const regionName = cell ? String(cell.v || '').trim() : '';
     if (!regionName) continue;
+    if (isTotalHeader(regionName)) continue; // skip total/sum merged headers
     for (let c = merge.s.c; c <= merge.e.c; c++) {
       colRegionMap[c] = regionName;
     }
@@ -625,7 +636,7 @@ function parseMatrixSheet(ws) {
   for (let c = range.s.c; c <= range.e.c; c++) {
     if (colRegionMap[c]) continue; // already set by a merge
     const val = String(cellVal(range.s.r, c) || '').trim();
-    if (val && !isItemInfoHeader(val)) {
+    if (val && !isItemInfoHeader(val) && !isTotalHeader(val)) {
       colRegionMap[c] = val;
     }
   }
@@ -640,6 +651,8 @@ function parseMatrixSheet(ws) {
 
     if (isItemInfoHeader(val)) {
       itemInfoColsAbs.add(c);
+    } else if (isTotalHeader(val)) {
+      // Skip total/sum columns entirely — they are not pharmacies
     } else if (colRegionMap[c]) {
       // Has a region → pharmacy column
       colPharmacyMap[c] = val;
@@ -683,7 +696,8 @@ function parseMatrixSheet(ws) {
 
   for (let r = range.s.r + 2; r <= range.e.r; r++) {
     const itemName = itemNameCol >= 0 ? String(cellVal(r, itemNameCol) || '').trim() : '';
-    if (!itemName) continue; // skip blank / summary rows
+    if (!itemName) continue; // skip blank rows
+    if (isTotalHeader(itemName)) continue; // skip grand-total / subtotal rows
 
     const itemCode = itemCodeCol >= 0 ? String(cellVal(r, itemCodeCol) || '').trim() : '';
     const price    = priceCol    >= 0 ? parseNumeric(cellVal(r, priceCol)) : 0;
