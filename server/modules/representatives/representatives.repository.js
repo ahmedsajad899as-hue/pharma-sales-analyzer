@@ -41,6 +41,8 @@ export async function listRepresentatives(filters = {}, fileIds = null) {
   return prisma.medicalRepresentative.findMany({
     where: {
       ...filters,
+      // Exclude placeholder reps created by matrix imports (name = 'غير محدد')
+      NOT: { name: { in: ['غير محدد', 'غير محده'] } },
       ...(fileIdsArr && fileIdsArr.length
         ? { sales: { some: { uploadedFileId: fileIdsArr.length === 1 ? fileIdsArr[0] : { in: fileIdsArr } } } }
         : {}),

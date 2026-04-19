@@ -30,7 +30,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [progress, setProgress]   = useState(0);
   const [error, setError]         = useState('');
   const [errorDetail, setErrorDetail] = useState('');
-  const [fileType, setFileType]   = useState<'sales' | 'returns' | 'auto' | 'matrix'>('sales');
+  const [fileType, setFileType]   = useState<'sales' | 'returns' | 'auto'>('sales');
 
   // Pre-upload currency picker
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -58,10 +58,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     try {
       const res  = await fetch(`${API}/api/files`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
-      setFiles(Array.isArray(json.data) ? json.data : []);
+      const fetched: UploadedFile[] = Array.isArray(json.data) ? json.data : [];
+      setFiles(fetched);
+      // Auto-activate the most recent file if nothing is currently active
+      if (activeFileIds.length === 0 && fetched.length > 0) {
+        const newest = fetched.reduce((a, b) => new Date(a.uploadedAt) > new Date(b.uploadedAt) ? a : b);
+        onFileActivated(newest.id);
+      }
     } catch { /* ignore */ }
     finally { setFilesLoading(false); }
-  }, [token]);
+  }, [token, activeFileIds, onFileActivated]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
@@ -364,7 +370,6 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 { type: 'sales',   label: t.upload.typeSales,   icon: '📦', color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', shadow: 'rgba(59,130,246,0.25)' },
                 { type: 'returns', label: t.upload.typeReturns, icon: '↩',  color: '#ef4444', bg: '#fff1f2', border: '#fecaca', shadow: 'rgba(239,68,68,0.25)' },
                 { type: 'auto',    label: t.upload.typeAuto,    icon: '🔀', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', shadow: 'rgba(139,92,246,0.25)' },
-                { type: 'matrix',  label: t.upload.typeMatrix,  icon: '📊', color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', shadow: 'rgba(8,145,178,0.25)' },
               ] as const).map(opt => (
                 <button
                   key={opt.type}
