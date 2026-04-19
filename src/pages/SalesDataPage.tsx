@@ -265,8 +265,8 @@ export default function SalesDataPage() {
     );
   }, [activeFile]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  const pageRows   = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = 1;
+  const pageRows   = filteredRows;
 
   // Handlers
   const handleFile = useCallback((file: File) => {
@@ -501,7 +501,7 @@ export default function SalesDataPage() {
                           <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                             onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                            <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{(page - 1) * PAGE_SIZE + idx + 1}</td>
+                            <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
                             {activeFile.fixedCols.map((c, ci) => {
                               const val = row[c] ?? '';
                               const hi = itemSearch && val.toLowerCase().includes(itemSearch.toLowerCase());
@@ -539,22 +539,7 @@ export default function SalesDataPage() {
                 </table>
               </div>
 
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => setPage(1)} disabled={page === 1} style={pgBtn(page === 1)}>«</button>
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={pgBtn(page === 1)}>‹</button>
-                  {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
-                    const mid = Math.max(4, Math.min(page, totalPages - 3));
-                    return i + mid - 3;
-                  }).filter(p => p >= 1 && p <= totalPages).map(p => (
-                    <button key={p} onClick={() => setPage(p)} style={{ ...pgBtn(false), background: p === page ? '#6366f1' : '#f8fafc', color: p === page ? '#fff' : '#374151', border: `1.5px solid ${p === page ? '#6366f1' : '#e2e8f0'}`, fontWeight: p === page ? 700 : 400 }}>{p}</button>
-                  ))}
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={pgBtn(page === totalPages)}>›</button>
-                  <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={pgBtn(page === totalPages)}>»</button>
-                  <span style={{ fontSize: 11, color: '#94a3b8' }}>صفحة {page} من {totalPages}</span>
-                </div>
-              )}
+
             </>
           )}
 
