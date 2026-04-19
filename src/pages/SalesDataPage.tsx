@@ -552,9 +552,10 @@ export default function SalesDataPage() {
                             {activeFile.fixedCols.map((c, ci) => {
                               const val = row[c] ?? '';
                               const hi = itemSearch && val.toLowerCase().includes(itemSearch.toLowerCase());
+                              const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
                               return (
                                 <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: '#6366f1' } : {}) }}>
-                                  {hi ? <span style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 4px' }}>{val}</span> : (val || <span style={{ color: '#d1d5db' }}>—</span>)}
+                                  {hi ? <span style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 4px' }}>{display}</span> : (display || <span style={{ color: '#d1d5db' }}>—</span>)}
                                 </td>
                               );
                             })}
