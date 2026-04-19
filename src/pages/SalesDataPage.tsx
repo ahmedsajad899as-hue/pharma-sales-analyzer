@@ -564,7 +564,7 @@ export default function SalesDataPage() {
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                       <th style={thS}>#</th>
                       {activeFile.fixedCols.map((c, i) => {
-                        const isFilterable = c === itemNameCol || c === itemCodeCol;
+                        const isFilterable = c !== priceCol;
                         const activeVals = colFilters[c] ?? [];
                         const hasFilter = activeVals.length > 0;
                         const visibleVals = colUniqueVals.filter(v => !filterSearch || v.toLowerCase().includes(filterSearch.toLowerCase()));
