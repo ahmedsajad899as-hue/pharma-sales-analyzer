@@ -246,7 +246,7 @@ export function parseDistributorExcel(buffer) {
  */
 async function parsePdfToRows(buffer) {
   // Dynamic import avoids ESM/CJS conflict at startup
-  const { default: pdfParse } = await import('pdf-parse/lib/pdf-parse.js');
+  const { default: pdfParse } = await import('pdf-parse');
   const data = await pdfParse(buffer);
   const lines = data.text
     .split('\n')
