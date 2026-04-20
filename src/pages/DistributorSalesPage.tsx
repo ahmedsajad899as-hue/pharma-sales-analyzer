@@ -141,7 +141,7 @@ export default function DistributorSalesPage() {
   // Upload state
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [uploadMsg, setUploadMsg] = useState<{ type: 'success' | 'error'; text: string; warnings?: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Analysis state
@@ -231,7 +231,11 @@ export default function DistributorSalesPage() {
       setSelectedUploadId(data.uploadId);
       setActiveTab('overview');
     } catch (err: any) {
-      setUploadMsg({ type: 'error', text: err.response?.data?.error || 'فشل الرفع' });
+      setUploadMsg({
+        type: 'error',
+        text: err.response?.data?.error || 'فشل الرفع',
+        warnings: err.response?.data?.warnings || [],
+      });
     } finally {
       setUploading(false);
     }
@@ -376,6 +380,11 @@ export default function DistributorSalesPage() {
               fontSize: 13, fontWeight: 500,
             }}>
               {uploadMsg.type === 'success' ? '✅ ' : '❌ '}{uploadMsg.text}
+              {uploadMsg.warnings && uploadMsg.warnings.length > 0 && (
+                <ul style={{ margin: '6px 0 0', paddingRight: 16, fontSize: 12, fontWeight: 400 }}>
+                  {uploadMsg.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
             </div>
           )}
 

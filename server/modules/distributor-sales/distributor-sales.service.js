@@ -23,11 +23,11 @@ function normalizeArabic(str) {
 
 // ─── Column alias detection ───────────────────────────────────
 const COL_ALIASES = {
-  distributor: ['امازون', 'amazon', 'الموزع', 'distributor', 'موزع', 'وكيل'],
-  item:        ['item', 'ايتم', 'منتج', 'product', 'الدواء', 'اسم المادة', 'مادة'],
-  saleDate:    ['تاريخ البيع', 'sale date', 'تاريخ', 'date'],
-  totalQty:    ['كمية المباعة', 'كمية المبيعات', 'total qty', 'total sold', 'مبيعات'],
-  reinvoicing: ['اعادة الفوترة', 'اعاده الفوترة', 'reinvoicing', 're-invoice', 'reorder'],
+  distributor: ['امازون', 'amazon', 'الموزع', 'distributor', 'موزع', 'وكيل', 'amazon/n/a', 'n/a'],
+  item:        ['item', 'ايتم', 'منتج', 'product', 'الدواء', 'اسم المادة', 'مادة', 'اسم المنتج', 'drug', 'medicine'],
+  saleDate:    ['تاريخ البيع', 'sale date', 'تاريخ', 'date', 'last sale', 'اخر بيع'],
+  totalQty:    ['كمية المباعة', 'كمية المبيعات', 'total qty', 'total sold', 'مبيعات', 'كمية', 'qty sold', 'sold'],
+  reinvoicing: ['اعادة الفوترة', 'اعاده الفوترة', 'reinvoicing', 're-invoice', 'reorder', 'اعادة', 'فوترة'],
 };
 
 function matchCol(header, type) {
@@ -68,9 +68,9 @@ function parseExcelDate(val) {
 }
 
 // ─── Team header detection ────────────────────────────────────
-// A row is a team header if: all numeric columns are empty/zero AND the
-// first meaningful cell contains a non-numeric label starting with "Team" or
-// known Arabic team keywords.
+// A row is a team header ONLY if all numeric columns are empty/zero AND
+// the row text explicitly matches a team keyword (Team, فريق, etc.)
+// We do NOT use string length as a criterion to avoid false positives.
 function isTeamHeaderRow(row, numericColKeys) {
   const hasNoNumbers = numericColKeys.every(k => {
     const v = row[k];
@@ -82,9 +82,9 @@ function isTeamHeaderRow(row, numericColKeys) {
   const vals = Object.values(row).filter(v => typeof v === 'string' && v.trim().length > 0);
   if (vals.length === 0) return false;
 
-  // Must not look like a normal data row (distributor names always have N/A pattern or arabic)
-  const firstStr = vals[0].trim();
-  return /team|فريق|مجموعه|مجموعة/i.test(firstStr) || firstStr.length > 2;
+  // STRICT: only treat as team header if it explicitly contains team keyword
+  const rowText = vals.join(' ');
+  return /team|فريق|مجموعه|مجموعة/i.test(rowText);
 }
 
 function extractTeamName(row) {
@@ -118,23 +118,47 @@ export function parseDistributorExcel(buffer) {
     if (rawRows.length < 2) continue;
 
     // ── Find header row ─────────────────────────────────────
+    // Strategy: find the row that has the most matching column aliases.
+    // Minimum: must match at least distributor OR item alias.
     let headerRowIdx = -1;
     let headers = [];
+    let bestScore = 0;
 
-    for (let i = 0; i < Math.min(rawRows.length, 15); i++) {
+    for (let i = 0; i < Math.min(rawRows.length, 25); i++) {
       const row = rawRows[i];
       const rowStr = row.map(c => normalizeArabic(String(c || ''))).join(' ').toLowerCase();
-      // Header must contain distributor alias AND item alias
+
       const hasDistributor = COL_ALIASES.distributor.some(a =>
         rowStr.includes(normalizeArabic(a).toLowerCase())
       );
       const hasItem = COL_ALIASES.item.some(a =>
         rowStr.includes(normalizeArabic(a).toLowerCase())
       );
-      if (hasDistributor && hasItem) {
+      const hasMonth = row.some(c => isMonthCol(String(c || '')));
+      const hasQty = COL_ALIASES.totalQty.some(a =>
+        rowStr.includes(normalizeArabic(a).toLowerCase())
+      );
+
+      // Score: how many alias types matched
+      const score = (hasDistributor ? 2 : 0) + (hasItem ? 2 : 0) + (hasMonth ? 1 : 0) + (hasQty ? 1 : 0);
+
+      if (score > bestScore && (hasDistributor || hasItem)) {
+        bestScore = score;
         headerRowIdx = i;
         headers = row.map(c => String(c || '').trim());
-        break;
+      }
+    }
+
+    // Fallback: if still no header found, try the first non-empty row
+    if (headerRowIdx === -1) {
+      for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
+        const row = rawRows[i];
+        if (row.some(c => String(c || '').trim().length > 0)) {
+          headerRowIdx = i;
+          headers = row.map(c => String(c || '').trim());
+          warnings.push(`Sheet "${sheetName}": header auto-detected at row ${i + 1} (fallback mode)`);
+          break;
+        }
       }
     }
 
@@ -152,14 +176,13 @@ export function parseDistributorExcel(buffer) {
     const monthCols = []; // { idx, monthNum, header }
 
     headers.forEach((h, idx) => {
-      if (distributorCol === -1 && matchCol(h, 'distributor')) distributorCol = idx;
-      else if (itemCol === -1 && matchCol(h, 'item')) itemCol = idx;
-      else if (saleDateCol === -1 && matchCol(h, 'saleDate')) saleDateCol = idx;
-      else if (totalQtyCol === -1 && matchCol(h, 'totalQty')) totalQtyCol = idx;
-      else if (reinvoicingCol === -1 && matchCol(h, 'reinvoicing')) reinvoicingCol = idx;
-      else if (isMonthCol(h)) {
-        monthCols.push({ idx, monthNum: getMonthNumber(h), header: h });
-      }
+      // Use independent ifs (not else-if) so each header gets checked for all types
+      if (distributorCol === -1 && matchCol(h, 'distributor')) { distributorCol = idx; return; }
+      if (itemCol === -1 && matchCol(h, 'item')) { itemCol = idx; return; }
+      if (isMonthCol(h)) { monthCols.push({ idx, monthNum: getMonthNumber(h), header: h }); return; }
+      if (saleDateCol === -1 && matchCol(h, 'saleDate')) { saleDateCol = idx; return; }
+      if (totalQtyCol === -1 && matchCol(h, 'totalQty')) { totalQtyCol = idx; return; }
+      if (reinvoicingCol === -1 && matchCol(h, 'reinvoicing')) { reinvoicingCol = idx; return; }
     });
 
     if (distributorCol === -1 || itemCol === -1) {
