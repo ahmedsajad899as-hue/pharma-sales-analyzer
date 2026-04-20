@@ -37,6 +37,7 @@ import commercialRoutes          from './modules/commercial/commercial.routes.js
 import trackingRoutes             from './modules/tracking/tracking.routes.js';
 import masterSurveyRoutes        from './modules/master-survey/master-survey.routes.js';
 import companyMembersRoutes      from './modules/company-members/company-members.routes.js';
+import distributorSalesRoutes    from './modules/distributor-sales/distributor-sales.routes.js';
 
 dotenv.config();
 
@@ -262,6 +263,7 @@ app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);
 app.use('/api/master-surveys',    masterSurveyRoutes);
 app.use('/api/company-members',   companyMembersRoutes);
+app.use('/api/distributor-sales', distributorSalesRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

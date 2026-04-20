@@ -21,6 +21,7 @@ const _importAI              = () => import('./components/AIAssistant');
 const _importSurvey          = () => import('./pages/SurveyPage');
 const _importFMS             = () => import('./pages/FMSPage');
 const _importSalesData       = () => import('./pages/SalesDataPage');
+const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 
 const DashboardPage       = lazy(_importDashboard);
 const RepAnalysisPage     = lazy(_importRepAnalysis);
@@ -35,7 +36,8 @@ const CommercialRepPage   = lazy(_importCommercial);
 const AIAssistant         = lazy(_importAI);
 const SurveyPage          = lazy(_importSurvey);
 const FMSPage             = lazy(_importFMS);
-const SalesDataPage       = lazy(_importSalesData);
+const SalesDataPage           = lazy(_importSalesData);
+const DistributorSalesPage    = lazy(_importDistributorSales);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -45,6 +47,7 @@ function preloadAllChunks() {
     _importRepresentatives(); _importScientificReps(); _importDoctors();
     _importMonthlyPlans(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
+    _importDistributorSales();
   });
 }
 
@@ -79,7 +82,8 @@ export type PageId =
   | 'commercial'
   | 'master-survey'
   | 'fms'
-  | 'sales-data';
+  | 'sales-data'
+  | 'distributor-sales';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -324,6 +328,7 @@ function AppInner() {
     { id: 'master-survey',   node: <SurveyPage /> },
     { id: 'fms',             node: <FMSPage /> },
     { id: 'sales-data',      node: <SalesDataPage /> },
+    { id: 'distributor-sales', node: <DistributorSalesPage /> },
   ];
 
   return (

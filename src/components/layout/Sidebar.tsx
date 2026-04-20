@@ -64,6 +64,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'master-survey',   label: 'سيرفي اوردين',        icon: '🗂️', roles: [] },
     { id: 'fms',             label: 'FMS — عينات شهرية',  icon: '🧪', roles: ['company_manager','admin','manager'] },
     { id: 'sales-data',      label: 'بيانات المبيعات',     icon: '📊', roles: [] },
+    { id: 'distributor-sales', label: 'تحليل الموزعين',      icon: '📦', roles: [] },
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
     { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager'] },
@@ -77,7 +78,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     rep_analysis:   'rep-analysis',
     rep_files:      'rep-analysis',
     users_list:     'users',
-    master_survey:  'master-survey',
+    master_survey:      'master-survey',
+    distributor_sales:  'distributor-sales',
   };
 
   // empty roles array = visible to all; otherwise check role inclusion
