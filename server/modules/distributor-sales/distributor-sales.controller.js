@@ -25,7 +25,9 @@ export async function uploadDistributorFile(req, res) {
     }
 
     const userId = req.user?.id ?? null;
-    const { records, warnings } = await parseDistributorFile(req.file.buffer, req.file.originalname);
+    // multer decodes multipart filenames as latin1 — re-encode to utf-8 for Arabic names
+    const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    const { records, warnings } = await parseDistributorFile(req.file.buffer, originalName);
 
     if (records.length === 0) {
       return res.status(422).json({
@@ -35,8 +37,8 @@ export async function uploadDistributorFile(req, res) {
     }
 
     const uploadRecord = await createUpload({
-      originalName: req.file.originalname,
-      filename: req.file.originalname,
+      originalName,
+      filename: originalName,
       rowCount: records.length,
       userId,
     });
