@@ -327,7 +327,8 @@ function parseRowsToRecords(rawRows, sourceName) {
   let headerRowIdx = -1;
   let headers = [];
 
-  for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+  let bestScore = 0;
+  for (let i = 0; i < Math.min(rawRows.length, 25); i++) {
     const row = rawRows[i];
     const rowStr = row.map(c => normalizeArabic(String(c || ''))).join(' ').toLowerCase();
     const hasDistributor = COL_ALIASES.distributor.some(a =>
@@ -336,32 +337,42 @@ function parseRowsToRecords(rawRows, sourceName) {
     const hasItem = COL_ALIASES.item.some(a =>
       rowStr.includes(normalizeArabic(a).toLowerCase())
     );
-    if (hasDistributor && hasItem) {
+    const hasMonth = row.some(c => isMonthCol(String(c || '')));
+    const hasQty = COL_ALIASES.totalQty.some(a =>
+      rowStr.includes(normalizeArabic(a).toLowerCase())
+    );
+    const score = (hasDistributor ? 2 : 0) + (hasItem ? 2 : 0) + (hasMonth ? 1 : 0) + (hasQty ? 1 : 0);
+    // Accept row if it has item OR distributor match
+    if (score > bestScore && (hasDistributor || hasItem)) {
+      bestScore = score;
       headerRowIdx = i;
       headers = row.map(c => String(c || '').trim());
-      break;
     }
   }
 
   if (headerRowIdx === -1) {
-    // Include first 3 extracted rows in warning for debugging
-    const preview = rawRows.slice(0, 3).map((r, i) => `R${i}: [${r.join(' | ')}]`).join(' // ');
-    warnings.push(`${sourceName}: no header row found in PDF (expected امازون + Item columns). Preview: ${preview}`);
+    warnings.push(`${sourceName}: no header row found in PDF (expected امازون + Item columns)`);
     return { records, warnings };
   }
 
-  // Map columns
+  // Map columns — use independent ifs (not else-if) so all column types are checked
   let distributorCol = -1, itemCol = -1, saleDateCol = -1, totalQtyCol = -1, reinvoicingCol = -1;
   const monthCols = [];
 
   headers.forEach((h, idx) => {
-    if (distributorCol === -1 && matchCol(h, 'distributor')) distributorCol = idx;
-    else if (itemCol === -1 && matchCol(h, 'item')) itemCol = idx;
-    else if (saleDateCol === -1 && matchCol(h, 'saleDate')) saleDateCol = idx;
-    else if (totalQtyCol === -1 && matchCol(h, 'totalQty')) totalQtyCol = idx;
-    else if (reinvoicingCol === -1 && matchCol(h, 'reinvoicing')) reinvoicingCol = idx;
-    else if (isMonthCol(h)) monthCols.push({ idx, monthNum: getMonthNumber(h), header: h });
+    if (distributorCol === -1 && matchCol(h, 'distributor')) { distributorCol = idx; return; }
+    if (itemCol === -1 && matchCol(h, 'item')) { itemCol = idx; return; }
+    if (isMonthCol(h)) { monthCols.push({ idx, monthNum: getMonthNumber(h), header: h }); return; }
+    if (saleDateCol === -1 && matchCol(h, 'saleDate')) { saleDateCol = idx; return; }
+    if (totalQtyCol === -1 && matchCol(h, 'totalQty')) { totalQtyCol = idx; return; }
+    if (reinvoicingCol === -1 && matchCol(h, 'reinvoicing')) { reinvoicingCol = idx; return; }
   });
+
+  // Fallback: if distributor col not found (Arabic text garbled by PDF), use col 0
+  if (distributorCol === -1 && itemCol !== -1 && itemCol !== 0) {
+    distributorCol = 0;
+    warnings.push(`${sourceName}: distributor column header not recognized (PDF encoding), using column 0`);
+  }
 
   if (distributorCol === -1 || itemCol === -1) {
     warnings.push(`${sourceName}: could not find distributor or item column in PDF`);
