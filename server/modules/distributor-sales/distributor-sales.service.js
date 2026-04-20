@@ -272,15 +272,40 @@ async function parsePdfToRows(buffer) {
   const _require = createRequire(import.meta.url);
   const pdfParse = _require('pdf-parse');
   const data = await pdfParse(buffer);
-  const lines = data.text
+
+  const rawLines = data.text
     .split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0);
 
-  // Split each line into cells by 2+ whitespace or tab characters
-  const rows = lines.map(line =>
-    line.split(/\t|  +/).map(cell => cell.trim()).filter(cell => cell.length > 0)
-  );
+  // Smart split: try 2+ spaces first; if that gives only 1 cell, fall back to single space
+  const splitLine = (line) => {
+    const byMultiSpace = line.split(/\t| {2,}/).map(c => c.trim()).filter(c => c.length > 0);
+    if (byMultiSpace.length >= 2) return byMultiSpace;
+    // Fallback: split by single space (works when PDF doesn't preserve column gaps)
+    return line.split(/\s+/).map(c => c.trim()).filter(c => c.length > 0);
+  };
+
+  const rows = rawLines.map(splitLine);
+
+  // If no row looks like a header, also try treating the whole file as one big
+  // string split by common Arabic column name separators (|, /)
+  const allText = rawLines.join(' ');
+  const hasAnyHeader = rows.some(row => {
+    const s = row.join(' ').toLowerCase();
+    return COL_ALIASES.distributor.some(a => s.includes(normalizeArabic(a).toLowerCase())) ||
+           COL_ALIASES.item.some(a => s.includes(normalizeArabic(a).toLowerCase()));
+  });
+
+  if (!hasAnyHeader) {
+    // Try pipe / slash split
+    const byPipe = rawLines.map(l => l.split(/[|\/]/).map(c => c.trim()).filter(c => c.length > 0));
+    const hasPipeHeader = byPipe.some(row => {
+      const s = row.join(' ').toLowerCase();
+      return COL_ALIASES.distributor.some(a => s.includes(normalizeArabic(a).toLowerCase()));
+    });
+    if (hasPipeHeader) return byPipe;
+  }
 
   return rows;
 }

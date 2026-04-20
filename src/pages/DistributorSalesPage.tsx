@@ -357,6 +357,9 @@ export default function DistributorSalesPage() {
               اسحب ملف Excel هنا أو انقر للاختيار
             </div>
             <div style={{ fontSize: 13, color: '#94a3b8' }}>يدعم: Excel (.xlsx / .xls) · CSV · PDF</div>
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>
+              ⚠️ ملفات PDF تعتمد على بنية الملف — Excel أكثر دقة
+            </div>
             <input
               ref={fileInputRef}
               type="file"
