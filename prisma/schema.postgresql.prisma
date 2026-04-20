@@ -79,6 +79,10 @@ model User {
   surveyEditLogs      MasterSurveyEditLog[]   @relation("SurveyEditLogUser")
   surveyHiddenFor     MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
 
+  // Distributor Sales
+  distributorUploads       DistributorSalesUpload[]
+  distributorSaleRecords   DistributorSaleRecord[]
+
   @@index([officeId])
   @@map("users")
 }
@@ -1138,4 +1142,41 @@ model AppNotification {
   @@index([isRead])
   @@index([createdAt])
   @@map("app_notifications")
+}
+
+// ─── Distributor Sales ─────────────────────────────────
+
+model DistributorSalesUpload {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  filename     String
+  rowCount     Int      @default(0)
+  uploadedAt   DateTime @default(now())
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id])
+  records      DistributorSaleRecord[]
+
+  @@index([userId])
+  @@map("distributor_sales_uploads")
+}
+
+model DistributorSaleRecord {
+  id               Int      @id @default(autoincrement())
+  uploadId         Int
+  upload           DistributorSalesUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  teamName         String?
+  distributorName  String
+  itemName         String
+  month3Qty        Float    @default(0)
+  month4Qty        Float    @default(0)
+  saleDate         DateTime?
+  totalQtySold     Float    @default(0)
+  reinvoicingCount Float    @default(0)
+  extraMonths      String?
+  userId           Int?
+  user             User?    @relation(fields: [userId], references: [id])
+
+  @@index([uploadId])
+  @@index([userId])
+  @@map("distributor_sale_records")
 }
