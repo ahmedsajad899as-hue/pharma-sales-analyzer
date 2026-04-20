@@ -9,8 +9,6 @@
 
 import * as XLSX from 'xlsx';
 import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
 
 // ─── Arabic text normalisation ────────────────────────────────
 function normalizeArabic(str) {
@@ -248,6 +246,8 @@ export function parseDistributorExcel(buffer) {
  *  4. Wrap into a fake XLSX workbook sheet and call the shared row-parser.
  */
 async function parsePdfToRows(buffer) {
+  const _require = createRequire(import.meta.url);
+  const pdfParse = _require('pdf-parse');
   const data = await pdfParse(buffer);
   const lines = data.text
     .split('\n')
