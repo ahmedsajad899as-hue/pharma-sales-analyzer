@@ -352,13 +352,11 @@ export default function DistributorSalesPage() {
             <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>
               اسحب ملف Excel هنا أو انقر للاختيار
             </div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>
-              تنسيق: امازون | Item | شهر3 | شهر4 | تاريخ البيع | كمية المباعة | اعادة الفوترة
-            </div>
+            <div style={{ fontSize: 13, color: '#94a3b8' }}>يدعم: Excel (.xlsx / .xls) · CSV · PDF</div>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.pdf"
               style={{ display: 'none' }}
               onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); }}
             />

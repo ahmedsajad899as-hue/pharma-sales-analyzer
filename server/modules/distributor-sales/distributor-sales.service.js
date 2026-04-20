@@ -8,6 +8,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 
 // ─── Arabic text normalisation ────────────────────────────────
 function normalizeArabic(str) {
@@ -231,4 +232,155 @@ export function parseDistributorExcel(buffer) {
   }
 
   return { records, warnings };
+}
+
+// ─── PDF parser ───────────────────────────────────────────────
+/**
+ * Extract text from PDF, convert to a 2D array of rows/cells,
+ * then delegate to the same column-mapping logic used for Excel.
+ *
+ * Strategy:
+ *  1. Extract raw text via pdf-parse.
+ *  2. Split into lines, strip blank lines.
+ *  3. Each line is a potential row — split on 2+ spaces or tab to get cells.
+ *  4. Wrap into a fake XLSX workbook sheet and call the shared row-parser.
+ */
+async function parsePdfToRows(buffer) {
+  const data = await pdfParse(buffer);
+  const lines = data.text
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+  // Split each line into cells by 2+ whitespace or tab characters
+  const rows = lines.map(line =>
+    line.split(/\t|  +/).map(cell => cell.trim()).filter(cell => cell.length > 0)
+  );
+
+  return rows;
+}
+
+/**
+ * Build records from a 2D array of rows (same logic as Excel parser).
+ * Returns { records, warnings }
+ */
+function parseRowsToRecords(rawRows, sourceName) {
+  const records = [];
+  const warnings = [];
+
+  if (rawRows.length < 2) {
+    warnings.push(`${sourceName}: insufficient rows in PDF text`);
+    return { records, warnings };
+  }
+
+  // Find header row
+  let headerRowIdx = -1;
+  let headers = [];
+
+  for (let i = 0; i < Math.min(rawRows.length, 20); i++) {
+    const row = rawRows[i];
+    const rowStr = row.map(c => normalizeArabic(String(c || ''))).join(' ').toLowerCase();
+    const hasDistributor = COL_ALIASES.distributor.some(a =>
+      rowStr.includes(normalizeArabic(a).toLowerCase())
+    );
+    const hasItem = COL_ALIASES.item.some(a =>
+      rowStr.includes(normalizeArabic(a).toLowerCase())
+    );
+    if (hasDistributor && hasItem) {
+      headerRowIdx = i;
+      headers = row.map(c => String(c || '').trim());
+      break;
+    }
+  }
+
+  if (headerRowIdx === -1) {
+    warnings.push(`${sourceName}: no header row found in PDF (expected امازون + Item columns)`);
+    return { records, warnings };
+  }
+
+  // Map columns
+  let distributorCol = -1, itemCol = -1, saleDateCol = -1, totalQtyCol = -1, reinvoicingCol = -1;
+  const monthCols = [];
+
+  headers.forEach((h, idx) => {
+    if (distributorCol === -1 && matchCol(h, 'distributor')) distributorCol = idx;
+    else if (itemCol === -1 && matchCol(h, 'item')) itemCol = idx;
+    else if (saleDateCol === -1 && matchCol(h, 'saleDate')) saleDateCol = idx;
+    else if (totalQtyCol === -1 && matchCol(h, 'totalQty')) totalQtyCol = idx;
+    else if (reinvoicingCol === -1 && matchCol(h, 'reinvoicing')) reinvoicingCol = idx;
+    else if (isMonthCol(h)) monthCols.push({ idx, monthNum: getMonthNumber(h), header: h });
+  });
+
+  if (distributorCol === -1 || itemCol === -1) {
+    warnings.push(`${sourceName}: could not find distributor or item column in PDF`);
+    return { records, warnings };
+  }
+
+  monthCols.sort((a, b) => (a.monthNum || 0) - (b.monthNum || 0));
+  const month3Col = monthCols.find(m => m.monthNum === 3)?.idx ?? -1;
+  const month4Col = monthCols.find(m => m.monthNum === 4)?.idx ?? -1;
+  const extraMonthCols = monthCols.filter(m => m.monthNum !== 3 && m.monthNum !== 4);
+
+  const numericColKeys = [month3Col, month4Col, totalQtyCol, reinvoicingCol,
+    ...extraMonthCols.map(m => m.idx)].filter(i => i !== -1);
+
+  let currentTeam = sourceName;
+
+  for (let i = headerRowIdx + 1; i < rawRows.length; i++) {
+    const cells = rawRows[i];
+    const row = {};
+    cells.forEach((val, idx) => { row[idx] = val; });
+
+    if (isTeamHeaderRow(row, numericColKeys)) {
+      currentTeam = extractTeamName(row);
+      continue;
+    }
+
+    const distributorName = String(cells[distributorCol] || '').trim();
+    const itemName = String(cells[itemCol] || '').trim();
+    if (!distributorName || !itemName) continue;
+
+    const month3Qty = month3Col !== -1 ? toFloat(cells[month3Col]) : 0;
+    const month4Qty = month4Col !== -1 ? toFloat(cells[month4Col]) : 0;
+    const saleDate = saleDateCol !== -1 ? parseExcelDate(cells[saleDateCol]) : null;
+    const totalQtySold = totalQtyCol !== -1 ? toFloat(cells[totalQtyCol]) : 0;
+    const reinvoicingCount = reinvoicingCol !== -1 ? toFloat(cells[reinvoicingCol]) : 0;
+
+    const extraMonths = {};
+    for (const em of extraMonthCols) {
+      const val = toFloat(cells[em.idx]);
+      if (val !== 0) extraMonths[em.header] = val;
+    }
+
+    records.push({
+      teamName: currentTeam,
+      distributorName,
+      itemName,
+      month3Qty,
+      month4Qty,
+      saleDate,
+      totalQtySold,
+      reinvoicingCount,
+      extraMonths: Object.keys(extraMonths).length > 0 ? JSON.stringify(extraMonths) : null,
+    });
+  }
+
+  return { records, warnings };
+}
+
+// ─── Unified entry point ──────────────────────────────────────
+/**
+ * Parse a distributor sales file (Excel OR PDF) from a buffer.
+ * Returns { records, warnings }
+ */
+export async function parseDistributorFile(buffer, filename) {
+  const ext = (filename || '').split('.').pop()?.toLowerCase();
+
+  if (ext === 'pdf') {
+    const rows = await parsePdfToRows(buffer);
+    return parseRowsToRecords(rows, filename);
+  }
+
+  // Excel / CSV — use synchronous Excel parser
+  return parseDistributorExcel(buffer);
 }

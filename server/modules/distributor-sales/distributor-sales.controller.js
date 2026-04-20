@@ -3,7 +3,7 @@
  * Thin HTTP layer — validates input, delegates to service/repository.
  */
 
-import { parseDistributorExcel } from './distributor-sales.service.js';
+import { parseDistributorFile } from './distributor-sales.service.js';
 import {
   createUpload,
   bulkInsertRecords,
@@ -25,7 +25,7 @@ export async function uploadDistributorFile(req, res) {
     }
 
     const userId = req.user?.id ?? null;
-    const { records, warnings } = parseDistributorExcel(req.file.buffer);
+    const { records, warnings } = await parseDistributorFile(req.file.buffer, req.file.originalname);
 
     if (records.length === 0) {
       return res.status(422).json({
