@@ -344,7 +344,9 @@ function parseRowsToRecords(rawRows, sourceName) {
   }
 
   if (headerRowIdx === -1) {
-    warnings.push(`${sourceName}: no header row found in PDF (expected امازون + Item columns)`);
+    // Include first 3 extracted rows in warning for debugging
+    const preview = rawRows.slice(0, 3).map((r, i) => `R${i}: [${r.join(' | ')}]`).join(' // ');
+    warnings.push(`${sourceName}: no header row found in PDF (expected امازون + Item columns). Preview: ${preview}`);
     return { records, warnings };
   }
 
