@@ -356,14 +356,14 @@ export default function DistributorSalesPage() {
             <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>
               اسحب ملف Excel هنا أو انقر للاختيار
             </div>
-            <div style={{ fontSize: 13, color: '#94a3b8' }}>يدعم: Excel (.xlsx / .xls) · CSV · PDF</div>
+            <div style={{ fontSize: 13, color: '#94a3b8' }}>يدعم: Excel (.xlsx / .xls) · CSV</div>
             <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>
-              ⚠️ ملفات PDF تعتمد على بنية الملف — Excel أكثر دقة
+              ⚠️ ملفات PDF غير مدعومة — حوّل الملف لـ Excel أولاً
             </div>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv,.pdf"
+              accept=".xlsx,.xls,.csv"
               style={{ display: 'none' }}
               onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); }}
             />

@@ -440,8 +440,13 @@ export async function parseDistributorFile(buffer, filename) {
   const ext = (filename || '').split('.').pop()?.toLowerCase();
 
   if (ext === 'pdf') {
-    const rows = await parsePdfToRows(buffer);
-    return parseRowsToRecords(rows, filename);
+    // PDF files cannot reliably preserve table column structure.
+    // pdf-parse extracts raw text only — columns get merged/garbled.
+    // Instruct the user to convert to Excel first.
+    throw Object.assign(
+      new Error('ملفات PDF غير مدعومة حالياً لأن استخراج الجداول منها غير دقيق. يرجى فتح الملف في Excel أو Google Sheets وحفظه بصيغة .xlsx ثم رفعه مجدداً.'),
+      { code: 'PDF_NOT_SUPPORTED' }
+    );
   }
 
   // Excel / CSV — use synchronous Excel parser
