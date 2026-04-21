@@ -7,6 +7,20 @@ import LoginPage from './pages/LoginPage';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
+// lazyWithRetry: on chunk load failure, hard-reload once to bust stale cache
+function lazyWithRetry<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
+  return lazy(() =>
+    factory().catch(() => {
+      const key = 'chunkErrReload';
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        window.location.reload();
+      }
+      return factory(); // retry once after reload
+    })
+  );
+}
+
 const _importDashboard       = () => import('./pages/DashboardPage');
 const _importRepAnalysis     = () => import('./pages/RepAnalysisPage');
 const _importUpload          = () => import('./pages/UploadPage');
@@ -23,21 +37,21 @@ const _importFMS             = () => import('./pages/FMSPage');
 const _importSalesData       = () => import('./pages/SalesDataPage');
 const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 
-const DashboardPage       = lazy(_importDashboard);
-const RepAnalysisPage     = lazy(_importRepAnalysis);
-const UploadPage          = lazy(_importUpload);
-const RepresentativesPage = lazy(_importRepresentatives);
-const ScientificRepsPage  = lazy(_importScientificReps);
-const DoctorsPage         = lazy(_importDoctors);
-const MonthlyPlansPage    = lazy(_importMonthlyPlans);
-const ReportsPage         = lazy(_importReports);
-const UsersPage           = lazy(_importUsers);
-const CommercialRepPage   = lazy(_importCommercial);
-const AIAssistant         = lazy(_importAI);
-const SurveyPage          = lazy(_importSurvey);
-const FMSPage             = lazy(_importFMS);
-const SalesDataPage           = lazy(_importSalesData);
-const DistributorSalesPage    = lazy(_importDistributorSales);
+const DashboardPage       = lazyWithRetry(_importDashboard);
+const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
+const UploadPage          = lazyWithRetry(_importUpload);
+const RepresentativesPage = lazyWithRetry(_importRepresentatives);
+const ScientificRepsPage  = lazyWithRetry(_importScientificReps);
+const DoctorsPage         = lazyWithRetry(_importDoctors);
+const MonthlyPlansPage    = lazyWithRetry(_importMonthlyPlans);
+const ReportsPage         = lazyWithRetry(_importReports);
+const UsersPage           = lazyWithRetry(_importUsers);
+const CommercialRepPage   = lazyWithRetry(_importCommercial);
+const AIAssistant         = lazyWithRetry(_importAI);
+const SurveyPage          = lazyWithRetry(_importSurvey);
+const FMSPage             = lazyWithRetry(_importFMS);
+const SalesDataPage           = lazyWithRetry(_importSalesData);
+const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -94,20 +108,55 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
     return { hasError: true, error };
   }
   componentDidCatch(error: any, info: any) {
-    // يمكن إرسال الخطأ لسيرفر أو تسجيله هنا
+    // Auto-reload on chunk load failures (stale cache after new deployment)
+    const msg: string = String(error?.message ?? error);
+    const isChunkError =
+      msg.includes('Failed to fetch dynamically imported module') ||
+      msg.includes('Importing a module script failed') ||
+      msg.includes('error loading dynamically imported module') ||
+      msg.includes('ChunkLoadError') ||
+      /Loading chunk .* failed/.test(msg) ||
+      /Loading CSS chunk .* failed/.test(msg);
+    if (isChunkError) {
+      // Reload once — guard against infinite reload loop
+      const reloadKey = 'chunkErrReload';
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, '1');
+        window.location.reload();
+        return;
+      }
+    }
     // eslint-disable-next-line no-console
     console.error('React ErrorBoundary:', error, info);
   }
   render() {
     if (this.state.hasError) {
+      const msg: string = String(this.state.error?.message ?? this.state.error);
+      const isChunkError =
+        msg.includes('Failed to fetch dynamically imported module') ||
+        msg.includes('ChunkLoadError') ||
+        /Loading chunk .* failed/.test(msg);
+      if (isChunkError) {
+        return (
+          <div style={{ padding: 32, textAlign: 'center', color: '#6366f1' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>🔄</div>
+            <p style={{ fontSize: 15, fontWeight: 600 }}>جاري إعادة تحميل التطبيق...</p>
+          </div>
+        );
+      }
       return (
         <div style={{ padding: 32, color: '#b91c1c', background: '#fef2f2', fontSize: 18, textAlign: 'center' }}>
           <h2>حدث خطأ في التطبيق</h2>
           <pre style={{ color: '#991b1b', background: '#fee2e2', padding: 12, borderRadius: 8, direction: 'ltr', textAlign: 'left', overflowX: 'auto' }}>{String(this.state.error)}</pre>
-          <p>يرجى إعادة تحميل الصفحة أو التواصل مع الدعم.</p>
+          <button onClick={() => window.location.reload()}
+            style={{ marginTop: 16, padding: '10px 24px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+            🔄 إعادة التحميل
+          </button>
         </div>
       );
     }
+    // Clear the reload guard once the app loads successfully
+    sessionStorage.removeItem('chunkErrReload');
     return this.props.children;
   }
 }
