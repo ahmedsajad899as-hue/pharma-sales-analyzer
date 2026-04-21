@@ -33,18 +33,46 @@ router.get('/overall', async (req, res) => {
         ? { uploadedFileId: parsedFileIds[0] }
         : { uploadedFileId: { in: parsedFileIds } };
 
-    // If no date filter provided, auto-detect min/max from file data
+    // If no date filter provided, auto-detect the real date range from the file
     let effectiveStartDate = startDate ? new Date(startDate) : null;
     let effectiveEndDate   = endDate   ? new Date(endDate)   : null;
 
     if (!startDate && !endDate && parsedFileIds.length > 0) {
-      const dateRange = await prisma.sale.aggregate({
-        where: { ...fileFilter, ...(recordType ? { recordType } : {}) },
-        _min: { saleDate: true },
-        _max: { saleDate: true },
+      // Get the file's upload date so we can exclude garbage/default-dated records
+      const fileRecord = await prisma.uploadedFile.findUnique({
+        where: { id: parsedFileIds[0] },
+        select: { uploadedAt: true },
       });
-      if (dateRange._min.saleDate) effectiveStartDate = dateRange._min.saleDate;
-      if (dateRange._max.saleDate) effectiveEndDate   = dateRange._max.saleDate;
+
+      if (fileRecord?.uploadedAt) {
+        const uploadedAt = new Date(fileRecord.uploadedAt);
+        // Midnight UTC of upload day — records with saleDate >= this are either
+        // @default(now()) defaults (no date in Excel) or garbage future dates
+        const startOfUploadDay = new Date(Date.UTC(
+          uploadedAt.getUTCFullYear(),
+          uploadedAt.getUTCMonth(),
+          uploadedAt.getUTCDate(),
+        ));
+
+        // Find real date range: only records with saleDate strictly before upload day
+        const dateRange = await prisma.sale.aggregate({
+          where: {
+            ...fileFilter,
+            ...(recordType ? { recordType } : {}),
+            saleDate: { lt: startOfUploadDay },
+          },
+          _min: { saleDate: true },
+          _max: { saleDate: true },
+        });
+
+        if (dateRange._min.saleDate) effectiveStartDate = dateRange._min.saleDate;
+        if (dateRange._max.saleDate) effectiveEndDate   = dateRange._max.saleDate;
+
+        // Always cap at startOfUploadDay to exclude default/garbage dates
+        if (!effectiveEndDate || effectiveEndDate >= startOfUploadDay) {
+          effectiveEndDate = new Date(startOfUploadDay.getTime() - 1);
+        }
+      }
     }
 
     const where = {
@@ -117,7 +145,7 @@ router.get('/overall', async (req, res) => {
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, minDate, maxDate } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, minDate, maxDate, recordCount: sales.length } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

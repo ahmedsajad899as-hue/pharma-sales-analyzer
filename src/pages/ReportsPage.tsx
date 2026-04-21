@@ -422,7 +422,7 @@ interface SciReport {
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; minDate?: string | null; maxDate?: string | null; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; }
 
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
@@ -669,6 +669,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byAreaItem: (d.byAreaItem ?? []).map((r: any) => ({ areaName: r.areaName ?? '', itemName: r.itemName ?? '', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
+        recordCount: d.recordCount ?? null,
       });
       const params = new URLSearchParams();
       if (fromDate) params.set('startDate', fromDate);
@@ -1370,6 +1371,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div className="stat-card-body">
                   <div className="stat-card-value" style={{ color: '#065f46' }}>{fmt(salesQ)}</div>
                   <div className="stat-card-label">إجمالي الكميات المباعة</div>
+                  {overallSales.recordCount != null && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{overallSales.recordCount.toLocaleString()} سجل</div>}
                 </div>
               </div>
               <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #ef4444' }}>
