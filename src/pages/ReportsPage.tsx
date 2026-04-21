@@ -465,7 +465,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
   const [overallFileId, setOverallFileId]   = useState<string>('');
-  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string}[]>([]);
+  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
   // Preview modal state
   const [showPreviewModal, setShowPreviewModal]   = useState(false);
@@ -519,10 +519,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const allFiles: any[] = Array.isArray(json.data) ? json.data : [];
         // Filter to only active files and store for overall mode file picker
         const activeFiles = allFiles.filter((f: any) => activeFileIds.includes(f.id));
-        setAvailableFiles(activeFiles.map((f: any) => ({ id: f.id, filename: f.filename || f.originalName || `ملف ${f.id}` })));
-        // Default overallFileId to most recent active file
+        setAvailableFiles(activeFiles.map((f: any) => ({
+          id: f.id,
+          filename: f.originalName || f.filename || `ملف ${f.id}`,
+          rowCount: f._count?.sales ?? f.rowCount,
+          uploadedAt: f.uploadedAt,
+        })));
+        // Default overallFileId to most recent active file (array is desc by uploadedAt)
         if (activeFiles.length > 0 && !overallFileId) {
-          setOverallFileId(String(activeFiles[activeFiles.length - 1].id));
+          setOverallFileId(String(activeFiles[0].id));
         }
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
@@ -1202,10 +1207,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </select>
           ) : (
             /* Overall mode: file selector */
-            <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 320 }} value={overallFileId}
+            <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 340 }} value={overallFileId}
               onChange={e => { setOverallFileId(e.target.value); setOverallSales(null); setOverallReturns(null); }}>
               <option value="">-- اختر ملف للتحليل --</option>
-              {availableFiles.map(f => <option key={f.id} value={f.id}>{f.filename}</option>)}
+              {availableFiles.map(f => (
+                <option key={f.id} value={f.id}>
+                  {f.filename}{f.rowCount != null ? ` (صفوف: ${f.rowCount.toLocaleString()})` : ''}{f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
+                </option>
+              ))}
             </select>
           )}
 

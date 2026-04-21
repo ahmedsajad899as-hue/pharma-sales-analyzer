@@ -34,7 +34,6 @@ router.get('/overall', async (req, res) => {
         : { uploadedFileId: { in: parsedFileIds } };
 
     const where = {
-      ...(userId ? { userId } : {}),
       ...fileFilter,
       ...(startDate || endDate ? {
         saleDate: {
