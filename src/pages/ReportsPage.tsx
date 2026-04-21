@@ -1133,24 +1133,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   return (
     <div className="page">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">{t.reports.title}</h1>
-          <p className="page-subtitle">{t.reports.subtitle}</p>
-        </div>
+        <div />
         <button
           onClick={() => setShowExportModal(true)}
           disabled={exporting}
+          title={exporting ? exportProgress : t.reports.export}
           style={{
-            display: 'flex', alignItems: 'center', gap: '8px',
-            padding: '10px 20px', borderRadius: '10px', border: 'none', cursor: exporting ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 42, height: 42, borderRadius: '10px', border: 'none', cursor: exporting ? 'not-allowed' : 'pointer',
             background: exporting ? '#d1fae5' : 'linear-gradient(135deg,#10b981,#059669)',
-            color: '#fff', fontWeight: 700, fontSize: '14px',
+            color: '#fff', fontWeight: 700, fontSize: '20px',
             boxShadow: exporting ? 'none' : '0 2px 8px rgba(16,185,129,.35)',
             transition: 'all .2s',
             opacity: exporting ? 0.75 : 1,
           }}
         >
-          {exporting ? `⏳ ${exportProgress}` : `📥 ${t.reports.export}`}
+          {exporting ? '⏳' : '📥'}
         </button>
       </div>
 
