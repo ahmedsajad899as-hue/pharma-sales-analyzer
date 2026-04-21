@@ -463,6 +463,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
+  const [overallFileId, setOverallFileId]   = useState<string>('');
+  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string}[]>([]);
 
   // Preview modal state
   const [showPreviewModal, setShowPreviewModal]   = useState(false);
@@ -514,6 +516,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       .then(r => r.json())
       .then((json: any) => {
         const allFiles: any[] = Array.isArray(json.data) ? json.data : [];
+        // Filter to only active files and store for overall mode file picker
+        const activeFiles = allFiles.filter((f: any) => activeFileIds.includes(f.id));
+        setAvailableFiles(activeFiles.map((f: any) => ({ id: f.id, filename: f.filename || f.originalName || `ملف ${f.id}` })));
+        // Default overallFileId to most recent active file
+        if (activeFiles.length > 0 && !overallFileId) {
+          setOverallFileId(String(activeFiles[activeFiles.length - 1].id));
+        }
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
           setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
@@ -642,6 +651,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   const loadOverallReport = async () => {
+    const fid = overallFileId || (activeFileIds.length > 0 ? String(activeFileIds[activeFileIds.length - 1]) : '');
+    if (!fid) { setError('يرجى اختيار ملف للتحليل'); return; }
     setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null);
     try {
       const parseOverall = (d: any): OverallReport => ({
@@ -653,7 +664,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const params = new URLSearchParams();
       if (fromDate) params.set('startDate', fromDate);
       if (toDate)   params.set('endDate', toDate);
-      if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+      // Always scope to a single selected file to avoid summing multiple files
+      if (overallFileId) {
+        params.set('fileIds', overallFileId);
+      } else if (activeFileIds.length > 0) {
+        params.set('fileIds', String(activeFileIds[activeFileIds.length - 1]));
+      }
       const [salesRes, returnsRes] = await Promise.all([
         fetch(`/api/reports/overall?${params}&recordType=sale`,   { headers: authH() }),
         fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
@@ -1182,7 +1198,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <option value="">-- {t.reports.selectSciRep} --</option>
               {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
-          ) : null}
+          ) : (
+            /* Overall mode: file selector */
+            <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 320 }} value={overallFileId}
+              onChange={e => { setOverallFileId(e.target.value); setOverallSales(null); setOverallReturns(null); }}>
+              <option value="">-- اختر ملف للتحليل --</option>
+              {availableFiles.map(f => <option key={f.id} value={f.id}>{f.filename}</option>)}
+            </select>
+          )}
 
           {/* Combined date range block — icon only, hidden inputs */}
           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
