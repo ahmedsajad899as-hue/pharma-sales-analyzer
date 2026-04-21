@@ -419,8 +419,9 @@ interface SciReport {
   byRep: BreakdownRow[];
 }
 
-type Mode = 'commercial' | 'scientific';
+type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; }
 
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
@@ -456,6 +457,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
   const [showFinancialMode, setShowFinancialMode] = useState(false);
+
+  // Overall / comprehensive analysis
+  const [overallSales, setOverallSales]     = useState<OverallReport | null>(null);
+  const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
+  const [overallSearch, setOverallSearch]   = useState('');
+  const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
 
   // Preview modal state
   const [showPreviewModal, setShowPreviewModal]   = useState(false);
@@ -630,6 +637,31 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setSciReturnsReport(returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null);
       setReportView('sales');
       setActiveTab('area');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const loadOverallReport = async () => {
+    setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null);
+    try {
+      const parseOverall = (d: any): OverallReport => ({
+        totalQuantity: d.totalQuantity ?? 0,
+        totalValue:    d.totalValue    ?? 0,
+        byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+      });
+      const params = new URLSearchParams();
+      if (fromDate) params.set('startDate', fromDate);
+      if (toDate)   params.set('endDate', toDate);
+      if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+      const [salesRes, returnsRes] = await Promise.all([
+        fetch(`/api/reports/overall?${params}&recordType=sale`,   { headers: authH() }),
+        fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
+      ]);
+      const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
+      if (!salesRes.ok) throw new Error(salesJson.message || salesJson.error || 'فشل تحميل البيانات');
+      setOverallSales(parseOverall(salesJson.data ?? salesJson));
+      setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
@@ -1124,6 +1156,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       {/* Mode toggle */}
       <div className="tabs" style={{ marginBottom: 0 }}>
+        <button className={`tab ${mode === 'overall' ? 'tab--active' : ''}`} onClick={() => { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); }}>
+          📊 تحليل شامل
+        </button>
         <button className={`tab ${mode === 'scientific' ? 'tab--active' : ''}`} onClick={() => { setMode('scientific'); setError(''); setSciReport(null); }}>
           🔬 {t.reports.modeScientific}
         </button>
@@ -1136,20 +1171,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       <div className="filter-card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
 
-          {/* Rep selector */}
+          {/* Rep selector — hidden in overall mode */}
           {mode === 'commercial' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
               onChange={e => { setCommRepId(e.target.value); if (e.target.value) loadCommReport(e.target.value); }}>
               <option value="">-- {t.reports.selectCommRep} --</option>
               {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
-          ) : (
+          ) : mode === 'scientific' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={sciRepId}
               onChange={e => { setSciRepId(e.target.value); if (e.target.value) loadSciReport(e.target.value); }}>
               <option value="">-- {t.reports.selectSciRep} --</option>
               {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
-          )}
+          ) : null}
 
           {/* Combined date range block — icon only, hidden inputs */}
           <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
@@ -1200,7 +1235,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Generate icon button */}
           <button
             title={t.reports.generate}
-            onClick={() => mode === 'commercial' ? loadCommReport() : loadSciReport()}
+            onClick={() => mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport()}
             disabled={loading}
             style={{
               width: 40, height: 40, borderRadius: 10, border: 'none', flexShrink: 0,
@@ -1235,6 +1270,109 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <span style={{ flex: 1, color: '#881337', fontSize: 13, fontWeight: 500 }}>{error}</span>
         </div>
       )}
+
+      {/* ─── Overall / Comprehensive Analysis ─── */}
+      {mode === 'overall' && overallSales && (() => {
+        const salesQ  = overallSales.totalQuantity;
+        const salesV  = overallSales.totalValue;
+        const retQ    = overallReturns?.totalQuantity ?? 0;
+        const retV    = overallReturns?.totalValue    ?? 0;
+        const netQ    = salesQ - retQ;
+        const netV    = salesV - retV;
+
+        // Smart search filter (normalises Arabic)
+        const normalise = (s: string) => s.trim()
+          .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
+          .replace(/\u0629/g, '\u0647')
+          .replace(/\u0640/g, '')
+          .replace(/[\u064B-\u065F]/g, '')
+          .replace(/\s+/g, ' ')
+          .toLowerCase();
+        const q = normalise(overallSearch);
+        const filterRows = (rows: BreakdownRow[]) =>
+          q ? rows.filter(r => normalise(r.name).includes(q)) : rows;
+
+        const salesItemsFiltered  = filterRows(overallSales.byItem);
+        const salesAreasFiltered  = filterRows(overallSales.byArea);
+        const retItemsFiltered    = filterRows(overallReturns?.byItem ?? []);
+        const retAreasFiltered    = filterRows(overallReturns?.byArea ?? []);
+
+        return (
+          <>
+            {/* Summary cards */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, marginBottom: 4 }}>
+              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #10b981' }}>
+                <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981' }}>📈</div>
+                <div className="stat-card-body">
+                  <div className="stat-card-value" style={{ color: '#065f46' }}>{fmt(salesQ)}</div>
+                  <div className="stat-card-label">إجمالي الكميات المباعة</div>
+                </div>
+              </div>
+              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #ef4444' }}>
+                <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444' }}>📉</div>
+                <div className="stat-card-body">
+                  <div className="stat-card-value" style={{ color: '#991b1b' }}>{fmt(retQ)}</div>
+                  <div className="stat-card-label">إجمالي الكميات المرتجعة</div>
+                </div>
+              </div>
+              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #6366f1' }}>
+                <div className="stat-card-icon" style={{ background: '#e0e7ff', color: '#6366f1' }}>✅</div>
+                <div className="stat-card-body">
+                  <div className="stat-card-value" style={{ color: netQ >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netQ)}</div>
+                  <div className="stat-card-label">صافي الكميات</div>
+                </div>
+              </div>
+              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #f59e0b' }}>
+                <div className="stat-card-icon" style={{ background: '#fffbeb', color: '#b45309' }}>💰</div>
+                <div className="stat-card-body">
+                  <div className="stat-card-value" style={{ color: '#92400e' }}>{fmtVal(salesV)}</div>
+                  <div className="stat-card-label">{currStatTotal}</div>
+                </div>
+              </div>
+              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #ef4444' }}>
+                <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444' }}>💸</div>
+                <div className="stat-card-body">
+                  <div className="stat-card-value" style={{ color: '#991b1b' }}>{fmtVal(retV)}</div>
+                  <div className="stat-card-label">إجمالي قيمة المرتجعات</div>
+                </div>
+              </div>
+              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #10b981' }}>
+                <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981' }}>⚖️</div>
+                <div className="stat-card-body">
+                  <div className="stat-card-value" style={{ color: netV >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(netV)}</div>
+                  <div className="stat-card-label">{currStatNet}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Smart search */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>
+              <input
+                className="form-input"
+                style={{ flex: 1, maxWidth: 340 }}
+                placeholder="🔍 بحث ذكي عن مادة أو منطقة..."
+                value={overallSearch}
+                onChange={e => setOverallSearch(e.target.value)}
+              />
+              {overallSearch && (
+                <button onClick={() => setOverallSearch('')}
+                  style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f1f5f9', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                  ✕ مسح
+                </button>
+              )}
+            </div>
+
+            {/* Sub-tabs: area / item */}
+            <div className="tabs">
+              <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
+              <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
+            </div>
+
+            {overallTab === 'area' && renderNetTable(salesAreasFiltered, retAreasFiltered, t.reports.colArea, true)}
+            {overallTab === 'item' && renderNetTable(salesItemsFiltered, retItemsFiltered, t.reports.colItem)}
+          </>
+        );
+      })()}
 
       {/* ─── Commercial Rep Report ─── */}
       {mode === 'commercial' && commReport && (() => {

@@ -1,25 +1,95 @@
 /**
  * Reports Routes
  * GET /api/reports/representative/:id
+ * GET /api/reports/overall
  */
 
 import { Router } from 'express';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
+import prisma from '../../lib/prisma.js';
 
 const router = Router();
 
-/**
- * GET /api/reports/representative/:id
- *
- * Query params (all optional):
- *   startDate  - ISO datetime  e.g. 2026-01-01T00:00:00.000Z
- *   endDate    - ISO datetime  e.g. 2026-03-01T23:59:59.999Z
- *   areaId     - number        filter to a single area
- *   itemId     - number        filter to a single item
- *
- * Example:
- *   GET /api/reports/representative/5?startDate=2026-01-01T00:00:00Z
- */
 router.get('/representative/:id', getRepresentativeReport);
+
+/**
+ * GET /api/reports/overall
+ * Overall aggregated report across all files (or filtered files).
+ * Query params: fileIds, startDate, endDate, recordType
+ * Returns: { totalQuantity, totalValue, byItem, byArea }
+ */
+router.get('/overall', async (req, res) => {
+  try {
+    const { fileIds, startDate, endDate, recordType } = req.query;
+    const userId = req.user?.id ?? null;
+
+    const parsedFileIds = fileIds
+      ? String(fileIds).split(',').map(Number).filter(Boolean)
+      : [];
+
+    const fileFilter = parsedFileIds.length === 0
+      ? {}
+      : parsedFileIds.length === 1
+        ? { uploadedFileId: parsedFileIds[0] }
+        : { uploadedFileId: { in: parsedFileIds } };
+
+    const where = {
+      ...(userId ? { userId } : {}),
+      ...fileFilter,
+      ...(startDate || endDate ? {
+        saleDate: {
+          ...(startDate ? { gte: new Date(startDate) } : {}),
+          ...(endDate   ? { lte: new Date(endDate)   } : {}),
+        },
+      } : {}),
+      ...(recordType ? { recordType } : {}),
+    };
+
+    const sales = await prisma.sale.findMany({
+      where,
+      select: {
+        quantity:   true,
+        totalValue: true,
+        area: { select: { id: true, name: true } },
+        item: { select: { id: true, name: true } },
+      },
+    });
+
+    // Aggregate in-memory by item and by area
+    const itemMap = new Map();
+    const areaMap = new Map();
+    let totalQuantity = 0;
+    let totalValue    = 0;
+
+    for (const s of sales) {
+      const qty = s.quantity   || 0;
+      const val = s.totalValue || 0;
+      totalQuantity += qty;
+      totalValue    += val;
+
+      if (s.item) {
+        const key = s.item.id;
+        if (!itemMap.has(key)) itemMap.set(key, { itemName: s.item.name, totalQuantity: 0, totalValue: 0 });
+        const r = itemMap.get(key);
+        r.totalQuantity += qty;
+        r.totalValue    += val;
+      }
+      if (s.area) {
+        const key = s.area.id;
+        if (!areaMap.has(key)) areaMap.set(key, { areaName: s.area.name, totalQuantity: 0, totalValue: 0 });
+        const r = areaMap.get(key);
+        r.totalQuantity += qty;
+        r.totalValue    += val;
+      }
+    }
+
+    const byItem = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byArea = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;
