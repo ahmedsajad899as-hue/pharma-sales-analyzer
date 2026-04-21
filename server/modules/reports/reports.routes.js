@@ -55,9 +55,10 @@ router.get('/overall', async (req, res) => {
       },
     });
 
-    // Aggregate in-memory by item and by area
-    const itemMap = new Map();
-    const areaMap = new Map();
+    // Aggregate in-memory by item, by area, and by area+item
+    const itemMap     = new Map();
+    const areaMap     = new Map();
+    const areaItemMap = new Map(); // key: "areaName::itemName"
     let totalQuantity = 0;
     let totalValue    = 0;
 
@@ -81,12 +82,20 @@ router.get('/overall', async (req, res) => {
         r.totalQuantity += qty;
         r.totalValue    += val;
       }
+      if (s.area && s.item) {
+        const key = `${s.area.name}::${s.item.name}`;
+        if (!areaItemMap.has(key)) areaItemMap.set(key, { areaName: s.area.name, itemName: s.item.name, totalQuantity: 0, totalValue: 0 });
+        const r = areaItemMap.get(key);
+        r.totalQuantity += qty;
+        r.totalValue    += val;
+      }
     }
 
-    const byItem = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
-    const byArea = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byItem     = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byAreaItem = [...areaItemMap.values()];
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

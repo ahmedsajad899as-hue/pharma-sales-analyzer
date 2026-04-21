@@ -421,7 +421,8 @@ interface SciReport {
 
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; }
+interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; }
 
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
@@ -660,6 +661,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         totalValue:    d.totalValue    ?? 0,
         byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byAreaItem: (d.byAreaItem ?? []).map((r: any) => ({ areaName: r.areaName ?? '', itemName: r.itemName ?? '', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
       });
       const params = new URLSearchParams();
       if (fromDate) params.set('startDate', fromDate);
@@ -1313,10 +1315,34 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const filterRows = (rows: BreakdownRow[]) =>
           q ? rows.filter(r => normalise(r.name).includes(q)) : rows;
 
-        const salesItemsFiltered  = filterRows(overallSales.byItem);
+        // Detect if search matches any area name → cross-filter items by area
+        const allAreas = [...overallSales.byArea, ...(overallReturns?.byArea ?? [])];
+        const areaMatch = q ? allAreas.some(a => normalise(a.name).includes(q)) : false;
+        const itemMatch = q ? [...overallSales.byItem, ...(overallReturns?.byItem ?? [])].some(i => normalise(i.name).includes(q)) : false;
+
+        // When areaMatch (and we're on item tab): aggregate items within matched areas
+        const buildItemsFromArea = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r => normalise(r.areaName).includes(q));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.itemName)!;
+            row.totalQty   += r.totalQty;
+            row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+
+        // Matched area name labels for the badge
+        const matchedAreaNames = q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
+
         const salesAreasFiltered  = filterRows(overallSales.byArea);
-        const retItemsFiltered    = filterRows(overallReturns?.byItem ?? []);
         const retAreasFiltered    = filterRows(overallReturns?.byArea ?? []);
+
+        // Item tab: if area matched → show area-scoped items; otherwise filter by item name
+        const useAreaScope = overallTab === 'item' && areaMatch && !itemMatch;
+        const salesItemsFiltered  = useAreaScope ? buildItemsFromArea(overallSales.byAreaItem) : filterRows(overallSales.byItem);
+        const retItemsFiltered    = useAreaScope ? buildItemsFromArea(overallReturns?.byAreaItem ?? []) : filterRows(overallReturns?.byItem ?? []);
 
         return (
           <>
@@ -1388,6 +1414,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
               <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
             </div>
+
+            {/* Area-scope badge when filtering items by area */}
+            {overallTab === 'item' && useAreaScope && matchedAreaNames.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>📍 عرض ايتمات:</span>
+                {matchedAreaNames.map(n => (
+                  <span key={n} style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{n}</span>
+                ))}
+              </div>
+            )}
 
             {overallTab === 'area' && renderNetTable(salesAreasFiltered, retAreasFiltered, t.reports.colArea, true)}
             {overallTab === 'item' && renderNetTable(salesItemsFiltered, retItemsFiltered, t.reports.colItem)}
