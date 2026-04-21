@@ -2,6 +2,66 @@
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
+// ── Arabic action description ─────────────────────────────────
+function describeAction(action: string, module: string | null): string {
+  const a = (action || '').trim();
+  const mod = (module || '').toLowerCase();
+
+  // Exact matches
+  if (a === 'login'  || a === 'POST /login')  return 'تسجيل دخول';
+  if (a === 'logout' || a === 'POST /logout') return 'تسجيل خروج';
+
+  // Extract method and path
+  const m = a.match(/^(GET|POST|PUT|PATCH|DELETE)\s+(.*)$/i);
+  if (!m) return a;
+  const method = m[1].toUpperCase();
+  const path   = m[2].toLowerCase();
+
+  // Module-aware descriptions
+  const moduleLabels: Record<string, { POST?: string; PATCH?: string; PUT?: string; DELETE?: string; GET?: string }> = {
+    'auth':               { POST: 'تسجيل دخول' },
+    'visits':             { POST: 'تسجيل زيارة طبيب', PATCH: 'تعديل زيارة طبيب', PUT: 'تعديل زيارة طبيب', DELETE: 'حذف زيارة طبيب' },
+    'pharmacy-visits':    { POST: 'تسجيل زيارة صيدلية', PATCH: 'تعديل زيارة صيدلية', DELETE: 'حذف زيارة صيدلية' },
+    'doctors':            { POST: 'إضافة طبيب', PATCH: 'تعديل طبيب', PUT: 'تعديل طبيب', DELETE: 'حذف طبيب' },
+    'monthly-plans':      { POST: 'إنشاء خطة شهرية', PATCH: 'تعديل خطة شهرية', DELETE: 'حذف خطة شهرية' },
+    'sales':              { POST: 'إضافة مبيعات', PATCH: 'تعديل مبيعات', DELETE: 'حذف مبيعات' },
+    'distributor-sales':  { POST: path.includes('upload') ? 'رفع ملف مبيعات موزع' : 'إضافة بيانات موزع', DELETE: 'حذف ملف مبيعات موزع' },
+    'representatives':    { POST: 'إضافة مندوب', PATCH: 'تعديل مندوب', DELETE: 'حذف مندوب' },
+    'scientific-reps':    { POST: 'إضافة مندوب علمي', PATCH: 'تعديل مندوب علمي', DELETE: 'حذف مندوب علمي' },
+    'companies':          { POST: 'إضافة شركة', PATCH: 'تعديل شركة', DELETE: 'حذف شركة' },
+    'offices':            { POST: 'إضافة مكتب', PATCH: 'تعديل مكتب', DELETE: 'حذف مكتب' },
+    'admin-users':        { POST: 'إضافة مستخدم', PATCH: 'تعديل مستخدم', DELETE: 'حذف مستخدم' },
+    'items':              { POST: 'إضافة مادة', PATCH: 'تعديل مادة', DELETE: 'حذف مادة' },
+    'areas':              { POST: 'إضافة منطقة', PATCH: 'تعديل منطقة', DELETE: 'حذف منطقة' },
+    'master-survey':      { POST: 'تعديل سيرفاي', PATCH: 'تعديل سيرفاي', DELETE: 'حذف من سيرفاي' },
+    'reports':            { POST: 'تحميل تقرير', GET: 'عرض تقرير' },
+    'commercial':         { POST: 'إضافة فاتورة تجارية', PATCH: 'تعديل فاتورة', DELETE: 'حذف فاتورة' },
+    'notifications':      { POST: 'إرسال إشعار', DELETE: 'حذف إشعار' },
+  };
+
+  // Check known module
+  for (const [key, verbs] of Object.entries(moduleLabels)) {
+    if (mod.includes(key)) {
+      const desc = verbs[method as keyof typeof verbs];
+      if (desc) return desc;
+    }
+  }
+
+  // Path-based fallbacks
+  if (path.includes('upload'))  return method === 'POST' ? 'رفع ملف' : method === 'DELETE' ? 'حذف ملف مرفوع' : a;
+  if (path.includes('delete'))  return 'حذف';
+  if (path.includes('login'))   return 'تسجيل دخول';
+  if (path.includes('logout'))  return 'تسجيل خروج';
+  if (path.includes('password') || path.includes('pass')) return 'تغيير كلمة المرور';
+
+  // Generic method descriptions
+  const genericMap: Record<string, string> = {
+    POST: 'إضافة سجل', PATCH: 'تعديل سجل', PUT: 'تعديل سجل',
+    DELETE: 'حذف سجل', GET: 'عرض بيانات',
+  };
+  return genericMap[method] || a;
+}
+
 const FEEDBACK_OPTIONS = [
   { value: 'pending',        label: 'بانتظار الفيدباك' },
   { value: 'writing',        label: 'يكتب' },
@@ -344,7 +404,7 @@ export default function VisitsPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, direction: 'rtl' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        {['#', 'التاريخ والوقت', 'الحساب', 'الدور', 'الإجراء', 'الوحدة', 'التفاصيل', 'IP'].map(h => (
+                        {['#', 'التاريخ والوقت', 'الحساب', 'الدور', 'الوصف', 'الإجراء', 'التفاصيل', 'IP'].map(h => (
                           <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -375,12 +435,14 @@ export default function VisitsPage() {
                                 ? <span style={{ background: '#f1f5f9', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#475569' }}>{log.user.role}</span>
                                 : <span style={{ color: '#cbd5e1' }}>—</span>}
                             </td>
+                            <td style={{ padding: '8px 12px', fontWeight: 600, color: '#0f172a', fontSize: 13 }}>
+                              {describeAction(log.action, log.module)}
+                            </td>
                             <td style={{ padding: '8px 12px' }}>
-                              <span style={{ background: actionColor + '18', color: actionColor, borderRadius: 6, padding: '3px 10px', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>
+                              <span style={{ background: actionColor + '18', color: actionColor, borderRadius: 6, padding: '3px 10px', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                                 {log.action}
                               </span>
                             </td>
-                            <td style={{ padding: '8px 10px', color: '#64748b', fontSize: 12 }}>{log.module || '—'}</td>
                             <td style={{ padding: '8px 12px', color: '#374151', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.details ?? ''}>
                               {log.details || '—'}
                             </td>
