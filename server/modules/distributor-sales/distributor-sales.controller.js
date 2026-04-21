@@ -45,6 +45,8 @@ export async function uploadDistributorFile(req, res) {
 
     await bulkInsertRecords(uploadRecord.id, records, userId);
 
+    req._skipActivity = true;
+    req._activityDetails = `رفع ملف مبيعات الموزعين: ${originalName} — ${records.length} سجل`;
     return res.json({
       success: true,
       uploadId: uploadRecord.id,

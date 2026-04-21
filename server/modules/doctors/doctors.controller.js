@@ -721,6 +721,8 @@ export async function create(req, res, next) {
         targetItem: { select: { id: true, name: true } },
       },
     });
+    req._skipActivity = true;
+    req._activityDetails = `إضافة طبيب: ${name}${specialty ? ' (' + specialty + ')' : ''}${doctor.area ? ' — ' + doctor.area.name : ''}`;
     res.status(201).json(doctor);
   } catch (e) { next(e); }
 }
@@ -839,7 +841,12 @@ export async function remove(req, res, next) {
       return res.status(403).json({ error: 'لا يمكنك حذف هذا الطبيب' });
     }
 
+    const deletedDoc = await prisma.doctor.findUnique({ where: { id }, select: { name: true, specialty: true } });
     await prisma.doctor.delete({ where: { id } });
+    if (deletedDoc) {
+      req._skipActivity = true;
+      req._activityDetails = `حذف طبيب: ${deletedDoc.name}${deletedDoc.specialty ? ' (' + deletedDoc.specialty + ')' : ''}`;
+    }
     res.json({ success: true });
   } catch (e) { next(e); }
 }

@@ -31,18 +31,45 @@ export async function logActivity({ userId = null, action, module = null, detail
 
 /**
  * Express middleware — logs every authenticated request automatically.
- * Lightweight: only logs method + path; skips GET requests to reduce noise.
+ * Uses res.on('finish') so controllers can set req._skipActivity = true
+ * or req._activityDetails = '...' before the response ends.
  */
 export function activityMiddleware(req, res, next) {
-  next();
-  if (req.method === 'GET') return; // skip read-only
-  if (!req.user) return;            // skip unauthenticated
-  const module = req.path.split('/')[2] || 'unknown'; // e.g. /api/visits → visits
-  logActivity({
-    userId:  req.user.id,
-    action:  `${req.method} ${req.path}`,
-    module,
-    details: null,
-    req,
+  res.on('finish', () => {
+    if (req.method === 'GET') return;          // skip read-only
+    if (!req.user) return;                     // skip unauthenticated
+    if (req._skipActivity) return;             // controller already logged explicitly
+
+    const fullPath = (req.originalUrl || req.path).split('?')[0];
+    const parts    = fullPath.split('/').filter(Boolean);
+    // parts: ['api', 'monthly-plans', '5']  →  module = parts[1]
+    const module   = parts[1] || parts[0] || 'unknown';
+
+    // Capture any name-like field from the parsed body
+    const body = req.body || {};
+    const nameHint = body.name || body.title || body.displayName ||
+                     body.pharmacyName || body.username || null;
+
+    // Month/year hint for plans
+    const monthHint = (body.month && body.year)
+      ? `شهر ${body.month}/${body.year}` : null;
+
+    // Entity ID from path tail
+    const lastSeg  = parts[parts.length - 1];
+    const idHint   = (!nameHint && !monthHint && /^\d+$/.test(lastSeg)) ? `#${lastSeg}` : null;
+
+    const details = req._activityDetails
+      || [nameHint, monthHint].filter(Boolean).join(' — ')
+      || idHint
+      || null;
+
+    logActivity({
+      userId:  req.user.id,
+      action:  `${req.method} ${fullPath}`,
+      module,
+      details,
+      req,
+    });
   });
+  next();
 }

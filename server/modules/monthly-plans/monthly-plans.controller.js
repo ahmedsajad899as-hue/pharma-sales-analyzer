@@ -720,6 +720,11 @@ export async function create(req, res, next) {
         planAreas: { include: { area: { select: { id: true, name: true } } } },
       },
     });
+    // Rich activity log
+    const repName = plan.scientificRep?.name;
+    req._skipActivity = true;
+    req._activityDetails = `إنشاء بلان شهر ${month}/${year}${repName ? ' — المندوب: ' + repName : ''}`;
+    // logActivity is called by middleware via res.on('finish') using _activityDetails
     res.status(201).json(plan);
   } catch (e) { next(e); }
 }
@@ -747,10 +752,20 @@ export async function update(req, res, next) {
 // ── Delete plan ───────────────────────────────────────────────
 export async function remove(req, res, next) {
   try {
+    const planId = parseInt(req.params.id);
+    // Fetch plan details before deleting for rich log
+    const planInfo = await prisma.monthlyPlan.findFirst({
+      where: { id: planId, OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
+      select: { month: true, year: true, scientificRep: { select: { name: true } } },
+    });
     const result = await prisma.monthlyPlan.deleteMany({
-      where: { id: parseInt(req.params.id), OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
+      where: { id: planId, OR: [{ userId: req.user.id }, { assignedUserId: req.user.id }] },
     });
     if (result.count === 0) return res.status(404).json({ error: 'غير موجود' });
+    if (planInfo) {
+      req._skipActivity = true;
+      req._activityDetails = `حذف بلان شهر ${planInfo.month}/${planInfo.year}${planInfo.scientificRep ? ' — المندوب: ' + planInfo.scientificRep.name : ''}`;
+    }
     res.json({ success: true });
   } catch (e) { next(e); }
 }

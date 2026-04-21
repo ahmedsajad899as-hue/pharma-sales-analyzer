@@ -404,7 +404,7 @@ export default function VisitsPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, direction: 'rtl' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        {['#', 'التاريخ والوقت', 'الحساب', 'الدور', 'الوصف', 'الإجراء', 'التفاصيل', 'IP'].map(h => (
+                        {['#', 'التاريخ والوقت', 'الحساب', 'الدور', 'الوصف', 'الإجراء', 'IP'].map(h => (
                           <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -436,15 +436,17 @@ export default function VisitsPage() {
                                 : <span style={{ color: '#cbd5e1' }}>—</span>}
                             </td>
                             <td style={{ padding: '8px 12px', fontWeight: 600, color: '#0f172a', fontSize: 13 }}>
-                              {describeAction(log.action, log.module)}
+                              <div>{describeAction(log.action, log.module)}</div>
+                              {log.details && (
+                                <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 500, marginTop: 2 }}>
+                                  {log.details}
+                                </div>
+                              )}
                             </td>
                             <td style={{ padding: '8px 12px' }}>
                               <span style={{ background: actionColor + '18', color: actionColor, borderRadius: 6, padding: '3px 10px', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                                 {log.action}
                               </span>
-                            </td>
-                            <td style={{ padding: '8px 12px', color: '#374151', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.details ?? ''}>
-                              {log.details || '—'}
                             </td>
                             <td style={{ padding: '8px 10px', color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>{log.ipAddress || '—'}</td>
                           </tr>
