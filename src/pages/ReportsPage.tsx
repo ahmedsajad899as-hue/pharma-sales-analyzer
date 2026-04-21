@@ -422,7 +422,7 @@ interface SciReport {
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; minDate?: string | null; maxDate?: string | null; }
 
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
@@ -667,6 +667,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byAreaItem: (d.byAreaItem ?? []).map((r: any) => ({ areaName: r.areaName ?? '', itemName: r.itemName ?? '', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        minDate: d.minDate ?? null,
+        maxDate: d.maxDate ?? null,
       });
       const params = new URLSearchParams();
       if (fromDate) params.set('startDate', fromDate);
@@ -1400,6 +1402,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 </div>
               </div>
             </div>
+
+            {/* Date range info banner */}
+            {overallSales.minDate && overallSales.maxDate && (() => {
+              const fmt2 = (d: string) => new Date(d).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
+              const noFilter = !fromDate && !toDate;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, marginBottom: 8, background: noFilter ? '#fffbeb' : '#f0fdf4', border: `1px solid ${noFilter ? '#fbbf24' : '#86efac'}`, fontSize: 13, color: noFilter ? '#92400e' : '#166534' }}>
+                  <span>{noFilter ? '⚠️' : '📅'}</span>
+                  <span>
+                    نطاق تواريخ البيانات: <strong>{fmt2(overallSales.minDate)}</strong> → <strong>{fmt2(overallSales.maxDate)}</strong>
+                    {noFilter && ' — لا يوجد فلتر تاريخ، يتم عرض كامل البيانات'}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* Smart search */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>

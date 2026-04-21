@@ -49,6 +49,7 @@ router.get('/overall', async (req, res) => {
       select: {
         quantity:   true,
         totalValue: true,
+        saleDate:   true,
         area: { select: { id: true, name: true } },
         item: { select: { id: true, name: true } },
       },
@@ -60,12 +61,20 @@ router.get('/overall', async (req, res) => {
     const areaItemMap = new Map(); // key: "areaName::itemName"
     let totalQuantity = 0;
     let totalValue    = 0;
+    let minDate = null;
+    let maxDate = null;
 
     for (const s of sales) {
       const qty = s.quantity   || 0;
       const val = s.totalValue || 0;
       totalQuantity += qty;
       totalValue    += val;
+
+      // Track date range
+      if (s.saleDate) {
+        if (!minDate || s.saleDate < minDate) minDate = s.saleDate;
+        if (!maxDate || s.saleDate > maxDate) maxDate = s.saleDate;
+      }
 
       if (s.item) {
         const key = s.item.id;
@@ -94,7 +103,7 @@ router.get('/overall', async (req, res) => {
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, minDate, maxDate } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
