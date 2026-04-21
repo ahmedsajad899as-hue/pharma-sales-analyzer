@@ -685,7 +685,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       ]);
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
       if (!salesRes.ok) throw new Error(salesJson.message || salesJson.error || 'فشل تحميل البيانات');
-      setOverallSales(parseOverall(salesJson.data ?? salesJson));
+      const salesData = salesJson.data ?? salesJson;
+      // Auto-populate date inputs from file's actual date range when no filter was set
+      if (!fromDate && !toDate) {
+        if (salesData.minDate) setFromDate(salesData.minDate.slice(0, 10));
+        if (salesData.maxDate) setToDate(salesData.maxDate.slice(0, 10));
+      }
+      setOverallSales(parseOverall(salesData));
       setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
@@ -1402,21 +1408,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 </div>
               </div>
             </div>
-
-            {/* Date range info banner */}
-            {overallSales.minDate && overallSales.maxDate && (() => {
-              const fmt2 = (d: string) => new Date(d).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
-              const noFilter = !fromDate && !toDate;
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, marginBottom: 8, background: noFilter ? '#fffbeb' : '#f0fdf4', border: `1px solid ${noFilter ? '#fbbf24' : '#86efac'}`, fontSize: 13, color: noFilter ? '#92400e' : '#166534' }}>
-                  <span>{noFilter ? '⚠️' : '📅'}</span>
-                  <span>
-                    نطاق تواريخ البيانات: <strong>{fmt2(overallSales.minDate)}</strong> → <strong>{fmt2(overallSales.maxDate)}</strong>
-                    {noFilter && ' — لا يوجد فلتر تاريخ، يتم عرض كامل البيانات'}
-                  </span>
-                </div>
-              );
-            })()}
 
             {/* Smart search */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>

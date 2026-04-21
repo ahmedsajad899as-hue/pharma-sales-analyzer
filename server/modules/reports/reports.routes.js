@@ -33,12 +33,26 @@ router.get('/overall', async (req, res) => {
         ? { uploadedFileId: parsedFileIds[0] }
         : { uploadedFileId: { in: parsedFileIds } };
 
+    // If no date filter provided, auto-detect min/max from file data
+    let effectiveStartDate = startDate ? new Date(startDate) : null;
+    let effectiveEndDate   = endDate   ? new Date(endDate)   : null;
+
+    if (!startDate && !endDate && parsedFileIds.length > 0) {
+      const dateRange = await prisma.sale.aggregate({
+        where: { ...fileFilter, ...(recordType ? { recordType } : {}) },
+        _min: { saleDate: true },
+        _max: { saleDate: true },
+      });
+      if (dateRange._min.saleDate) effectiveStartDate = dateRange._min.saleDate;
+      if (dateRange._max.saleDate) effectiveEndDate   = dateRange._max.saleDate;
+    }
+
     const where = {
       ...fileFilter,
-      ...(startDate || endDate ? {
+      ...(effectiveStartDate || effectiveEndDate ? {
         saleDate: {
-          ...(startDate ? { gte: new Date(startDate) } : {}),
-          ...(endDate   ? { lte: new Date(endDate)   } : {}),
+          ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),
+          ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
         },
       } : {}),
       ...(recordType ? { recordType } : {}),
