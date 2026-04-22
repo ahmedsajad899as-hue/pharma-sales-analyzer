@@ -924,7 +924,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   /* ─── Build preview sheets for overall analysis ─── */
-  const buildOverallPreviewSheets = (): PreviewSheet[] => {
+  const buildOverallPreviewSheets = (
+    visibleAreas: { sales: BreakdownRow[]; returns: BreakdownRow[] },
+    visibleItems: { sales: BreakdownRow[]; returns: BreakdownRow[] },
+    searchLabel: string,
+  ): PreviewSheet[] => {
     if (!overallSales) return [];
     const fileMeta = availableFiles.find(f => String(f.id) === overallFileId);
     const fileName = (fileMeta as any)?.originalName || fileMeta?.filename || `ملف ${overallFileId}`;
@@ -958,41 +962,44 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       `صافي الكمية`, `صافي القيمة (${cur})`,
     ]];
 
+    const isFiltered = searchLabel.trim() !== '';
+
     // ── Sheet 1: Summary ──
     const summaryRows: string[][] = [
       ['الملف', fileName],
       ['الفترة', fromDate && toDate ? `${fromDate} → ${toDate}` : fromDate || toDate || 'كل الفترات'],
+      ...(isFiltered ? [['فلتر البحث', searchLabel]] : []),
       [''],
-      ['إجمالي الكميات المباعة', String(Math.round(overallSales.totalQuantity))],
-      ['إجمالي الكميات المرتجعة', String(Math.round(overallReturns?.totalQuantity ?? 0))],
-      ['صافي الكميات', String(Math.round(overallSales.totalQuantity - (overallReturns?.totalQuantity ?? 0)))],
-      ['إجمالي قيمة المبيعات', fmtVal(overallSales.totalValue)],
-      ['إجمالي قيمة المرتجعات', fmtVal(overallReturns?.totalValue ?? 0)],
-      ['صافي القيمة', fmtValSigned(overallSales.totalValue - (overallReturns?.totalValue ?? 0))],
+      ['إجمالي الكميات المباعة', String(Math.round(isFiltered ? visibleAreas.sales.reduce((a,r)=>a+r.totalQty,0)+visibleItems.sales.reduce((a,r)=>a+r.totalQty,0) : overallSales.totalQuantity))],
+      ['إجمالي الكميات المرتجعة', String(Math.round(isFiltered ? visibleAreas.returns.reduce((a,r)=>a+r.totalQty,0)+visibleItems.returns.reduce((a,r)=>a+r.totalQty,0) : (overallReturns?.totalQuantity ?? 0)))],
+      ['إجمالي قيمة المبيعات', fmtVal(isFiltered ? visibleAreas.sales.reduce((a,r)=>a+r.totalValue,0)+visibleItems.sales.reduce((a,r)=>a+r.totalValue,0) : overallSales.totalValue)],
+      ['إجمالي قيمة المرتجعات', fmtVal(isFiltered ? visibleAreas.returns.reduce((a,r)=>a+r.totalValue,0)+visibleItems.returns.reduce((a,r)=>a+r.totalValue,0) : (overallReturns?.totalValue ?? 0))],
     ];
 
-    // ── Sheet 2: By Area ──
-    const areaHeader = header('المنطقة');
-    const areaRows = mergeRows(overallSales.byArea, overallReturns?.byArea ?? []);
+    // ── Sheet 2: By Area (visible) ──
+    const areaRows = mergeRows(visibleAreas.sales, visibleAreas.returns);
 
-    // ── Sheet 3: By Item ──
-    const itemHeader = header('المادة');
-    const itemRows = mergeRows(overallSales.byItem, overallReturns?.byItem ?? []);
+    // ── Sheet 3: By Item (visible) ──
+    const itemRows = mergeRows(visibleItems.sales, visibleItems.returns);
 
-    // ── Sheet 4: Area × Item breakdown ──
-    const areaItemHeader: string[][] = [['#', 'المنطقة', 'المادة', `كمية المبيعات`, `قيمة المبيعات (${cur})`, `كمية المرتجعات`, `قيمة المرتجعات (${cur})`, `صافي الكمية`, `صافي القيمة (${cur})`]];
-    const retAIMap = Object.fromEntries((overallReturns?.byAreaItem ?? []).map(r => [`${r.areaName}::${r.itemName}`, r]));
-    const areaItemRows: string[][] = overallSales.byAreaItem.map((s, i) => {
-      const r = retAIMap[`${s.areaName}::${s.itemName}`] ?? { totalQty: 0, totalValue: 0 };
-      return [String(i + 1), s.areaName, s.itemName, String(Math.round(s.totalQty)), fmtVal(s.totalValue), String(Math.round(r.totalQty)), fmtVal(r.totalValue), String(Math.round(s.totalQty - r.totalQty)), fmtValSigned(s.totalValue - r.totalValue)];
-    });
-
-    return [
+    const sheets: PreviewSheet[] = [
       { name: 'ملخص', rows: summaryRows },
-      { name: 'حسب المنطقة', rows: [...areaHeader, ...areaRows] },
-      { name: 'حسب المادة', rows: [...itemHeader, ...itemRows] },
-      { name: 'تفصيل منطقة × مادة', rows: [...areaItemHeader, ...areaItemRows] },
+      { name: 'حسب المنطقة', rows: [...header('المنطقة'), ...areaRows] },
+      { name: 'حسب المادة', rows: [...header('المادة'), ...itemRows] },
     ];
+
+    // ── Sheet 4: Area × Item breakdown — only when no search filter ──
+    if (!isFiltered) {
+      const areaItemHeader: string[][] = [['#', 'المنطقة', 'المادة', `كمية المبيعات`, `قيمة المبيعات (${cur})`, `كمية المرتجعات`, `قيمة المرتجعات (${cur})`, `صافي الكمية`, `صافي القيمة (${cur})`]];
+      const retAIMap = Object.fromEntries((overallReturns?.byAreaItem ?? []).map(r => [`${r.areaName}::${r.itemName}`, r]));
+      const areaItemRows: string[][] = overallSales.byAreaItem.map((s, i) => {
+        const r = retAIMap[`${s.areaName}::${s.itemName}`] ?? { totalQty: 0, totalValue: 0 };
+        return [String(i + 1), s.areaName, s.itemName, String(Math.round(s.totalQty)), fmtVal(s.totalValue), String(Math.round(r.totalQty)), fmtVal(r.totalValue), String(Math.round(s.totalQty - r.totalQty)), fmtValSigned(s.totalValue - r.totalValue)];
+      });
+      sheets.push({ name: 'تفصيل منطقة × مادة', rows: [...areaItemHeader, ...areaItemRows] });
+    }
+
+    return sheets;
   };
 
   /* ─── Build preview sheets (same data as export, returned as AOA) ─── */
@@ -1395,7 +1402,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netV    = salesV - retV;
 
         const handleOverallPreview = () => {
-          const sheets = buildOverallPreviewSheets();
+          const sheets = buildOverallPreviewSheets(
+            { sales: salesAreasFiltered, returns: retAreasFiltered },
+            { sales: salesItemsFiltered, returns: retItemsFiltered },
+            overallSearch.trim(),
+          );
           setPreviewSheets(sheets);
           setShowPreviewModal(true);
         };
