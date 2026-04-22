@@ -786,7 +786,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const totRetQty   = returns.reduce((s, r) => s + r.totalQty, 0);
               const totRetVal   = returns.reduce((s, r) => s + r.totalValue, 0);
               return (
-                <tr style={{ background: showFinancialMode ? '#fffbeb' : '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
+                <tr style={{ background: effShowVal ? '#fffbeb' : '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
                   <td></td><td>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
                   {effShowQty && <td style={{ color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>}
