@@ -923,6 +923,78 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     ];
   };
 
+  /* ─── Build preview sheets for overall analysis ─── */
+  const buildOverallPreviewSheets = (): PreviewSheet[] => {
+    if (!overallSales) return [];
+    const fileMeta = availableFiles.find(f => String(f.id) === overallFileId);
+    const fileName = (fileMeta as any)?.originalName || fileMeta?.filename || `ملف ${overallFileId}`;
+    const cur = fileCurrencyMode === 'USD' ? '$' : 'IQD';
+
+    // ── helper: merge sales + returns into combined rows ──
+    const mergeRows = (salesRows: BreakdownRow[], retRows: BreakdownRow[]): string[][] => {
+      const retMap = Object.fromEntries(retRows.map(r => [r.name, r]));
+      const rows = salesRows.map((s, i) => {
+        const r = retMap[s.name] ?? { totalQty: 0, totalValue: 0 };
+        return [
+          String(i + 1), s.name,
+          String(Math.round(s.totalQty)), fmtVal(s.totalValue),
+          String(Math.round(r.totalQty)), fmtVal(r.totalValue),
+          String(Math.round(s.totalQty - r.totalQty)), fmtValSigned(s.totalValue - r.totalValue),
+        ];
+      });
+      // add total row
+      const totSQ = salesRows.reduce((a, r) => a + r.totalQty, 0);
+      const totSV = salesRows.reduce((a, r) => a + r.totalValue, 0);
+      const totRQ = retRows.reduce((a, r) => a + r.totalQty, 0);
+      const totRV = retRows.reduce((a, r) => a + r.totalValue, 0);
+      rows.push(['', 'الإجمالي', String(Math.round(totSQ)), fmtVal(totSV), String(Math.round(totRQ)), fmtVal(totRV), String(Math.round(totSQ - totRQ)), fmtValSigned(totSV - totRV)]);
+      return rows;
+    };
+
+    const header = (label: string): string[][] => [[
+      '#', label,
+      `كمية المبيعات`, `قيمة المبيعات (${cur})`,
+      `كمية المرتجعات`, `قيمة المرتجعات (${cur})`,
+      `صافي الكمية`, `صافي القيمة (${cur})`,
+    ]];
+
+    // ── Sheet 1: Summary ──
+    const summaryRows: string[][] = [
+      ['الملف', fileName],
+      ['الفترة', fromDate && toDate ? `${fromDate} → ${toDate}` : fromDate || toDate || 'كل الفترات'],
+      [''],
+      ['إجمالي الكميات المباعة', String(Math.round(overallSales.totalQuantity))],
+      ['إجمالي الكميات المرتجعة', String(Math.round(overallReturns?.totalQuantity ?? 0))],
+      ['صافي الكميات', String(Math.round(overallSales.totalQuantity - (overallReturns?.totalQuantity ?? 0)))],
+      ['إجمالي قيمة المبيعات', fmtVal(overallSales.totalValue)],
+      ['إجمالي قيمة المرتجعات', fmtVal(overallReturns?.totalValue ?? 0)],
+      ['صافي القيمة', fmtValSigned(overallSales.totalValue - (overallReturns?.totalValue ?? 0))],
+    ];
+
+    // ── Sheet 2: By Area ──
+    const areaHeader = header('المنطقة');
+    const areaRows = mergeRows(overallSales.byArea, overallReturns?.byArea ?? []);
+
+    // ── Sheet 3: By Item ──
+    const itemHeader = header('المادة');
+    const itemRows = mergeRows(overallSales.byItem, overallReturns?.byItem ?? []);
+
+    // ── Sheet 4: Area × Item breakdown ──
+    const areaItemHeader: string[][] = [['#', 'المنطقة', 'المادة', `كمية المبيعات`, `قيمة المبيعات (${cur})`, `كمية المرتجعات`, `قيمة المرتجعات (${cur})`, `صافي الكمية`, `صافي القيمة (${cur})`]];
+    const retAIMap = Object.fromEntries((overallReturns?.byAreaItem ?? []).map(r => [`${r.areaName}::${r.itemName}`, r]));
+    const areaItemRows: string[][] = overallSales.byAreaItem.map((s, i) => {
+      const r = retAIMap[`${s.areaName}::${s.itemName}`] ?? { totalQty: 0, totalValue: 0 };
+      return [String(i + 1), s.areaName, s.itemName, String(Math.round(s.totalQty)), fmtVal(s.totalValue), String(Math.round(r.totalQty)), fmtVal(r.totalValue), String(Math.round(s.totalQty - r.totalQty)), fmtValSigned(s.totalValue - r.totalValue)];
+    });
+
+    return [
+      { name: 'ملخص', rows: summaryRows },
+      { name: 'حسب المنطقة', rows: [...areaHeader, ...areaRows] },
+      { name: 'حسب المادة', rows: [...itemHeader, ...itemRows] },
+      { name: 'تفصيل منطقة × مادة', rows: [...areaItemHeader, ...areaItemRows] },
+    ];
+  };
+
   /* ─── Build preview sheets (same data as export, returned as AOA) ─── */
   const buildPreviewData = async (): Promise<PreviewSheet[]> => {
     const qp = new URLSearchParams();
@@ -1322,6 +1394,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netQ    = salesQ - retQ;
         const netV    = salesV - retV;
 
+        const handleOverallPreview = () => {
+          const sheets = buildOverallPreviewSheets();
+          setPreviewSheets(sheets);
+          setShowPreviewModal(true);
+        };
+
         // Smart search filter (normalises Arabic)
         const normalise = (s: string) => s.trim()
           .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
@@ -1443,6 +1521,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   ✕ مسح
                 </button>
               )}
+              <button
+                onClick={handleOverallPreview}
+                title="معاينة وتصدير التحليلات إلى Excel"
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #10b981', background: '#f0fdf4', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
+                📊 تصدير
+              </button>
             </div>
 
             {/* Sub-tabs: area / item */}
