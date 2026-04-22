@@ -457,7 +457,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selCommIds, setSelCommIds]           = useState<Set<number>>(new Set());
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
-  const [showFinancialMode, setShowFinancialMode] = useState(false);
+  const [commViewMode, setCommViewMode] = useState<'qty' | 'value'>('value');
+  const [sciViewMode,  setSciViewMode]  = useState<'qty' | 'value'>('value');
 
   // Overall / comprehensive analysis
   const [overallSales, setOverallSales]     = useState<OverallReport | null>(null);
@@ -737,32 +738,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
       return s.totalQty !== 0 || s.totalValue !== 0 || r.totalQty !== 0 || r.totalValue !== 0;
     });
-    // forceMode overrides hideQtyCols + showFinancialMode
-    const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : (!hideQtyCols && !showFinancialMode);
-    const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : (hideQtyCols || showFinancialMode);
+    // forceMode overrides hideQtyCols
+    const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : !hideQtyCols;
+    const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : hideQtyCols;
     const colSpanEmpty = (hasRep ? 3 : 2) + 3;
     return (
       <>
-        {!hideQtyCols && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
-          <button
-            onClick={() => setShowFinancialMode(v => !v)}
-            title={showFinancialMode ? 'العودة لعرض الكميات' : 'عرض القيمة المالية فقط'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '5px',
-              padding: '3px 10px', borderRadius: '6px',
-              border: `1.5px solid ${showFinancialMode ? '#f59e0b' : '#e2e8f0'}`,
-              fontSize: '11px', fontWeight: 600, cursor: 'pointer',
-              background: showFinancialMode ? '#fffbeb' : '#f8fafc',
-              color: showFinancialMode ? '#b45309' : '#64748b',
-              boxShadow: showFinancialMode ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
-              transition: 'all 0.15s',
-            }}
-          >
-            {showFinancialMode ? '💰 قيمة مالية ✓' : '💰 قيمة مالية'}
-          </button>
-        </div>
-        )}
       <div className="table-wrapper">
         <table className="data-table">
           <thead>
@@ -1148,36 +1129,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     }
   };
 
-  const renderBreakdownTable = (rows: BreakdownRow[], totalValue: number, nameLabel: string, hideQtyCols = false) => {
+  const renderBreakdownTable = (rows: BreakdownRow[], totalValue: number, nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value') => {
     const hasRep   = rows.some(r => r.repName);
     const salesRows = rows.filter(r => !r.isZero);
     const zeroRows  = rows.filter(r => r.isZero);
-    // qty mode: show qty only | value mode: show value only
-    const effShowQtyBD = !hideQtyCols && !showFinancialMode;
-    const effShowValBD = hideQtyCols || showFinancialMode;
+    const effShowQtyBD = forceMode ? forceMode === 'qty' : !hideQtyCols;
+    const effShowValBD = forceMode ? forceMode === 'value' : hideQtyCols;
     const colCount = hasRep ? 4 : 3;
     return (
     <>
-      {!hideQtyCols && (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
-        <button
-          onClick={() => setShowFinancialMode(v => !v)}
-          title={showFinancialMode ? 'العودة لعرض الكميات' : 'عرض القيمة المالية فقط'}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '5px',
-            padding: '3px 10px', borderRadius: '6px',
-            border: `1.5px solid ${showFinancialMode ? '#f59e0b' : '#e2e8f0'}`,
-            fontSize: '11px', fontWeight: 600, cursor: 'pointer',
-            background: showFinancialMode ? '#fffbeb' : '#f8fafc',
-            color: showFinancialMode ? '#b45309' : '#64748b',
-            boxShadow: showFinancialMode ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
-            transition: 'all 0.15s',
-          }}
-        >
-          {showFinancialMode ? '💰 قيمة مالية ✓' : '💰 قيمة مالية'}
-        </button>
-      </div>
-      )}
     <div className="table-wrapper">
       <table className="data-table">
         <thead>
@@ -1707,19 +1667,25 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             </div>
           </div>
-          <div className="tabs">
-            <button title={t.reports.tabByArea}   className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
-            <button title={t.reports.tabByItem}   className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
+            <div className="tabs" style={{ margin: 0 }}>
+              <button title={t.reports.tabByArea}   className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
+              <button title={t.reports.tabByItem}   className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
+            </div>
+            <button onClick={() => setCommViewMode(v => v === 'qty' ? 'value' : 'qty')}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${commViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: commViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: commViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
+              {commViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
+            </button>
           </div>
           {isNet ? (
             <>
-              {activeTab === 'area' && renderNetTable(commReport.byArea, commReturnsReport?.byArea ?? [], t.reports.colArea, true)}
-              {activeTab === 'item' && renderNetTable(commReport.byItem, commReturnsReport?.byItem ?? [], t.reports.colItem)}
+              {activeTab === 'area' && renderNetTable(commReport.byArea, commReturnsReport?.byArea ?? [], t.reports.colArea, false, commViewMode)}
+              {activeTab === 'item' && renderNetTable(commReport.byItem, commReturnsReport?.byItem ?? [], t.reports.colItem, false, commViewMode)}
             </>
           ) : (
             <>
-              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, true)}
-              {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem)}
+              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, false, commViewMode)}
+              {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem, false, commViewMode)}
             </>
           )}
         </>
@@ -1784,22 +1750,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </div>
           </div>
 
-          <div className="tabs">
-            <button title={t.reports.tabByArea}    className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
-            <button title={t.reports.tabByItem}    className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
-            <button title={t.reports.tabByCommRep} className={`tab ${activeTab === 'rep'  ? 'tab--active' : ''}`} onClick={() => setActiveTab('rep')}>👤</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
+            <div className="tabs" style={{ margin: 0 }}>
+              <button title={t.reports.tabByArea}    className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
+              <button title={t.reports.tabByItem}    className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
+              <button title={t.reports.tabByCommRep} className={`tab ${activeTab === 'rep'  ? 'tab--active' : ''}`} onClick={() => setActiveTab('rep')}>👤</button>
+            </div>
+            <button onClick={() => setSciViewMode(v => v === 'qty' ? 'value' : 'qty')}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${sciViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: sciViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: sciViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
+              {sciViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
+            </button>
           </div>
           {isNet ? (
             <>
-              {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea, true)}
-              {activeTab === 'item' && renderNetTable(sciReport.byItem, sciReturnsReport?.byItem ?? [], t.reports.colItem)}
-              {activeTab === 'rep'  && renderNetTable(sciReport.byRep,  sciReturnsReport?.byRep  ?? [], t.reports.colCommRep, true)}
+              {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea, false, sciViewMode)}
+              {activeTab === 'item' && renderNetTable(sciReport.byItem, sciReturnsReport?.byItem ?? [], t.reports.colItem, false, sciViewMode)}
+              {activeTab === 'rep'  && renderNetTable(sciReport.byRep,  sciReturnsReport?.byRep  ?? [], t.reports.colCommRep, false, sciViewMode)}
             </>
           ) : (
             <>
-              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, true)}
-              {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem)}
-              {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep, true)}
+              {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, false, sciViewMode)}
+              {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem, false, sciViewMode)}
+              {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep, false, sciViewMode)}
             </>
           )}
         </>
