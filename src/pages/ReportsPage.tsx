@@ -1559,10 +1559,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                               <div
                                 title="اضغط لإضافة والإبقاء على القائمة"
                                 onMouseDown={e => {
-                                  e.preventDefault();
+                                  e.preventDefault(); // prevent input blur → keeps dropdown open
                                   setOverallSelectedTags(prev => [...prev, s]);
-                                  setOverallSearch('');
-                                  // keep dropdown open
+                                  // do NOT clear search → suggestions stay visible
                                 }}
                                 style={{ padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderLeft: '2px solid #bfdbfe', background: 'inherit' }}
                               >
