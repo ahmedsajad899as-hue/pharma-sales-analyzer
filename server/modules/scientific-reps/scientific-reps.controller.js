@@ -39,7 +39,10 @@ export async function deleteRep(req, res, next) {
   try {
     await svc.remove(+req.params.id);
     res.json({ success: true });
-  } catch (err) { next(err); }
+  } catch (err) {
+    console.error('[deleteRep] error:', err.message, err.code);
+    next(err);
+  }
 }
 
 export async function assignAreas(req, res, next) {

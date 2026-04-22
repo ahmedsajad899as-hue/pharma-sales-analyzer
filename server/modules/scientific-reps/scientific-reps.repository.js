@@ -42,26 +42,32 @@ export async function updateScientificRep(id, data) {
 }
 
 export async function deleteScientificRep(id) {
-  // Delete all related records (no cascade in DB) before deleting the rep
-  await prisma.repLocationPoint.deleteMany({ where: { scientificRepId: id } });
-  await prisma.doctorVisit.deleteMany({ where: { scientificRepId: id } });
-  // PharmacyVisitLike and PharmacyVisitItem depend on PharmacyVisit — delete children first
-  const visitIds = await prisma.pharmacyVisit.findMany({ where: { scientificRepId: id }, select: { id: true } });
-  if (visitIds.length > 0) {
-    const ids = visitIds.map(v => v.id);
-    await prisma.pharmacyVisitLike.deleteMany({ where: { visitId: { in: ids } } });
-    await prisma.pharmacyVisitItem.deleteMany({ where: { visitId: { in: ids } } });
+  // For nullable FK relations: just set scientificRepId = null (don't delete the visits/plans)
+  await prisma.doctorVisit.updateMany({ where: { scientificRepId: id }, data: { scientificRepId: null } });
+  await prisma.pharmacyVisit.updateMany({ where: { scientificRepId: id }, data: { scientificRepId: null } });
+  await prisma.monthlyPlan.updateMany({ where: { scientificRepId: id }, data: { scientificRepId: null } });
+
+  // For required FK relations: delete child records first
+  // FmsPlan has required scientificRepId — delete its items first, then the plans
+  const fmsPlanIds = await prisma.fmsPlan.findMany({ where: { scientificRepId: id }, select: { id: true } });
+  if (fmsPlanIds.length > 0) {
+    const ids = fmsPlanIds.map(p => p.id);
+    await prisma.fmsPlanItem.deleteMany({ where: { fmsPlanId: { in: ids } } });
   }
-  await prisma.pharmacyVisit.deleteMany({ where: { scientificRepId: id } });
   await prisma.fmsPlan.deleteMany({ where: { scientificRepId: id } });
-  await prisma.monthlyPlan.deleteMany({ where: { scientificRepId: id } });
-  // Junction tables
+
+  // RepLocationPoint has required scientificRepId
+  await prisma.repLocationPoint.deleteMany({ where: { scientificRepId: id } });
+
+  // Junction tables (all required FKs)
   await prisma.scientificRepArea.deleteMany({ where: { scientificRepId: id } });
   await prisma.scientificRepItem.deleteMany({ where: { scientificRepId: id } });
   await prisma.scientificRepCompany.deleteMany({ where: { scientificRepId: id } });
   await prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: id } });
-  // Unlink any users linked to this rep
+
+  // Unlink any users pointing to this rep
   await prisma.user.updateMany({ where: { linkedRepId: id }, data: { linkedRepId: null } });
+
   return prisma.scientificRepresentative.delete({ where: { id } });
 }
 
