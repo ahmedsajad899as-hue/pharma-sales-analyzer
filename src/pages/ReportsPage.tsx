@@ -463,6 +463,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallSales, setOverallSales]     = useState<OverallReport | null>(null);
   const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
   const [overallSearch, setOverallSearch]   = useState('');
+  const [overallSuggOpen, setOverallSuggOpen] = useState(false);
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
@@ -1517,28 +1518,61 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             </div>
 
-            {/* Smart search */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>
-              <input
-                className="form-input"
-                style={{ flex: 1, maxWidth: 340 }}
-                placeholder="🔍 بحث ذكي عن مادة أو منطقة..."
-                value={overallSearch}
-                onChange={e => setOverallSearch(e.target.value)}
-              />
-              {overallSearch && (
-                <button onClick={() => setOverallSearch('')}
-                  style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f1f5f9', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
-                  ✕ مسح
-                </button>
-              )}
-              <button
-                onClick={handleOverallPreview}
-                title="معاينة وتصدير التحليلات إلى Excel"
-                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #10b981', background: '#f0fdf4', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
-                📊 تصدير
-              </button>
-            </div>
+            {/* Smart search with suggestions */}
+            {(() => {
+              const allSuggItems = [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].map(i => i.name))];
+              const allSuggAreas = [...new Set([...overallSales.byArea, ...(overallReturns?.byArea ?? [])].map(a => a.name))];
+              const normaliseS = (s: string) => s.trim().replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627').replace(/\u0629/g, '\u0647').replace(/\u0640/g, '').replace(/[\u064B-\u065F]/g, '').replace(/\s+/g, ' ').toLowerCase();
+              const sq = normaliseS(overallSearch);
+              const suggestions: { name: string; type: 'item' | 'area' }[] = !sq ? [] : [
+                ...allSuggItems.filter(n => normaliseS(n).includes(sq)).slice(0, 6).map(n => ({ name: n, type: 'item' as const })),
+                ...allSuggAreas.filter(n => normaliseS(n).includes(sq)).slice(0, 4).map(n => ({ name: n, type: 'area' as const })),
+              ].slice(0, 8);
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>
+                  <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
+                    <input
+                      className="form-input"
+                      style={{ width: '100%' }}
+                      placeholder="🔍 بحث ذكي عن مادة أو منطقة..."
+                      value={overallSearch}
+                      onChange={e => { setOverallSearch(e.target.value); setOverallSuggOpen(true); }}
+                      onFocus={() => setOverallSuggOpen(true)}
+                      onBlur={() => setTimeout(() => setOverallSuggOpen(false), 150)}
+                    />
+                    {overallSuggOpen && suggestions.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 4, overflow: 'hidden' }}>
+                        {suggestions.map(s => (
+                          <div
+                            key={s.type + s.name}
+                            onMouseDown={() => { setOverallSearch(s.name); setOverallSuggOpen(false); }}
+                            style={{ padding: '8px 14px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f1f5f9', transition: 'background 0.1s' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                          >
+                            <span style={{ fontSize: 15 }}>{s.type === 'item' ? '💊' : '📍'}</span>
+                            <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
+                            <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {overallSearch && (
+                    <button onClick={() => { setOverallSearch(''); setOverallSuggOpen(false); }}
+                      style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f1f5f9', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                      ✕ مسح
+                    </button>
+                  )}
+                  <button
+                    onClick={handleOverallPreview}
+                    title="معاينة وتصدير التحليلات إلى Excel"
+                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #10b981', background: '#f0fdf4', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    📊 تصدير
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Sub-tabs: area / item */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
