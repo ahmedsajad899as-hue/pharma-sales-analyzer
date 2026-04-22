@@ -219,7 +219,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
 
   const deleteRep = async (id: number) => {
     if (!confirm(t.sciReps.deleteConfirm)) return;
-    await fetch(`${API}/api/scientific-reps/${id}`, { method: 'DELETE', headers: authH() });
+    const r = await fetch(`${API}/api/scientific-reps/${id}`, { method: 'DELETE', headers: authH() });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      alert(j.error || j.message || 'فشل حذف المندوب');
+      return;
+    }
     load();
   };
 

@@ -42,9 +42,26 @@ export async function updateScientificRep(id, data) {
 }
 
 export async function deleteScientificRep(id) {
-  // Delete related records without cascade first
+  // Delete all related records (no cascade in DB) before deleting the rep
+  await prisma.repLocationPoint.deleteMany({ where: { scientificRepId: id } });
   await prisma.doctorVisit.deleteMany({ where: { scientificRepId: id } });
+  // PharmacyVisitLike and PharmacyVisitItem depend on PharmacyVisit — delete children first
+  const visitIds = await prisma.pharmacyVisit.findMany({ where: { scientificRepId: id }, select: { id: true } });
+  if (visitIds.length > 0) {
+    const ids = visitIds.map(v => v.id);
+    await prisma.pharmacyVisitLike.deleteMany({ where: { visitId: { in: ids } } });
+    await prisma.pharmacyVisitItem.deleteMany({ where: { visitId: { in: ids } } });
+  }
+  await prisma.pharmacyVisit.deleteMany({ where: { scientificRepId: id } });
+  await prisma.fmsPlan.deleteMany({ where: { scientificRepId: id } });
   await prisma.monthlyPlan.deleteMany({ where: { scientificRepId: id } });
+  // Junction tables
+  await prisma.scientificRepArea.deleteMany({ where: { scientificRepId: id } });
+  await prisma.scientificRepItem.deleteMany({ where: { scientificRepId: id } });
+  await prisma.scientificRepCompany.deleteMany({ where: { scientificRepId: id } });
+  await prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: id } });
+  // Unlink any users linked to this rep
+  await prisma.user.updateMany({ where: { linkedRepId: id }, data: { linkedRepId: null } });
   return prisma.scientificRepresentative.delete({ where: { id } });
 }
 
