@@ -1551,18 +1551,36 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           {suggestions.map(s => (
                             <div
                               key={s.type + s.name}
-                              onMouseDown={() => {
-                                setOverallSelectedTags(prev => [...prev, s]);
-                                setOverallSearch('');
-                                setOverallSuggOpen(false);
-                              }}
-                              style={{ padding: '8px 14px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f1f5f9' }}
+                              style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}
                               onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                               onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                             >
-                              <span style={{ fontSize: 15 }}>{s.type === 'item' ? '💊' : '📍'}</span>
-                              <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
-                              <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
+                              {/* Blue zone: add tag but keep dropdown open */}
+                              <div
+                                title="اضغط لإضافة والإبقاء على القائمة"
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  setOverallSelectedTags(prev => [...prev, s]);
+                                  setOverallSearch('');
+                                  // keep dropdown open
+                                }}
+                                style={{ padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderLeft: '2px solid #bfdbfe', background: 'inherit' }}
+                              >
+                                <span style={{ fontSize: 15 }}>{s.type === 'item' ? '💊' : '📍'}</span>
+                                <span style={{ fontSize: 11, color: '#94a3b8', userSelect: 'none' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
+                              </div>
+                              {/* Red zone: add tag and close dropdown */}
+                              <div
+                                title="اضغط للاختيار وإغلاق القائمة"
+                                onMouseDown={() => {
+                                  setOverallSelectedTags(prev => [...prev, s]);
+                                  setOverallSearch('');
+                                  setOverallSuggOpen(false);
+                                }}
+                                style={{ flex: 1, padding: '8px 14px 8px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', background: 'inherit' }}
+                              >
+                                <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
+                              </div>
                             </div>
                           ))}
                         </div>
