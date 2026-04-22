@@ -1618,23 +1618,55 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </button>
             </div>
 
-            {/* Area-scope badge when filtering items by area */}
+            {/* Area-scope badge when filtering items by area — clickable to pin as tag */}
             {overallTab === 'item' && useAreaScope && matchedAreaNames.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>📍 عرض ايتمات:</span>
-                {matchedAreaNames.map(n => (
-                  <span key={n} style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{n}</span>
-                ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>📍 اضغط لتحديد:</span>
+                {matchedAreaNames.map(n => {
+                  const isSelected = overallSelectedTags.some(t => t.type === 'area' && t.name === n);
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        if (isSelected) {
+                          setOverallSelectedTags(prev => prev.filter(t => !(t.type === 'area' && t.name === n)));
+                        } else {
+                          setOverallSelectedTags(prev => [...prev, { name: n, type: 'area' }]);
+                          setOverallSearch('');
+                        }
+                      }}
+                      style={{ background: isSelected ? '#4f46e5' : '#e0e7ff', color: isSelected ? '#fff' : '#3730a3', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, border: isSelected ? '2px solid #3730a3' : '2px solid transparent', cursor: 'pointer' }}
+                    >
+                      {isSelected ? '✓ ' : ''}{n}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
-            {/* Item-scope badge when filtering areas by item */}
+            {/* Item-scope badge when filtering areas by item — clickable to pin as tag */}
             {overallTab === 'area' && useItemScope && matchedItemNames.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>💊 عرض مناطق مبيع:</span>
-                {matchedItemNames.map(n => (
-                  <span key={n} style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{n}</span>
-                ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>💊 اضغط لتحديد:</span>
+                {matchedItemNames.map(n => {
+                  const isSelected = overallSelectedTags.some(t => t.type === 'item' && t.name === n);
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        if (isSelected) {
+                          setOverallSelectedTags(prev => prev.filter(t => !(t.type === 'item' && t.name === n)));
+                        } else {
+                          setOverallSelectedTags(prev => [...prev, { name: n, type: 'item' }]);
+                          setOverallSearch('');
+                        }
+                      }}
+                      style={{ background: isSelected ? '#b45309' : '#fef3c7', color: isSelected ? '#fff' : '#92400e', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, border: isSelected ? '2px solid #92400e' : '2px solid transparent', cursor: 'pointer' }}
+                    >
+                      {isSelected ? '✓ ' : ''}{n}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
