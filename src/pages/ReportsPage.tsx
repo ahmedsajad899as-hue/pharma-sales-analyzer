@@ -464,7 +464,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
-  const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value' | 'both'>('value');
+  const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
@@ -1546,19 +1546,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
                 <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
               </div>
-              {/* View mode toggle: qty / both / value */}
-              <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 8, padding: 3 }}>
-                {([['qty', '🔢 كمية'], ['both', '🔢💰 كلاهما'], ['value', '💰 قيمة']] as const).map(([mode, label]) => (
-                  <button key={mode} onClick={() => setOverallViewMode(mode)}
-                    style={{ padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: overallViewMode === mode ? 700 : 400,
-                      background: overallViewMode === mode ? '#fff' : 'transparent',
-                      color: overallViewMode === mode ? (mode === 'value' ? '#b45309' : mode === 'qty' ? '#1e40af' : '#1e293b') : '#64748b',
-                      boxShadow: overallViewMode === mode ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
-                      transition: 'all 0.15s' }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {/* View mode toggle: qty ↔ value */}
+              <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
+                style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
+                {overallViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
+              </button>
             </div>
 
             {/* Area-scope badge when filtering items by area */}
