@@ -464,6 +464,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
+  const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value' | 'both'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
@@ -723,7 +724,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const currStatNet    = fileCurrencyMode === 'USD' ? `صافي القيمة ($)` : t.reports.statNetVal;
 
   /* ─── Net breakdown table ─── */
-  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false) => {
+  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value' | 'both') => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
     const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
@@ -734,9 +735,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
       return s.totalQty !== 0 || s.totalValue !== 0 || r.totalQty !== 0 || r.totalValue !== 0;
     });
-    // qty mode: show qty cols only | value mode: show value cols only
-    const effShowQty = !hideQtyCols && !showFinancialMode;
-    const effShowVal = hideQtyCols || showFinancialMode;
+    // forceMode overrides hideQtyCols + showFinancialMode
+    const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : (!hideQtyCols && !showFinancialMode);
+    const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : (hideQtyCols || showFinancialMode);
     const colSpanEmpty = (hasRep ? 3 : 2) + 3;
     return (
       <>
@@ -1445,9 +1446,24 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </div>
 
             {/* Sub-tabs: area / item */}
-            <div className="tabs">
-              <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
-              <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div className="tabs" style={{ margin: 0 }}>
+                <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
+                <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
+              </div>
+              {/* View mode toggle: qty / both / value */}
+              <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 8, padding: 3 }}>
+                {([['qty', '🔢 كمية'], ['both', '🔢💰 كلاهما'], ['value', '💰 قيمة']] as const).map(([mode, label]) => (
+                  <button key={mode} onClick={() => setOverallViewMode(mode)}
+                    style={{ padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: overallViewMode === mode ? 700 : 400,
+                      background: overallViewMode === mode ? '#fff' : 'transparent',
+                      color: overallViewMode === mode ? (mode === 'value' ? '#b45309' : mode === 'qty' ? '#1e40af' : '#1e293b') : '#64748b',
+                      boxShadow: overallViewMode === mode ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                      transition: 'all 0.15s' }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Area-scope badge when filtering items by area */}
@@ -1470,8 +1486,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             )}
 
-            {overallTab === 'area' && renderNetTable(salesAreasFiltered, retAreasFiltered, t.reports.colArea, true)}
-            {overallTab === 'item' && renderNetTable(salesItemsFiltered, retItemsFiltered, t.reports.colItem)}
+            {overallTab === 'area' && renderNetTable(salesAreasFiltered, retAreasFiltered, t.reports.colArea, false, overallViewMode)}
+            {overallTab === 'item' && renderNetTable(salesItemsFiltered, retItemsFiltered, t.reports.colItem, false, overallViewMode)}
           </>
         );
       })()}
