@@ -464,6 +464,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallSuggOpen, setOverallSuggOpen] = useState(false);
+  const [overallSelectedTags, setOverallSelectedTags] = useState<{name: string; type: 'item'|'area'}[]>([]);
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
@@ -1420,54 +1421,97 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           .replace(/[\u064B-\u065F]/g, '')
           .replace(/\s+/g, ' ')
           .toLowerCase();
-        const q = normalise(overallSearch);
-        const filterRows = (rows: BreakdownRow[]) =>
+
+        const hasTags = overallSelectedTags.length > 0;
+        const tagItemNorms = overallSelectedTags.filter(t => t.type === 'item').map(t => normalise(t.name));
+        const tagAreaNorms = overallSelectedTags.filter(t => t.type === 'area').map(t => normalise(t.name));
+
+        // Text query — only active when no tags selected
+        const q = hasTags ? '' : normalise(overallSearch);
+        const filterRowsByText = (rows: BreakdownRow[]) =>
           q ? rows.filter(r => normalise(r.name).includes(q)) : rows;
 
-        // Detect if search matches any area name → cross-filter items by area
         const allAreas = [...overallSales.byArea, ...(overallReturns?.byArea ?? [])];
-        const areaMatch = q ? allAreas.some(a => normalise(a.name).includes(q)) : false;
-        const itemMatch = q ? [...overallSales.byItem, ...(overallReturns?.byItem ?? [])].some(i => normalise(i.name).includes(q)) : false;
+        const areaMatch = !hasTags && q ? allAreas.some(a => normalise(a.name).includes(q)) : false;
+        const itemMatch = !hasTags && q ? [...overallSales.byItem, ...(overallReturns?.byItem ?? [])].some(i => normalise(i.name).includes(q)) : false;
 
-        // When areaMatch (and we're on item tab): aggregate items within matched areas
+        // Single-text helpers (used in text mode)
         const buildItemsFromArea = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
           const filtered = byAreaItem.filter(r => normalise(r.areaName).includes(q));
           const map = new Map<string, BreakdownRow>();
           for (const r of filtered) {
             if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.itemName)!;
-            row.totalQty   += r.totalQty;
-            row.totalValue += r.totalValue;
+            const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
-
-        // When itemMatch (and we're on area tab): aggregate areas that sold the matched item
         const buildAreasFromItem = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
           const filtered = byAreaItem.filter(r => normalise(r.itemName).includes(q));
           const map = new Map<string, BreakdownRow>();
           for (const r of filtered) {
             if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.areaName)!;
-            row.totalQty   += r.totalQty;
-            row.totalValue += r.totalValue;
+            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
 
-        // Matched area / item name labels for badges
-        const matchedAreaNames = q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
-        const matchedItemNames = q ? [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].filter(i => normalise(i.name).includes(q)).map(i => i.name))] : [];
+        // Multi-tag helpers (used in tag mode)
+        const buildAreasFromTagItems = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r => tagItemNorms.some(ni => normalise(r.itemName).includes(ni)));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+        const buildItemsFromTagAreas = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r => tagAreaNorms.some(na => normalise(r.areaName).includes(na)));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
 
-        // Item tab: if area matched → show area-scoped items; otherwise filter by item name
-        const useAreaScope = overallTab === 'item' && areaMatch && !itemMatch;
-        const salesItemsFiltered  = useAreaScope ? buildItemsFromArea(overallSales.byAreaItem) : filterRows(overallSales.byItem);
-        const retItemsFiltered    = useAreaScope ? buildItemsFromArea(overallReturns?.byAreaItem ?? []) : filterRows(overallReturns?.byItem ?? []);
+        // Area tab: item tags → cross-filter areas; area tags only → show those areas; text → existing
+        const salesAreasFiltered = hasTags && tagItemNorms.length > 0
+          ? buildAreasFromTagItems(overallSales.byAreaItem)
+          : hasTags && tagAreaNorms.length > 0
+            ? overallSales.byArea.filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
+            : (overallTab === 'area' && itemMatch && !areaMatch)
+              ? buildAreasFromItem(overallSales.byAreaItem)
+              : filterRowsByText(overallSales.byArea);
+        const retAreasFiltered = hasTags && tagItemNorms.length > 0
+          ? buildAreasFromTagItems(overallReturns?.byAreaItem ?? [])
+          : hasTags && tagAreaNorms.length > 0
+            ? (overallReturns?.byArea ?? []).filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
+            : (overallTab === 'area' && itemMatch && !areaMatch)
+              ? buildAreasFromItem(overallReturns?.byAreaItem ?? [])
+              : filterRowsByText(overallReturns?.byArea ?? []);
 
-        // Area tab: if item matched → show item-scoped areas; otherwise filter by area name
-        const useItemScope = overallTab === 'area' && itemMatch && !areaMatch;
-        const salesAreasFiltered  = useItemScope ? buildAreasFromItem(overallSales.byAreaItem) : filterRows(overallSales.byArea);
-        const retAreasFiltered    = useItemScope ? buildAreasFromItem(overallReturns?.byAreaItem ?? []) : filterRows(overallReturns?.byArea ?? []);
+        // Item tab: area tags → cross-filter items; item tags only → show those items; text → existing
+        const salesItemsFiltered = hasTags && tagAreaNorms.length > 0
+          ? buildItemsFromTagAreas(overallSales.byAreaItem)
+          : hasTags && tagItemNorms.length > 0
+            ? overallSales.byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
+            : (overallTab === 'item' && areaMatch && !itemMatch)
+              ? buildItemsFromArea(overallSales.byAreaItem)
+              : filterRowsByText(overallSales.byItem);
+        const retItemsFiltered = hasTags && tagAreaNorms.length > 0
+          ? buildItemsFromTagAreas(overallReturns?.byAreaItem ?? [])
+          : hasTags && tagItemNorms.length > 0
+            ? (overallReturns?.byItem ?? []).filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
+            : (overallTab === 'item' && areaMatch && !itemMatch)
+              ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
+              : filterRowsByText(overallReturns?.byItem ?? []);
+
+        // Badges for text mode only
+        const matchedAreaNames = !hasTags && q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
+        const matchedItemNames = !hasTags && q ? [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].filter(i => normalise(i.name).includes(q)).map(i => i.name))] : [];
+        const useAreaScope = !hasTags && overallTab === 'item' && areaMatch && !itemMatch;
+        const useItemScope = !hasTags && overallTab === 'area' && itemMatch && !areaMatch;
 
         return (
           <>
@@ -1518,58 +1562,85 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             </div>
 
-            {/* Smart search with suggestions */}
+            {/* Smart search with suggestions + multi-select chips */}
             {(() => {
               const allSuggItems = [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].map(i => i.name))];
               const allSuggAreas = [...new Set([...overallSales.byArea, ...(overallReturns?.byArea ?? [])].map(a => a.name))];
               const normaliseS = (s: string) => s.trim().replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627').replace(/\u0629/g, '\u0647').replace(/\u0640/g, '').replace(/[\u064B-\u065F]/g, '').replace(/\s+/g, ' ').toLowerCase();
               const sq = normaliseS(overallSearch);
+              const alreadySelected = new Set(overallSelectedTags.map(t => t.type + t.name));
               const suggestions: { name: string; type: 'item' | 'area' }[] = !sq ? [] : [
-                ...allSuggItems.filter(n => normaliseS(n).includes(sq)).slice(0, 6).map(n => ({ name: n, type: 'item' as const })),
-                ...allSuggAreas.filter(n => normaliseS(n).includes(sq)).slice(0, 4).map(n => ({ name: n, type: 'area' as const })),
+                ...allSuggItems.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('item' + n)).slice(0, 6).map(n => ({ name: n, type: 'item' as const })),
+                ...allSuggAreas.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('area' + n)).slice(0, 4).map(n => ({ name: n, type: 'area' as const })),
               ].slice(0, 8);
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 6px' }}>
-                  <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
-                    <input
-                      className="form-input"
-                      style={{ width: '100%' }}
-                      placeholder="🔍 بحث ذكي عن مادة أو منطقة..."
-                      value={overallSearch}
-                      onChange={e => { setOverallSearch(e.target.value); setOverallSuggOpen(true); }}
-                      onFocus={() => setOverallSuggOpen(true)}
-                      onBlur={() => setTimeout(() => setOverallSuggOpen(false), 150)}
-                    />
-                    {overallSuggOpen && suggestions.length > 0 && (
-                      <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 4, overflow: 'hidden' }}>
-                        {suggestions.map(s => (
-                          <div
-                            key={s.type + s.name}
-                            onMouseDown={() => { setOverallSearch(s.name); setOverallSuggOpen(false); }}
-                            style={{ padding: '8px 14px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f1f5f9', transition: 'background 0.1s' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                            onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                          >
-                            <span style={{ fontSize: 15 }}>{s.type === 'item' ? '💊' : '📍'}</span>
-                            <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
-                            <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
-                          </div>
-                        ))}
-                      </div>
+                <div style={{ margin: '12px 0 6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
+                      <input
+                        className="form-input"
+                        style={{ width: '100%' }}
+                        placeholder="🔍 بحث ذكي عن مادة أو منطقة..."
+                        value={overallSearch}
+                        onChange={e => { setOverallSearch(e.target.value); setOverallSuggOpen(true); }}
+                        onFocus={() => setOverallSuggOpen(true)}
+                        onBlur={() => setTimeout(() => setOverallSuggOpen(false), 150)}
+                      />
+                      {overallSuggOpen && suggestions.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 4, overflow: 'hidden' }}>
+                          {suggestions.map(s => (
+                            <div
+                              key={s.type + s.name}
+                              onMouseDown={() => {
+                                setOverallSelectedTags(prev => [...prev, s]);
+                                setOverallSearch('');
+                                setOverallSuggOpen(false);
+                              }}
+                              style={{ padding: '8px 14px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f1f5f9' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                            >
+                              <span style={{ fontSize: 15 }}>{s.type === 'item' ? '💊' : '📍'}</span>
+                              <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
+                              <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {overallSearch && (
+                      <button onClick={() => { setOverallSearch(''); setOverallSuggOpen(false); }}
+                        style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f1f5f9', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                        ✕ مسح
+                      </button>
                     )}
-                  </div>
-                  {overallSearch && (
-                    <button onClick={() => { setOverallSearch(''); setOverallSuggOpen(false); }}
-                      style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f1f5f9', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
-                      ✕ مسح
+                    <button
+                      onClick={handleOverallPreview}
+                      title="معاينة وتصدير التحليلات إلى Excel"
+                      style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #10b981', background: '#f0fdf4', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      📊 تصدير
                     </button>
+                  </div>
+                  {/* Selected tags chips */}
+                  {overallSelectedTags.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+                      {overallSelectedTags.map(tag => (
+                        <span key={tag.type + tag.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: tag.type === 'item' ? '#ede9fe' : '#e0f2fe', color: tag.type === 'item' ? '#7c3aed' : '#0369a1', borderRadius: 20, padding: '3px 8px 3px 10px', fontSize: 12, fontWeight: 600 }}>
+                          {tag.type === 'item' ? '💊' : '📍'} {tag.name}
+                          <button
+                            onClick={() => setOverallSelectedTags(prev => prev.filter(t => !(t.name === tag.name && t.type === tag.type)))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 0 0 2px', fontSize: 14, lineHeight: 1, opacity: 0.7 }}
+                          >×</button>
+                        </span>
+                      ))}
+                      <button
+                        onClick={() => setOverallSelectedTags([])}
+                        style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}
+                      >
+                        مسح الكل
+                      </button>
+                    </div>
                   )}
-                  <button
-                    onClick={handleOverallPreview}
-                    title="معاينة وتصدير التحليلات إلى Excel"
-                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #10b981', background: '#f0fdf4', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    📊 تصدير
-                  </button>
                 </div>
               );
             })()}
