@@ -1351,16 +1351,32 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
 
-        // Matched area name labels for the badge
-        const matchedAreaNames = q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
+        // When itemMatch (and we're on area tab): aggregate areas that sold the matched item
+        const buildAreasFromItem = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r => normalise(r.itemName).includes(q));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.areaName)!;
+            row.totalQty   += r.totalQty;
+            row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
 
-        const salesAreasFiltered  = filterRows(overallSales.byArea);
-        const retAreasFiltered    = filterRows(overallReturns?.byArea ?? []);
+        // Matched area / item name labels for badges
+        const matchedAreaNames = q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
+        const matchedItemNames = q ? [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].filter(i => normalise(i.name).includes(q)).map(i => i.name))] : [];
 
         // Item tab: if area matched → show area-scoped items; otherwise filter by item name
         const useAreaScope = overallTab === 'item' && areaMatch && !itemMatch;
         const salesItemsFiltered  = useAreaScope ? buildItemsFromArea(overallSales.byAreaItem) : filterRows(overallSales.byItem);
         const retItemsFiltered    = useAreaScope ? buildItemsFromArea(overallReturns?.byAreaItem ?? []) : filterRows(overallReturns?.byItem ?? []);
+
+        // Area tab: if item matched → show item-scoped areas; otherwise filter by area name
+        const useItemScope = overallTab === 'area' && itemMatch && !areaMatch;
+        const salesAreasFiltered  = useItemScope ? buildAreasFromItem(overallSales.byAreaItem) : filterRows(overallSales.byArea);
+        const retAreasFiltered    = useItemScope ? buildAreasFromItem(overallReturns?.byAreaItem ?? []) : filterRows(overallReturns?.byArea ?? []);
 
         return (
           <>
@@ -1440,6 +1456,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <span style={{ fontSize: 12, color: '#6b7280' }}>📍 عرض ايتمات:</span>
                 {matchedAreaNames.map(n => (
                   <span key={n} style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{n}</span>
+                ))}
+              </div>
+            )}
+
+            {/* Item-scope badge when filtering areas by item */}
+            {overallTab === 'area' && useItemScope && matchedItemNames.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>💊 عرض مناطق مبيع:</span>
+                {matchedItemNames.map(n => (
+                  <span key={n} style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>{n}</span>
                 ))}
               </div>
             )}
