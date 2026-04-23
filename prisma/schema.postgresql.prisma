@@ -86,6 +86,9 @@ model User {
   // Activity Log
   activityLogs             ActivityLog[]
 
+  // Filter Presets
+  filterPresets            FilterPreset[]
+
   @@index([officeId])
   @@map("users")
 }
@@ -1202,4 +1205,20 @@ model DistributorSaleRecord {
   @@index([uploadId])
   @@index([userId])
   @@map("distributor_sale_records")
+}
+
+// ─── Filter Presets ─────────────────────────────────────────
+model FilterPreset {
+  id        Int      @id @default(autoincrement())
+  name      String
+  data      String   // JSON: { companies, items, reps, statuses, bonuses }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("filter_presets")
 }
