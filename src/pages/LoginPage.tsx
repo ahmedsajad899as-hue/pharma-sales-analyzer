@@ -36,8 +36,8 @@ export default function LoginPage() {
           <button
             onClick={toggleLang}
             style={{
-              background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8,
-              padding: '5px 14px', fontSize: 13, fontWeight: 700, color: '#334155',
+              background: 'rgba(26,86,219,0.08)', border: '1px solid rgba(26,86,219,0.18)', borderRadius: 8,
+              padding: '5px 14px', fontSize: 13, fontWeight: 700, color: '#1a56db',
               cursor: 'pointer',
             }}
           >
@@ -46,7 +46,16 @@ export default function LoginPage() {
         </div>
 
         <div className="login-logo">
-          <span style={{ fontSize: 48 }}>💊</span>
+          <div style={{
+            width: 72, height: 72,
+            background: 'linear-gradient(145deg, #0f1e35 0%, #1a3a6b 100%)',
+            borderRadius: 20,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 12px',
+            boxShadow: '0 8px 24px rgba(15,30,53,0.30)',
+          }}>
+            <span style={{ fontSize: 38 }}>💊</span>
+          </div>
           <h1 className="login-title">{t.login.title}</h1>
           <p className="login-subtitle">{t.login.subtitle}</p>
         </div>

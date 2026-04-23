@@ -74,7 +74,7 @@ function PageLoader() {
     }}>
       <div style={{
         width: 36, height: 36, borderRadius: '50%',
-        border: '3px solid #e2e8f0', borderTopColor: '#6366f1',
+        border: '3px solid #dde3ef', borderTopColor: '#1a56db',
         animation: 'spin 0.7s linear infinite',
       }} />
       <span style={{ fontSize: 13, fontWeight: 500 }}>جاري التحميل...</span>

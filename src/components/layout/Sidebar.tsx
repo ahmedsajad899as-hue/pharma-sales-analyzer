@@ -7,16 +7,16 @@ import { useLanguage } from '../../context/LanguageContext';
 function OrdineLogo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="28" height="28" rx="6" fill="white"/>
+      <rect width="28" height="28" rx="6" fill="#1a2b48"/>
       {/* Large arc r=12 */}
-      <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="#8B1A1A" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+      <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
       {/* Medium arc r=8.5 */}
-      <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="#8B1A1A" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+      <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
       {/* Small arc r=5 */}
-      <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="#8B1A1A" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+      <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
       {/* Free + in top-right gap */}
-      <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="#8B1A1A" strokeWidth="2.4" strokeLinecap="round"/>
-      <line x1="21" y1="3" x2="21" y2="12" stroke="#8B1A1A" strokeWidth="2.4" strokeLinecap="round"/>
+      <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round"/>
+      <line x1="21" y1="3" x2="21" y2="12" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round"/>
     </svg>
   );
 }
@@ -140,12 +140,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       onClick={toggleLang}
       title={t.toggleLang}
       style={{
-        background: 'rgba(255,255,255,0.12)',
-        border: '1px solid rgba(255,255,255,0.25)',
+        background: 'rgba(255,255,255,0.07)',
+        border: '1px solid rgba(255,255,255,0.12)',
         borderRadius: 8,
         padding: full ? '6px 14px' : '6px',
         fontSize: full ? 13 : 12,
-        color: '#e2e8f0',
+        color: '#8fa0be',
         cursor: 'pointer',
         fontWeight: 700,
         letterSpacing: '0.03em',
@@ -189,8 +189,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 onClick={() => { if (item.id === 'commercial') window.dispatchEvent(new CustomEvent('comm-reset-tab')); onNavigate(item.id); }}
                 className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`}
                 style={isRepAnalysis && !isActive ? {
-                  background: 'linear-gradient(90deg,rgba(99,102,241,0.18),rgba(99,102,241,0.08))',
-                  borderLeft: '3px solid rgba(99,102,241,0.6)',
+                  background: 'rgba(26,86,219,0.12)',
+                  borderRight: '3px solid rgba(26,86,219,0.55)',
                 } : undefined}
               >
                 <span className="sidebar-nav-icon">{item.icon}</span>
@@ -216,17 +216,17 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 18 }}>{roleIcon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{roleLabel}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#e0e8f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
+                  <div style={{ fontSize: 11, color: '#8fa0be' }}>{roleLabel}</div>
                 </div>
                 {showSwitchBtn && (
                   <button
                     onClick={() => setShowSwitchPanel(true)}
                     title="تبديل الحساب"
                     style={{
-                      background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                      background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
                       borderRadius: 7, padding: '4px 7px', fontSize: 14, cursor: 'pointer',
-                      color: '#a5b4fc', flexShrink: 0,
+                      color: '#a8c4f4', flexShrink: 0,
                     }}
                   >⇄</button>
                 )}
@@ -236,10 +236,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   onClick={onAIToggle}
                   title={showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
                   style={{
-                    background: showAI ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.09)',
-                    border: `1px solid ${showAI ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                    background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
+                    border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
                     borderRadius: 8, padding: '6px 14px', fontSize: 13,
-                    color: showAI ? '#c7d2fe' : '#94a3b8',
+                    color: showAI ? '#a8c4f4' : '#8fa0be',
                     cursor: 'pointer', fontWeight: 600, width: '100%',
                     display: 'flex', alignItems: 'center', gap: 6,
                   }}
@@ -277,9 +277,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   onClick={() => setShowSwitchPanel(true)}
                   title="تبديل الحساب"
                   style={{
-                    background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)',
+                    background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
                     borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a5b4fc',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a8c4f4',
                   }}
                 >⇄</button>
               )}
@@ -287,8 +287,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 onClick={onAIToggle}
                 title={showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
                 style={{
-                  background: showAI ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.09)',
-                  border: `1px solid ${showAI ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                  background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
+                  border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
                   borderRadius: 8, padding: '6px', fontSize: 16,
                   cursor: 'pointer', width: '100%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -320,16 +320,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       <header className="mobile-header">
         <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="mobile-header-title" style={{
-            fontSize: 24,
-            fontFamily: "'Cinzel', serif",
+            fontSize: 22,
             fontWeight: 700,
-            letterSpacing: '0.08em',
-            background: 'linear-gradient(135deg, #8B1A1A 0%, #c0392b 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
+            letterSpacing: '0.06em',
+            color: '#ffffff',
           }}>Ordine</span>
-          <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={36.5} /></span>
+          <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={32} /></span>
         </div>
         <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu" style={{ marginRight: 0, fontSize: 16 }}>
           ☰
@@ -360,8 +356,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 26, display:'flex', alignItems:'center' }}><OrdineLogo size={28} /></span>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{t.appName}</div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#e0e8f4' }}>{t.appName}</div>
+                  <div style={{ fontSize: 12, color: '#8fa0be' }}>
                     {user?.username} · {roleLabel}
                   </div>
                 </div>
@@ -378,8 +374,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     onClick={() => handleMobileNavigate(item.id)}
                     className={`mobile-drawer-item ${isActive ? 'mobile-drawer-item--active' : ''}`}
                     style={isRepAnalysis && !isActive ? {
-                      background: 'linear-gradient(90deg,rgba(99,102,241,0.1),transparent)',
-                      borderRight: '3px solid rgba(99,102,241,0.5)',
+                      background: 'rgba(26,86,219,0.10)',
+                      borderRight: '3px solid rgba(26,86,219,0.5)',
                     } : undefined}
                   >
                     <span style={{ fontSize: 20 }}>{item.icon}</span>
@@ -397,13 +393,13 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 </button>
               )}
             </nav>
-            <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {showSwitchBtn && (
                 <button
                   onClick={() => { setShowSwitchPanel(true); setMobileMenuOpen(false); }}
                   style={{
-                    background: '#eef2ff', border: '1px solid #a5b4fc', borderRadius: 8,
-                    padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#4338ca',
+                    background: 'rgba(26,86,219,0.15)', border: '1px solid rgba(26,86,219,0.35)', borderRadius: 8,
+                    padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#a8c4f4',
                     cursor: 'pointer', width: '100%', textAlign: 'center',
                   }}
                 >⇄ تبديل الحساب</button>
@@ -411,10 +407,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <button
                 onClick={() => { onAIToggle?.(); setMobileMenuOpen(false); }}
                 style={{
-                  background: showAI ? '#eef2ff' : '#f1f5f9',
-                  border: `1px solid ${showAI ? '#a5b4fc' : '#cbd5e1'}`,
+                  background: showAI ? 'rgba(26,86,219,0.15)' : 'rgba(255,255,255,0.07)',
+                  border: `1px solid ${showAI ? 'rgba(26,86,219,0.35)' : 'rgba(255,255,255,0.12)'}`,
                   borderRadius: 8, padding: '8px 14px', fontSize: 13,
-                  fontWeight: 700, color: showAI ? '#4338ca' : '#334155',
+                  fontWeight: 700, color: showAI ? '#a8c4f4' : '#8fa0be',
                   cursor: 'pointer', width: '100%', textAlign: 'center',
                 }}
               >
@@ -423,8 +419,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <button
                 onClick={() => { toggleLang(); setMobileMenuOpen(false); }}
                 style={{
-                  background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8,
-                  padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#334155',
+                  background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+                  padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#8fa0be',
                   cursor: 'pointer', width: '100%', textAlign: 'center',
                 }}
               >
