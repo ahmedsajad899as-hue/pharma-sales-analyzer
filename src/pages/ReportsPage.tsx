@@ -1434,38 +1434,73 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
+        // Both item+area tags → intersection from byAreaItem
+        const buildAreasFromBoth = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r =>
+            tagAreaNorms.some(na => normalise(r.areaName).includes(na)) &&
+            tagItemNorms.some(ni => normalise(r.itemName).includes(ni))
+          );
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+        const buildItemsFromBoth = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r =>
+            tagAreaNorms.some(na => normalise(r.areaName).includes(na)) &&
+            tagItemNorms.some(ni => normalise(r.itemName).includes(ni))
+          );
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
 
-        // Area tab: item tags → cross-filter areas; area tags only → show those areas; text → existing
-        const salesAreasFiltered = hasTags && tagItemNorms.length > 0
-          ? buildAreasFromTagItems(overallSales.byAreaItem)
-          : hasTags && tagAreaNorms.length > 0
-            ? overallSales.byArea.filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
-            : (overallTab === 'area' && itemMatch && !areaMatch)
-              ? buildAreasFromItem(overallSales.byAreaItem)
-              : filterRowsByText(overallSales.byArea);
-        const retAreasFiltered = hasTags && tagItemNorms.length > 0
-          ? buildAreasFromTagItems(overallReturns?.byAreaItem ?? [])
-          : hasTags && tagAreaNorms.length > 0
-            ? (overallReturns?.byArea ?? []).filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
-            : (overallTab === 'area' && itemMatch && !areaMatch)
-              ? buildAreasFromItem(overallReturns?.byAreaItem ?? [])
-              : filterRowsByText(overallReturns?.byArea ?? []);
+        const bothTags = hasTags && tagItemNorms.length > 0 && tagAreaNorms.length > 0;
 
-        // Item tab: area tags → cross-filter items; item tags only → show those items; text → existing
-        const salesItemsFiltered = hasTags && tagAreaNorms.length > 0
-          ? buildItemsFromTagAreas(overallSales.byAreaItem)
+        // Area tab filtering
+        const salesAreasFiltered = bothTags
+          ? buildAreasFromBoth(overallSales.byAreaItem)
           : hasTags && tagItemNorms.length > 0
-            ? overallSales.byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
-            : (overallTab === 'item' && areaMatch && !itemMatch)
-              ? buildItemsFromArea(overallSales.byAreaItem)
-              : filterRowsByText(overallSales.byItem);
-        const retItemsFiltered = hasTags && tagAreaNorms.length > 0
-          ? buildItemsFromTagAreas(overallReturns?.byAreaItem ?? [])
+            ? buildAreasFromTagItems(overallSales.byAreaItem)
+            : hasTags && tagAreaNorms.length > 0
+              ? overallSales.byArea.filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
+              : (overallTab === 'area' && itemMatch && !areaMatch)
+                ? buildAreasFromItem(overallSales.byAreaItem)
+                : filterRowsByText(overallSales.byArea);
+        const retAreasFiltered = bothTags
+          ? buildAreasFromBoth(overallReturns?.byAreaItem ?? [])
           : hasTags && tagItemNorms.length > 0
-            ? (overallReturns?.byItem ?? []).filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
-            : (overallTab === 'item' && areaMatch && !itemMatch)
-              ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
-              : filterRowsByText(overallReturns?.byItem ?? []);
+            ? buildAreasFromTagItems(overallReturns?.byAreaItem ?? [])
+            : hasTags && tagAreaNorms.length > 0
+              ? (overallReturns?.byArea ?? []).filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
+              : (overallTab === 'area' && itemMatch && !areaMatch)
+                ? buildAreasFromItem(overallReturns?.byAreaItem ?? [])
+                : filterRowsByText(overallReturns?.byArea ?? []);
+
+        // Item tab filtering
+        const salesItemsFiltered = bothTags
+          ? buildItemsFromBoth(overallSales.byAreaItem)
+          : hasTags && tagAreaNorms.length > 0
+            ? buildItemsFromTagAreas(overallSales.byAreaItem)
+            : hasTags && tagItemNorms.length > 0
+              ? overallSales.byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
+              : (overallTab === 'item' && areaMatch && !itemMatch)
+                ? buildItemsFromArea(overallSales.byAreaItem)
+                : filterRowsByText(overallSales.byItem);
+        const retItemsFiltered = bothTags
+          ? buildItemsFromBoth(overallReturns?.byAreaItem ?? [])
+          : hasTags && tagAreaNorms.length > 0
+            ? buildItemsFromTagAreas(overallReturns?.byAreaItem ?? [])
+            : hasTags && tagItemNorms.length > 0
+              ? (overallReturns?.byItem ?? []).filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
+              : (overallTab === 'item' && areaMatch && !itemMatch)
+                ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
+                : filterRowsByText(overallReturns?.byItem ?? []);
 
         // Badges for text mode only
         const matchedAreaNames = !hasTags && q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
