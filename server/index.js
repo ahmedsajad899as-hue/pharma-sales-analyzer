@@ -975,8 +975,11 @@ app.delete('/api/files/:id', async (req, res) => {
     await prisma.uploadedFile.delete({ where: { id } });
 
     // 6. Remove physical file from disk if it still exists
-    const physicalPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads', file.filename);
-    if (fs.existsSync(physicalPath)) fs.unlinkSync(physicalPath);
+    const excelDir   = path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads', 'excel-files');
+    const legacyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads', file.filename);
+    const excelPath  = path.join(excelDir, file.filename);
+    if (fs.existsSync(excelPath)) fs.unlinkSync(excelPath);
+    else if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath);
 
     // 7. Clean up orphan areas and items (no longer referenced by any sale)
     //    IMPORTANT: Do NOT delete areas/items that are still assigned to a scientific rep —
@@ -1016,10 +1019,77 @@ app.delete('/api/files/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Download original Excel file ──────────────────────────────
+// GET /api/files/:id/download
+app.get('/api/files/:id/download', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const userId = req.user?.id ?? null;
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id, ...(userId ? { userId } : {}) },
+      select: { id: true, filename: true, originalName: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+
+    // Try excel-files subfolder first (new uploads), then root uploads/ (legacy)
+    const excelDir  = path.join(__serverDir, 'uploads', 'excel-files');
+    const legacyDir = path.join(__serverDir, 'uploads');
+    let filePath = path.join(excelDir, file.filename);
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(legacyDir, file.filename);
+    }
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'الملف الأصلي غير متوفر على القرص' });
+    }
+    res.download(filePath, file.originalName || file.filename);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Filter Presets (per-user, stored in DB as JSON) ───────────
+// GET  /api/filter-presets       — get all presets for current user
+// POST /api/filter-presets       — create or update a preset  { name, data }
+// DELETE /api/filter-presets/:id — delete a preset
+app.get('/api/filter-presets', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const presets = await prisma.filterPreset.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, name: true, data: true, updatedAt: true },
+    });
+    res.json({ success: true, data: presets });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/filter-presets', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { name, data } = req.body;
+    if (!name || !data) return res.status(400).json({ error: 'name and data required' });
+    const preset = await prisma.filterPreset.upsert({
+      where: { userId_name: { userId, name } },
+      update: { data: JSON.stringify(data), updatedAt: new Date() },
+      create: { userId, name, data: JSON.stringify(data) },
+      select: { id: true, name: true, data: true, updatedAt: true },
+    });
+    res.json({ success: true, data: preset });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/filter-presets/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const userId = req.user?.id;
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    await prisma.filterPreset.deleteMany({ where: { id, userId } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Currency settings per file ───────────────────────────────
 // PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate, sourceCurrency? }
-app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {
-  const id = parseInt(req.params.id);
+app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {  const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
   const { currencyMode, exchangeRate, sourceCurrency } = req.body;
   if (!['IQD', 'USD'].includes(currencyMode)) {

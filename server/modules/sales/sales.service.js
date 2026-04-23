@@ -5,7 +5,9 @@
  */
 
 import XLSX from 'xlsx';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import {
   findOrCreateArea,
   findOrCreateItem,
@@ -20,6 +22,15 @@ import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
+
+const __filename2 = fileURLToPath(import.meta.url);
+const __dirname2  = path.dirname(__filename2);
+// Folder where we persist the original Excel files
+const EXCEL_UPLOADS_DIR = path.join(__dirname2, '..', '..', '..', 'uploads', 'excel-files');
+
+function ensureExcelUploadsDir() {
+  if (!existsSync(EXCEL_UPLOADS_DIR)) mkdirSync(EXCEL_UPLOADS_DIR, { recursive: true });
+}
 
 /**
  * Column name variants the parser will accept (case-insensitive).
@@ -379,8 +390,20 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
   const storedFileType = fileType === 'auto'
     ? (salesRows.length > 0 && returnsRows.length > 0 ? 'auto' : returnsRows.length > 0 ? 'returns' : 'sales')
     : (fileType === 'matrix' ? 'sales' : fileType);
+
+  // ── Save original file to disk so we can serve it later ──
+  ensureExcelUploadsDir();
+  const safeOriginalName = originalName.replace(/[^a-zA-Z0-9\u0600-\u06FF._-]/g, '_');
+  const savedFilename = `${Date.now()}_${safeOriginalName}`;
+  const savedFilePath = path.join(EXCEL_UPLOADS_DIR, savedFilename);
+  try {
+    writeFileSync(savedFilePath, fileBuffer);
+  } catch (e) {
+    console.warn('[upload] could not save original file to disk:', e.message);
+  }
+
   const uploadedFile = await createUploadedFile({
-    filename:         file.filename || file.originalname,
+    filename:         savedFilename,
     originalName:     originalName,
     rowCount:         validRows.length,
     uploadedBy:       uploadedBy || null,

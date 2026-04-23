@@ -185,6 +185,97 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
   }
 }
 
+// ── Multi-sheet Stock File Parser ────────────────────────────────────────────
+// Format: file = one region, sheets = companies, row0 = title, row1 = headers
+//         (المادة in col A, warehouse names in cols B+, skip مذخر+number cols)
+const IGNORE_WH_PAT = /^مذخر\s*\d+$|^مخزن\s*\d+$|^warehouse\s*\d+$/i;
+
+function parseMultiSheetStock(buffer: ArrayBuffer, filename: string): SalesFile | 'NO' | string {
+  try {
+    const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+    if (!wb.SheetNames.length) return 'NO';
+
+    // Peek at first sheet to detect format
+    const firstRaw = XLSX.utils.sheet_to_json<unknown[]>(
+      wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }
+    );
+    if (firstRaw.length < 3) return 'NO';
+
+    // Row index 1 must have an item-like label in col 0
+    const hRow = firstRaw[1] as string[];
+    const col0 = String(hRow[0] ?? '').trim();
+    const isItemFormat = ['المادة','المواد','مادة','item','الايتم','ايتم','اسم المادة','المنتج']
+      .some(k => col0.toLowerCase().includes(k.toLowerCase()));
+    if (!isItemFormat) return 'NO';
+
+    // Region name from title row (row 0), first non-empty cell
+    const titleRow = firstRaw[0] as string[];
+    const regionName = titleRow.map(v => String(v ?? '').trim()).find(Boolean)
+      || filename.replace(/\.[^.]+$/, '');
+
+    // Build master warehouse list from first-sheet header row
+    interface WHEntry { ci: number; name: string; key: string; }
+    const masterWH: WHEntry[] = [];
+    for (let ci = 1; ci < hRow.length; ci++) {
+      const name = String(hRow[ci] ?? '').trim();
+      if (!name || IGNORE_WH_PAT.test(name)) continue;
+      masterWH.push({ ci, name, key: `w${masterWH.length}` });
+    }
+    if (!masterWH.length) return 'NO';
+
+    const areaCols: ColMeta[] = masterWH.map(wc => ({
+      key: wc.key, label: wc.name, region: regionName, colIdx: wc.ci,
+    }));
+
+    const allRows: Record<string, string>[] = [];
+
+    for (const sheetName of wb.SheetNames) {
+      const raw = XLSX.utils.sheet_to_json<unknown[]>(
+        wb.Sheets[sheetName], { header: 1, defval: '' }
+      );
+      if (raw.length < 3) continue;
+
+      // Build name→colIdx map for this sheet (handles different column order per sheet)
+      const sheetHRow = raw[1] as string[];
+      const nameToCI: Record<string, number> = {};
+      for (let ci = 1; ci < sheetHRow.length; ci++) {
+        const name = String(sheetHRow[ci] ?? '').trim();
+        if (!name || IGNORE_WH_PAT.test(name)) continue;
+        nameToCI[name] = ci;
+      }
+
+      // Data rows start at index 2
+      for (let ri = 2; ri < raw.length; ri++) {
+        const arr = raw[ri] as string[];
+        const itemName = String(arr[0] ?? '').trim();
+        if (!itemName) continue;
+
+        const obj: Record<string, string> = { 'الشركة': sheetName, 'المادة': itemName };
+        for (const wc of masterWH) {
+          const srcCi = nameToCI[wc.name];
+          obj[wc.key] = srcCi !== undefined ? String(arr[srcCi] ?? '') : '';
+        }
+        allRows.push(obj);
+      }
+    }
+
+    if (!allRows.length) return 'لم يتم العثور على بيانات في الملف';
+
+    return {
+      id: uid(),
+      name: filename.replace(/\.[^.]+$/, ''),
+      uploadedAt: new Date().toISOString(),
+      fixedCols: ['الشركة', 'المادة'],
+      areaCols,
+      rows: allRows,
+      regions: [regionName],
+    };
+  } catch (err) {
+    console.error(err);
+    return 'فشل قراءة الملف';
+  }
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function SalesDataPage() {
   const { user } = useAuth();
@@ -352,7 +443,10 @@ export default function SalesDataPage() {
     setImporting(true);
     const reader = new FileReader();
     reader.onload = e => {
-      const result = parseExcel(e.target!.result as ArrayBuffer, file.name);
+      const buf = e.target!.result as ArrayBuffer;
+      // Try multi-sheet stock format first, fall back to existing parser
+      const multiResult = parseMultiSheetStock(buf, file.name);
+      const result = multiResult === 'NO' ? parseExcel(buf, file.name) : multiResult;
       if (typeof result === 'string') {
         setImportErr(result);
         setImporting(false);
@@ -405,7 +499,9 @@ export default function SalesDataPage() {
         <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 18px', marginBottom: 18 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>📁 رفع ملف Excel / CSV</div>
           <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px', lineHeight: 1.7 }}>
-            البرنامج يدعم ملفات بترويسة صف واحد (كود · اسم · سعر · مذاخر) أو صفين (منطقة مدمجة فوق أسماء المذاخر). البيانات محفوظة محلياً في المتصفح.
+            يدعم نوعين من الملفات:<br/>
+            <strong>١- ملف مذاخر متعدد الشيتات:</strong> كل شيت = شركة، الصف الثاني = اسم المادة + أسماء المذاخر (يتم تجاهل مذخر7 مذخر8 ... تلقائياً).<br/>
+            <strong>٢- الصيغة العادية:</strong> صف واحد أو صفين (منطقة مدمجة + أسماء مذاخر).
           </p>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" disabled={importing}
