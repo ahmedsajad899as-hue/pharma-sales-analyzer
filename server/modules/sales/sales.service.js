@@ -132,8 +132,6 @@ export async function processUploadedFile(file, options = {}) {
       uploadedBy:   uploadedBy || null,
       userId,
       fileType:     'filter_page',
-      detectedCurrency: null,
-      currencyMode:     null,
     });
     return { rowCount: 0, skipped: 0, uploadedFile, normalizationLog: [] };
   }
