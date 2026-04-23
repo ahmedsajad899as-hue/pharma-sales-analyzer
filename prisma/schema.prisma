@@ -45,6 +45,7 @@ model User {
   uploadedFiles              UploadedFile[]
   distributorUploads         DistributorSalesUpload[]
   distributorSaleRecords     DistributorSaleRecord[]
+  filterPresets              FilterPreset[]
   sales          Sale[]
   doctors        Doctor[]
   monthlyPlans   MonthlyPlan[]
@@ -294,6 +295,22 @@ model UploadedFile {
 
   @@index([userId])
   @@map("uploaded_files")
+}
+
+// ─── Filter Presets ───────────────────────────────────────────
+model FilterPreset {
+  id        Int      @id @default(autoincrement())
+  name      String
+  data      String   // JSON: { companies, items, reps, statuses, bonuses }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("filter_presets")
 }
 
 // ─── Distributor Sales Upload ─────────────────────────────────

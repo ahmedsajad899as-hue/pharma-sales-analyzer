@@ -288,6 +288,8 @@ export default function SalesDataPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [itemSearch, setItemSearch]       = useState('');
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [modalQuery, setModalQuery]       = useState('');
   const [companyFilter, setCompanyFilter] = useState('all');
   const [regionFilter, setRegionFilter]   = useState('all');
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
@@ -573,17 +575,29 @@ export default function SalesDataPage() {
 
           {/* Filter Panel */}
           <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
-            {/* Item search */}
+            {/* Item search trigger */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🔍 البحث بالايتم</div>
-              <div style={{ position: 'relative', maxWidth: 420 }}>
-                <input value={itemSearch}
-                  onChange={e => { setItemSearch(e.target.value); setPage(1); }}
-                  placeholder="اكتب اسم الايتم أو الكود..."
-                  style={{ width: '100%', padding: '8px 32px 8px 10px', borderRadius: 9, border: '1.5px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', direction: 'rtl', background: itemSearch ? '#f0fdf4' : '#fff' }} />
+              <div
+                onClick={() => { setModalQuery(itemSearch); setShowSearchModal(true); }}
+                style={{
+                  position: 'relative', maxWidth: 420, cursor: 'pointer',
+                  padding: '8px 14px', borderRadius: 9,
+                  border: `1.5px solid ${itemSearch ? '#6366f1' : '#e2e8f0'}`,
+                  background: itemSearch ? '#f5f3ff' : '#f8fafc',
+                  display: 'flex', alignItems: 'center', gap: 8, color: itemSearch ? '#4f46e5' : '#94a3b8',
+                  fontSize: 13, fontWeight: itemSearch ? 600 : 400,
+                  boxShadow: itemSearch ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none',
+                  userSelect: 'none',
+                }}
+              >
+                <span>🔍</span>
+                <span style={{ flex: 1 }}>{itemSearch || 'اكتب للبحث...'}</span>
                 {itemSearch && (
-                  <button onClick={() => { setItemSearch(''); setPage(1); }}
-                    style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15 }}>×</button>
+                  <button
+                    onClick={e => { e.stopPropagation(); setItemSearch(''); setModalQuery(''); setPage(1); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15, padding: 0, lineHeight: 1 }}
+                  >×</button>
                 )}
               </div>
               {itemSearch && <div style={{ fontSize: 11, color: '#10b981', marginTop: 4, fontWeight: 600 }}>✓ {filteredRows.length} ايتم مطابق</div>}
@@ -943,6 +957,102 @@ export default function SalesDataPage() {
           )}
         </>
       )}
+
+      {/* ── Smart Search Modal ── */}
+      {showSearchModal && activeFile && (() => {
+        const q = modalQuery.trim().toLowerCase();
+        // unique item names that match query
+        const uniqueItems = [...new Map(
+          activeFile.rows
+            .filter(row => !q || activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)))
+            .map(row => [
+              String(row[itemNameCol] ?? ''),
+              { name: String(row[itemNameCol] ?? ''), company: companyCol ? String(row[companyCol] ?? '') : '' },
+            ])
+        ).values()].slice(0, 60);
+        return (
+          <div
+            onClick={() => setShowSearchModal(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '60px 16px 0', backdropFilter: 'blur(2px)' }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', direction: 'rtl' }}
+            >
+              {/* Input row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                <span style={{ fontSize: 18 }}>🔍</span>
+                <input
+                  autoFocus
+                  value={modalQuery}
+                  onChange={e => setModalQuery(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      setItemSearch(modalQuery);
+                      setPage(1);
+                      setShowSearchModal(false);
+                    }
+                    if (e.key === 'Escape') setShowSearchModal(false);
+                  }}
+                  placeholder="ابحث عن ايتم..."
+                  style={{ flex: 1, fontSize: 16, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
+                />
+                <button
+                  onClick={() => setShowSearchModal(false)}
+                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#64748b', fontSize: 13, fontWeight: 600 }}
+                >×</button>
+              </div>
+
+              {/* Results */}
+              <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                {uniqueItems.length === 0 && q && (
+                  <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج</div>
+                )}
+                {uniqueItems.length === 0 && !q && (
+                  <div style={{ padding: '20px 16px 10px', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>ابدأ الكتابة للبحث...</div>
+                )}
+                {uniqueItems.map(it => (
+                  <div
+                    key={it.name}
+                    onClick={() => {
+                      setItemSearch(it.name);
+                      setModalQuery(it.name);
+                      setPage(1);
+                      setShowSearchModal(false);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid #f8fafc',
+                      transition: 'background .1s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                    onMouseLeave={e => (e.currentTarget.style.background = '')}
+                  >
+                    <span style={{ fontSize: 18 }}>💊</span>
+                    <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: '#4338ca', direction: 'ltr', textAlign: 'right' }}>{it.name}</span>
+                    {it.company && (
+                      <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
+                        {it.company}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#f1f5f9', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>مادة</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Footer */}
+              {q && (
+                <div
+                  onClick={() => { setItemSearch(modalQuery); setPage(1); setShowSearchModal(false); }}
+                  style={{ padding: '10px 16px', borderTop: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 12, color: '#6366f1', fontWeight: 700, textAlign: 'center', background: '#f8fafc' }}
+                >
+                  عرض جميع نتائج "‪{modalQuery}‬" →
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
