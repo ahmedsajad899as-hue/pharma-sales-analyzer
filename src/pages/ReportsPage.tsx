@@ -750,21 +750,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     };
     const thMobile: React.CSSProperties = { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap' };
     const tdMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'center' };
-    const tdNameMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'right', maxWidth: 100, wordBreak: 'break-word', whiteSpace: 'normal' };
+    const tdNameMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'right', wordBreak: 'break-word', whiteSpace: 'normal' };
+    const tdRepMobile: React.CSSProperties = { fontSize: 10, padding: '5px 3px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b', fontWeight: 600 };
     return (
       <>
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: 24 }} />
+            <col style={{ width: 22 }} />
             <col />
-            {hasRep && <col />}
-            {effShowQty && <col style={{ width: 52 }} />}
-            {effShowVal && <col style={{ width: 64 }} />}
-            {effShowQty && <col style={{ width: 52 }} />}
-            {effShowVal && <col style={{ width: 64 }} />}
-            {effShowQty && <col style={{ width: 56 }} />}
-            {effShowVal && <col style={{ width: 64 }} />}
+            {hasRep && <col style={{ width: 50 }} />}
+            {effShowQty && <col style={{ width: 44 }} />}
+            {effShowVal && <col style={{ width: 56 }} />}
+            {effShowQty && <col style={{ width: 44 }} />}
+            {effShowVal && <col style={{ width: 56 }} />}
+            {effShowQty && <col style={{ width: 48 }} />}
+            {effShowVal && <col style={{ width: 56 }} />}
           </colgroup>
           <thead>
             <tr style={{ background: '#f8fafc' }}>
@@ -790,7 +791,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <tr key={key} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ ...tdMobile, color: '#94a3b8' }}>{i + 1}</td>
                   <td style={tdNameMobile}><strong>{row.name}</strong></td>
-                  {hasRep && <td style={{ ...tdMobile, color: '#1e293b', fontWeight: 600 }}>{row.repName ?? '—'}</td>}
+                  {hasRep && <td style={tdRepMobile}>{row.repName ?? '—'}</td>}
                   {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(s.totalQty)}</td>}
                   {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(s.totalValue)}</td>}
                   {effShowQty && <td style={{ ...tdMobile, color: '#dc2626' }}>{fmt(r.totalQty)}</td>}
@@ -1157,33 +1158,44 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const effShowQtyBD = forceMode ? forceMode === 'qty' : !hideQtyCols;
     const effShowValBD = forceMode ? forceMode === 'value' : hideQtyCols;
     const colCount = hasRep ? 4 : 3;
+    const thBD: React.CSSProperties = { fontSize: 11, padding: '6px 5px', whiteSpace: 'nowrap' };
+    const tdBD: React.CSSProperties = { fontSize: 12, padding: '6px 5px', textAlign: 'center' };
+    const tdNameBD: React.CSSProperties = { fontSize: 12, padding: '6px 5px', wordBreak: 'break-word', whiteSpace: 'normal' };
+    const tdRepBD: React.CSSProperties = { fontSize: 11, padding: '6px 4px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4f46e5', fontWeight: 600 };
     return (
     <>
-    <div className="table-wrapper">
-      <table className="data-table">
+    <div style={{ overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        <colgroup>
+          <col style={{ width: 26 }} />
+          <col />
+          {hasRep && <col style={{ width: 60 }} />}
+          {effShowQtyBD && <col style={{ width: 64 }} />}
+          {effShowValBD && <col style={{ width: 80 }} />}
+        </colgroup>
         <thead>
-          <tr>
-            <th>#</th>
-            <th>{nameLabel}</th>
-            {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-            {effShowQtyBD && <th>{t.reports.colQty}</th>}
-            {effShowValBD && <th style={{ background: '#fffbeb', color: '#b45309' }}>{currColHeader}</th>}
+          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+            <th style={{ ...thBD, textAlign: 'center', color: '#94a3b8' }}>#</th>
+            <th style={{ ...thBD, textAlign: 'right' }}>{nameLabel}</th>
+            {hasRep && <th style={{ ...thBD, textAlign: 'center' }}>👤</th>}
+            {effShowQtyBD && <th style={{ ...thBD, background: '#dbeafe', color: '#1e40af' }}>{t.reports.colQty}</th>}
+            {effShowValBD && <th style={{ ...thBD, background: '#fffbeb', color: '#b45309' }}>{currColHeader}</th>}
           </tr>
         </thead>
         <tbody>
           {salesRows.map((row, i) => {
             return (
-              <tr key={i}>
-                <td>{i + 1}</td>
-                <td><strong>{row.name}</strong></td>
-                {hasRep && <td style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                {effShowQtyBD && <td style={{ color: '#1d4ed8' }}>{fmt(row.totalQty)}</td>}
-                {effShowValBD && <td style={{ background: '#fffbeb', color: '#92400e' }}>{fmtVal(row.totalValue)}</td>}
+              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ ...tdBD, color: '#94a3b8' }}>{i + 1}</td>
+                <td style={tdNameBD}><strong>{row.name}</strong></td>
+                {hasRep && <td style={tdRepBD}>{row.repName ?? '—'}</td>}
+                {effShowQtyBD && <td style={{ ...tdBD, color: '#1d4ed8' }}>{fmt(row.totalQty)}</td>}
+                {effShowValBD && <td style={{ ...tdBD, background: '#fffbeb', color: '#92400e' }}>{fmtVal(row.totalValue)}</td>}
               </tr>
             );
           })}
           {salesRows.length === 0 && zeroRows.length === 0 && (
-            <tr><td colSpan={colCount} className="empty-row">{t.reports.noDataTable}</td></tr>
+            <tr><td colSpan={colCount} style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 8px', fontSize: 12 }}>{t.reports.noDataTable}</td></tr>
           )}
 
           {/* ─── Zero-sales divider row ─── */}
@@ -1205,17 +1217,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </tr>
           )}
           {zeroRows.map((row, i) => (
-            <tr key={`zero-${i}`} style={{ background: '#fafafa', opacity: 0.75 }}>
-              <td style={{ color: '#94a3b8' }}>{salesRows.length + i + 1}</td>
-              <td>
+            <tr key={`zero-${i}`} style={{ background: '#fafafa', opacity: 0.75, borderBottom: '1px solid #f1f5f9' }}>
+              <td style={{ ...tdBD, color: '#94a3b8' }}>{salesRows.length + i + 1}</td>
+              <td style={tdNameBD}>
                 <span style={{ color: '#475569', fontWeight: 500 }}>{row.name}</span>
-                <span style={{ marginRight: '8px', fontSize: '11px', background: '#fee2e2', color: '#dc2626', borderRadius: '4px', padding: '1px 6px', fontWeight: 600 }}>
+                <span style={{ marginRight: '4px', fontSize: '10px', background: '#fee2e2', color: '#dc2626', borderRadius: '4px', padding: '1px 4px', fontWeight: 600 }}>
                   {t.reports.noSalesLabel}
                 </span>
               </td>
-              {hasRep && <td style={{ color: '#94a3b8' }}>—</td>}
-              {effShowQtyBD && <td style={{ color: '#94a3b8' }}>0</td>}
-              {effShowValBD && <td style={{ color: '#94a3b8' }}>0</td>}
+              {hasRep && <td style={{ ...tdRepBD, color: '#94a3b8', fontWeight: 400 }}>—</td>}
+              {effShowQtyBD && <td style={{ ...tdBD, color: '#94a3b8' }}>0</td>}
+              {effShowValBD && <td style={{ ...tdBD, color: '#94a3b8' }}>0</td>}
             </tr>
           ))}
         </tbody>
