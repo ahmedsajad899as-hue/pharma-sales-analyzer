@@ -55,6 +55,64 @@ function findCol(headers: string[], hints: string[]): number {
 interface Entry { value: string; selected: boolean; bonus: string; }
 type Step = 'upload' | 'filter';
 
+/* ══ Cascade helpers ══════════════════════════════════════ */
+/**
+ * When companies change → deselect items that have NO rows under any selected company.
+ * Then cascade further to deselect reps with no remaining valid rows.
+ */
+function cascadeFromCompanies(
+  nextCo: Entry[], curItems: Entry[], curReps: Entry[],
+  rows: string[][], coIdx: number, itemIdx: number, repIdx: number,
+): { items: Entry[]; reps: Entry[] } {
+  const selCo = new Set(nextCo.filter(c => c.selected).map(c => c.value));
+
+  // Items that have at least one row under a still-selected company
+  const itemsUnderSelCo = new Set<string>();
+  rows.forEach(row => {
+    const co   = coIdx   >= 0 ? row[coIdx]   : null;
+    const item = itemIdx >= 0 ? row[itemIdx] : null;
+    if (item !== null && (co === null || selCo.has(co))) itemsUnderSelCo.add(item);
+  });
+
+  // Deselect items that no longer have any row under a selected company
+  const nextItems = curItems.map(it => ({
+    ...it, selected: it.selected && itemsUnderSelCo.has(it.value),
+  }));
+
+  // Cascade to reps
+  const { reps: nextReps } = cascadeFromItems(nextItems, nextCo, curReps, rows, coIdx, itemIdx, repIdx);
+  return { items: nextItems, reps: nextReps };
+}
+
+/**
+ * When items change → deselect reps who have NO row where both company AND item are selected.
+ */
+function cascadeFromItems(
+  nextItems: Entry[], curCo: Entry[], curReps: Entry[],
+  rows: string[][], coIdx: number, itemIdx: number, repIdx: number,
+): { reps: Entry[] } {
+  const selCo   = new Set(curCo.filter(c => c.selected).map(c => c.value));
+  const selItem = new Set(nextItems.filter(i => i.selected).map(i => i.value));
+
+  // Reps that have at least one row where company AND item are both selected
+  const repsWithValidRow = new Set<string>();
+  rows.forEach(row => {
+    const co   = coIdx   >= 0 ? row[coIdx]   : null;
+    const item = itemIdx >= 0 ? row[itemIdx] : null;
+    const rep  = repIdx  >= 0 ? row[repIdx]  : null;
+    if (
+      rep !== null &&
+      (co   === null || selCo.has(co)) &&
+      (item === null || selItem.has(item))
+    ) repsWithValidRow.add(rep);
+  });
+
+  const nextReps = curReps.map(r => ({
+    ...r, selected: r.selected && repsWithValidRow.has(r.value),
+  }));
+  return { reps: nextReps };
+}
+
 /* ══ Excel helpers ════════════════════════════════════════ */
 function readXlsx(file: File): Promise<{ headers: string[]; rows: string[][] }> {
   return new Promise((resolve, reject) => {
@@ -558,11 +616,22 @@ export default function FileFilterPage() {
       <div style={{ padding: 20, display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
 
         {coIdx >= 0 && companies.length > 0 && (
-          <Panel icon="🏢" title="الشركة" items={companies} onChange={setCompanies} />
+          <Panel icon="🏢" title="الشركة" items={companies} onChange={nextCo => {
+            const { items: nextItems, reps: nextReps } =
+              cascadeFromCompanies(nextCo, items, reps, allRows, coIdx, itemIdx, repIdx);
+            setCompanies(nextCo);
+            setItems(nextItems);
+            setReps(nextReps);
+          }} />
         )}
 
         {itemIdx >= 0 && items.length > 0 && (
-          <Panel icon="📦" title="الايتم" items={items} onChange={setItems} showBonus />
+          <Panel icon="📦" title="الايتم" items={items} onChange={nextItems => {
+            const { reps: nextReps } =
+              cascadeFromItems(nextItems, companies, reps, allRows, coIdx, itemIdx, repIdx);
+            setItems(nextItems);
+            setReps(nextReps);
+          }} showBonus />
         )}
 
         {repIdx >= 0 && reps.length > 0 && (
