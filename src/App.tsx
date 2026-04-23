@@ -325,7 +325,7 @@ function AppInner() {
     'distributor-sales',
   ];
   useEffect(() => {
-    const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 2000));
+    const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
     idle(() => setMountedPages(new Set(allPageIds)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

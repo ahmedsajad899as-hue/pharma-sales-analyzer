@@ -568,140 +568,123 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             {t.upload.noFiles}
           </div>
         ) : (
-          <div className="table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t.upload.colStatus}</th>
-                  <th>{t.upload.colType}</th>
-                  <th>{t.upload.colCurrency}</th>
-                  <th>{t.upload.colName}</th>
-                  <th>{t.upload.colRows}</th>
-                  <th>{t.upload.colDate}</th>
-                  <th>{t.upload.colActions}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {files.map(f => {
-                  const isActive = activeFileIds.includes(f.id);
-                  return (
-                    <tr key={f.id} style={{ background: isActive ? '#f0fdf4' : undefined }}>
-                      <td>
-                        {isActive
-                          ? <span style={{ color: '#16a34a', fontWeight: 700 }}>{t.upload.statusActive}</span>
-                          : <span style={{ color: '#9ca3af' }}>—</span>}
-                      </td>
-                      <td>
-                        <span style={{
-                          display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                          background: f.fileType === 'returns' ? '#fee2e2' : f.fileType === 'auto' ? '#ede9fe' : f.fileType === 'matrix' ? '#ecfeff' : '#dbeafe',
-                          color:      f.fileType === 'returns' ? '#dc2626'  : f.fileType === 'auto' ? '#6d28d9'  : f.fileType === 'matrix' ? '#0891b2'  : '#1d4ed8',
-                        }}>
-                          {f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : f.fileType === 'matrix' ? t.upload.typeMatrixLabel : t.upload.typeSalesLabel}
-                        </span>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          {/* العملة الأصلية للفايل */}
-                          <span style={{
-                            display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            background: f.detectedCurrency === 'USD' ? '#fef3c7' : '#dbeafe',
-                            color: f.detectedCurrency === 'USD' ? '#92400e' : '#1d4ed8',
-                            border: `1px solid ${f.detectedCurrency === 'USD' ? '#fcd34d' : '#93c5fd'}`,
-                          }}>
-                            {f.detectedCurrency === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
-                          </span>
-                          {/* سهم التحويل */}
-                          <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 700, lineHeight: 1 }}>←</span>
-                          {/* العملة المحددة للعرض */}
-                          <span style={{
-                            display: 'inline-block', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            background: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fef9c3' : '#dcfce7',
-                            color: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#92400e' : '#15803d',
-                            border: `1px solid ${(f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fcd34d' : '#86efac'}`,
-                          }}>
-                            {(f.currencyMode ?? f.detectedCurrency) === 'USD' ? '🇺🇸 USD' : '🇮🇶 IQD'}
-                          </span>
-                        </span>
-                      </td>
-                      <td><strong>{f.originalName}</strong></td>
-                      <td>{f.rowCount.toLocaleString('ar-IQ')}</td>
-                      <td>{fmtDate(f.uploadedAt)}</td>
-                      <td style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {files.map(f => {
+              const isActive = activeFileIds.includes(f.id);
+              const typeColors = f.fileType === 'returns'
+                ? { bg: '#fee2e2', color: '#dc2626' }
+                : f.fileType === 'auto'
+                ? { bg: '#ede9fe', color: '#6d28d9' }
+                : f.fileType === 'matrix'
+                ? { bg: '#ecfeff', color: '#0891b2' }
+                : { bg: '#dbeafe', color: '#1d4ed8' };
+              const typeLabel = f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : f.fileType === 'matrix' ? t.upload.typeMatrixLabel : t.upload.typeSalesLabel;
+              const currDisplay = (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '$ USD' : '﷼ IQD';
+              return (
+                <div
+                  key={f.id}
+                  style={{
+                    background: isActive ? '#f0fdf4' : '#fff',
+                    border: `1px solid ${isActive ? '#86efac' : '#e5e7eb'}`,
+                    borderRadius: 12,
+                    padding: '0.75rem 1rem',
+                    transition: 'box-shadow 0.15s',
+                  }}
+                >
+                  {/* Row 1: name + badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: '0.45rem' }}>
+                    <strong style={{ fontSize: 14, color: '#1a2332', flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.originalName}
+                    </strong>
+                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: typeColors.bg, color: typeColors.color }}>
+                      {typeLabel}
+                    </span>
+                    {isActive && (
+                      <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#dcfce7', color: '#15803d' }}>
+                        ✓ {t.upload.statusActive}
+                      </span>
+                    )}
+                  </div>
+                  {/* Row 2: meta info */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: '0.55rem', fontSize: 13, color: '#6b7280' }}>
+                    <span>📊 {f.rowCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>
+                    <span>📅 {fmtDate(f.uploadedAt)}</span>
+                    <span style={{
+                      padding: '1px 8px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                      background: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fef9c3' : '#dcfce7',
+                      color: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#92400e' : '#15803d',
+                      border: `1px solid ${(f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fcd34d' : '#86efac'}`,
+                    }}>
+                      {currDisplay}
+                    </span>
+                  </div>
+                  {/* Row 3: action buttons */}
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button
+                      className="btn btn--primary"
+                      style={{ padding: '4px 12px', fontSize: 13 }}
+                      onClick={() => handleAnalyze(f)}
+                      disabled={analyzing && analyzeFile?.id === f.id}
+                    >
+                      {analyzing && analyzeFile?.id === f.id ? '⏳' : t.upload.btnAnalyze}
+                    </button>
+                    {hasFeature('currency_convert') && (
+                      <button
+                        style={{
+                          padding: '4px 12px', fontSize: 13,
+                          background: f.currencyMode === 'USD' ? '#fef9c3' : '#f3f4f6',
+                          color: f.currencyMode === 'USD' ? '#92400e' : '#374151',
+                          border: `1px solid ${f.currencyMode === 'USD' ? '#fcd34d' : '#d1d5db'}`,
+                          borderRadius: 6, cursor: 'pointer', fontWeight: f.currencyMode === 'USD' ? 700 : undefined,
+                        }}
+                        onClick={() => openCurrencyModal(f)}
+                      >
+                        {t.upload.btnCurrency}
+                      </button>
+                    )}
+                    <button
+                      className="btn btn--secondary"
+                      style={{
+                        padding: '4px 12px', fontSize: 13,
+                        background: isActive ? '#dcfce7' : undefined,
+                        color: isActive ? '#15803d' : undefined,
+                        border: isActive ? '1px solid #86efac' : undefined,
+                        fontWeight: isActive ? 700 : undefined,
+                      }}
+                      onClick={() => onFileActivated(f.id)}
+                    >
+                      {isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
+                    </button>
+                    {confirmId === f.id ? (
+                      <>
+                        <span style={{ fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>{t.upload.confirmDelete}</span>
                         <button
-                          className="btn btn--primary"
-                          title={t.upload.btnAnalyze}
-                          style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32 }}
-                          onClick={() => handleAnalyze(f)}
-                          disabled={analyzing && analyzeFile?.id === f.id}
+                          style={{ padding: '4px 12px', fontSize: 13, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                          onClick={() => deleteFile(f.id)}
+                          disabled={deleting === f.id}
                         >
-                          {analyzing && analyzeFile?.id === f.id ? '⏳' : t.upload.btnAnalyze}
+                          {deleting === f.id ? '⏳' : t.upload.confirmDeleteBtn}
                         </button>
-                        {hasFeature('currency_convert') && (
-                          <button
-                            title={t.upload.currencyModalTitle}
-                            style={{
-                              padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32,
-                              background: f.currencyMode === 'USD' ? '#fef9c3' : '#f3f4f6',
-                              color: f.currencyMode === 'USD' ? '#92400e' : '#374151',
-                              border: `1px solid ${f.currencyMode === 'USD' ? '#fcd34d' : '#d1d5db'}`,
-                              borderRadius: 6, cursor: 'pointer', fontWeight: f.currencyMode === 'USD' ? 700 : undefined,
-                            }}
-                            onClick={() => openCurrencyModal(f)}
-                          >
-                            {t.upload.btnCurrency}{f.currencyMode === 'USD' && <span style={{ marginRight: 2, fontSize: 11 }}>$</span>}
-                          </button>
-                        )}
                         <button
-                          className="btn btn--secondary"
-                          title={isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
-                          style={{
-                            padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32,
-                            background: isActive ? '#dcfce7' : undefined,
-                            color: isActive ? '#15803d' : undefined,
-                            border: isActive ? '1px solid #86efac' : undefined,
-                            fontWeight: isActive ? 700 : undefined,
-                          }}
-                          onClick={() => onFileActivated(f.id)}
+                          style={{ padding: '4px 12px', fontSize: 13, background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}
+                          onClick={() => setConfirmId(null)}
                         >
-                          {isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
+                          {t.upload.cancel}
                         </button>
-                        {confirmId === f.id ? (
-                          <>
-                            <span style={{ fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>{t.upload.confirmDelete}</span>
-                            <button
-                              className="btn btn--danger"
-                              title={t.upload.confirmDeleteBtn}
-                              style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-                              onClick={() => deleteFile(f.id)}
-                              disabled={deleting === f.id}
-                            >
-                              {deleting === f.id ? '⏳' : t.upload.confirmDeleteBtn}
-                            </button>
-                            <button
-                              title={t.upload.cancel}
-                              style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32, background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}
-                              onClick={() => setConfirmId(null)}
-                            >
-                              {t.upload.cancel}
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            title={t.upload.deleteBtn}
-                            style={{ padding: '5px 8px', fontSize: '1rem', lineHeight: 1, minWidth: 32, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 6, cursor: 'pointer' }}
-                            onClick={() => setConfirmId(f.id)}
-                            disabled={deleting === f.id}
-                          >
-                            {t.upload.deleteBtn}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </>
+                    ) : (
+                      <button
+                        style={{ padding: '4px 12px', fontSize: 13, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 6, cursor: 'pointer' }}
+                        onClick={() => setConfirmId(f.id)}
+                        disabled={deleting === f.id}
+                      >
+                        {t.upload.deleteBtn}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
