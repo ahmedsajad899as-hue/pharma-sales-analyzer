@@ -347,7 +347,7 @@ function AppInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleFileActive = (id: number | null) => {
+  const toggleFileActive = useCallback((id: number | null) => {
     if (id === null) {
       setActiveFileIds([]);
       localStorage.removeItem('activeFileIds');
@@ -358,7 +358,7 @@ function AppInner() {
       localStorage.setItem('activeFileIds', JSON.stringify(next));
       return next;
     });
-  };
+  }, []);
 
   // Show login page when not authenticated
   if (!user) return <LoginPage />;

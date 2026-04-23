@@ -53,6 +53,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [analysisText, setAnalysisText] = useState('');
   const [analyzing, setAnalyzing]     = useState(false);
 
+  // Use a ref so loadFiles doesn't re-run when activeFileIds changes (avoids re-fetch on toggle)
+  const activeFileIdsRef = useRef<number[]>(activeFileIds);
+  activeFileIdsRef.current = activeFileIds;
+  const onFileActivatedRef = useRef(onFileActivated);
+  onFileActivatedRef.current = onFileActivated;
+
   const loadFiles = useCallback(async () => {
     setFilesLoading(true);
     try {
@@ -61,13 +67,13 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const fetched: UploadedFile[] = Array.isArray(json.data) ? json.data : [];
       setFiles(fetched);
       // Auto-activate the most recent file if nothing is currently active
-      if (activeFileIds.length === 0 && fetched.length > 0) {
+      if (activeFileIdsRef.current.length === 0 && fetched.length > 0) {
         const newest = fetched.reduce((a, b) => new Date(a.uploadedAt) > new Date(b.uploadedAt) ? a : b);
-        onFileActivated(newest.id);
+        onFileActivatedRef.current(newest.id);
       }
     } catch { /* ignore */ }
     finally { setFilesLoading(false); }
-  }, [token, activeFileIds, onFileActivated]);
+  }, [token]); // removed activeFileIds & onFileActivated — refs keep them up-to-date without re-triggering
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
