@@ -34,8 +34,8 @@ function saveBonusMap(m: Record<string, string>) {
 }
 
 /* ══ Column auto-detection ════════════════════════════════ */
-const H_CO    = ['الشركة','الشركه','شركة','شركه','company','اسم الشركة','اسم الشركه','الشركات'];
-const H_ITEM  = ['ايتم','الايتم','item','اسم الايتم','المنتج','product','الصنف','اسم المنتج','صنف'];
+const H_CO    = ['الشركة','الشركه','شركة','شركه','company','اسم الشركة','اسم الشركه','الشركات','الصنف','صنف','اسم الصنف'];
+const H_ITEM  = ['ايتم','الايتم','item','اسم الايتم','المنتج','product','اسم المنتج'];
 const H_REP   = ['مندوب','المندوب','rep','اسم المندوب','ممثل','مسوق','المندوب','اسم المندوب'];
 const H_BONUS = ['بونص','bonus','مكافأة','مكافاة','عمولة','incentive','commission'];
 
@@ -344,9 +344,11 @@ export default function FileFilterPage() {
       setAllRows(rows);
 
       const ci = findCol(h, H_CO);
-      const ii = findCol(h, H_ITEM);
+      let   ii = findCol(h, H_ITEM);
       const ri = findCol(h, H_REP);
       const bi = findCol(h, H_BONUS);
+      // prevent same column being mapped to both company and item
+      if (ci >= 0 && ii === ci) ii = -1;
       setCoIdx(ci); setItemIdx(ii); setRepIdx(ri); setBonusIdx(bi);
 
       const exCo   = loadExcl(LS_CO);
