@@ -57,12 +57,14 @@ type Step = 'upload' | 'filter';
 
 /* ══ Cascade helpers ══════════════════════════════════════ */
 /**
- * When companies change → deselect items that have NO rows under any selected company.
- * Then cascade further to deselect reps with no remaining valid rows.
+ * When companies change → select/deselect items based on company membership,
+ * but ALWAYS respect manualExclItems (user's explicit deselections are never overridden).
+ * Then cascade further to reps.
  */
 function cascadeFromCompanies(
   nextCo: Entry[], curItems: Entry[], curReps: Entry[],
   rows: string[][], coIdx: number, itemIdx: number, repIdx: number,
+  manualExclItems: Set<string>, manualExclReps: Set<string>,
 ): { items: Entry[]; reps: Entry[] } {
   const selCo = new Set(nextCo.filter(c => c.selected).map(c => c.value));
 
@@ -74,27 +76,30 @@ function cascadeFromCompanies(
     if (item !== null && (co === null || selCo.has(co))) itemsUnderSelCo.add(item);
   });
 
-  // Select/deselect items fully based on whether they have a row under a selected company
+  // Item is selected if it belongs to a selected company AND was NOT manually deselected by user
   const nextItems = curItems.map(it => ({
-    ...it, selected: itemsUnderSelCo.has(it.value),
+    ...it,
+    selected: itemsUnderSelCo.has(it.value) && !manualExclItems.has(it.value),
   }));
 
-  // Cascade to reps (bidirectional too)
-  const { reps: nextReps } = cascadeFromItems(nextItems, nextCo, curReps, rows, coIdx, itemIdx, repIdx);
+  const { reps: nextReps } = cascadeFromItems(
+    nextItems, nextCo, curReps, rows, coIdx, itemIdx, repIdx, manualExclReps,
+  );
   return { items: nextItems, reps: nextReps };
 }
 
 /**
- * When items change → deselect reps who have NO row where both company AND item are selected.
+ * When items change → select/deselect reps based on whether they have a valid row,
+ * but ALWAYS respect manualExclReps (user's explicit rep deselections are never overridden).
  */
 function cascadeFromItems(
   nextItems: Entry[], curCo: Entry[], curReps: Entry[],
   rows: string[][], coIdx: number, itemIdx: number, repIdx: number,
+  manualExclReps: Set<string>,
 ): { reps: Entry[] } {
   const selCo   = new Set(curCo.filter(c => c.selected).map(c => c.value));
   const selItem = new Set(nextItems.filter(i => i.selected).map(i => i.value));
 
-  // Reps that have at least one row where company AND item are both selected
   const repsWithValidRow = new Set<string>();
   rows.forEach(row => {
     const co   = coIdx   >= 0 ? row[coIdx]   : null;
@@ -107,9 +112,10 @@ function cascadeFromItems(
     ) repsWithValidRow.add(rep);
   });
 
-  // Select/deselect reps fully based on whether they have a valid row
+  // Rep is selected if it has a valid row AND was NOT manually deselected by user
   const nextReps = curReps.map(r => ({
-    ...r, selected: repsWithValidRow.has(r.value),
+    ...r,
+    selected: repsWithValidRow.has(r.value) && !manualExclReps.has(r.value),
   }));
   return { reps: nextReps };
 }
@@ -305,9 +311,11 @@ export default function FileFilterPage() {
   const [appliedMsg,  setAppliedMsg]  = useState('');
   const [resetKey,    setResetKey]    = useState(0);   // forces SavedInfo re-render
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const saveTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const allRowsRef   = useRef<string[][]>([]);
+  const fileInputRef     = useRef<HTMLInputElement>(null);
+  const saveTimer        = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const allRowsRef       = useRef<string[][]>([]);
+  const manualExclItems  = useRef<Set<string>>(loadExcl(LS_ITEM)); // user's explicit item deselections
+  const manualExclReps   = useRef<Set<string>>(loadExcl(LS_REP));  // user's explicit rep deselections
   allRowsRef.current = allRows;
 
   /* ── Auto-save selections (debounced 400ms) ── */
@@ -432,15 +440,19 @@ export default function FileFilterPage() {
           return { value: v, selected: !exItem.has(v), bonus };
         });
         applItem = list.filter(x => !x.selected).length;
+        // Sync manual exclusion ref to match loaded state
+        manualExclItems.current = new Set(list.filter(x => !x.selected).map(x => x.value));
         setItems(list);
-      } else setItems([]);
+      } else { manualExclItems.current = new Set(); setItems([]); }
 
       if (ri >= 0) {
         const unique = [...new Set(rows.map(r => r[ri]))].sort((a, b) => a.localeCompare(b, 'ar'));
         const list   = unique.map(v => ({ value: v, selected: !exRep.has(v), bonus: '' }));
         applRep = list.filter(x => !x.selected).length;
+        // Sync manual exclusion ref to match loaded state
+        manualExclReps.current = new Set(list.filter(x => !x.selected).map(x => x.value));
         setReps(list);
-      } else setReps([]);
+      } else { manualExclReps.current = new Set(); setReps([]); }
 
       const parts: string[] = [];
       if (applCo   > 0) parts.push(`${applCo} شركة`);
@@ -619,7 +631,10 @@ export default function FileFilterPage() {
         {coIdx >= 0 && companies.length > 0 && (
           <Panel icon="🏢" title="الشركة" items={companies} onChange={nextCo => {
             const { items: nextItems, reps: nextReps } =
-              cascadeFromCompanies(nextCo, items, reps, allRows, coIdx, itemIdx, repIdx);
+              cascadeFromCompanies(
+                nextCo, items, reps, allRows, coIdx, itemIdx, repIdx,
+                manualExclItems.current, manualExclReps.current,
+              );
             setCompanies(nextCo);
             setItems(nextItems);
             setReps(nextReps);
@@ -628,15 +643,28 @@ export default function FileFilterPage() {
 
         {itemIdx >= 0 && items.length > 0 && (
           <Panel icon="📦" title="الايتم" items={items} onChange={nextItems => {
+            // Update manual exclusions ref — this is a user-driven change
+            manualExclItems.current = new Set(
+              nextItems.filter(i => !i.selected).map(i => i.value)
+            );
             const { reps: nextReps } =
-              cascadeFromItems(nextItems, companies, reps, allRows, coIdx, itemIdx, repIdx);
+              cascadeFromItems(
+                nextItems, companies, reps, allRows, coIdx, itemIdx, repIdx,
+                manualExclReps.current,
+              );
             setItems(nextItems);
             setReps(nextReps);
           }} showBonus />
         )}
 
         {repIdx >= 0 && reps.length > 0 && (
-          <Panel icon="👤" title="المندوب" items={reps} onChange={setReps} />
+          <Panel icon="👤" title="المندوب" items={reps} onChange={nextReps => {
+            // Update manual exclusions ref — this is a user-driven change
+            manualExclReps.current = new Set(
+              nextReps.filter(r => !r.selected).map(r => r.value)
+            );
+            setReps(nextReps);
+          }} />
         )}
 
         {coIdx < 0 && itemIdx < 0 && repIdx < 0 && (
