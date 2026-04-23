@@ -1032,21 +1032,29 @@ app.get('/api/files/:id/download', requireAuth, async (req, res) => {
     const userId = req.user?.id ?? null;
     const file = await prisma.uploadedFile.findFirst({
       where: { id, ...(userId ? { userId } : {}) },
-      select: { id: true, filename: true, originalName: true },
+      select: { id: true, filename: true, originalName: true, fileContent: true },
     });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
 
-    // Try excel-files subfolder first (new uploads), then root uploads/ (legacy)
+    // Try disk first (excel-files subfolder, then legacy root)
     const excelDir  = path.join(__serverDir, 'uploads', 'excel-files');
     const legacyDir = path.join(__serverDir, 'uploads');
     let filePath = path.join(excelDir, file.filename);
-    if (!fs.existsSync(filePath)) {
-      filePath = path.join(legacyDir, file.filename);
+    if (!fs.existsSync(filePath)) filePath = path.join(legacyDir, file.filename);
+
+    if (fs.existsSync(filePath)) {
+      return res.download(filePath, file.originalName || file.filename);
     }
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'الملف الأصلي غير متوفر على القرص' });
+
+    // Fallback: serve from DB base64 content (filter_page files survive Railway restarts)
+    if (file.fileContent) {
+      const buf = Buffer.from(file.fileContent, 'base64');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName || file.filename)}`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      return res.send(buf);
     }
-    res.download(filePath, file.originalName || file.filename);
+
+    return res.status(404).json({ error: 'الملف الأصلي غير متوفر على القرص' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

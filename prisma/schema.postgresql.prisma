@@ -290,6 +290,7 @@ model UploadedFile {
   currencyMode String   @default("IQD")   // "IQD" | "USD" — display preference
   exchangeRate Float    @default(1500)    // دينار لكل دولار
   detectedCurrency String @default("IQD") // auto-detected from file values on upload
+  fileContent  String? // base64-encoded file bytes (for filter_page files — survives Railway ephemeral disk)
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])

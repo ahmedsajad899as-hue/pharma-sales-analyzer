@@ -118,6 +118,7 @@ export async function processUploadedFile(file, options = {}) {
   if (fileType === 'filter_page') {
     const fileBuffer = file.buffer || readFileSync(file.path);
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    // Save to disk (best-effort — ephemeral on Railway)
     ensureExcelUploadsDir();
     const safeOriginalName = originalName.replace(/[^a-zA-Z0-9\u0600-\u06FF._-]/g, '_');
     const savedFilename = `${Date.now()}_${safeOriginalName}`;
@@ -125,6 +126,8 @@ export async function processUploadedFile(file, options = {}) {
     try { writeFileSync(savedFilePath, fileBuffer); } catch (e) {
       console.warn('[upload] could not save filter_page file to disk:', e.message);
     }
+    // Also save base64 content to DB — survives Railway ephemeral disk restarts
+    const fileContent = fileBuffer.toString('base64');
     const uploadedFile = await createUploadedFile({
       filename:     savedFilename,
       originalName: originalName,
@@ -132,6 +135,7 @@ export async function processUploadedFile(file, options = {}) {
       uploadedBy:   uploadedBy || null,
       userId,
       fileType:     'filter_page',
+      fileContent,
     });
     return { rowCount: 0, skipped: 0, uploadedFile, normalizationLog: [] };
   }
