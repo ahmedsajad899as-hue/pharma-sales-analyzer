@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { usePageBackHandler } from '../hooks/useBackHandler';
 import type { PageId } from '../App';
 import UploadPage from './UploadPage';
 import RepresentativesPage from './RepresentativesPage';
@@ -28,6 +29,11 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
     return (saved && TABS.some(t => t.id === saved)) ? saved as TabId : 'upload';
   });
   const [animKey, setAnimKey] = useState(0);
+
+  // Back button: go to default tab when on a secondary tab (only if this page is active)
+  usePageBackHandler('rep-analysis', [
+    [activeTab !== 'upload', () => handleTabChange('upload')],
+  ]);
 
   const handleTabChange = (id: TabId) => {
     if (id === activeTab) return;

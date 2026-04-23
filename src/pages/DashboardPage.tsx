@@ -310,27 +310,30 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // Mobile hardware back button: close any open modal instead of navigating away
   useEffect(() => {
     const handleBackNav = (e: Event) => {
-      if (voiceOverlay || voiceReady) {
-        e.preventDefault();
-        setVoiceReady(false); setVoiceOverlay(false);
-        history.pushState({ page: 'dashboard' }, '');
-      } else if (trackingMapRepId !== null) {
-        e.preventDefault();
-        setTrackingMapRepId(null);
-        history.pushState({ page: 'dashboard' }, '');
-      } else if (showMap) {
-        e.preventDefault();
-        setShowMap(false);
-        history.pushState({ page: 'dashboard' }, '');
-      } else if (showCallLog) {
-        e.preventDefault();
-        setShowCallLog(false);
-        history.pushState({ page: 'dashboard' }, '');
+      const ce = e as CustomEvent;
+      const layers: Array<[boolean | unknown, () => void]> = [
+        [voiceOverlay || voiceReady,        () => { setVoiceReady(false); setVoiceOverlay(false); }],
+        [trackingMapRepId !== null,          () => setTrackingMapRepId(null)],
+        [showMap,                            () => setShowMap(false)],
+        [showCallLog,                        () => setShowCallLog(false)],
+        [visitInfoPopup !== null,            () => setVisitInfoPopup(null)],
+        [showLikersId !== null,              () => setShowLikersId(null)],
+        [showItemNotesId !== null,           () => setShowItemNotesId(null)],
+        [showItemsPopup,                     () => setShowItemsPopup(false)],
+        [showCallStats,                      () => setShowCallStats(false)],
+        [showSciRepsPanel,                   () => setShowSciRepsPanel(false)],
+        [showMyAreasPanel,                   () => setShowMyAreasPanel(false)],
+        [showSalesBreakdown !== null,        () => setShowSalesBreakdown(null)],
+      ];
+      for (const [cond, close] of layers) {
+        if (cond) { ce.preventDefault(); close(); return; }
       }
     };
     window.addEventListener('before-navigate-back', handleBackNav);
     return () => window.removeEventListener('before-navigate-back', handleBackNav);
-  }, [voiceOverlay, voiceReady, trackingMapRepId, showMap, showCallLog]);
+  }, [voiceOverlay, voiceReady, trackingMapRepId, showMap, showCallLog, visitInfoPopup,
+      showLikersId, showItemNotesId, showItemsPopup, showCallStats,
+      showSciRepsPanel, showMyAreasPanel, showSalesBreakdown]);
 
   // Load active plan (used by Quick Call Log for doctor matching)
   useEffect(() => {

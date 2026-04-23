@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -264,6 +265,26 @@ export default function DoctorsPage() {
   const toggleDocExpand = (id: number) => setExpandedDocIds(prev => { const s = new Set<number>(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const writingCardRef = useRef<HTMLDivElement>(null);
   const visitedCardRef = useRef<HTMLDivElement>(null);
+
+  // Back button: close open modals/panels in priority order
+  useBackHandler([
+    [modal !== null,               () => setModal(null)],
+    [pharmModal !== null,          () => setPharmModal(null)],
+    [showImportPanel,              () => setShowImportPanel(false)],
+    [showPharmImport,              () => setShowPharmImport(false)],
+    [showWishPanel,                () => setShowWishPanel(false)],
+    [showWritingPopup,             () => setShowWritingPopup(false)],
+    [showCoveragePopup,            () => setShowCoveragePopup(false)],
+    [showTotalPopup,               () => setShowTotalPopup(false)],
+    [showVisitedPopup,             () => setShowVisitedPopup(false)],
+    [showVisitMonthPicker,         () => setShowVisitMonthPicker(false)],
+    [showPharmMonthPicker,         () => setShowPharmMonthPicker(false)],
+    [expandedDocIds.size > 0,      () => setExpandedDocIds(new Set())],
+    [expandedAreas.size > 0,       () => setExpandedAreas(new Set())],
+    [expandedVisits.size > 0,      () => setExpandedVisits(new Set())],
+    [expandedPharma.size > 0,      () => setExpandedPharma(new Set())],
+    [pharmExpandedAreas.size > 0,  () => setPharmExpandedAreas(new Set())],
+  ]);
 
   const toggleWish = (id: number, name?: string) => {
     setWishedDoctors(prev => {

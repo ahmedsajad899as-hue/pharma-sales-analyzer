@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 
@@ -205,6 +206,12 @@ export default function SalesDataPage() {
   const [colFilters, setColFilters]       = useState<Record<string, string[]>>({});
   const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
   const [filterSearch, setFilterSearch]   = useState('');
+
+  // Back button: close open overlays/panels
+  useBackHandler([
+    [showImport,              () => { setShowImport(false); setImportErr(''); }],
+    [openFilterCol !== null,  () => setOpenFilterCol(null)],
+  ]);
   const PAGE_SIZE = 50;
 
   const activeFile = files.find(f => f.id === activeId);

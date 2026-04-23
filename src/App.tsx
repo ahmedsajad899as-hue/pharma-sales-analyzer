@@ -223,6 +223,10 @@ function AppInner() {
   const activePageRef = useRef(activePage);
   useEffect(() => { activePageRef.current = activePage; }, [activePage]);
 
+  // Keep a ref so the popstate closure always sees the latest sidebarOpen
+  const sidebarOpenRef = useRef(sidebarOpen);
+  useEffect(() => { sidebarOpenRef.current = sidebarOpen; }, [sidebarOpen]);
+
   // Sync with browser history so mobile back button navigates within the app
   useEffect(() => {
     const saved = (localStorage.getItem('lastPage') as PageId) || 'dashboard';
@@ -259,8 +263,19 @@ function AppInner() {
     };
 
     const handlePopState = (e: PopStateEvent) => {
+      // 0. Close mobile sidebar first if it's open
+      if (sidebarOpenRef.current && window.innerWidth < 768) {
+        setSidebarOpen(false);
+        history.pushState({ page: activePageRef.current, appShell: true }, '');
+        clearExitState();
+        return;
+      }
+
       // 1. Let open layers intercept (CommercialRepPage listens to this)
-      const layerEv = new CustomEvent('before-navigate-back', { cancelable: true });
+      const layerEv = new CustomEvent('before-navigate-back', {
+        cancelable: true,
+        detail: { activePage: activePageRef.current },
+      });
       window.dispatchEvent(layerEv);
       if (layerEv.defaultPrevented) {
         // A layer was closed – re-push working entry immediately so

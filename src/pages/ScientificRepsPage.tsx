@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -40,6 +41,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [selCommercial, setSelCommercial]   = useState<NamedItem[]>([]);
   const [itemsPopup, setItemsPopup]         = useState<number | null>(null); // rep.id whose items popup is open
   const itemsPopupRef                       = useRef<HTMLDivElement>(null);
+
+  // Back button: close open modal/popup in priority order
+  useBackHandler([
+    [modal !== null,         () => setModal(null)],
+    [itemsPopup !== null,    () => setItemsPopup(null)],
+  ]);
   const [allAreas, setAllAreas]             = useState<NamedItem[]>([]);
   const [allItems, setAllItems]             = useState<NamedItem[]>([]);
   const [allCommercial, setAllCommercial]   = useState<NamedItem[]>([]);

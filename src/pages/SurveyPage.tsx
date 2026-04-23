@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 
 // ── Types ────────────────────────────────────────────────────
@@ -82,6 +83,15 @@ export default function SurveyPage() {
   const [editingPharma,  setEditingPharma]  = useState<SurveyPharmacy | null>(null);
   const [addingDoc,      setAddingDoc]      = useState(false);
   const [addingPharma,   setAddingPharma]   = useState(false);
+
+  // Back button: close open modals in priority order
+  useBackHandler([
+    [editingDoc !== null,    () => setEditingDoc(null)],
+    [editingPharma !== null, () => setEditingPharma(null)],
+    [addingDoc,              () => setAddingDoc(false)],
+    [addingPharma,           () => setAddingPharma(false)],
+    [selectedSurvey !== null, () => setSelectedSurvey(null)],
+  ]);
 
   const showToast = (msg: string) => setToast(msg);
 

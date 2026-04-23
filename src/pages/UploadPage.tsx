@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -159,6 +160,14 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [currModalRate, setCurrModalRate] = useState<string>('1500');
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currSaveMsg, setCurrSaveMsg] = useState('');
+
+  // Back button: close open overlays in priority order
+  useBackHandler([
+    [currencyModal !== null, () => setCurrencyModal(null)],
+    [analyzeFile !== null,   () => setAnalyzeFile(null)],
+    [confirmId !== null,     () => setConfirmId(null)],
+    [showNorm,               () => setShowNorm(false)],
+  ]);
 
   const dedupNames = async (apply: boolean) => {
     setDeduping(true);

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { usePageBackHandler } from '../hooks/useBackHandler';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
@@ -137,6 +138,11 @@ export default function DistributorSalesPage() {
   const { token, hasFeature } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>('upload');
   const [selectedUploadId, setSelectedUploadId] = useState<number | null>(null);
+
+  // Back button: go to upload tab when on analysis tabs (only if this page is active)
+  usePageBackHandler('distributor-sales', [
+    [activeTab !== 'upload', () => setActiveTab('upload')],
+  ]);
 
   // Upload state
   const [uploads, setUploads] = useState<UploadRecord[]>([]);

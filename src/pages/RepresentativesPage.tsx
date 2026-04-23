@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
@@ -28,6 +29,11 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
   const [error, setError]     = useState('');
   const [modal, setModal]     = useState<'add' | 'edit' | 'assign' | null>(null);
   const [selected, setSelected] = useState<Rep | null>(null);
+
+  // Back button: close open modal
+  useBackHandler([
+    [modal !== null, () => setModal(null)],
+  ]);
 
   // Form state
   const [formName, setFormName]   = useState('');

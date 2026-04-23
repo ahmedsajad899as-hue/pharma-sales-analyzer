@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { cachedFetch, invalidateCache, getCached } from '../utils/apiCache';
 import * as XLSX from 'xlsx';
@@ -390,6 +391,24 @@ export default function MonthlyPlansPage() {
     if (reJson && !reJson.error) setReps(Array.isArray(reJson) ? reJson : (Array.isArray(reJson?.data) ? reJson.data : []));
     if (itJson) setItems(Array.isArray(itJson) ? itJson : (Array.isArray(itJson?.data) ? itJson.data : []));
   }, []);
+
+  // Back button: close open modals/panels in priority order
+  useBackHandler([
+    [showCreate,                    () => setShowCreate(false)],
+    [showImportModal,               () => setShowImportModal(false)],
+    [showPlanImportModal,           () => setShowPlanImportModal(false)],
+    [fbPopup !== null,              () => setFbPopup(null)],
+    [transferPlan !== null,         () => setTransferPlan(null)],
+    [showLikers !== null,           () => setShowLikers(null)],
+    [voiceResults !== null,         () => setVoiceResults(null)],
+    [showSuggestSettings,           () => setShowSuggestSettings(false)],
+    [showToolsMenu,                 () => setShowToolsMenu(false)],
+    [showExcelMenu,                 () => setShowExcelMenu(false)],
+    [areaDropdownPlanId !== null,   () => setAreaDropdownPlanId(null)],
+    [openItemKey !== null,          () => setOpenItemKey(null)],
+    [searchSuggestOpen,             () => setSearchSuggestOpen(false)],
+    [expandedEntries.size > 0,      () => setExpandedEntries(new Set())],
+  ]);
 
   const load = useCallback(async (silent = false) => {
     setError('');

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -63,6 +64,12 @@ export default function UsersPage() {
   const [membersLoading, setMembersLoading]       = useState(true);
   const [membersError, setMembersError]           = useState('');
   const [areasModalMember, setAreasModalMember]   = useState<CompanyMember | null>(null);
+
+  // Back button: close open modals in priority order
+  useBackHandler([
+    [areasModalMember !== null, () => setAreasModalMember(null)],
+    [modal !== null,            () => setModal(null)],
+  ]);
   const [allAreas, setAllAreas]                   = useState<AreaItem[]>([]);
   const [selectedAreaIds, setSelectedAreaIds]     = useState<Set<number>>(new Set());
   const [areasLoading, setAreasLoading]           = useState(false);
