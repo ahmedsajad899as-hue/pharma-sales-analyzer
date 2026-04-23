@@ -670,11 +670,17 @@ export default function SalesDataPage() {
                 const q = itemQuery.trim().toLowerCase();
                 const suggestions = [...new Map(
                   activeFile.rows
-                    .filter(row => !q || activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)))
-                    .map(row => [
-                      String(row[itemNameCol] ?? ''),
-                      { name: String(row[itemNameCol] ?? ''), company: companyCol ? String(row[companyCol] ?? '') : '' },
-                    ])
+                    .filter(row => {
+                      if (!q) return true;
+                      const itemName = String(row[itemNameCol] ?? '').toLowerCase();
+                      const company  = companyCol ? String(row[companyCol] ?? '').toLowerCase() : '';
+                      return itemName.includes(q) || company.includes(q);
+                    })
+                    .map(row => {
+                      const name    = String(row[itemNameCol] ?? '').trim();
+                      const company = companyCol ? String(row[companyCol] ?? '').trim() : '';
+                      return [`${name}||${company}`, { name, company }];
+                    })
                 ).values()]
                   .filter(it => it.name && !selectedItems.includes(it.name))
                   .slice(0, 50);
@@ -693,12 +699,12 @@ export default function SalesDataPage() {
                     )}
                     {suggestions.map(it => (
                       <div
-                        key={it.name}
+                        key={it.name + '||' + it.company}
                         style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f8fafc', fontSize: 13 }}
                         onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                         onMouseLeave={e => (e.currentTarget.style.background = '')}
                       >
-                        {/* Left half: add + KEEP dropdown open */}
+                        {/* Left: + icon — add + keep dropdown open */}
                         <div
                           title="اضغط لإضافة والإبقاء على القائمة مفتوحة"
                           onMouseDown={e => {
@@ -707,13 +713,12 @@ export default function SalesDataPage() {
                             setItemQuery('');
                             setPage(1);
                           }}
-                          style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderLeft: '2px solid #bfdbfe', cursor: 'pointer' }}
+                          style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, borderLeft: '2px solid #bfdbfe', cursor: 'pointer' }}
                         >
                           <span style={{ fontSize: 16 }}>💊</span>
-                          {it.company && <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 6px', whiteSpace: 'nowrap' }}>{it.company}</span>}
-                          <span style={{ fontSize: 11, color: '#94a3b8', userSelect: 'none', fontWeight: 700 }}>+</span>
+                          <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 700 }}>+</span>
                         </div>
-                        {/* Right half: add + CLOSE dropdown */}
+                        {/* Right: item name + company tag — add + close */}
                         <div
                           onMouseDown={() => {
                             if (!selectedItems.includes(it.name)) setSelectedItems(prev => [...prev, it.name]);
@@ -721,9 +726,14 @@ export default function SalesDataPage() {
                             setShowItemDropdown(false);
                             setPage(1);
                           }}
-                          style={{ flex: 1, padding: '10px 14px 10px 8px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                          style={{ flex: 1, padding: '8px 14px 8px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, cursor: 'pointer' }}
                         >
-                          <span style={{ color: '#4338ca', fontWeight: 600 }}>{it.name}</span>
+                          <span style={{ color: '#4338ca', fontWeight: 600, fontSize: 13 }}>{it.name}</span>
+                          {it.company && (
+                            <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 6px', alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>
+                              🏢 {it.company}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
