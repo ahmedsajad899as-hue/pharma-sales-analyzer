@@ -90,7 +90,7 @@ function FilesTab({ token, onOpenFile }: { token: string; onOpenFile: (f: Upload
   const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
-      const res  = await fetch(`${API}/api/files`, { headers: { Authorization: `Bearer ${token}` } });
+      const res  = await fetch(`${API}/api/files?context=filter_page`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       if (json.success) setFiles(json.data || []);
     } catch { /* ignore */ }
@@ -104,7 +104,7 @@ function FilesTab({ token, onOpenFile }: { token: string; onOpenFile: (f: Upload
     setError(''); setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('file', file); fd.append('fileType', 'auto');
+      fd.append('file', file); fd.append('fileType', 'filter_page');
       const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'خطأ في الرفع');

@@ -794,9 +794,13 @@ app.delete('/api/companies/:id', async (req, res) => {
 // ── Uploaded files list ──────────────────────────────────────
 app.get('/api/files', async (req, res) => {
   try {
-    const userId = req.user?.id ?? null;
+    const userId  = req.user?.id ?? null;
+    const context = req.query.context ?? null; // 'filter_page' → show only filter files; else → hide filter files
+    const typeFilter = context === 'filter_page'
+      ? { fileType: 'filter_page' }
+      : { NOT: { fileType: 'filter_page' } };
     const files = await prisma.uploadedFile.findMany({
-      where: userId ? { userId } : {},
+      where: { ...(userId ? { userId } : {}), ...typeFilter },
       orderBy: { uploadedAt: 'desc' },
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,

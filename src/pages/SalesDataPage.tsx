@@ -618,7 +618,7 @@ export default function SalesDataPage() {
 
             {/* Region pills */}
             <div style={{ marginBottom: regionFilter !== 'all' ? 12 : 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المنطقة</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المذاخر</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => selectRegion('all')} style={fp(regionFilter === 'all')}>الكل</button>
                 {activeFile.regions.map(region => (
@@ -646,21 +646,17 @@ export default function SalesDataPage() {
             {([['table', '📋 الجدول'], ['analysis', '📈 التحليل']] as [string, string][]).map(([id, lbl]) => (
               <button key={id} onClick={() => setTab(id as 'table' | 'analysis')} style={fp(tab === id)}>{lbl}</button>
             ))}
-            {tab === 'table' && priceCol && (
-              <button
-                onClick={() => setShowValue(v => !v)}
-                title={showValue ? 'إخفاء القيمة المالية والعودة للكميات' : 'عرض القيمة المالية (الكمية × السعر)'}
-                style={{
-                  padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  border: `1.5px solid ${showValue ? '#f59e0b' : '#e2e8f0'}`,
-                  background: showValue ? '#fffbeb' : '#f8fafc',
-                  color: showValue ? '#b45309' : '#64748b',
-                  boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
-                  transition: 'all 0.15s',
-                }}>
-                {showValue ? '💰 قيمة مالية ✓' : '💰 قيمة مالية'}
-              </button>
-            )}
+            <button
+              onClick={() => { setTab('table'); setShowValue(v => !v); }}
+              title={showValue ? 'إخفاء القيمة المالية والعودة للكميات' : 'عرض القيمة المالية (الكمية × السعر)'}
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                border: `1.5px solid ${showValue ? '#f59e0b' : '#e2e8f0'}`,
+                background: showValue ? '#fffbeb' : '#f8fafc',
+                color: showValue ? '#b45309' : '#64748b',
+                boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
+                transition: 'all 0.15s',
+              }}>💰 قمة مالية{showValue ? ' ✓' : ''}</button>
           </div>
 
           {/* TABLE VIEW */}

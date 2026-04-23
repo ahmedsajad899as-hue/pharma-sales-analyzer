@@ -114,6 +114,30 @@ const COLUMN_ALIASES = {
 export async function processUploadedFile(file, options = {}) {
   const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null } = options;
 
+  // ── 0. filter_page — just store the file, skip all sales processing ──────────
+  if (fileType === 'filter_page') {
+    const fileBuffer = file.buffer || readFileSync(file.path);
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    ensureExcelUploadsDir();
+    const safeOriginalName = originalName.replace(/[^a-zA-Z0-9\u0600-\u06FF._-]/g, '_');
+    const savedFilename = `${Date.now()}_${safeOriginalName}`;
+    const savedFilePath = path.join(EXCEL_UPLOADS_DIR, savedFilename);
+    try { writeFileSync(savedFilePath, fileBuffer); } catch (e) {
+      console.warn('[upload] could not save filter_page file to disk:', e.message);
+    }
+    const uploadedFile = await createUploadedFile({
+      filename:     savedFilename,
+      originalName: originalName,
+      rowCount:     0,
+      uploadedBy:   uploadedBy || null,
+      userId,
+      fileType:     'filter_page',
+      detectedCurrency: null,
+      currencyMode:     null,
+    });
+    return { rowCount: 0, skipped: 0, uploadedFile, normalizationLog: [] };
+  }
+
   // ── 1. Parse workbook ────────────────────────────────────
   const fileBuffer = file.buffer || readFileSync(file.path);
   const workbook   = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
