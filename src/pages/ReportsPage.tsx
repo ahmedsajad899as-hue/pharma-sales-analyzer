@@ -1523,12 +1523,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
                 : filterRowsByText(overallReturns?.byItem ?? []);
 
-        // Badges for text mode only
-        const matchedAreaNames = !hasTags && q ? [...new Set(allAreas.filter(a => normalise(a.name).includes(q)).map(a => a.name))] : [];
-        const matchedItemNames = !hasTags && q ? [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].filter(i => normalise(i.name).includes(q)).map(i => i.name))] : [];
-        const useAreaScope = !hasTags && overallTab === 'item' && areaMatch && !itemMatch;
-        const useItemScope = !hasTags && overallTab === 'area' && itemMatch && !areaMatch;
-
         return (
           <>
             {/* Summary cards — mobile-optimised layout */}
@@ -1702,58 +1696,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {overallViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
               </button>
             </div>
-
-            {/* Area-scope badge when filtering items by area — clickable to pin as tag */}
-            {overallTab === 'item' && useAreaScope && matchedAreaNames.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>📍 اضغط لتحديد:</span>
-                {matchedAreaNames.map(n => {
-                  const isSelected = overallSelectedTags.some(t => t.type === 'area' && t.name === n);
-                  return (
-                    <button
-                      key={n}
-                      onClick={() => {
-                        if (isSelected) {
-                          setOverallSelectedTags(prev => prev.filter(t => !(t.type === 'area' && t.name === n)));
-                        } else {
-                          setOverallSelectedTags(prev => [...prev, { name: n, type: 'area' }]);
-                          setOverallSearch('');
-                        }
-                      }}
-                      style={{ background: isSelected ? '#4f46e5' : '#e0e7ff', color: isSelected ? '#fff' : '#3730a3', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, border: isSelected ? '2px solid #3730a3' : '2px solid transparent', cursor: 'pointer' }}
-                    >
-                      {isSelected ? '✓ ' : ''}{n}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Item-scope badge when filtering areas by item — clickable to pin as tag */}
-            {overallTab === 'area' && useItemScope && matchedItemNames.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>💊 اضغط لتحديد:</span>
-                {matchedItemNames.map(n => {
-                  const isSelected = overallSelectedTags.some(t => t.type === 'item' && t.name === n);
-                  return (
-                    <button
-                      key={n}
-                      onClick={() => {
-                        if (isSelected) {
-                          setOverallSelectedTags(prev => prev.filter(t => !(t.type === 'item' && t.name === n)));
-                        } else {
-                          setOverallSelectedTags(prev => [...prev, { name: n, type: 'item' }]);
-                          setOverallSearch('');
-                        }
-                      }}
-                      style={{ background: isSelected ? '#b45309' : '#fef3c7', color: isSelected ? '#fff' : '#92400e', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, border: isSelected ? '2px solid #92400e' : '2px solid transparent', cursor: 'pointer' }}
-                    >
-                      {isSelected ? '✓ ' : ''}{n}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
 
             {overallTab === 'area' && renderNetTable(salesAreasFiltered, retAreasFiltered, t.reports.colArea, false, overallViewMode)}
             {overallTab === 'item' && renderNetTable(salesItemsFiltered, retItemsFiltered, t.reports.colItem, false, overallViewMode)}
