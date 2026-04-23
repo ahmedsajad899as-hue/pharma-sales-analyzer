@@ -754,17 +754,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const colSpanEmpty = (hasRep ? 3 : 2) + 3;
     // Responsive styles: compact on mobile, larger on desktop
     const thMobile: React.CSSProperties = isMobile
-      ? { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap' }
-      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700 };
+      ? { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap', verticalAlign: 'middle', textAlign: 'center' }
+      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700, verticalAlign: 'middle', textAlign: 'center' };
     const tdMobile: React.CSSProperties = isMobile
-      ? { fontSize: 11, padding: '5px 4px', textAlign: 'center' }
-      : { fontSize: 14, padding: '9px 10px', textAlign: 'center' };
+      ? { fontSize: 11, padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }
+      : { fontSize: 14, padding: '9px 10px', textAlign: 'center', verticalAlign: 'middle' };
     const tdNameMobile: React.CSSProperties = isMobile
-      ? { fontSize: 11, padding: '5px 4px', textAlign: 'right', wordBreak: 'break-word', whiteSpace: 'normal' }
-      : { fontSize: 14, padding: '9px 10px', textAlign: 'right', fontWeight: 600 };
+      ? { fontSize: 11, padding: '5px 4px', textAlign: 'right', wordBreak: 'break-word', whiteSpace: 'normal', verticalAlign: 'middle' }
+      : { fontSize: 14, padding: '9px 10px', textAlign: 'right', fontWeight: 600, verticalAlign: 'middle' };
     const tdRepMobile: React.CSSProperties = isMobile
-      ? { fontSize: 10, padding: '5px 3px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b', fontWeight: 600 }
-      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#1e293b', fontWeight: 600 };
+      ? { fontSize: 10, padding: '5px 3px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b', fontWeight: 600, verticalAlign: 'middle' }
+      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#1e293b', fontWeight: 600, verticalAlign: 'middle' };
     return (
       <>
       <div style={{ overflow: isMobile ? 'hidden' : 'auto' }}>
@@ -785,12 +785,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <th style={{ ...thMobile, textAlign: 'center' }}>#</th>
               <th style={{ ...thMobile, textAlign: 'right' }}>{nameLabel}</th>
               {hasRep && <th style={thMobile}>👤</th>}
-              {effShowQty && <th style={{ ...thMobile, background: '#dbeafe', color: '#1e40af' }} title={t.reports.colSalesQty}>📈</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colSalesVal}>💰</th>}
-              {effShowQty && <th style={{ ...thMobile, background: '#fee2e2', color: '#991b1b' }} title={t.reports.colRetQty}>📉</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colRetVal}>💸</th>}
-              {effShowQty && <th style={{ ...thMobile, background: '#d1fae5', color: '#065f46' }} title={t.reports.colNetQty}>✅</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colNetVal}>⚖️</th>}
+              {effShowQty && <th style={{ ...thMobile, background: '#dbeafe', color: '#1e40af' }} title={t.reports.colSalesQty}><div>📈</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>مبيعات</div>}</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colSalesVal}><div>💰</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
+              {effShowQty && <th style={{ ...thMobile, background: '#fee2e2', color: '#991b1b' }} title={t.reports.colRetQty}><div>📉</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>ارجاع</div>}</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colRetVal}><div>💸</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
+              {effShowQty && <th style={{ ...thMobile, background: '#d1fae5', color: '#065f46' }} title={t.reports.colNetQty}><div>✅</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colNetVal}><div>⚖️</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
             </tr>
           </thead>
           <tbody>
@@ -1172,17 +1172,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const effShowValBD = forceMode ? forceMode === 'value' : hideQtyCols;
     const colCount = hasRep ? 4 : 3;
     const thBD: React.CSSProperties = isMobile
-      ? { fontSize: 11, padding: '6px 5px', whiteSpace: 'nowrap' }
-      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700 };
+      ? { fontSize: 11, padding: '6px 5px', whiteSpace: 'nowrap', verticalAlign: 'middle', textAlign: 'center' }
+      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700, verticalAlign: 'middle', textAlign: 'center' };
     const tdBD: React.CSSProperties = isMobile
-      ? { fontSize: 12, padding: '6px 5px', textAlign: 'center' }
-      : { fontSize: 14, padding: '9px 10px', textAlign: 'center' };
+      ? { fontSize: 12, padding: '6px 5px', textAlign: 'center', verticalAlign: 'middle' }
+      : { fontSize: 14, padding: '9px 10px', textAlign: 'center', verticalAlign: 'middle' };
     const tdNameBD: React.CSSProperties = isMobile
-      ? { fontSize: 12, padding: '6px 5px', wordBreak: 'break-word', whiteSpace: 'normal' }
-      : { fontSize: 14, padding: '9px 10px', fontWeight: 600 };
+      ? { fontSize: 12, padding: '6px 5px', wordBreak: 'break-word', whiteSpace: 'normal', verticalAlign: 'middle' }
+      : { fontSize: 14, padding: '9px 10px', fontWeight: 600, verticalAlign: 'middle' };
     const tdRepBD: React.CSSProperties = isMobile
-      ? { fontSize: 11, padding: '6px 4px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4f46e5', fontWeight: 600 }
-      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#4f46e5', fontWeight: 600 };
+      ? { fontSize: 11, padding: '6px 4px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4f46e5', fontWeight: 600, verticalAlign: 'middle' }
+      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#4f46e5', fontWeight: 600, verticalAlign: 'middle' };
     return (
     <>
     <div style={{ overflow: isMobile ? 'hidden' : 'auto' }}>
