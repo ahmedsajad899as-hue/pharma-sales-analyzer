@@ -691,10 +691,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
       if (!salesRes.ok) throw new Error(salesJson.message || salesJson.error || 'فشل تحميل البيانات');
       const salesData = salesJson.data ?? salesJson;
-      // Auto-populate date inputs from file's actual date range when no filter was set
+      // Auto-populate date inputs from file's actual date range when no filter was set.
+      // Use LOCAL date (not UTC slice) to avoid timezone off-by-one: Iraq is UTC+3 so
+      // midnight local = 21:00 UTC previous day — slice(0,10) on UTC would give wrong date.
+      const toLocalDate = (iso: string) => {
+        const d = new Date(iso);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
       if (!fromDate && !toDate) {
-        if (salesData.minDate) setFromDate(salesData.minDate.slice(0, 10));
-        if (salesData.maxDate) setToDate(salesData.maxDate.slice(0, 10));
+        if (salesData.minDate) setFromDate(toLocalDate(salesData.minDate));
+        if (salesData.maxDate) setToDate(toLocalDate(salesData.maxDate));
       }
       setOverallSales(parseOverall(salesData));
       setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);

@@ -38,7 +38,12 @@ router.get('/overall', async (req, res) => {
 
     // If no date filter provided, auto-detect the real date range from the file
     let effectiveStartDate = startDate ? new Date(startDate) : null;
-    let effectiveEndDate   = endDate   ? new Date(endDate)   : null;
+    // For endDate, extend to end-of-day to include all records on that day regardless of
+    // stored time component. e.g. "2026-04-21" → 2026-04-21T23:59:59.999Z so records
+    // stored as midnight local time (= 2026-04-20T21:00:00Z in UTC+3) are still included.
+    let effectiveEndDate = endDate
+      ? (() => { const d = new Date(endDate); d.setUTCHours(23, 59, 59, 999); return d; })()
+      : null;
 
     if (!startDate && !endDate && parsedFileIds.length > 0) {
       // Get the file's upload date — only if it belongs to the current user
