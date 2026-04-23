@@ -431,6 +431,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'scientific');
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   // Commercial
   const [commReps, setCommReps]   = useState<Rep[]>([]);
@@ -751,16 +752,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : !hideQtyCols;
     const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : hideQtyCols;
     const colSpanEmpty = (hasRep ? 3 : 2) + 3;
-    // Mobile: compact table with all cols visible — no horizontal scroll
-    const mobileStyle: React.CSSProperties = {
-      fontSize: 11,
-      whiteSpace: 'normal',
-      wordBreak: 'break-word',
-    };
-    const thMobile: React.CSSProperties = { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap' };
-    const tdMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'center' };
-    const tdNameMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'right', wordBreak: 'break-word', whiteSpace: 'normal' };
-    const tdRepMobile: React.CSSProperties = { fontSize: 10, padding: '5px 3px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b', fontWeight: 600 };
+    // Responsive styles: compact on mobile, larger on desktop
+    const thMobile: React.CSSProperties = isMobile
+      ? { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap' }
+      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700 };
+    const tdMobile: React.CSSProperties = isMobile
+      ? { fontSize: 11, padding: '5px 4px', textAlign: 'center' }
+      : { fontSize: 14, padding: '9px 10px', textAlign: 'center' };
+    const tdNameMobile: React.CSSProperties = isMobile
+      ? { fontSize: 11, padding: '5px 4px', textAlign: 'right', wordBreak: 'break-word', whiteSpace: 'normal' }
+      : { fontSize: 14, padding: '9px 10px', textAlign: 'right', fontWeight: 600 };
+    const tdRepMobile: React.CSSProperties = isMobile
+      ? { fontSize: 10, padding: '5px 3px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b', fontWeight: 600 }
+      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#1e293b', fontWeight: 600 };
     return (
       <>
       <div style={{ overflow: 'hidden' }}>
@@ -1167,10 +1171,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const effShowQtyBD = forceMode ? forceMode === 'qty' : !hideQtyCols;
     const effShowValBD = forceMode ? forceMode === 'value' : hideQtyCols;
     const colCount = hasRep ? 4 : 3;
-    const thBD: React.CSSProperties = { fontSize: 11, padding: '6px 5px', whiteSpace: 'nowrap' };
-    const tdBD: React.CSSProperties = { fontSize: 12, padding: '6px 5px', textAlign: 'center' };
-    const tdNameBD: React.CSSProperties = { fontSize: 12, padding: '6px 5px', wordBreak: 'break-word', whiteSpace: 'normal' };
-    const tdRepBD: React.CSSProperties = { fontSize: 11, padding: '6px 4px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4f46e5', fontWeight: 600 };
+    const thBD: React.CSSProperties = isMobile
+      ? { fontSize: 11, padding: '6px 5px', whiteSpace: 'nowrap' }
+      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700 };
+    const tdBD: React.CSSProperties = isMobile
+      ? { fontSize: 12, padding: '6px 5px', textAlign: 'center' }
+      : { fontSize: 14, padding: '9px 10px', textAlign: 'center' };
+    const tdNameBD: React.CSSProperties = isMobile
+      ? { fontSize: 12, padding: '6px 5px', wordBreak: 'break-word', whiteSpace: 'normal' }
+      : { fontSize: 14, padding: '9px 10px', fontWeight: 600 };
+    const tdRepBD: React.CSSProperties = isMobile
+      ? { fontSize: 11, padding: '6px 4px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4f46e5', fontWeight: 600 }
+      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#4f46e5', fontWeight: 600 };
     return (
     <>
     <div style={{ overflow: 'hidden' }}>

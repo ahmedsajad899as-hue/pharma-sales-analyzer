@@ -53,22 +53,19 @@ router.get('/overall', async (req, res) => {
       });
 
       if (fileRecord?.uploadedAt) {
+        // Use the exact upload timestamp (not midnight of upload day) as the cutoff.
+        // Records with no date in Excel get saleDate = @default(now()) ≈ uploadedAt,
+        // so using `lt: uploadedAt` correctly excludes only those garbage records
+        // while including real data from the same calendar day as the upload.
         const uploadedAt = new Date(fileRecord.uploadedAt);
-        // Start of upload day in UTC — records with saleDate >= this are either
-        // @default(now()) records (no date in Excel) or garbage future dates
-        const startOfUploadDay = new Date(Date.UTC(
-          uploadedAt.getUTCFullYear(),
-          uploadedAt.getUTCMonth(),
-          uploadedAt.getUTCDate(),
-        ));
 
-        // Find real date range: only records with saleDate strictly before upload day
+        // Find real date range: only records with saleDate strictly before the upload moment
         const dateRange = await prisma.sale.aggregate({
           where: {
             ...fileFilter,
             ...userOwnershipFilter,
             ...(recordType ? { recordType } : {}),
-            saleDate: { lt: startOfUploadDay },
+            saleDate: { lt: uploadedAt },
           },
           _min: { saleDate: true },
           _max: { saleDate: true },
