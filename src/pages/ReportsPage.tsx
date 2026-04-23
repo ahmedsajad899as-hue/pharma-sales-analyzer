@@ -786,11 +786,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <th style={{ ...thMobile, textAlign: 'right' }}>{nameLabel}</th>
               {hasRep && <th style={thMobile}>👤</th>}
               {effShowQty && <th style={{ ...thMobile, background: '#dbeafe', color: '#1e40af' }} title={t.reports.colSalesQty}><div>📈</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>مبيعات</div>}</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colSalesVal}><div>💰</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colSalesVal}><div style={{fontWeight:800,fontSize:13,letterSpacing:'-0.5px'}}>S</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
               {effShowQty && <th style={{ ...thMobile, background: '#fee2e2', color: '#991b1b' }} title={t.reports.colRetQty}><div>📉</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>ارجاع</div>}</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colRetVal}><div>💸</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colRetVal}><div style={{fontWeight:800,fontSize:13,letterSpacing:'-0.5px'}}>R</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
               {effShowQty && <th style={{ ...thMobile, background: '#d1fae5', color: '#065f46' }} title={t.reports.colNetQty}><div>✅</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colNetVal}><div>⚖️</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colNetVal}><div style={{fontWeight:800,fontSize:13,letterSpacing:'-0.5px'}}>N</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
             </tr>
           </thead>
           <tbody>
