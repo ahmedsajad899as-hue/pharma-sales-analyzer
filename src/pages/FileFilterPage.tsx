@@ -44,6 +44,7 @@ const H_CO     = ['الصنف','صنف','اسم الصنف','الشركة','ال
 const H_ITEM   = ['الايتم','ايتم','item','اسم الايتم','المنتج','product','اسم المنتج','اسم الماده','اسم المادة','الماده','المادة'];
 const H_REP    = ['مندوب','المندوب','rep','اسم المندوب','ممثل','مسوق'];
 const H_STATUS = ['الحاله','الحالة','حاله','حالة','status','حالة الطلب','حالة الطلبية','حالة الطلبيه'];
+const H_PRICE  = ['السعر','سعر','القيمة','القيمه','قيمة','قيمه','المبلغ','مبلغ','الاجمالي','الإجمالي','اجمالي','إجمالي','price','total','total value','value','amount','الكلي','كلي'];
 
 function findCol(headers: string[], hints: string[]): number {
   for (const h of hints) {
@@ -227,12 +228,14 @@ function ViewerTab({ token, targetFile, presets, onClearTarget }: { token: strin
   const [repIdx,     setRepIdx]     = useState(-1);
   const [statusIdx,  setStatusIdx]  = useState(-1);
   const [bonusIdx,   setBonusIdx]   = useState(-1);
+  const [priceIdx,   setPriceIdx]   = useState(-1);
   const [selCos,     setSelCos]     = useState<Set<string>>(new Set());
   const [selItems,   setSelItems]   = useState<Set<string>>(new Set());
   const [selReps,    setSelReps]    = useState<Set<string>>(new Set());
   const [selStatuses,setSelStatuses] = useState<Set<string>>(new Set());
   const [bonusMap,   setBonusMap]   = useState<Record<string, string>>({});
   const [search,     setSearch]     = useState('');
+  const [showValue,  setShowValue]  = useState(false);
   const [activePresetId, setActivePresetId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -251,13 +254,14 @@ function ViewerTab({ token, targetFile, presets, onClearTarget }: { token: strin
         const ri = findCol(h, H_REP);
         const si = findCol(h, H_STATUS);
         const bi = findCol(h, ['بونص','bonus']);
+        const pi = findCol(h, H_PRICE);
         if (ci >= 0 && ii === ci) ii = -1;
-        setCoIdx(ci); setItemIdx(ii); setRepIdx(ri); setStatusIdx(si); setBonusIdx(bi);
+        setCoIdx(ci); setItemIdx(ii); setRepIdx(ri); setStatusIdx(si); setBonusIdx(bi); setPriceIdx(pi);
         setSelCos(new Set(ci >= 0 ? rows.map(r => r[ci]).filter(Boolean) : []));
         setSelItems(new Set(ii >= 0 ? rows.map(r => r[ii]).filter(Boolean) : []));
         setSelReps(new Set(ri >= 0 ? rows.map(r => r[ri]).filter(Boolean) : []));
         setSelStatuses(new Set(si >= 0 ? rows.map(r => r[si]).filter(Boolean) : []));
-        setBonusMap({}); setActivePresetId(null);
+        setBonusMap({}); setActivePresetId(null); setShowValue(false);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -287,6 +291,9 @@ function ViewerTab({ token, targetFile, presets, onClearTarget }: { token: strin
   });
 
   const hasAnyBonus  = Object.values(bonusMap).some(v => v !== '');
+  const totalValue = priceIdx >= 0
+    ? filteredRows.reduce((sum, row) => sum + (parseFloat(row[priceIdx]?.replace(/,/g, '')) || 0), 0)
+    : 0;
   const exportHeaders = bonusIdx < 0 && hasAnyBonus ? [...headers, 'بونص%'] : headers;
   const exportRows = filteredRows.map(row => {
     const itemVal = itemIdx >= 0 ? row[itemIdx] : '';
@@ -334,6 +341,12 @@ function ViewerTab({ token, targetFile, presets, onClearTarget }: { token: strin
         </div>
         <input type="text" placeholder="🔍 بحث في كل الصفوف..." value={search} onChange={e => setSearch(e.target.value)}
           style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', width: 200 }} />
+        <button
+          onClick={() => priceIdx >= 0 && setShowValue(v => !v)}
+          disabled={priceIdx < 0}
+          title={priceIdx < 0 ? 'لا يوجد عمود سعر/قيمة في الملف' : ''}
+          style={{ background: priceIdx < 0 ? '#f1f5f9' : showValue ? '#f0fdf4' : '#fff', border: `1px solid ${priceIdx < 0 ? '#e2e8f0' : showValue ? '#86efac' : '#d1d5db'}`, borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: priceIdx < 0 ? 'not-allowed' : 'pointer', color: priceIdx < 0 ? '#94a3b8' : showValue ? '#16a34a' : '#374151', fontWeight: 600 }}
+        >💰 قيمة مالية{showValue && priceIdx >= 0 ? `: ${totalValue.toLocaleString('ar-IQ', { maximumFractionDigits: 2 })}` : ''}</button>
         <button onClick={doExport} disabled={filteredRows.length === 0} style={{ background: filteredRows.length === 0 ? '#f1f5f9' : '#1a56db', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, cursor: filteredRows.length === 0 ? 'not-allowed' : 'pointer', color: filteredRows.length === 0 ? '#94a3b8' : '#fff', fontWeight: 700 }}>⬇️ تصدير ({filteredRows.length.toLocaleString('ar-IQ')})</button>
       </div>
 
