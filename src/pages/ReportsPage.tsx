@@ -507,9 +507,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   }, [token]);
 
   useEffect(() => {
+    autoLoaded.current = false; // Reset so auto-load re-fires when reps reload for new files
     if (activeFileIds.length === 0) {
       setCommReps([]);
-      setCommRepId('');
       setCommReport(null);
       setSciReport(null);
       setFileCurrencyMode('IQD');
