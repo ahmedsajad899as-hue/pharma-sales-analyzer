@@ -742,20 +742,41 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : !hideQtyCols;
     const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : hideQtyCols;
     const colSpanEmpty = (hasRep ? 3 : 2) + 3;
+    // Mobile: compact table with all cols visible — no horizontal scroll
+    const mobileStyle: React.CSSProperties = {
+      fontSize: 11,
+      whiteSpace: 'normal',
+      wordBreak: 'break-word',
+    };
+    const thMobile: React.CSSProperties = { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap' };
+    const tdMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'center' };
+    const tdNameMobile: React.CSSProperties = { fontSize: 11, padding: '5px 4px', textAlign: 'right', maxWidth: 100, wordBreak: 'break-word', whiteSpace: 'normal' };
     return (
       <>
-      <div className="table-wrapper">
-        <table className="data-table">
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: 24 }} />
+            <col />
+            {hasRep && <col />}
+            {effShowQty && <col style={{ width: 52 }} />}
+            {effShowVal && <col style={{ width: 64 }} />}
+            {effShowQty && <col style={{ width: 52 }} />}
+            {effShowVal && <col style={{ width: 64 }} />}
+            {effShowQty && <col style={{ width: 56 }} />}
+            {effShowVal && <col style={{ width: 64 }} />}
+          </colgroup>
           <thead>
-            <tr>
-              <th>#</th><th>{nameLabel}</th>
-              {hasRep && <th>👤 {t.reports.colCommRep}</th>}
-              {effShowQty && <th style={{ background: '#dbeafe', color: '#1e40af', whiteSpace: 'nowrap' }} title={t.reports.colSalesQty}>📈 Sales</th>}
-              {effShowVal && <th style={{ background: '#fffbeb', color: '#b45309', whiteSpace: 'nowrap' }} title={t.reports.colSalesVal}>💰 Sales <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span></th>}
-              {effShowQty && <th style={{ background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap' }} title={t.reports.colRetQty}>📉 Ret</th>}
-              {effShowVal && <th style={{ background: '#fffbeb', color: '#b45309', whiteSpace: 'nowrap' }} title={t.reports.colRetVal}>💸 Ret <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span></th>}
-              {effShowQty && <th style={{ background: '#d1fae5', color: '#065f46', whiteSpace: 'nowrap' }} title={t.reports.colNetQty}>✅ Net</th>}
-              {effShowVal && <th style={{ background: '#fffbeb', color: '#b45309', whiteSpace: 'nowrap' }} title={t.reports.colNetVal}>⚖️ Net <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75 }}>{fileCurrencyMode === 'USD' ? '$' : 'IQ'}</span></th>}
+            <tr style={{ background: '#f8fafc' }}>
+              <th style={{ ...thMobile, textAlign: 'center' }}>#</th>
+              <th style={{ ...thMobile, textAlign: 'right' }}>{nameLabel}</th>
+              {hasRep && <th style={thMobile}>👤</th>}
+              {effShowQty && <th style={{ ...thMobile, background: '#dbeafe', color: '#1e40af' }} title={t.reports.colSalesQty}>📈</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colSalesVal}>💰</th>}
+              {effShowQty && <th style={{ ...thMobile, background: '#fee2e2', color: '#991b1b' }} title={t.reports.colRetQty}>📉</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colRetVal}>💸</th>}
+              {effShowQty && <th style={{ ...thMobile, background: '#d1fae5', color: '#065f46' }} title={t.reports.colNetQty}>✅</th>}
+              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colNetVal}>⚖️</th>}
             </tr>
           </thead>
           <tbody>
@@ -766,16 +787,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const netQty = s.totalQty - r.totalQty;
               const netVal = s.totalValue - r.totalValue;
               return (
-                <tr key={key}>
-                  <td>{i + 1}</td>
-                  <td><strong>{row.name}</strong></td>
-                  {hasRep && <td style={{ color: '#1e293b', fontWeight: 600, fontSize: 13 }}>{row.repName ?? '—'}</td>}
-                  {effShowQty && <td style={{ color: '#1d4ed8' }}>{fmt(s.totalQty)}</td>}
-                  {effShowVal && <td style={{ background: '#fffbeb', color: '#92400e' }}>{fmtVal(s.totalValue)}</td>}
-                  {effShowQty && <td style={{ color: '#dc2626' }}>{fmt(r.totalQty)}</td>}
-                  {effShowVal && <td style={{ background: '#fffbeb', color: '#92400e' }}>{fmtVal(r.totalValue)}</td>}
-                  {effShowQty && <td style={{ fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netQty)}</td>}
-                  {effShowVal && <td style={{ fontWeight: 700, background: '#fffbeb', color: '#92400e' }}>{fmtValSigned(netVal)}</td>}
+                <tr key={key} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ ...tdMobile, color: '#94a3b8' }}>{i + 1}</td>
+                  <td style={tdNameMobile}><strong>{row.name}</strong></td>
+                  {hasRep && <td style={{ ...tdMobile, color: '#1e293b', fontWeight: 600 }}>{row.repName ?? '—'}</td>}
+                  {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(s.totalQty)}</td>}
+                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(s.totalValue)}</td>}
+                  {effShowQty && <td style={{ ...tdMobile, color: '#dc2626' }}>{fmt(r.totalQty)}</td>}
+                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(r.totalValue)}</td>}
+                  {effShowQty && <td style={{ ...tdMobile, fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netQty)}</td>}
+                  {effShowVal && <td style={{ ...tdMobile, fontWeight: 700, background: '#fffbeb', color: '#92400e' }}>{fmtValSigned(netVal)}</td>}
                 </tr>
               );
             })}
@@ -787,14 +808,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const totRetVal   = returns.reduce((s, r) => s + r.totalValue, 0);
               return (
                 <tr style={{ background: effShowVal ? '#fffbeb' : '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
-                  <td></td><td>{t.reports.totalLabel}</td>
+                  <td style={tdMobile}></td><td style={{ ...tdMobile, textAlign: 'right' }}>{t.reports.totalLabel}</td>
                   {hasRep && <td></td>}
-                  {effShowQty && <td style={{ color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>}
-                  {effShowVal && <td style={{ background: '#fffbeb', color: '#92400e' }}>{fmtVal(totSalesVal)}</td>}
-                  {effShowQty && <td style={{ color: '#dc2626' }}>{fmt(totRetQty)}</td>}
-                  {effShowVal && <td style={{ background: '#fffbeb', color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
-                  {effShowQty && <td style={{ color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesQty - totRetQty)}</td>}
-                  {effShowVal && <td style={{ fontWeight: 800, background: '#fffbeb', color: '#92400e' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>}
+                  {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>}
+                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(totSalesVal)}</td>}
+                  {effShowQty && <td style={{ ...tdMobile, color: '#dc2626' }}>{fmt(totRetQty)}</td>}
+                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
+                  {effShowQty && <td style={{ ...tdMobile, color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesQty - totRetQty)}</td>}
+                  {effShowVal && <td style={{ ...tdMobile, fontWeight: 800, background: '#fffbeb', color: '#92400e' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>}
                 </tr>
               );
             })()}
@@ -1510,49 +1531,61 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
         return (
           <>
-            {/* Summary cards */}
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, marginBottom: 4 }}>
-              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #10b981' }}>
-                <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981' }}>📈</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#065f46' }}>{fmt(salesQ)}</div>
-                  <div className="stat-card-label">إجمالي الكميات المباعة</div>
-                  {overallSales.recordCount != null && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{overallSales.recordCount.toLocaleString()} سجل</div>}
+            {/* Summary cards — mobile-optimised layout */}
+            <div style={{ marginTop: 8, marginBottom: 4 }}>
+              {/* Qty row: sales + returns side by side, net centered below */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="stat-card" style={{ borderTop: '4px solid #10b981', margin: 0 }}>
+                  <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981', fontSize: 18 }}>📈</div>
+                  <div className="stat-card-body">
+                    <div className="stat-card-value" style={{ color: '#065f46', fontSize: 18 }}>{fmt(salesQ)}</div>
+                    <div className="stat-card-label" style={{ fontSize: 11 }}>كمية المبيع</div>
+                    {overallSales.recordCount != null && <div style={{ fontSize: 10, color: '#6b7280' }}>{overallSales.recordCount.toLocaleString()} سجل</div>}
+                  </div>
+                </div>
+                <div className="stat-card" style={{ borderTop: '4px solid #ef4444', margin: 0 }}>
+                  <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444', fontSize: 18 }}>📉</div>
+                  <div className="stat-card-body">
+                    <div className="stat-card-value" style={{ color: '#991b1b', fontSize: 18 }}>{fmt(retQ)}</div>
+                    <div className="stat-card-label" style={{ fontSize: 11 }}>كمية الارجاع</div>
+                  </div>
                 </div>
               </div>
-              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #ef4444' }}>
-                <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444' }}>📉</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#991b1b' }}>{fmt(retQ)}</div>
-                  <div className="stat-card-label">إجمالي الكميات المرتجعة</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+                <div className="stat-card" style={{ borderTop: '4px solid #6366f1', margin: 0, minWidth: 160 }}>
+                  <div className="stat-card-icon" style={{ background: '#e0e7ff', color: '#6366f1', fontSize: 18 }}>✅</div>
+                  <div className="stat-card-body">
+                    <div className="stat-card-value" style={{ color: netQ >= 0 ? '#065f46' : '#991b1b', fontSize: 20 }}>{fmtSigned(netQ)}</div>
+                    <div className="stat-card-label" style={{ fontSize: 11 }}>صافي الكميات</div>
+                  </div>
                 </div>
               </div>
-              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #6366f1' }}>
-                <div className="stat-card-icon" style={{ background: '#e0e7ff', color: '#6366f1' }}>✅</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: netQ >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netQ)}</div>
-                  <div className="stat-card-label">صافي الكميات</div>
+              {/* Divider */}
+              <div style={{ borderTop: '2px dashed #e2e8f0', margin: '10px 0' }} />
+              {/* Value row: sales + returns side by side, net centered below */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="stat-card" style={{ borderTop: '4px solid #f59e0b', margin: 0 }}>
+                  <div className="stat-card-icon" style={{ background: '#fffbeb', color: '#b45309', fontSize: 18 }}>💰</div>
+                  <div className="stat-card-body">
+                    <div className="stat-card-value" style={{ color: '#92400e', fontSize: 16 }}>{fmtVal(salesV)}</div>
+                    <div className="stat-card-label" style={{ fontSize: 11 }}>قيمة المبيع</div>
+                  </div>
+                </div>
+                <div className="stat-card" style={{ borderTop: '4px solid #ef4444', margin: 0 }}>
+                  <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444', fontSize: 18 }}>💸</div>
+                  <div className="stat-card-body">
+                    <div className="stat-card-value" style={{ color: '#991b1b', fontSize: 16 }}>{fmtVal(retV)}</div>
+                    <div className="stat-card-label" style={{ fontSize: 11 }}>قيمة الارجاع</div>
+                  </div>
                 </div>
               </div>
-              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #f59e0b' }}>
-                <div className="stat-card-icon" style={{ background: '#fffbeb', color: '#b45309' }}>💰</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#92400e' }}>{fmtVal(salesV)}</div>
-                  <div className="stat-card-label">{currStatTotal}</div>
-                </div>
-              </div>
-              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #ef4444' }}>
-                <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444' }}>💸</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: '#991b1b' }}>{fmtVal(retV)}</div>
-                  <div className="stat-card-label">إجمالي قيمة المرتجعات</div>
-                </div>
-              </div>
-              <div className="stat-card" style={{ flex: '1 1 160px', borderTop: '4px solid #10b981' }}>
-                <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981' }}>⚖️</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: netV >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(netV)}</div>
-                  <div className="stat-card-label">{currStatNet}</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+                <div className="stat-card" style={{ borderTop: '4px solid #10b981', margin: 0, minWidth: 160 }}>
+                  <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981', fontSize: 18 }}>⚖️</div>
+                  <div className="stat-card-body">
+                    <div className="stat-card-value" style={{ color: netV >= 0 ? '#065f46' : '#991b1b', fontSize: 20 }}>{fmtValSigned(netV)}</div>
+                    <div className="stat-card-label" style={{ fontSize: 11 }}>{currStatNet}</div>
+                  </div>
                 </div>
               </div>
             </div>
