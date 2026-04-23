@@ -342,10 +342,19 @@ function ViewerTab({ token, targetFile, presets, onClearTarget }: { token: strin
         <input type="text" placeholder="🔍 بحث في كل الصفوف..." value={search} onChange={e => setSearch(e.target.value)}
           style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', width: 200 }} />
         <button
-          onClick={() => priceIdx >= 0 && setShowValue(v => !v)}
+          onClick={() => { if (priceIdx >= 0) setShowValue(v => !v); }}
           disabled={priceIdx < 0}
-          title={priceIdx < 0 ? 'لا يوجد عمود سعر/قيمة في الملف' : ''}
-          style={{ background: priceIdx < 0 ? '#f1f5f9' : showValue ? '#f0fdf4' : '#fff', border: `1px solid ${priceIdx < 0 ? '#e2e8f0' : showValue ? '#86efac' : '#d1d5db'}`, borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: priceIdx < 0 ? 'not-allowed' : 'pointer', color: priceIdx < 0 ? '#94a3b8' : showValue ? '#16a34a' : '#374151', fontWeight: 600 }}
+          title={priceIdx < 0 ? 'لا يوجد عمود سعر/قيمة في الملف' : 'عرض/إخفاء القيمة المالية للصفوف المفلترة'}
+          style={{
+            background: priceIdx < 0 ? '#f1f5f9' : showValue ? '#f0fdf4' : '#fff',
+            border: `1px solid ${priceIdx < 0 ? '#e2e8f0' : showValue ? '#86efac' : '#d1d5db'}`,
+            borderRadius: 8, padding: '6px 14px', fontSize: 12,
+            cursor: priceIdx < 0 ? 'default' : 'pointer',
+            color: priceIdx < 0 ? '#cbd5e1' : showValue ? '#16a34a' : '#374151',
+            fontWeight: 600,
+            opacity: priceIdx < 0 ? 0.5 : 1,
+            pointerEvents: priceIdx < 0 ? 'none' : 'auto',
+          }}
         >💰 قيمة مالية{showValue && priceIdx >= 0 ? `: ${totalValue.toLocaleString('ar-IQ', { maximumFractionDigits: 2 })}` : ''}</button>
         <button onClick={doExport} disabled={filteredRows.length === 0} style={{ background: filteredRows.length === 0 ? '#f1f5f9' : '#1a56db', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, cursor: filteredRows.length === 0 ? 'not-allowed' : 'pointer', color: filteredRows.length === 0 ? '#94a3b8' : '#fff', fontWeight: 700 }}>⬇️ تصدير ({filteredRows.length.toLocaleString('ar-IQ')})</button>
       </div>
