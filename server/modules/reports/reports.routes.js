@@ -27,6 +27,9 @@ router.get('/overall', async (req, res) => {
       ? String(fileIds).split(',').map(Number).filter(Boolean)
       : [];
 
+    // Always scope to the requesting user's files — prevents reading another user's data
+    const userOwnershipFilter = userId ? { uploadedFile: { userId } } : {};
+
     const fileFilter = parsedFileIds.length === 0
       ? {}
       : parsedFileIds.length === 1
@@ -38,9 +41,9 @@ router.get('/overall', async (req, res) => {
     let effectiveEndDate   = endDate   ? new Date(endDate)   : null;
 
     if (!startDate && !endDate && parsedFileIds.length > 0) {
-      // Get the file's upload date to distinguish real Excel dates from @default(now()) garbage
-      const fileRecord = await prisma.uploadedFile.findUnique({
-        where: { id: parsedFileIds[0] },
+      // Get the file's upload date — only if it belongs to the current user
+      const fileRecord = await prisma.uploadedFile.findFirst({
+        where: { id: parsedFileIds[0], ...(userId ? { userId } : {}) },
         select: { uploadedAt: true },
       });
 
@@ -58,6 +61,7 @@ router.get('/overall', async (req, res) => {
         const dateRange = await prisma.sale.aggregate({
           where: {
             ...fileFilter,
+            ...userOwnershipFilter,
             ...(recordType ? { recordType } : {}),
             saleDate: { lt: startOfUploadDay },
           },
@@ -76,6 +80,7 @@ router.get('/overall', async (req, res) => {
 
     const where = {
       ...fileFilter,
+      ...userOwnershipFilter,
       ...(effectiveStartDate || effectiveEndDate ? {
         saleDate: {
           ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),

@@ -129,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('activeFileIds');
     setToken(null);
     setUser(null);
   };
@@ -136,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const switchAccount = (account: SavedAccount) => {
     localStorage.setItem('auth_token', account.token);
     localStorage.setItem('auth_user',  JSON.stringify(account.user));
+    localStorage.removeItem('activeFileIds');
     setToken(account.token);
     setUser(account.user);
     // Move this account to the front
