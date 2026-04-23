@@ -532,8 +532,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           rowCount: f._count?.sales ?? f.rowCount,
           uploadedAt: f.uploadedAt,
         })));
-        // Default overallFileId to most recent active file (array is desc by uploadedAt)
-        if (activeFiles.length > 0 && !overallFileId) {
+        // Always select the newest active file when activeFileIds changes
+        // (user can manually pick a different file afterwards)
+        if (activeFiles.length > 0) {
           setOverallFileId(String(activeFiles[0].id));
         }
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
