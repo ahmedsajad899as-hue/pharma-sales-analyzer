@@ -287,9 +287,10 @@ export default function SalesDataPage() {
   const [importErr, setImportErr]   = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [itemSearch, setItemSearch]       = useState('');
-  const [showSearchModal, setShowSearchModal] = useState(false);
-  const [modalQuery, setModalQuery]       = useState('');
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [itemQuery, setItemQuery]         = useState('');
+  const [showItemDropdown, setShowItemDropdown] = useState(false);
+  const itemSearchRef = useRef<HTMLDivElement>(null);
   const [companyFilter, setCompanyFilter] = useState('all');
   const [regionFilter, setRegionFilter]   = useState('all');
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
@@ -303,6 +304,7 @@ export default function SalesDataPage() {
   // Back button: close open overlays/panels
   useBackHandler([
     [showImport,              () => { setShowImport(false); setImportErr(''); }],
+    [showItemDropdown,        () => setShowItemDropdown(false)],
     [openFilterCol !== null,  () => setOpenFilterCol(null)],
   ]);
   const PAGE_SIZE = 50;
@@ -342,18 +344,24 @@ export default function SalesDataPage() {
     return [...new Set(activeFile.rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
   }, [activeFile, companyCol]);
 
-  // Filtered rows by item search + company filter + column filters
+  // Filtered rows by item selection / text query + company filter + column filters
   const filteredRows = useMemo(() => {
     if (!activeFile) return [];
     let rows = activeFile.rows;
-    const q = itemSearch.trim().toLowerCase();
-    if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
+    if (selectedItems.length > 0) {
+      rows = rows.filter(row =>
+        selectedItems.some(sel => activeFile.fixedCols.some(c => String(row[c] ?? '').trim() === sel))
+      );
+    } else {
+      const q = itemQuery.trim().toLowerCase();
+      if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
+    }
     if (companyFilter !== 'all' && companyCol) rows = rows.filter(row => String(row[companyCol] ?? '').trim() === companyFilter);
     Object.entries(colFilters).forEach(([col, vals]) => {
       if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return rows;
-  }, [activeFile, itemSearch, companyFilter, companyCol, colFilters]);
+  }, [activeFile, selectedItems, itemQuery, companyFilter, companyCol, colFilters]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
@@ -425,7 +433,7 @@ export default function SalesDataPage() {
   // Reset column filters when switching files
   useEffect(() => { setColFilters({}); setOpenFilterCol(null); }, [activeId]);
 
-  // Close dropdown on outside click
+  // Close col-filter dropdown on outside click
   useEffect(() => {
     if (!openFilterCol) return;
     const handler = (e: MouseEvent) => {
@@ -435,6 +443,16 @@ export default function SalesDataPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [openFilterCol]);
+
+  // Close item-search dropdown on outside click
+  useEffect(() => {
+    if (!showItemDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (!itemSearchRef.current?.contains(e.target as Node)) setShowItemDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showItemDropdown]);
 
   const totalPages = 1;
   const pageRows = showValue
@@ -457,7 +475,7 @@ export default function SalesDataPage() {
       } else {
         setFiles(prev => { const next = [...prev, result as SalesFile]; saveFiles(next, userId); return next; });
         setActiveId((result as SalesFile).id);
-        setItemSearch(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
+        setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
         setShowImport(false);
         setImporting(false);
       }
@@ -526,7 +544,7 @@ export default function SalesDataPage() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
           {files.map(f => (
             <div key={f.id} style={{ display: 'flex' }}>
-              <button onClick={() => { setActiveId(f.id); selectRegion('all'); setItemSearch(''); setCompanyFilter('all'); setPage(1); }}
+              <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setPage(1); }}
                 style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                   border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none',
                   background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: activeId === f.id ? '#4338ca' : '#64748b',
@@ -577,32 +595,123 @@ export default function SalesDataPage() {
 
           {/* Filter Panel */}
           <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
-            {/* Item search trigger */}
-            <div style={{ marginBottom: 14 }}>
+            {/* Item search — inline dropdown */}
+            <div style={{ marginBottom: 14, position: 'relative' }} ref={itemSearchRef}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🔍 البحث بالايتم</div>
-              <div
-                onClick={() => { setModalQuery(itemSearch); setShowSearchModal(true); }}
-                style={{
-                  position: 'relative', maxWidth: 420, cursor: 'pointer',
-                  padding: '8px 14px', borderRadius: 9,
-                  border: `1.5px solid ${itemSearch ? '#6366f1' : '#e2e8f0'}`,
-                  background: itemSearch ? '#f5f3ff' : '#f8fafc',
-                  display: 'flex', alignItems: 'center', gap: 8, color: itemSearch ? '#4f46e5' : '#94a3b8',
-                  fontSize: 13, fontWeight: itemSearch ? 600 : 400,
-                  boxShadow: itemSearch ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none',
-                  userSelect: 'none',
-                }}
-              >
+              {/* Input bar */}
+              <div style={{
+                maxWidth: 420, border: `1.5px solid ${showItemDropdown || selectedItems.length > 0 ? '#6366f1' : '#e2e8f0'}`,
+                borderRadius: 9, background: selectedItems.length > 0 ? '#f5f3ff' : '#f8fafc',
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
+                boxShadow: showItemDropdown ? '0 0 0 3px rgba(99,102,241,0.1)' : selectedItems.length > 0 ? '0 0 0 3px rgba(99,102,241,0.08)' : 'none',
+              }}>
                 <span>🔍</span>
-                <span style={{ flex: 1 }}>{itemSearch || 'اكتب للبحث...'}</span>
-                {itemSearch && (
+                <input
+                  value={itemQuery}
+                  onChange={e => { setItemQuery(e.target.value); setShowItemDropdown(true); setPage(1); }}
+                  onFocus={() => setShowItemDropdown(true)}
+                  onKeyDown={e => { if (e.key === 'Escape') setShowItemDropdown(false); }}
+                  placeholder={selectedItems.length > 0 ? `${selectedItems.length} ايتم مختار — اكتب للإضافة` : 'اكتب للبحث...'}
+                  style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
+                />
+                {(selectedItems.length > 0 || itemQuery) && (
                   <button
-                    onClick={e => { e.stopPropagation(); setItemSearch(''); setModalQuery(''); setPage(1); }}
+                    onMouseDown={e => { e.preventDefault(); setSelectedItems([]); setItemQuery(''); setShowItemDropdown(false); setPage(1); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15, padding: 0, lineHeight: 1 }}
                   >×</button>
                 )}
               </div>
-              {itemSearch && <div style={{ fontSize: 11, color: '#10b981', marginTop: 4, fontWeight: 600 }}>✓ {filteredRows.length} ايتم مطابق</div>}
+
+              {/* Selected tags */}
+              {selectedItems.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {selectedItems.map(name => (
+                    <span key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '3px 10px 3px 8px', fontSize: 12, fontWeight: 600 }}>
+                      💊 {name}
+                      <button
+                        onClick={() => { setSelectedItems(prev => prev.filter(n => n !== name)); setPage(1); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 0 0 2px', fontSize: 14, lineHeight: 1, opacity: 0.7 }}
+                      >×</button>
+                    </span>
+                  ))}
+                  {selectedItems.length > 1 && (
+                    <button
+                      onClick={() => { setSelectedItems([]); setPage(1); }}
+                      style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}
+                    >مسح الكل</button>
+                  )}
+                </div>
+              )}
+
+              {/* Inline dropdown */}
+              {showItemDropdown && activeFile && (() => {
+                const q = itemQuery.trim().toLowerCase();
+                const suggestions = [...new Map(
+                  activeFile.rows
+                    .filter(row => !q || activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)))
+                    .map(row => [
+                      String(row[itemNameCol] ?? ''),
+                      { name: String(row[itemNameCol] ?? ''), company: companyCol ? String(row[companyCol] ?? '') : '' },
+                    ])
+                ).values()]
+                  .filter(it => it.name && !selectedItems.includes(it.name))
+                  .slice(0, 50);
+
+                if (suggestions.length === 0 && !q) return null;
+
+                return (
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', right: 0, left: 0, maxWidth: 420,
+                    zIndex: 500, background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.15)', overflow: 'hidden', direction: 'rtl',
+                    maxHeight: 320, overflowY: 'auto',
+                  }}>
+                    {suggestions.length === 0 && q && (
+                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج</div>
+                    )}
+                    {suggestions.map(it => (
+                      <div
+                        key={it.name}
+                        style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f8fafc', fontSize: 13 }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '')}
+                      >
+                        {/* Left half: add + KEEP dropdown open */}
+                        <div
+                          title="اضغط لإضافة والإبقاء على القائمة مفتوحة"
+                          onMouseDown={e => {
+                            e.preventDefault();
+                            if (!selectedItems.includes(it.name)) setSelectedItems(prev => [...prev, it.name]);
+                            setItemQuery('');
+                            setPage(1);
+                          }}
+                          style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderLeft: '2px solid #bfdbfe', cursor: 'pointer' }}
+                        >
+                          <span style={{ fontSize: 16 }}>💊</span>
+                          {it.company && <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 6px', whiteSpace: 'nowrap' }}>{it.company}</span>}
+                          <span style={{ fontSize: 11, color: '#94a3b8', userSelect: 'none', fontWeight: 700 }}>+</span>
+                        </div>
+                        {/* Right half: add + CLOSE dropdown */}
+                        <div
+                          onMouseDown={() => {
+                            if (!selectedItems.includes(it.name)) setSelectedItems(prev => [...prev, it.name]);
+                            setItemQuery('');
+                            setShowItemDropdown(false);
+                            setPage(1);
+                          }}
+                          style={{ flex: 1, padding: '10px 14px 10px 8px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                        >
+                          <span style={{ color: '#4338ca', fontWeight: 600 }}>{it.name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {(selectedItems.length > 0 || itemQuery) && (
+                <div style={{ fontSize: 11, color: '#10b981', marginTop: selectedItems.length > 0 ? 6 : 4, fontWeight: 600 }}>✓ {filteredRows.length} ايتم مطابق</div>
+              )}
             </div>
 
             {/* Company pills (shown only when a company column is detected) */}
@@ -782,7 +891,7 @@ export default function SalesDataPage() {
                             <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
                             {activeFile.fixedCols.map((c, ci) => {
                               const val = row[c] ?? '';
-                              const hi = itemSearch && val.toLowerCase().includes(itemSearch.toLowerCase());
+                              const hi = itemQuery && val.toLowerCase().includes(itemQuery.toLowerCase());
                               const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
                               return (
                                 <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: '#6366f1' } : {}) }}>
@@ -831,7 +940,7 @@ export default function SalesDataPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
                   🏆 أعلى الايتمات مبيعاً
                   {regionFilter !== 'all' && <span style={{ fontSize: 11, color: '#6366f1', marginRight: 8, fontWeight: 400 }}>— {regionFilter}</span>}
-                  {itemSearch && <span style={{ fontSize: 11, color: '#10b981', marginRight: 8, fontWeight: 400 }}>({filteredRows.length} نتيجة)</span>}
+                  {(selectedItems.length > 0 || itemQuery) && <span style={{ fontSize: 11, color: '#10b981', marginRight: 8, fontWeight: 400 }}>({filteredRows.length} نتيجة)</span>}
                 </div>
                 {topItems.length === 0
                   ? <div style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات</div>
@@ -900,10 +1009,10 @@ export default function SalesDataPage() {
               )}
 
               {/* Item detail breakdown (when 1-5 items match search) */}
-              {itemSearch && filteredRows.length > 0 && filteredRows.length <= 5 && (
+              {(selectedItems.length > 0 || itemQuery) && filteredRows.length > 0 && filteredRows.length <= 5 && (
                 <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: '16px 18px' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
-                    🔎 تفاصيل "{itemSearch}" بالمناطق
+                    🔎 تفاصيل بالمناطق
                   </div>
                   {filteredRows.map((row, ri) => {
                     const name = row[itemNameCol] ?? '';
@@ -955,102 +1064,6 @@ export default function SalesDataPage() {
           )}
         </>
       )}
-
-      {/* ── Smart Search Modal ── */}
-      {showSearchModal && activeFile && (() => {
-        const q = modalQuery.trim().toLowerCase();
-        // unique item names that match query
-        const uniqueItems = [...new Map(
-          activeFile.rows
-            .filter(row => !q || activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)))
-            .map(row => [
-              String(row[itemNameCol] ?? ''),
-              { name: String(row[itemNameCol] ?? ''), company: companyCol ? String(row[companyCol] ?? '') : '' },
-            ])
-        ).values()].slice(0, 60);
-        return (
-          <div
-            onClick={() => setShowSearchModal(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '60px 16px 0', backdropFilter: 'blur(2px)' }}
-          >
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', direction: 'rtl' }}
-            >
-              {/* Input row */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                <span style={{ fontSize: 18 }}>🔍</span>
-                <input
-                  autoFocus
-                  value={modalQuery}
-                  onChange={e => setModalQuery(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      setItemSearch(modalQuery);
-                      setPage(1);
-                      setShowSearchModal(false);
-                    }
-                    if (e.key === 'Escape') setShowSearchModal(false);
-                  }}
-                  placeholder="ابحث عن ايتم..."
-                  style={{ flex: 1, fontSize: 16, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
-                />
-                <button
-                  onClick={() => setShowSearchModal(false)}
-                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#64748b', fontSize: 13, fontWeight: 600 }}
-                >×</button>
-              </div>
-
-              {/* Results */}
-              <div style={{ maxHeight: 380, overflowY: 'auto' }}>
-                {uniqueItems.length === 0 && q && (
-                  <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج</div>
-                )}
-                {uniqueItems.length === 0 && !q && (
-                  <div style={{ padding: '20px 16px 10px', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>ابدأ الكتابة للبحث...</div>
-                )}
-                {uniqueItems.map(it => (
-                  <div
-                    key={it.name}
-                    onClick={() => {
-                      setItemSearch(it.name);
-                      setModalQuery(it.name);
-                      setPage(1);
-                      setShowSearchModal(false);
-                    }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid #f8fafc',
-                      transition: 'background .1s',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                    onMouseLeave={e => (e.currentTarget.style.background = '')}
-                  >
-                    <span style={{ fontSize: 18 }}>💊</span>
-                    <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: '#4338ca', direction: 'ltr', textAlign: 'right' }}>{it.name}</span>
-                    {it.company && (
-                      <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
-                        {it.company}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 11, color: '#94a3b8', background: '#f1f5f9', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>مادة</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Footer */}
-              {q && (
-                <div
-                  onClick={() => { setItemSearch(modalQuery); setPage(1); setShowSearchModal(false); }}
-                  style={{ padding: '10px 16px', borderTop: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 12, color: '#6366f1', fontWeight: 700, textAlign: 'center', background: '#f8fafc' }}
-                >
-                  عرض جميع نتائج "‪{modalQuery}‬" →
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
