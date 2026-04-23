@@ -467,6 +467,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallSuggOpen, setOverallSuggOpen] = useState(false);
   const [overallSelectedTags, setOverallSelectedTags] = useState<{name: string; type: 'item'|'area'}[]>([]);
+  const [showOverallModal, setShowOverallModal] = useState(false);
+  const [modalOverallQuery, setModalOverallQuery] = useState('');;
   const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
@@ -1617,75 +1619,54 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             </div>
 
-            {/* Smart search with suggestions + multi-select chips */}
+            {/* Smart search — modal style */}
             {(() => {
               const allSuggItems = [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].map(i => i.name))];
               const allSuggAreas = [...new Set([...overallSales.byArea, ...(overallReturns?.byArea ?? [])].map(a => a.name))];
               const normaliseS = (s: string) => s.trim().replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627').replace(/\u0629/g, '\u0647').replace(/\u0640/g, '').replace(/[\u064B-\u065F]/g, '').replace(/\s+/g, ' ').toLowerCase();
-              const sq = normaliseS(overallSearch);
               const alreadySelected = new Set(overallSelectedTags.map(t => t.type + t.name));
-              const suggestions: { name: string; type: 'item' | 'area' }[] = !sq ? [] : [
-                ...allSuggItems.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('item' + n)).slice(0, 6).map(n => ({ name: n, type: 'item' as const })),
-                ...allSuggAreas.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('area' + n)).slice(0, 4).map(n => ({ name: n, type: 'area' as const })),
-              ].slice(0, 8);
+
+              // Results for modal
+              const mq = normaliseS(modalOverallQuery);
+              const modalResults: { name: string; type: 'item' | 'area' }[] = !mq ? [] : [
+                ...allSuggItems.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('item' + n)).slice(0, 8).map(n => ({ name: n, type: 'item' as const })),
+                ...allSuggAreas.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const })),
+              ].slice(0, 10);
+
+              // All items/areas for empty-query browsing
+              const browseItems = mq ? [] : allSuggItems.filter(n => !alreadySelected.has('item' + n)).slice(0, 6).map(n => ({ name: n, type: 'item' as const }));
+              const browseAreas = mq ? [] : allSuggAreas.filter(n => !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const }));
+              const displayResults = mq ? modalResults : [...browseAreas, ...browseItems].slice(0, 10);
+
               return (
                 <div style={{ margin: '12px 0 6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
-                      <input
-                        className="form-input"
-                        style={{ width: '100%' }}
-                        placeholder="🔍 بحث ذكي عن مادة أو منطقة..."
-                        value={overallSearch}
-                        onChange={e => { setOverallSearch(e.target.value); setOverallSuggOpen(true); }}
-                        onFocus={() => setOverallSuggOpen(true)}
-                        onBlur={() => setTimeout(() => setOverallSuggOpen(false), 150)}
-                      />
-                      {overallSuggOpen && suggestions.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 4, overflow: 'hidden' }}>
-                          {suggestions.map(s => (
-                            <div
-                              key={s.type + s.name}
-                              style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f1f5f9', fontSize: 13 }}
-                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                              onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                            >
-                              {/* Blue zone: add tag but keep dropdown open */}
-                              <div
-                                title="اضغط لإضافة والإبقاء على القائمة"
-                                onMouseDown={e => {
-                                  e.preventDefault(); // prevent input blur → keeps dropdown open
-                                  setOverallSelectedTags(prev => [...prev, s]);
-                                  // do NOT clear search → suggestions stay visible
-                                }}
-                                style={{ padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderLeft: '2px solid #bfdbfe', background: 'inherit' }}
-                              >
-                                <span style={{ fontSize: 15 }}>{s.type === 'item' ? '💊' : '📍'}</span>
-                                <span style={{ fontSize: 11, color: '#94a3b8', userSelect: 'none' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
-                              </div>
-                              {/* Red zone: add tag and close dropdown */}
-                              <div
-                                title="اضغط للاختيار وإغلاق القائمة"
-                                onMouseDown={() => {
-                                  setOverallSelectedTags(prev => [...prev, s]);
-                                  setOverallSearch('');
-                                  setOverallSuggOpen(false);
-                                }}
-                                style={{ flex: 1, padding: '8px 14px 8px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', background: 'inherit' }}
-                              >
-                                <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                    {/* Trigger bar */}
+                    <div
+                      onClick={() => { setModalOverallQuery(''); setShowOverallModal(true); }}
+                      style={{
+                        flex: 1, maxWidth: 340, cursor: 'pointer',
+                        padding: '7px 14px', borderRadius: 10,
+                        border: `1.5px solid ${overallSearch || overallSelectedTags.length > 0 ? '#6366f1' : '#e2e8f0'}`,
+                        background: overallSearch || overallSelectedTags.length > 0 ? '#f5f3ff' : '#f8fafc',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        color: overallSearch ? '#4f46e5' : '#94a3b8',
+                        fontSize: 13, fontWeight: overallSearch ? 600 : 400,
+                        userSelect: 'none' as const,
+                        boxShadow: overallSearch || overallSelectedTags.length > 0 ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none',
+                      }}
+                    >
+                      <span>🔍</span>
+                      <span style={{ flex: 1 }}>
+                        {overallSearch ? overallSearch : overallSelectedTags.length > 0 ? `${overallSelectedTags.length} عنصر مختار` : 'بحث ذكي عن مادة أو منطقة...'}
+                      </span>
+                      {(overallSearch || overallSelectedTags.length > 0) && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setOverallSearch(''); setOverallSelectedTags([]); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15, padding: 0, lineHeight: 1 }}
+                        >×</button>
                       )}
                     </div>
-                    {overallSearch && (
-                      <button onClick={() => { setOverallSearch(''); setOverallSuggOpen(false); }}
-                        style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f1f5f9', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
-                        ✕ مسح
-                      </button>
-                    )}
                     <button
                       onClick={handleOverallPreview}
                       title="معاينة وتصدير التحليلات إلى Excel"
@@ -1693,6 +1674,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       📊 تصدير
                     </button>
                   </div>
+
                   {/* Selected tags chips */}
                   {overallSelectedTags.length > 0 && (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
@@ -1711,6 +1693,98 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       >
                         مسح الكل
                       </button>
+                    </div>
+                  )}
+
+                  {/* Modal overlay */}
+                  {showOverallModal && (
+                    <div
+                      onClick={() => setShowOverallModal(false)}
+                      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 9000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '60px 16px 0', backdropFilter: 'blur(2px)' }}
+                    >
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', direction: 'rtl' }}
+                      >
+                        {/* Input row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                          <span style={{ fontSize: 18 }}>🔍</span>
+                          <input
+                            autoFocus
+                            value={modalOverallQuery}
+                            onChange={e => setModalOverallQuery(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && modalOverallQuery.trim()) {
+                                setOverallSearch(modalOverallQuery.trim());
+                                setShowOverallModal(false);
+                              }
+                              if (e.key === 'Escape') setShowOverallModal(false);
+                            }}
+                            placeholder="ابحث عن مادة أو منطقة..."
+                            style={{ flex: 1, fontSize: 16, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
+                          />
+                          <button
+                            onClick={() => setShowOverallModal(false)}
+                            style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', color: '#64748b', fontSize: 13, fontWeight: 600 }}
+                          >×</button>
+                        </div>
+
+                        {/* Section label */}
+                        {!mq && (
+                          <div style={{ padding: '10px 16px 4px', fontSize: 11, color: '#94a3b8', fontWeight: 700, borderBottom: '1px solid #f8fafc' }}>اقتراحات</div>
+                        )}
+
+                        {/* Results */}
+                        <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                          {mq && displayResults.length === 0 && (
+                            <div style={{ padding: '28px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج</div>
+                          )}
+                          {displayResults.map(s => (
+                            <div
+                              key={s.type + s.name}
+                              style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f8fafc', fontSize: 13, cursor: 'pointer' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '')}
+                            >
+                              {/* Add as tag + keep modal open */}
+                              <div
+                                title="اضغط لإضافة والإبقاء على النافذة"
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  if (!alreadySelected.has(s.type + s.name))
+                                    setOverallSelectedTags(prev => [...prev, s]);
+                                }}
+                                style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, borderLeft: '2px solid #bfdbfe' }}
+                              >
+                                <span style={{ fontSize: 18 }}>{s.type === 'item' ? '💊' : '📍'}</span>
+                                <span style={{ fontSize: 11, color: '#94a3b8', userSelect: 'none' }}>{s.type === 'item' ? 'مادة' : 'منطقة'}</span>
+                              </div>
+                              {/* Add as tag + close modal */}
+                              <div
+                                onMouseDown={() => {
+                                  if (!alreadySelected.has(s.type + s.name))
+                                    setOverallSelectedTags(prev => [...prev, s]);
+                                  setModalOverallQuery('');
+                                  setShowOverallModal(false);
+                                }}
+                                style={{ flex: 1, padding: '10px 14px 10px 8px', display: 'flex', alignItems: 'center' }}
+                              >
+                                <span style={{ color: s.type === 'item' ? '#7c3aed' : '#0369a1', fontWeight: 600 }}>{s.name}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Footer: apply free text */}
+                        {mq && (
+                          <div
+                            onMouseDown={() => { setOverallSearch(modalOverallQuery.trim()); setShowOverallModal(false); }}
+                            style={{ padding: '10px 16px', borderTop: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 12, color: '#6366f1', fontWeight: 700, textAlign: 'center', background: '#f8fafc' }}
+                          >
+                            بحث نصي عن "‪{modalOverallQuery}‬" ←
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

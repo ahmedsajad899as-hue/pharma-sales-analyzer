@@ -437,7 +437,9 @@ export default function SalesDataPage() {
   }, [openFilterCol]);
 
   const totalPages = 1;
-  const pageRows   = filteredRows;
+  const pageRows = showValue
+    ? [...filteredRows].sort((a, b) => rowDisplay(b, displayCols) - rowDisplay(a, displayCols))
+    : filteredRows;
 
   // Handlers
   const handleFile = useCallback((file: File) => {
