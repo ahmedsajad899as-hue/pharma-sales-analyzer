@@ -34,8 +34,8 @@ function saveBonusMap(m: Record<string, string>) {
 }
 
 /* ══ Column auto-detection ════════════════════════════════ */
-const H_CO    = ['الشركة','الشركه','شركة','شركه','company','اسم الشركة','اسم الشركه','الشركات','الصنف','صنف','اسم الصنف'];
-const H_ITEM  = ['ايتم','الايتم','item','اسم الايتم','المنتج','product','اسم المنتج'];
+const H_CO    = ['الصنف','صنف','اسم الصنف','الشركة','الشركه','شركة','شركه','company','اسم الشركة','اسم الشركه','الشركات'];
+const H_ITEM  = ['الايتم','ايتم','item','اسم الايتم','المنتج','product','اسم المنتج'];
 const H_REP   = ['مندوب','المندوب','rep','اسم المندوب','ممثل','مسوق','المندوب','اسم المندوب'];
 const H_BONUS = ['بونص','bonus','مكافأة','مكافاة','عمولة','incentive','commission'];
 
@@ -74,12 +74,12 @@ function cascadeFromCompanies(
     if (item !== null && (co === null || selCo.has(co))) itemsUnderSelCo.add(item);
   });
 
-  // Deselect items that no longer have any row under a selected company
+  // Select/deselect items fully based on whether they have a row under a selected company
   const nextItems = curItems.map(it => ({
-    ...it, selected: it.selected && itemsUnderSelCo.has(it.value),
+    ...it, selected: itemsUnderSelCo.has(it.value),
   }));
 
-  // Cascade to reps
+  // Cascade to reps (bidirectional too)
   const { reps: nextReps } = cascadeFromItems(nextItems, nextCo, curReps, rows, coIdx, itemIdx, repIdx);
   return { items: nextItems, reps: nextReps };
 }
@@ -107,8 +107,9 @@ function cascadeFromItems(
     ) repsWithValidRow.add(rep);
   });
 
+  // Select/deselect reps fully based on whether they have a valid row
   const nextReps = curReps.map(r => ({
-    ...r, selected: r.selected && repsWithValidRow.has(r.value),
+    ...r, selected: repsWithValidRow.has(r.value),
   }));
   return { reps: nextReps };
 }
