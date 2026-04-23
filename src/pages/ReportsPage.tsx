@@ -767,18 +767,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#1e293b', fontWeight: 600 };
     return (
       <>
-      <div style={{ overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+      <div style={{ overflow: isMobile ? 'hidden' : 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isMobile ? 'fixed' : 'auto' }}>
           <colgroup>
-            <col style={{ width: 22 }} />
+            <col style={{ width: isMobile ? 22 : 36 }} />
             <col />
-            {hasRep && <col style={{ width: 50 }} />}
-            {effShowQty && <col style={{ width: 44 }} />}
-            {effShowVal && <col style={{ width: 56 }} />}
-            {effShowQty && <col style={{ width: 44 }} />}
-            {effShowVal && <col style={{ width: 56 }} />}
-            {effShowQty && <col style={{ width: 48 }} />}
-            {effShowVal && <col style={{ width: 56 }} />}
+            {hasRep && <col style={{ width: isMobile ? 50 : undefined }} />}
+            {effShowQty && <col style={{ width: isMobile ? 44 : undefined }} />}
+            {effShowVal && <col style={{ width: isMobile ? 56 : undefined }} />}
+            {effShowQty && <col style={{ width: isMobile ? 44 : undefined }} />}
+            {effShowVal && <col style={{ width: isMobile ? 56 : undefined }} />}
+            {effShowQty && <col style={{ width: isMobile ? 48 : undefined }} />}
+            {effShowVal && <col style={{ width: isMobile ? 56 : undefined }} />}
           </colgroup>
           <thead>
             <tr style={{ background: '#f8fafc' }}>
@@ -1185,14 +1185,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#4f46e5', fontWeight: 600 };
     return (
     <>
-    <div style={{ overflow: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+    <div style={{ overflow: isMobile ? 'hidden' : 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isMobile ? 'fixed' : 'auto' }}>
         <colgroup>
-          <col style={{ width: 26 }} />
+          <col style={{ width: isMobile ? 26 : 36 }} />
           <col />
-          {hasRep && <col style={{ width: 60 }} />}
-          {effShowQtyBD && <col style={{ width: 64 }} />}
-          {effShowValBD && <col style={{ width: 80 }} />}
+          {hasRep && <col style={{ width: isMobile ? 60 : undefined }} />}
+          {effShowQtyBD && <col style={{ width: isMobile ? 64 : undefined }} />}
+          {effShowValBD && <col style={{ width: isMobile ? 80 : undefined }} />}
         </colgroup>
         <thead>
           <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
