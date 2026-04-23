@@ -400,6 +400,23 @@ export default function SalesDataPage() {
     );
   }, [activeFile]);
 
+  // Detect item name column
+  const itemNameCol = useMemo(() => {
+    if (!activeFile) return '';
+    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
+    return (
+      activeFile.fixedCols.find((_, i) => ['item', 'الايتم', 'اسم', 'نام', 'name', 'product'].some(k => lower[i].includes(k))) ??
+      activeFile.fixedCols[1] ?? activeFile.fixedCols[0] ?? ''
+    );
+  }, [activeFile]);
+
+  // Detect item code column
+  const itemCodeCol = useMemo(() => {
+    if (!activeFile) return '';
+    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
+    return activeFile.fixedCols.find((_, i) => ['code', 'كود', 'رمز', 'barcode', 'sku'].some(k => lower[i].includes(k))) ?? '';
+  }, [activeFile]);
+
   // Returns display value: if showValue is on, multiply qty by price
   const cellDisplay = useCallback((row: Record<string, string>, col: ViewCol): number => {
     const qty = cellVal(row, col);
@@ -418,23 +435,6 @@ export default function SalesDataPage() {
   const rowDisplay = useCallback((row: Record<string, string>, cols: ViewCol[]): number =>
     cols.reduce((s, col) => s + cellDisplay(row, col), 0)
   , [cellDisplay]);
-
-  // Detect item name column
-  const itemNameCol = useMemo(() => {
-    if (!activeFile) return '';
-    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
-    return (
-      activeFile.fixedCols.find((_, i) => ['item', 'الايتم', 'اسم', 'نام', 'name', 'product'].some(k => lower[i].includes(k))) ??
-      activeFile.fixedCols[1] ?? activeFile.fixedCols[0] ?? ''
-    );
-  }, [activeFile]);
-
-  // Detect item code column
-  const itemCodeCol = useMemo(() => {
-    if (!activeFile) return '';
-    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
-    return activeFile.fixedCols.find((_, i) => ['code', 'كود', 'رمز', 'barcode', 'sku'].some(k => lower[i].includes(k))) ?? '';
-  }, [activeFile]);
 
   // Unique values for the currently-open filter column
   const colUniqueVals = useMemo(() => {
