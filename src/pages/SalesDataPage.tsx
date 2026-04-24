@@ -492,7 +492,7 @@ export default function SalesDataPage() {
   };
 
   const selectRegion = (r: string) => { setRegionFilter(r); setWarehouseKeys(new Set()); setPage(1); };
-  const selectCompany = (c: string) => { setCompanyFilter(c); setPage(1); };
+  const selectCompany = (c: string) => { setCompanyFilter(c); setSelectedItems([]); setItemQuery(''); setPage(1); };
   const toggleWH = (key: string) => {
     setWarehouseKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
     setPage(1);
@@ -593,19 +593,29 @@ export default function SalesDataPage() {
           {/* Filter Panel */}
           <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
             {/* Items filter — pills with inline search */}
+            {/* Company pills — first */}
+            {companyCol && companies.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركات</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => selectCompany('all')} style={fp(companyFilter === 'all')}>الكل</button>
+                  {companies.map(c => (
+                    <button key={c} onClick={() => selectCompany(c)} style={fp(companyFilter === c)}>{c}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Items pills — filtered by selected company */}
             {activeFile && itemNameCol && (() => {
+              const sourceRows = companyFilter !== 'all' && companyCol
+                ? activeFile.rows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter)
+                : activeFile.rows;
               const allItems = [...new Set(
-                activeFile.rows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
+                sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
               )].sort((a, b) => a.localeCompare(b, 'ar'));
               const q = itemQuery.trim().toLowerCase();
-              const visibleItems = q
-                ? allItems.filter(name => {
-                    if (name.toLowerCase().includes(q)) return true;
-                    if (!companyCol) return false;
-                    const row = activeFile.rows.find(r => String(r[itemNameCol] ?? '').trim() === name);
-                    return row ? String(row[companyCol] ?? '').toLowerCase().includes(q) : false;
-                  })
-                : allItems;
+              const visibleItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
               return (
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -644,22 +654,9 @@ export default function SalesDataPage() {
               );
             })()}
 
-            {/* Company pills (shown only when a company column is detected) */}
-            {companyCol && companies.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركة</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => selectCompany('all')} style={fp(companyFilter === 'all')}>الكل</button>
-                  {companies.map(c => (
-                    <button key={c} onClick={() => selectCompany(c)} style={fp(companyFilter === c)}>{c}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Region pills */}
             <div style={{ marginBottom: regionFilter !== 'all' ? 12 : 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المذاخر</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المناطق</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => selectRegion('all')} style={fp(regionFilter === 'all')}>الكل</button>
                 {activeFile.regions.map(region => (
