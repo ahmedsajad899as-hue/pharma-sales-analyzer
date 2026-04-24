@@ -365,7 +365,20 @@ function stripMergeSuffix(s: string): string {
   return n || s.trim(); // never return empty
 }
 function normalMergeKey(s: string): string {
-  return stripMergeSuffix(s).toLowerCase().replace(/\s+/g, ' ');
+  return stripMergeSuffix(s)
+    .toLowerCase()
+    // ── Arabic normalization ──────────────────────────────────────────────
+    .replace(/[\u064B-\u065F\u0670]/g, '')              // strip tashkeel (diacritics)
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')   // alef variants → ا
+    .replace(/\u0629/g, '\u0647')                        // ta marbuta ة → ه
+    .replace(/\u0649/g, '\u064A')                        // alef maqsoura ى → ي
+    // ── Punctuation → space ──────────────────────────────────────────────
+    .replace(/[.\-\/\\,+()[\]'"]/g, ' ')
+    // ── Normalize unit spacing: "500 mg" → "500mg" ───────────────────────
+    .replace(/(\d)\s+(mg|mcg|ml|iu|gm|g\b|mm|cm|tabs?|caps?|amp)/gi,
+      (_, n, u) => n + u.toLowerCase())
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ── buildMergedFile: combine multiple SalesFiles into one ─────────────────────
@@ -1365,6 +1378,60 @@ export default function SalesDataPage() {
                   })()}
                 </div>
               )}
+
+              {/* Item coverage diagnostic — only for merged files */}
+              {activeFile.sourceFileIds && activeFile.rows.some(r => r['_regions']) && (() => {
+                const totalR = activeFile.regions.length;
+                const orphaned = activeFile.rows
+                  .filter(r => (r['_regions']?.split(',').length ?? 0) === 1)
+                  .sort((a, b) => (a['المادة'] ?? '').localeCompare(b['المادة'] ?? '', 'ar'));
+                const partial  = activeFile.rows.filter(r => { const n = r['_regions']?.split(',').length ?? 0; return n > 1 && n < totalR; });
+                const full     = activeFile.rows.filter(r => (r['_regions']?.split(',').length ?? 0) >= totalR);
+                return (
+                  <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #fde68a', padding: '16px 18px' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>
+                      🔍 تغطية الايتمات
+                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 400, marginRight: 8 }}>— يكشف الايتمات التي قد تكون مكررة بأسماء مختلفة</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+                      <div style={{ background: '#dcfce7', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{full.length}</div>
+                        <div style={{ fontSize: 11, color: '#166534' }}>✅ في كل المناطق ({totalR}/{totalR})</div>
+                      </div>
+                      <div style={{ background: '#fef9c3', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#ca8a04' }}>{partial.length}</div>
+                        <div style={{ fontSize: 11, color: '#713f12' }}>⚠️ في بعض المناطق</div>
+                      </div>
+                      <div style={{ background: '#fee2e2', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#dc2626' }}>{orphaned.length}</div>
+                        <div style={{ fontSize: 11, color: '#7f1d1d' }}>❌ منطقة واحدة فقط</div>
+                      </div>
+                    </div>
+                    {orphaned.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#7f1d1d', marginBottom: 8 }}>
+                          ❌ ايتمات ظهرت في منطقة واحدة فقط — غالباً مكررة بأسم مختلف في الملفات الأخرى:
+                        </div>
+                        <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #fecaca', borderRadius: 8 }}>
+                          {orphaned.map((row, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '5px 10px', borderBottom: i < orphaned.length - 1 ? '1px solid #fff1f2' : 'none',
+                              background: i % 2 === 0 ? '#fffbfb' : '#fff', fontSize: 12 }}>
+                              <span style={{ color: '#1e293b', fontWeight: 600 }}>
+                                {row['المادة']}
+                                <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 11 }}> ({row['الشركة']})</span>
+                              </span>
+                              <span style={{ color: '#dc2626', fontSize: 11, background: '#fee2e2', borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                                📍 {row['_regions']}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Item detail breakdown (when 1-5 items match search) */}
               {(selectedItems.length > 0 || itemQuery) && filteredRows.length > 0 && filteredRows.length <= 5 && (
