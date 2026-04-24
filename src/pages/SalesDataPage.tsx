@@ -550,15 +550,93 @@ export default function SalesDataPage() {
   useEffect(() => { localStorage.setItem('sd_shortage_threshold', String(shortageThreshold)); }, [shortageThreshold]);
   useEffect(() => { localStorage.setItem('sd_highlight_low', highlightLow ? '1' : '0'); }, [highlightLow]);
 
+  // ── Warehouse Classification (A/B/C) ──────────────────────────
+  type WarehouseCategory = 'A' | 'B' | 'C';
+  type WarehouseClass = { region: string; warehouse: string; category: WarehouseCategory };
+  const [warehouseClasses, setWarehouseClasses] = useState<WarehouseClass[]>(() => {
+    try { return JSON.parse(localStorage.getItem('sd_warehouse_classes') || '[]'); } catch { return []; }
+  });
+  useEffect(() => { localStorage.setItem('sd_warehouse_classes', JSON.stringify(warehouseClasses)); }, [warehouseClasses]);
+  const [showClassifyModal, setShowClassifyModal] = useState(false);
+  const [classifyUploadMsg, setClassifyUploadMsg] = useState('');
+  const classifyFileRef = useRef<HTMLInputElement>(null);
+
+  const normName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const classifyMap = useMemo(() => {
+    const m: Record<string, WarehouseCategory> = {};
+    for (const c of warehouseClasses) {
+      m[`${normName(c.region)}||${normName(c.warehouse)}`] = c.category;
+      m[`||${normName(c.warehouse)}`] = c.category; // fallback: match by warehouse name alone
+    }
+    return m;
+  }, [warehouseClasses]);
+  const getCategory = useCallback((region: string, warehouse: string): WarehouseCategory | null => {
+    const k = `${normName(region)}||${normName(warehouse)}`;
+    return classifyMap[k] ?? classifyMap[`||${normName(warehouse)}`] ?? null;
+  }, [classifyMap]);
+
+  const handleClassifyUpload = (file: File) => {
+    setClassifyUploadMsg('');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' });
+        const parsed: WarehouseClass[] = [];
+        for (const r of rows) {
+          const region    = String(r['المنطقة'] ?? r['منطقة'] ?? r['region'] ?? r['Region'] ?? '').trim();
+          const warehouse = String(r['المخزن'] ?? r['مخزن'] ?? r['اسم المخزن'] ?? r['warehouse'] ?? r['Warehouse'] ?? '').trim();
+          const catRaw    = String(r['التصنيف'] ?? r['الفئة'] ?? r['category'] ?? r['Category'] ?? '').trim().toUpperCase();
+          if (!warehouse) continue;
+          if (!['A', 'B', 'C'].includes(catRaw)) continue;
+          parsed.push({ region, warehouse, category: catRaw as WarehouseCategory });
+        }
+        if (parsed.length === 0) {
+          setClassifyUploadMsg('⚠ لم يتم العثور على بيانات صالحة. تأكد من الأعمدة: المنطقة / المخزن / التصنيف (A أو B أو C).');
+          return;
+        }
+        setWarehouseClasses(parsed);
+        setClassifyUploadMsg(`✓ تم استيراد ${parsed.length} مخزن.`);
+      } catch (err: any) {
+        setClassifyUploadMsg('⚠ فشل قراءة الملف: ' + (err?.message ?? ''));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const downloadClassifyTemplate = () => {
+    const data = [
+      { 'المنطقة': 'najaf', 'المخزن': 'ابن سينا', 'التصنيف': 'A' },
+      { 'المنطقة': 'najaf', 'المخزن': 'سما دجلة', 'التصنيف': 'B' },
+      { 'المنطقة': 'najaf', 'المخزن': 'المعتصم', 'التصنيف': 'C' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(data);
+    (ws as any)['!views'] = [{ RTL: true }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'تصنيف المذاخر');
+    XLSX.writeFile(wb, 'warehouse_classification_template.xlsx');
+  };
+
+  // All warehouses present in the currently-active file (for match report)
+  // NOTE: defined later in this component, after `activeFile` is declared.
+
   // Back button: close open overlays/panels
   useBackHandler([
     [showShortages,           () => setShowShortages(false)],
     [showImport,              () => { setShowImport(false); setImportErr(''); }],
     [openFilterCol !== null,  () => setOpenFilterCol(null)],
+    [showClassifyModal,       () => setShowClassifyModal(false)],
   ]);
   const PAGE_SIZE = 50;
 
   const activeFile = files.find(f => f.id === activeId);
+
+  // All warehouses present in the currently-active file (for match report)
+  const activeWarehousesAll = useMemo(() => {
+    if (!activeFile) return [] as { region: string; warehouse: string; key: string }[];
+    return activeFile.areaCols.map(ac => ({ region: ac.region, warehouse: ac.label, key: ac.key }));
+  }, [activeFile]);
 
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
@@ -1362,6 +1440,28 @@ export default function SalesDataPage() {
                 }}>{shortages.totalCount}</span>
               )}
             </button>
+            {/* Warehouse Classification button */}
+            <button
+              onClick={() => setShowClassifyModal(true)}
+              title="تصنيف المذاخر (A/B/C)"
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: '1.5px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#64748b',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              🏷️ تصنيف المذاخر
+              {warehouseClasses.length > 0 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  minWidth: 20, padding: '0 6px', height: 18,
+                  borderRadius: 10, fontSize: 10, fontWeight: 700,
+                  background: '#6366f1', color: '#fff',
+                }}>{warehouseClasses.length}</span>
+              )}
+            </button>
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (
@@ -1461,7 +1561,20 @@ export default function SalesDataPage() {
                       })}
                       {displayCols.map(col => (
                         <th key={col.key} style={{ ...thA, background: isRT(col) ? '#eef2ff' : '#f8fafc', color: isRT(col) ? '#4338ca' : '#1e293b', borderRight: isRT(col) ? '2px solid #c7d2fe' : undefined, borderLeft: isRT(col) ? '2px solid #c7d2fe' : undefined }}>
-                          {col.label}
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                            <span>{col.label}</span>
+                            {!isRT(col) && (() => {
+                              const cat = getCategory((col as ColMeta).region, (col as ColMeta).label);
+                              if (!cat) return null;
+                              const colors = { A: { bg: '#dcfce7', fg: '#166534', br: '#86efac' }, B: { bg: '#fef9c3', fg: '#854d0e', br: '#fde047' }, C: { bg: '#fee2e2', fg: '#991b1b', br: '#fca5a5' } }[cat];
+                              return (
+                                <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: 4, fontSize: 9, fontWeight: 800, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}` }}>
+                                  {cat}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </th>
                       ))}
                       <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>الشامل</th>
@@ -1711,6 +1824,136 @@ export default function SalesDataPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* 🏷️ WAREHOUSE CLASSIFICATION — A/B/C catalog                            */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {showClassifyModal && (
+        <div
+          onClick={() => setShowClassifyModal(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 14, width: 'min(820px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1.5px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15,23,42,0.12)' }}
+          >
+            <div style={{ padding: '14px 18px', borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b' }}>🏷️ تصنيف المذاخر</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+                  A = مفتوح · B = يحتاج موافقة · C = لا يجهز حالياً
+                </div>
+              </div>
+              <button onClick={() => setShowClassifyModal(false)} style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>✕</button>
+            </div>
+
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <input ref={classifyFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleClassifyUpload(f); if (classifyFileRef.current) classifyFileRef.current.value = ''; }} />
+              <button onClick={() => classifyFileRef.current?.click()}
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #6366f1', background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                📥 رفع ملف Excel
+              </button>
+              <button onClick={downloadClassifyTemplate}
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                ⬇ تحميل نموذج
+              </button>
+              {warehouseClasses.length > 0 && (
+                <button onClick={() => { if (confirm('مسح كل التصنيفات؟')) { setWarehouseClasses([]); setClassifyUploadMsg(''); } }}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginInlineStart: 'auto' }}>
+                  🗑 مسح الكل
+                </button>
+              )}
+            </div>
+
+            {classifyUploadMsg && (
+              <div style={{ padding: '8px 18px', fontSize: 12, color: classifyUploadMsg.startsWith('✓') ? '#166534' : '#9a3412', background: classifyUploadMsg.startsWith('✓') ? '#f0fdf4' : '#fff7ed', borderBottom: '1px solid #e2e8f0' }}>
+                {classifyUploadMsg}
+              </div>
+            )}
+
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e2e8f0', fontSize: 11, color: '#64748b' }}>
+              الأعمدة المطلوبة في الملف: <strong>المنطقة</strong> · <strong>المخزن</strong> · <strong>التصنيف</strong> (A أو B أو C).
+              المطابقة تتم بحسب الاسم بعد تجاهل الفراغات وحالة الأحرف.
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px' }}>
+              {warehouseClasses.length === 0 ? (
+                <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '40px 0' }}>
+                  لا يوجد تصنيف بعد. ارفع ملف Excel لبدء العمل.
+                </div>
+              ) : (
+                <>
+                  {/* Match report against active file */}
+                  {activeFile && (() => {
+                    const matched: { region: string; warehouse: string; cat: WarehouseCategory }[] = [];
+                    const unmatchedClass: WarehouseClass[] = [];
+                    const matchedKeys = new Set<string>();
+                    for (const c of warehouseClasses) {
+                      const hit = activeWarehousesAll.find(w => normName(w.warehouse) === normName(c.warehouse) && (!c.region || normName(w.region) === normName(c.region)));
+                      if (hit) { matched.push({ region: hit.region, warehouse: hit.warehouse, cat: c.category }); matchedKeys.add(`${normName(hit.region)}||${normName(hit.warehouse)}`); }
+                      else { unmatchedClass.push(c); }
+                    }
+                    const unmatchedFile = activeWarehousesAll.filter(w => !matchedKeys.has(`${normName(w.region)}||${normName(w.warehouse)}`));
+                    return (
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 12, flexWrap: 'wrap' }}>
+                        <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: 8, fontWeight: 700 }}>✓ مطابق: {matched.length}</span>
+                        {unmatchedClass.length > 0 && <span style={{ background: '#fff7ed', color: '#9a3412', padding: '4px 10px', borderRadius: 8, fontWeight: 700 }} title={unmatchedClass.map(c => `${c.region} / ${c.warehouse}`).join('\n')}>⚠ بالملف وليس بالستوك: {unmatchedClass.length}</span>}
+                        {unmatchedFile.length > 0 && <span style={{ background: '#fef2f2', color: '#991b1b', padding: '4px 10px', borderRadius: 8, fontWeight: 700 }} title={unmatchedFile.map(w => `${w.region} / ${w.warehouse}`).join('\n')}>⚠ بالستوك وغير مصنّف: {unmatchedFile.length}</span>}
+                      </div>
+                    );
+                  })()}
+
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        <th style={{ padding: 8, textAlign: 'right', fontWeight: 700, color: '#475569' }}>المنطقة</th>
+                        <th style={{ padding: 8, textAlign: 'right', fontWeight: 700, color: '#475569' }}>المخزن</th>
+                        <th style={{ padding: 8, textAlign: 'center', fontWeight: 700, color: '#475569', width: 90 }}>التصنيف</th>
+                        <th style={{ padding: 8, textAlign: 'center', fontWeight: 700, color: '#475569', width: 80 }}>مطابقة</th>
+                        <th style={{ padding: 8, textAlign: 'center', width: 50 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {warehouseClasses.map((c, i) => {
+                        const colors = { A: { bg: '#dcfce7', fg: '#166534' }, B: { bg: '#fef9c3', fg: '#854d0e' }, C: { bg: '#fee2e2', fg: '#991b1b' } }[c.category];
+                        const matched = activeFile ? activeWarehousesAll.some(w => normName(w.warehouse) === normName(c.warehouse) && (!c.region || normName(w.region) === normName(c.region))) : null;
+                        return (
+                          <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: 8, color: '#475569' }}>{c.region || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td style={{ padding: 8, fontWeight: 600, color: '#1e293b' }}>{c.warehouse}</td>
+                            <td style={{ padding: 8, textAlign: 'center' }}>
+                              <select
+                                value={c.category}
+                                onChange={e => setWarehouseClasses(prev => prev.map((x, idx) => idx === i ? { ...x, category: e.target.value as WarehouseCategory } : x))}
+                                style={{ background: colors.bg, color: colors.fg, fontWeight: 800, border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}
+                              >
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                                <option value="C">C</option>
+                              </select>
+                            </td>
+                            <td style={{ padding: 8, textAlign: 'center' }}>
+                              {matched === null ? <span style={{ color: '#cbd5e1' }}>—</span>
+                                : matched ? <span style={{ color: '#16a34a' }}>✓</span>
+                                : <span title="غير موجود في الستوك الحالي" style={{ color: '#dc2626' }}>✕</span>}
+                            </td>
+                            <td style={{ padding: 8, textAlign: 'center' }}>
+                              <button onClick={() => setWarehouseClasses(prev => prev.filter((_, idx) => idx !== i))}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 14 }}
+                                title="حذف">🗑</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
