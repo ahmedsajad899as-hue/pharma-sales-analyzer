@@ -279,6 +279,85 @@ function parseMultiSheetStock(buffer: ArrayBuffer, filename: string): SalesFile 
   }
 }
 
+// ── Merge helper: detect company col in a SalesFile ───────────────────────────
+const COMPANY_KW = ['company','comp','شركة','الشركة','vendor','supplier','brand','manufacture','principal','item code','itemcode'];
+const ITEM_KW_EXACT = ['item','الايتم','اسم الايتم','اسم المادة','اسم الماده','المادة','مادة','المواد','name','product','منتج','المنتج'];
+const ITEM_KW_PART  = ['item','الايتم','اسم','نام','name','product'];
+
+function detectCompanyCol(f: SalesFile): string {
+  const lower = f.fixedCols.map(c => c.toLowerCase().trim());
+  return f.fixedCols.find((_, i) => COMPANY_KW.some(k => lower[i].includes(k))) ?? '';
+}
+
+function detectItemNameCol(f: SalesFile): string {
+  const lower = f.fixedCols.map(c => c.toLowerCase().trim());
+  const exact = f.fixedCols.find((_, i) => ITEM_KW_EXACT.some(k => lower[i] === k));
+  if (exact) return exact;
+  return (
+    f.fixedCols.find((_, i) =>
+      ITEM_KW_PART.some(k => lower[i].includes(k)) &&
+      !lower[i].includes('code') && !lower[i].includes('كود') && !lower[i].includes('id')
+    ) ?? f.fixedCols[1] ?? f.fixedCols[0] ?? ''
+  );
+}
+
+// ── buildMergedFile: combine multiple SalesFiles into one ─────────────────────
+function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile {
+  // Union of areaCols — key by region+label to deduplicate same warehouse across files
+  const colMap = new Map<string, ColMeta>();
+  for (const f of selectedFiles) {
+    for (const ac of f.areaCols) {
+      const mapKey = `${ac.region}||${ac.label}`;
+      if (!colMap.has(mapKey)) {
+        colMap.set(mapKey, { key: `m_${colMap.size}`, label: ac.label, region: ac.region, colIdx: -1 });
+      }
+    }
+  }
+  const mergedAreaCols = [...colMap.values()];
+
+  // Union of regions (preserve order)
+  const allRegions = [...new Set(selectedFiles.flatMap(f => f.regions))];
+
+  // Build rows
+  const allRows: Record<string, string>[] = [];
+  for (const f of selectedFiles) {
+    const companyCol  = detectCompanyCol(f);
+    const itemNameCol = detectItemNameCol(f);
+
+    // Build lookup: (region, label) → merged key for this file's areaCols
+    const acKeyToMerged = new Map<string, string>();
+    for (const ac of f.areaCols) {
+      const mapKey = `${ac.region}||${ac.label}`;
+      const merged = colMap.get(mapKey);
+      if (merged) acKeyToMerged.set(ac.key, merged.key);
+    }
+
+    for (const row of f.rows) {
+      const company = companyCol  ? String(row[companyCol]  ?? '').trim() : f.name;
+      const item    = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
+      if (!item) continue;
+
+      const obj: Record<string, string> = { 'الشركة': company, 'المادة': item };
+      for (const ac of f.areaCols) {
+        const mk = acKeyToMerged.get(ac.key);
+        if (mk) obj[mk] = String(row[ac.key] ?? '');
+      }
+      allRows.push(obj);
+    }
+  }
+
+  const shortNames = names.map(n => n.length > 12 ? n.slice(0, 12) + '…' : n).join(' + ');
+  return {
+    id: uid(),
+    name: `دمج: ${shortNames}`,
+    uploadedAt: new Date().toISOString(),
+    fixedCols: ['الشركة', 'المادة'],
+    areaCols: mergedAreaCols,
+    rows: allRows,
+    regions: allRegions,
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function SalesDataPage() {
   const { user } = useAuth();
@@ -301,6 +380,8 @@ export default function SalesDataPage() {
   const [colFilters, setColFilters]       = useState<Record<string, string[]>>({});
   const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
   const [filterSearch, setFilterSearch]   = useState('');
+  const [showMergePanel, setShowMergePanel] = useState(false);
+  const [mergeChecked, setMergeChecked]     = useState<Set<string>>(new Set());
 
   // Back button: close open overlays/panels
   useBackHandler([
@@ -498,6 +579,25 @@ export default function SalesDataPage() {
     setPage(1);
   };
 
+  const resetFilters = () => {
+    selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setColFilters({}); setPage(1);
+  };
+
+  const doMerge = () => {
+    const selected = files.filter(f => mergeChecked.has(f.id));
+    if (selected.length < 2) return;
+    const merged = buildMergedFile(selected, selected.map(f => f.name));
+    setFiles(prev => {
+      const next = [...prev, merged];
+      saveFiles(next, userId);
+      return next;
+    });
+    setActiveId(merged.id);
+    resetFilters();
+    setShowMergePanel(false);
+    setMergeChecked(new Set());
+  };
+
   return (
     <div style={{ padding: '16px 14px 80px', maxWidth: 1300, margin: '0 auto', direction: 'rtl' }}>
 
@@ -538,23 +638,68 @@ export default function SalesDataPage() {
 
       {/* File tabs */}
       {files.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-          {files.map(f => (
-            <div key={f.id} style={{ display: 'flex' }}>
-              <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setPage(1); }}
-                style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none',
-                  background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: activeId === f.id ? '#4338ca' : '#64748b',
-                  maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={`${f.name} · ${f.rows.length} صف · ${f.areaCols.length} مخزن · ${fmtDate(f.uploadedAt)}`}>
-                📄 {f.name}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {files.map(f => (
+              <div key={f.id} style={{ display: 'flex' }}>
+                <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setPage(1); }}
+                  style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none',
+                    background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: activeId === f.id ? '#4338ca' : '#64748b',
+                    maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={`${f.name} · ${f.rows.length} صف · ${f.areaCols.length} مخزن · ${fmtDate(f.uploadedAt)}`}>
+                  {f.name.startsWith('دمج:') ? '🔗' : '📄'} {f.name}
+                </button>
+                <button onClick={() => deleteFile(f.id)} title="حذف"
+                  style={{ padding: '5px 9px', borderRadius: '0 20px 20px 0', fontSize: 11, cursor: 'pointer',
+                    border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderRight: 'none',
+                    background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#ef4444' }}>×</button>
+              </div>
+            ))}
+            {/* Merge toggle button — only when 2+ files */}
+            {files.length >= 2 && (
+              <button
+                onClick={() => { setShowMergePanel(v => !v); setMergeChecked(new Set()); }}
+                style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: `1.5px solid ${showMergePanel ? '#8b5cf6' : '#e2e8f0'}`,
+                  background: showMergePanel ? '#ede9fe' : '#f8fafc',
+                  color: showMergePanel ? '#7c3aed' : '#64748b' }}>
+                🔗 دمج ملفات
               </button>
-              <button onClick={() => deleteFile(f.id)} title="حذف"
-                style={{ padding: '5px 9px', borderRadius: '0 20px 20px 0', fontSize: 11, cursor: 'pointer',
-                  border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderRight: 'none',
-                  background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#ef4444' }}>×</button>
+            )}
+          </div>
+
+          {/* Merge panel */}
+          {showMergePanel && (
+            <div style={{ marginTop: 10, background: '#faf5ff', border: '1.5px solid #ddd6fe', borderRadius: 12, padding: '12px 16px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 10 }}>اختر الملفات المراد دمجها:</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {files.map(f => (
+                  <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                    background: mergeChecked.has(f.id) ? '#ede9fe' : '#fff',
+                    border: `1.5px solid ${mergeChecked.has(f.id) ? '#8b5cf6' : '#e2e8f0'}`,
+                    borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: mergeChecked.has(f.id) ? 700 : 400,
+                    color: mergeChecked.has(f.id) ? '#7c3aed' : '#475569', transition: 'all 0.1s' }}>
+                    <input type="checkbox" checked={mergeChecked.has(f.id)}
+                      onChange={() => setMergeChecked(prev => { const n = new Set(prev); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
+                      style={{ accentColor: '#8b5cf6' }} />
+                    {f.name}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={doMerge} disabled={mergeChecked.size < 2}
+                  style={{ padding: '6px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: mergeChecked.size < 2 ? 'not-allowed' : 'pointer',
+                    background: mergeChecked.size < 2 ? '#e2e8f0' : '#7c3aed', color: mergeChecked.size < 2 ? '#94a3b8' : '#fff', border: 'none' }}>
+                  🔗 دمج المحدد ({mergeChecked.size})
+                </button>
+                <button onClick={() => { setShowMergePanel(false); setMergeChecked(new Set()); }}
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', fontWeight: 600 }}>
+                  إلغاء
+                </button>
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
 
