@@ -798,9 +798,6 @@ export default function SalesDataPage() {
   // Sort: by total desc when showValue active, else by company → item name
   const pageRows = useMemo(() => {
     const rows = [...filteredRows];
-    if (showValue) {
-      return rows.sort((a, b) => rowDisplay(b, displayCols) - rowDisplay(a, displayCols));
-    }
     return rows.sort((a, b) => {
       const ca = String(a[companyCol] ?? '').toLowerCase();
       const cb = String(b[companyCol] ?? '').toLowerCase();
@@ -809,7 +806,7 @@ export default function SalesDataPage() {
       const ib = String(b[itemNameCol] ?? '').toLowerCase();
       return ia.localeCompare(ib, 'ar');
     });
-  }, [filteredRows, showValue, rowDisplay, displayCols, companyCol, itemNameCol]);
+  }, [filteredRows, companyCol, itemNameCol]);
 
   // Handlers
   const handleFile = useCallback((file: File): Promise<{ ok: boolean; err?: string; saved?: SalesFile }> => {
