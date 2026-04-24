@@ -458,9 +458,7 @@ export default function SalesDataPage() {
   }, [showItemDropdown]);
 
   const totalPages = 1;
-  const pageRows = showValue
-    ? [...filteredRows].sort((a, b) => rowDisplay(b, displayCols) - rowDisplay(a, displayCols))
-    : filteredRows;
+  const pageRows = filteredRows;
 
   // Handlers
   const handleFile = useCallback((file: File) => {
