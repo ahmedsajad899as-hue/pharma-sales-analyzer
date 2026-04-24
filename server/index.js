@@ -631,6 +631,88 @@ app.delete('/api/items/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/items/:sourceId/merge  body: { targetId }
+// Merges sourceId INTO targetId — reassigns all FKs, resolves composite-unique
+// conflicts, then deletes source. Requires both items belong to the caller.
+app.post('/api/items/:sourceId/merge', requireAuth, async (req, res) => {
+  try {
+    const sourceId = parseInt(req.params.sourceId);
+    const targetId = parseInt(req.body?.targetId);
+    const userId   = req.user?.id ?? null;
+    if (isNaN(sourceId) || isNaN(targetId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    if (sourceId === targetId) return res.status(400).json({ error: 'لا يمكن دمج الايتم مع نفسه' });
+
+    const scope = userId ? { userId } : {};
+    const [source, target] = await Promise.all([
+      prisma.item.findFirst({ where: { id: sourceId, ...scope } }),
+      prisma.item.findFirst({ where: { id: targetId, ...scope } }),
+    ]);
+    if (!source) return res.status(404).json({ error: 'الايتم المصدر غير موجود' });
+    if (!target) return res.status(404).json({ error: 'الايتم الهدف غير موجود' });
+
+    // Composite-unique relations: (otherKey, itemId)
+    const compositeRels = [
+      { table: 'representativeItem',  key: 'representativeId' },
+      { table: 'scientificRepItem',   key: 'scientificRepId'  },
+      { table: 'planEntryItem',       key: 'planEntryId'      },
+      { table: 'productLineItem',     key: 'lineId'           },
+      { table: 'userItemAssignment',  key: 'userId'           },
+    ];
+
+    const result = await prisma.$transaction(async (tx) => {
+      const counters = {};
+      for (const { table, key } of compositeRels) {
+        const sourceRows = await tx[table].findMany({ where: { itemId: sourceId } });
+        if (sourceRows.length === 0) continue;
+        const targetRows = await tx[table].findMany({
+          where: { itemId: targetId, [key]: { in: sourceRows.map(r => r[key]) } },
+          select: { [key]: true },
+        });
+        const existing = new Set(targetRows.map(r => r[key]));
+        const toMove   = sourceRows.filter(r => !existing.has(r[key]));
+        const toDelete = sourceRows.filter(r =>  existing.has(r[key]));
+
+        for (const row of toMove) {
+          await tx[table].update({
+            where: { [`${key}_itemId`]: { [key]: row[key], itemId: sourceId } },
+            data:  { itemId: targetId },
+          });
+        }
+        for (const row of toDelete) {
+          await tx[table].delete({
+            where: { [`${key}_itemId`]: { [key]: row[key], itemId: sourceId } },
+          });
+        }
+        counters[table] = { moved: toMove.length, removed: toDelete.length };
+      }
+
+      // Plain FK relations (no composite unique on itemId)
+      const [sales, doctorsTarget, visits, pharmVisitItems, commInvItems, fmsItems] = await Promise.all([
+        tx.sale.updateMany({              where: { itemId: sourceId }, data: { itemId: targetId } }),
+        tx.doctor.updateMany({            where: { targetItemId: sourceId }, data: { targetItemId: targetId } }),
+        tx.doctorVisit.updateMany({       where: { itemId: sourceId }, data: { itemId: targetId } }),
+        tx.pharmacyVisitItem.updateMany({ where: { itemId: sourceId }, data: { itemId: targetId } }),
+        tx.commercialInvoiceItem.updateMany({ where: { itemId: sourceId }, data: { itemId: targetId } }),
+        tx.fmsPlanItem.updateMany({       where: { itemId: sourceId }, data: { itemId: targetId } }),
+      ]);
+      counters.sales                 = sales.count;
+      counters.doctorsTarget         = doctorsTarget.count;
+      counters.doctorVisits          = visits.count;
+      counters.pharmacyVisitItems    = pharmVisitItems.count;
+      counters.commercialInvoiceItems = commInvItems.count;
+      counters.fmsPlanItems          = fmsItems.count;
+
+      await tx.item.delete({ where: { id: sourceId } });
+      return counters;
+    }, { timeout: 30000 });
+
+    res.json({ success: true, merged: { from: source.name, into: target.name }, counts: result });
+  } catch (err) {
+    console.error('[merge items]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/items/:id/image — upload item image
 app.post('/api/items/:id/image', requireAuth, imageUpload.single('image'), async (req, res) => {
   try {

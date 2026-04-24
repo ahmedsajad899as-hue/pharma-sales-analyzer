@@ -140,6 +140,35 @@ export default function ItemsPage() {
   };
   const openView = (item: Item) => { setSelected(item); setModal('view'); };
 
+  // ── Merge state ─────────────────────────────────────────
+  const [mergeSource, setMergeSource] = useState<Item | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState<number | null>(null);
+  const [mergeSearch, setMergeSearch] = useState('');
+  const [merging, setMerging] = useState(false);
+
+  const openMerge = (item: Item) => {
+    setMergeSource(item);
+    setMergeTargetId(null);
+    setMergeSearch('');
+  };
+
+  const handleMerge = async () => {
+    if (!mergeSource || !mergeTargetId) return;
+    if (!confirm(`سيتم دمج "${mergeSource.name}" في الايتم المختار وحذف الأصلي نهائياً. متابعة؟`)) return;
+    setMerging(true);
+    try {
+      const r = await fetch(`${API}/api/items/${mergeSource.id}/merge`, {
+        method: 'POST', headers: jsonH(),
+        body: JSON.stringify({ targetId: mergeTargetId }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'فشل الدمج');
+      setMergeSource(null);
+      await load();
+    } catch (e: any) { alert(e.message); }
+    finally { setMerging(false); }
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) { setSaveErr('اسم الايتم مطلوب'); return; }
     setSaving(true); setSaveErr('');
@@ -486,6 +515,11 @@ export default function ItemsPage() {
                       style={{ background:'#f0fdf4', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#059669' }}
                     >✏️</button>
                     <button
+                      onClick={() => openMerge(item)}
+                      title="دمج مع ايتم آخر"
+                      style={{ background:'#fef3c7', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#b45309' }}
+                    >🔀</button>
+                    <button
                       onClick={() => handleDelete(item)}
                       title="حذف"
                       style={{ background:'#fff1f2', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#e11d48' }}
@@ -665,6 +699,60 @@ export default function ItemsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Merge Modal ──────────────────────────────────────── */}
+      {mergeSource && (
+        <div className="items-modal-overlay" onClick={() => setMergeSource(null)}>
+          <div className="items-modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 16 }}>
+              <h3 style={{ margin:0, fontSize:16, fontWeight:800, color:'#1e293b' }}>
+                🔀 دمج الايتم
+              </h3>
+              <button onClick={() => setMergeSource(null)} style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#94a3b8' }}>✕</button>
+            </div>
+            <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color:'#9a3412' }}>
+              سيتم دمج <strong>{mergeSource.name}</strong>
+              {mergeSource.company?.name && <> (<span>{mergeSource.company.name}</span>)</>}
+              {' '}مع الايتم المختار. كل المبيعات والزيارات والخطط المرتبطة ستُنقل، ثم يُحذف هذا الايتم نهائياً.
+            </div>
+            <input
+              type="text"
+              placeholder="🔍 ابحث عن الايتم الهدف..."
+              value={mergeSearch}
+              onChange={e => setMergeSearch(e.target.value)}
+              style={{ width:'100%', padding:'8px 12px', borderRadius: 8, border:'1px solid #cbd5e1', fontSize: 14, marginBottom: 10, direction:'rtl', boxSizing:'border-box' }}
+            />
+            <div style={{ maxHeight: 280, overflowY:'auto', display:'flex', flexDirection:'column', gap: 4, marginBottom: 12 }}>
+              {items
+                .filter(i => i.id !== mergeSource.id)
+                .filter(i => !mergeSearch || i.name.toLowerCase().includes(mergeSearch.toLowerCase()) || (i.company?.name ?? '').toLowerCase().includes(mergeSearch.toLowerCase()))
+                .slice(0, 200)
+                .map(i => (
+                  <label key={i.id} style={{ display:'flex', alignItems:'center', gap: 10, padding:'8px 12px', background: mergeTargetId === i.id ? '#dcfce7' : '#f8fafc', border: `1px solid ${mergeTargetId === i.id ? '#86efac' : 'transparent'}`, borderRadius: 8, cursor:'pointer', fontSize: 13 }}>
+                    <input type="radio" name="mergeTarget" checked={mergeTargetId === i.id} onChange={() => setMergeTargetId(i.id)} />
+                    <span style={{ flex: 1 }}>
+                      <strong>{i.name}</strong>
+                      {i.company?.name && <span style={{ color:'#64748b', marginRight: 6, fontSize: 11 }}>· {i.company.name}</span>}
+                    </span>
+                    <span style={{ color:'#94a3b8', fontSize: 11 }}>#{i.id}</span>
+                  </label>
+                ))}
+            </div>
+            <div style={{ display:'flex', gap: 8 }}>
+              <button
+                onClick={handleMerge}
+                disabled={!mergeTargetId || merging}
+                style={{ flex: 1, background: mergeTargetId ? '#b45309' : '#cbd5e1', border:'none', borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 700, color:'#fff', cursor: mergeTargetId ? 'pointer' : 'not-allowed' }}
+              >{merging ? '⏳ جاري الدمج...' : '🔀 تنفيذ الدمج'}</button>
+              <button
+                onClick={() => setMergeSource(null)}
+                style={{ flex: 1, background:'#f1f5f9', border:'none', borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 700, color:'#475569', cursor:'pointer' }}
+              >إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Excel Import Modal ───────────────────────────────── */}
       {modal === 'import' && (
         <div className="items-modal-overlay" onClick={() => setModal(null)}>
