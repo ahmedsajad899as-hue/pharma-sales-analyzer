@@ -1471,12 +1471,11 @@ export default function SalesDataPage() {
                           {col.label}
                         </th>
                       ))}
-                      <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80 }}>الإجمالي</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pageRows.length === 0
-                      ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
+                      ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 1} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
                       : pageRows.map((row, idx) => {
                         const rt = rowDisplay(row, displayCols);
                         return (
@@ -1502,7 +1501,6 @@ export default function SalesDataPage() {
                                 </td>
                               );
                             })}
-                            <td style={{ ...tdA, background: rt > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined, color: rt > 0 ? (showValue ? '#92400e' : '#065f46') : '#e2e8f0', fontWeight: 700 }}>{fmtNum(rt)}</td>
                           </tr>
                         );
                       })
@@ -1516,7 +1514,6 @@ export default function SalesDataPage() {
                       {displayCols.map(col => (
                         <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
                       ))}
-                      <td style={{ ...tdA, color: '#065f46', fontWeight: 800 }}>{fmtNum(filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0))}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1842,7 +1839,6 @@ export default function SalesDataPage() {
                         'الحالة': sev2label[e.severity],
                         'الايتم': e.name || '(بدون اسم)',
                         'الشركة': e.company || '',
-                        'الإجمالي': e.total,
                         'المناطق الناقصة': regionsStr,
                         'المذاخر الناقصة': warehousesStr,
                         'عدد المناطق': e.lowRegions.length,
@@ -1864,7 +1860,6 @@ export default function SalesDataPage() {
                             'المخزن': '(إجمالي المنطقة)',
                             'الكمية': r.qty,
                             'شدة النقص': sev2label[r.sev],
-                            'إجمالي الايتم': e.total,
                           });
                         });
                       } else {
@@ -1877,7 +1872,6 @@ export default function SalesDataPage() {
                             'المخزن': w.warehouse,
                             'الكمية': w.qty,
                             'شدة النقص': sev2label[w.sev],
-                            'إجمالي الايتم': e.total,
                           });
                         });
                       }
@@ -1887,8 +1881,8 @@ export default function SalesDataPage() {
                     const ws1 = XLSX.utils.json_to_sheet(summaryRows);
                     const ws2 = XLSX.utils.json_to_sheet(detailRows);
                     // Column widths
-                    ws1['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 50 }, { wch: 60 }, { wch: 10 }, { wch: 10 }];
-                    ws2['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+                    ws1['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 50 }, { wch: 60 }, { wch: 10 }, { wch: 10 }];
+                    ws2['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 12 }];
                     // RTL
                     (ws1 as any)['!views'] = [{ RTL: true }];
                     (ws2 as any)['!views'] = [{ RTL: true }];
