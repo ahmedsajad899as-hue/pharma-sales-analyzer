@@ -656,6 +656,8 @@ export default function SalesDataPage() {
       else if ((el as HTMLElement).tagName === 'BUTTON') (el as HTMLElement).remove();
       else if ((el as HTMLElement).tagName === 'INPUT') (el as HTMLElement).remove();
     });
+    // Strip cells/sections marked for export omission (الشامل column + المجموع footer)
+    clone.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
     // Force solid borders on all cells for Word/Excel readability
     clone.style.borderCollapse = 'collapse';
     clone.querySelectorAll('th, td').forEach(c => {
@@ -1528,7 +1530,7 @@ tr{page-break-inside:avoid}
             {/* Shortage Radar button */}
             <button
               onClick={() => setShowShortages(true)}
-              title={`رادار النواقص · الحد الحالي ${shortageThreshold} قطعة`}
+              title={`رادار النقص · الحد الحالي ${shortageThreshold} قطعة`}
               style={{
                 padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 border: '1.5px solid #e2e8f0',
@@ -1537,7 +1539,7 @@ tr{page-break-inside:avoid}
                 display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >
-              النواقص
+              النقص
               {shortages.totalCount > 0 && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1615,7 +1617,7 @@ tr{page-break-inside:avoid}
                 <span>{filteredRows.length} ايتم{regionFilter !== 'all' && ` · ${regionFilter}`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
                 {shortageOnlyMode && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', color: '#dc2626', fontWeight: 700, fontSize: 11 }}>
-                    🔴 عرض النواقص فقط
+                    🔴 عرض النقص فقط
                     <button onClick={() => setShortageOnlyMode(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 13, padding: 0, lineHeight: 1, fontWeight: 700 }}>✕</button>
                   </span>
                 )}
@@ -1725,7 +1727,7 @@ tr{page-break-inside:avoid}
                         </th>
                         );
                       })}
-                      <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>الشامل</th>
+                      <th data-export="omit" style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>الشامل</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1780,13 +1782,13 @@ tr{page-break-inside:avoid}
                                 </td>
                               );
                             })}
-                            <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
+                            <td data-export="omit" style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
                           </tr>
                         );
                       })
                     }
                   </tbody>
-                  <tfoot>
+                  <tfoot data-export="omit">
                     <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
                       <td style={{ ...tdS, color: '#475569', fontSize: 11, fontWeight: 700, position: 'sticky', bottom: 0, background: '#f1f5f9' }} colSpan={activeFile.fixedCols.length + 1}>
                         المجموع ({filteredRows.length} ايتم)
@@ -2207,7 +2209,7 @@ tr{page-break-inside:avoid}
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
             }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b' }}>📡 رادار النواقص</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b' }}>📡 رادار النقص</div>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
                   {shortages.totalCount === 0
                     ? 'لا توجد نواقص حالياً'
@@ -2358,7 +2360,7 @@ tr{page-break-inside:avoid}
                     // RTL
                     (ws1 as any)['!views'] = [{ RTL: true }];
                     (ws2 as any)['!views'] = [{ RTL: true }];
-                    XLSX.utils.book_append_sheet(wb, ws1, 'ملخص النواقص');
+                    XLSX.utils.book_append_sheet(wb, ws1, 'ملخص النقص');
                     XLSX.utils.book_append_sheet(wb, ws2, 'تفصيل حسب المخزن');
                     const fname = `shortages_${activeFile?.name.replace(/\.[^.]+$/, '') || 'report'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
                     XLSX.writeFile(wb, fname);
@@ -2372,7 +2374,7 @@ tr{page-break-inside:avoid}
                     color: shortages.totalCount > 0 ? '#fff' : undefined,
                     borderColor: shortages.totalCount > 0 ? '#10b981' : undefined,
                   }}
-                  title="تصدير النواقص إلى ملف إكسل بورقتين: ملخص وتفصيل لكل مخزن"
+                  title="تصدير النقص إلى ملف إكسل بورقتين: ملخص وتفصيل لكل مخزن"
                 >⬇ تصدير Excel</button>
                 <button
                   onClick={() => {
