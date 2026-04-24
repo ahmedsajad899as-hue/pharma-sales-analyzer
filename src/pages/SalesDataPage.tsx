@@ -292,8 +292,6 @@ export default function SalesDataPage() {
 
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemQuery, setItemQuery]         = useState('');
-  const [showItemDropdown, setShowItemDropdown] = useState(false);
-  const itemSearchRef = useRef<HTMLDivElement>(null);
   const [companyFilter, setCompanyFilter] = useState('all');
   const [regionFilter, setRegionFilter]   = useState('all');
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
@@ -456,16 +454,6 @@ export default function SalesDataPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [openFilterCol]);
 
-  // Close item-search dropdown on outside click
-  useEffect(() => {
-    if (!showItemDropdown) return;
-    const handler = (e: MouseEvent) => {
-      if (!itemSearchRef.current?.contains(e.target as Node)) setShowItemDropdown(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showItemDropdown]);
-
   const totalPages = 1;
   const pageRows = filteredRows;
 
@@ -605,147 +593,57 @@ export default function SalesDataPage() {
 
           {/* Filter Panel */}
           <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
-            {/* Item search — inline dropdown */}
-            <div style={{ marginBottom: 14, position: 'relative' }} ref={itemSearchRef}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🔍 البحث بالايتم</div>
-              {/* Input bar */}
-              <div style={{
-                maxWidth: 420, border: `1.5px solid ${showItemDropdown || selectedItems.length > 0 ? '#6366f1' : '#e2e8f0'}`,
-                borderRadius: 9, background: selectedItems.length > 0 ? '#f5f3ff' : '#f8fafc',
-                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
-                boxShadow: showItemDropdown ? '0 0 0 3px rgba(99,102,241,0.1)' : selectedItems.length > 0 ? '0 0 0 3px rgba(99,102,241,0.08)' : 'none',
-              }}>
-                <span>🔍</span>
-                <input
-                  value={itemQuery}
-                  onChange={e => { setItemQuery(e.target.value); setShowItemDropdown(true); setPage(1); }}
-                  onFocus={() => setShowItemDropdown(true)}
-                  onKeyDown={e => { if (e.key === 'Escape') setShowItemDropdown(false); }}
-                  placeholder={selectedItems.length > 0 ? `${selectedItems.length} ايتم مختار — اكتب للإضافة` : 'اكتب للبحث...'}
-                  style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
-                />
-                {(selectedItems.length > 0 || itemQuery) && (
-                  <button
-                    onMouseDown={e => { e.preventDefault(); setSelectedItems([]); setItemQuery(''); setShowItemDropdown(false); setPage(1); }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15, padding: 0, lineHeight: 1 }}
-                  >×</button>
-                )}
-              </div>
-
-              {/* Selected tags */}
-              {selectedItems.length > 0 && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                  {selectedItems.map(name => (
-                    <span key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#ede9fe', color: '#7c3aed', borderRadius: 20, padding: '3px 10px 3px 8px', fontSize: 12, fontWeight: 600 }}>
-                      💊 {name}
+            {/* Items filter — pills with inline search */}
+            {activeFile && itemNameCol && (() => {
+              const allItems = [...new Set(
+                activeFile.rows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
+              )].sort((a, b) => a.localeCompare(b, 'ar'));
+              const q = itemQuery.trim().toLowerCase();
+              const visibleItems = q
+                ? allItems.filter(name => {
+                    if (name.toLowerCase().includes(q)) return true;
+                    if (!companyCol) return false;
+                    const row = activeFile.rows.find(r => String(r[itemNameCol] ?? '').trim() === name);
+                    return row ? String(row[companyCol] ?? '').toLowerCase().includes(q) : false;
+                  })
+                : allItems;
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>💊 الايتمات</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 7, padding: '3px 10px' }}>
+                      <span style={{ fontSize: 12 }}>🔍</span>
+                      <input
+                        value={itemQuery}
+                        onChange={e => { setItemQuery(e.target.value); setPage(1); }}
+                        placeholder="بحث عن ايتم..."
+                        style={{ fontSize: 12, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b', width: 150 }}
+                      />
+                      {itemQuery && <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 13, padding: 0 }}>×</button>}
+                    </div>
+                    {selectedItems.length > 1 && (
+                      <button onClick={() => { setSelectedItems([]); setPage(1); }} style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}>مسح الكل</button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} style={fp(selectedItems.length === 0)}>الكل</button>
+                    {visibleItems.map(name => (
                       <button
-                        onClick={() => { setSelectedItems(prev => prev.filter(n => n !== name)); setPage(1); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 0 0 2px', fontSize: 14, lineHeight: 1, opacity: 0.7 }}
-                      >×</button>
-                    </span>
-                  ))}
-                  {selectedItems.length > 1 && (
-                    <button
-                      onClick={() => { setSelectedItems([]); setPage(1); }}
-                      style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}
-                    >مسح الكل</button>
+                        key={name}
+                        onClick={() => { setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]); setItemQuery(''); setPage(1); }}
+                        style={fp(selectedItems.includes(name))}
+                      >{name}</button>
+                    ))}
+                    {q && visibleItems.length === 0 && (
+                      <span style={{ fontSize: 12, color: '#94a3b8' }}>لا نتائج لـ "{itemQuery}"</span>
+                    )}
+                  </div>
+                  {selectedItems.length > 0 && (
+                    <div style={{ fontSize: 11, color: '#10b981', marginTop: 6, fontWeight: 600 }}>✓ {filteredRows.length} صف مطابق ({selectedItems.length} ايتم)</div>
                   )}
                 </div>
-              )}
-
-              {/* Inline dropdown */}
-              {showItemDropdown && activeFile && (() => {
-                const q = itemQuery.trim().toLowerCase();
-                const suggestions = [...new Map(
-                  activeFile.rows
-                    .filter(row => {
-                      if (!q) return true;
-                      const itemName = String(row[itemNameCol] ?? '').toLowerCase();
-                      const company  = companyCol ? String(row[companyCol] ?? '').toLowerCase() : '';
-                      return itemName.includes(q) || company.includes(q);
-                    })
-                    .map(row => {
-                      const name    = String(row[itemNameCol] ?? '').trim();
-                      const company = companyCol ? String(row[companyCol] ?? '').trim() : '';
-                      return [`${name}||${company}`, { name, company }];
-                    })
-                ).values()]
-                  .filter(it => it.name && !selectedItems.includes(it.name))
-                  .slice(0, q ? 50 : 20);
-
-                // highlight matched text
-                const highlight = (text: string) => {
-                  if (!q) return <span>{text}</span>;
-                  const idx = text.toLowerCase().indexOf(q);
-                  if (idx < 0) return <span>{text}</span>;
-                  return <span>{text.slice(0, idx)}<mark style={{ background: '#fef08a', borderRadius: 3, padding: 0 }}>{text.slice(idx, idx + q.length)}</mark>{text.slice(idx + q.length)}</span>;
-                };
-
-                if (suggestions.length === 0 && !q) return null;
-
-                return (
-                  <div style={{
-                    position: 'absolute', top: 'calc(100% + 4px)', right: 0, left: 0, maxWidth: 420,
-                    zIndex: 500, background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.15)', overflow: 'hidden', direction: 'rtl',
-                    maxHeight: 320, overflowY: 'auto',
-                  }}>
-                    {suggestions.length === 0 && q && (
-                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج لـ "{itemQuery}"</div>
-                    )}
-                    {!q && suggestions.length > 0 && (
-                      <div style={{ padding: '6px 14px 4px', fontSize: 11, color: '#94a3b8', fontWeight: 700, borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-                        اكتب للبحث أو اختر ايتم
-                      </div>
-                    )}
-                    {suggestions.map(it => (
-                      <div
-                        key={it.name + '||' + it.company}
-                        style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f8fafc', fontSize: 13 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f5f3ff')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '')}
-                      >
-                        {/* Left: + icon — add + keep dropdown open */}
-                        <div
-                          title="أضف وابقِ القائمة مفتوحة"
-                          onMouseDown={e => {
-                            e.preventDefault();
-                            if (!selectedItems.includes(it.name)) setSelectedItems(prev => [...prev, it.name]);
-                            setItemQuery('');
-                            setPage(1);
-                          }}
-                          style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, borderLeft: '2px solid #bfdbfe', cursor: 'pointer' }}
-                        >
-                          <span style={{ fontSize: 16 }}>💊</span>
-                          <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 700 }}>+</span>
-                        </div>
-                        {/* Right: item name + company tag — add + close */}
-                        <div
-                          onMouseDown={() => {
-                            if (!selectedItems.includes(it.name)) setSelectedItems(prev => [...prev, it.name]);
-                            setItemQuery('');
-                            setShowItemDropdown(false);
-                            setPage(1);
-                          }}
-                          style={{ flex: 1, padding: '8px 14px 8px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, cursor: 'pointer' }}
-                        >
-                          <span style={{ color: '#4338ca', fontWeight: 600, fontSize: 13 }}>{highlight(it.name)}</span>
-                          {it.company && (
-                            <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 6px', alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>
-                              🏢 {highlight(it.company)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-
-              {(selectedItems.length > 0 || itemQuery) && (
-                <div style={{ fontSize: 11, color: '#10b981', marginTop: selectedItems.length > 0 ? 6 : 4, fontWeight: 600 }}>✓ {filteredRows.length} ايتم مطابق</div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* Company pills (shown only when a company column is detected) */}
             {companyCol && companies.length > 0 && (
