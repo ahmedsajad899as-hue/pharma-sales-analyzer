@@ -1573,7 +1573,7 @@ export async function handleCommand(req, res) {
         let lastErr;
         for (let attempt = 1; attempt <= retries; attempt++) {
           const key = getNextApiKey();
-          const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
+          const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' });
           try {
             const result = await model.generateContent(parts);
             return result.response.text();
@@ -1661,7 +1661,7 @@ export async function handleCommand(req, res) {
       let lastErr;
       for (let attempt = 1; attempt <= retries; attempt++) {
         const key = getNextApiKey();
-        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' });
         try {
           const result = await model.generateContent(parts);
           return result.response.text();
