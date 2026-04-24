@@ -1569,11 +1569,10 @@ export async function handleCommand(req, res) {
         pharmNames, areaNames,
       });
 
-      async function callGeminiComm(parts, retries = 5, delayMs = 1000) {
+      async function callGeminiComm(parts, retries = 3, delayMs = 5000) {
         let lastErr;
         for (let attempt = 1; attempt <= retries; attempt++) {
           const key = getNextApiKey();
-          console.log(`[ai-assistant] callGeminiComm attempt ${attempt}/${retries}, key prefix: ${key?.slice(0,8)}`);
           const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
           try {
             const result = await model.generateContent(parts);
@@ -1582,7 +1581,7 @@ export async function handleCommand(req, res) {
             lastErr = err;
             console.error(`[ai-assistant] Gemini comm error attempt ${attempt}:`, err?.message || err);
             const is429 = String(err?.message || '').includes('429') || err?.status === 429;
-            if (is429 && attempt < retries) await new Promise(r => setTimeout(r, delayMs * attempt));
+            if (is429 && attempt < retries) await new Promise(r => setTimeout(r, delayMs));
             else throw err;
           }
         }
@@ -1658,11 +1657,10 @@ export async function handleCommand(req, res) {
     let geminiText;
 
     // ── Retry helper: rotate API key on each attempt on 429 ──
-    async function callGemini(parts, retries = 5, delayMs = 1000) {
+    async function callGemini(parts, retries = 3, delayMs = 5000) {
       let lastErr;
       for (let attempt = 1; attempt <= retries; attempt++) {
         const key = getNextApiKey();
-        console.log(`[ai-assistant] callGemini attempt ${attempt}/${retries}, key prefix: ${key?.slice(0,8)}`);
         const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
         try {
           const result = await model.generateContent(parts);
@@ -1672,7 +1670,7 @@ export async function handleCommand(req, res) {
           console.error(`[ai-assistant] Gemini error attempt ${attempt}:`, err?.message || err);
           const is429 = String(err?.message || '').includes('429') || err?.status === 429;
           if (is429 && attempt < retries) {
-            await new Promise(r => setTimeout(r, delayMs * attempt));
+            await new Promise(r => setTimeout(r, delayMs));
           } else {
             throw err;
           }
