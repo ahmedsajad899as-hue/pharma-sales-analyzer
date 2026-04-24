@@ -1823,6 +1823,94 @@ export default function SalesDataPage() {
                 <button
                   onClick={() => {
                     if (shortages.totalCount === 0) return;
+                    const sev2label: Record<string, string> = { out: 'نفد', critical: 'حرج', low: 'منخفض' };
+                    const all = [...shortages.out, ...shortages.critical, ...shortages.low];
+
+                    // Sheet 1: Summary (one row per item with region & warehouse breakdown)
+                    const summaryRows = all.map(e => {
+                      const whByReg: Record<string, string[]> = {};
+                      e.lowWarehouses.forEach(w => {
+                        (whByReg[w.region] ||= []).push(`${w.warehouse}=${w.qty}`);
+                      });
+                      const regionsStr = e.lowRegions
+                        .map(r => `${r.region} (${r.qty === 0 ? 'نفد' : r.qty})`)
+                        .join(' | ');
+                      const warehousesStr = Object.entries(whByReg)
+                        .map(([reg, arr]) => `${reg}: ${arr.join(', ')}`)
+                        .join(' | ');
+                      return {
+                        'الحالة': sev2label[e.severity],
+                        'الايتم': e.name || '(بدون اسم)',
+                        'الشركة': e.company || '',
+                        'الإجمالي': e.total,
+                        'المناطق الناقصة': regionsStr,
+                        'المذاخر الناقصة': warehousesStr,
+                        'عدد المناطق': e.lowRegions.length,
+                        'عدد المذاخر': e.lowWarehouses.length,
+                      };
+                    });
+
+                    // Sheet 2: Detail (one row per warehouse shortage — for pivoting)
+                    const detailRows: any[] = [];
+                    all.forEach(e => {
+                      if (e.lowWarehouses.length === 0) {
+                        // Fall back to region-level rows if no warehouse detail
+                        e.lowRegions.forEach(r => {
+                          detailRows.push({
+                            'الحالة': sev2label[e.severity],
+                            'الايتم': e.name || '(بدون اسم)',
+                            'الشركة': e.company || '',
+                            'المنطقة': r.region,
+                            'المخزن': '(إجمالي المنطقة)',
+                            'الكمية': r.qty,
+                            'شدة النقص': sev2label[r.sev],
+                            'إجمالي الايتم': e.total,
+                          });
+                        });
+                      } else {
+                        e.lowWarehouses.forEach(w => {
+                          detailRows.push({
+                            'الحالة': sev2label[e.severity],
+                            'الايتم': e.name || '(بدون اسم)',
+                            'الشركة': e.company || '',
+                            'المنطقة': w.region,
+                            'المخزن': w.warehouse,
+                            'الكمية': w.qty,
+                            'شدة النقص': sev2label[w.sev],
+                            'إجمالي الايتم': e.total,
+                          });
+                        });
+                      }
+                    });
+
+                    const wb = XLSX.utils.book_new();
+                    const ws1 = XLSX.utils.json_to_sheet(summaryRows);
+                    const ws2 = XLSX.utils.json_to_sheet(detailRows);
+                    // Column widths
+                    ws1['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 50 }, { wch: 60 }, { wch: 10 }, { wch: 10 }];
+                    ws2['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+                    // RTL
+                    (ws1 as any)['!views'] = [{ RTL: true }];
+                    (ws2 as any)['!views'] = [{ RTL: true }];
+                    XLSX.utils.book_append_sheet(wb, ws1, 'ملخص النواقص');
+                    XLSX.utils.book_append_sheet(wb, ws2, 'تفصيل حسب المخزن');
+                    const fname = `shortages_${activeFile?.name.replace(/\.[^.]+$/, '') || 'report'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                    XLSX.writeFile(wb, fname);
+                  }}
+                  disabled={shortages.totalCount === 0}
+                  style={{
+                    ...fp(shortages.totalCount > 0, true),
+                    cursor: shortages.totalCount === 0 ? 'default' : 'pointer',
+                    opacity: shortages.totalCount === 0 ? 0.5 : 1,
+                    background: shortages.totalCount > 0 ? '#10b981' : undefined,
+                    color: shortages.totalCount > 0 ? '#fff' : undefined,
+                    borderColor: shortages.totalCount > 0 ? '#10b981' : undefined,
+                  }}
+                  title="تصدير النواقص إلى ملف إكسل بورقتين: ملخص وتفصيل لكل مخزن"
+                >⬇ تصدير Excel</button>
+                <button
+                  onClick={() => {
+                    if (shortages.totalCount === 0) return;
                     const names = [...shortages.out, ...shortages.critical, ...shortages.low].map(e => e.name).filter(Boolean);
                     setSelectedItems([...new Set(names)]);
                     setItemQuery('');
@@ -1870,39 +1958,90 @@ export default function SalesDataPage() {
                           color: '#1e293b', borderInlineStart: `3px solid ${c}`, background: '#f8fafc',
                           borderRadius: 6,
                         }}>{title} · {list.length}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                          {list.map((e, i) => (
-                            <div key={i} style={{
-                              padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0',
-                              background: '#fff', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                            }}>
-                              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-                                  {e.name || <span style={{ color: '#94a3b8' }}>(بدون اسم)</span>}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {list.map((e, i) => {
+                            // Group warehouses by region for this item
+                            const whByRegion: Record<string, typeof e.lowWarehouses> = {};
+                            e.lowWarehouses.forEach(w => { (whByRegion[w.region] ||= []).push(w); });
+                            // Regions list: union of lowRegions + regions that have lowWarehouses
+                            const regionOrder: string[] = [];
+                            e.lowRegions.forEach(r => { if (!regionOrder.includes(r.region)) regionOrder.push(r.region); });
+                            Object.keys(whByRegion).forEach(r => { if (!regionOrder.includes(r)) regionOrder.push(r); });
+                            const regionQty = (r: string) => e.lowRegions.find(x => x.region === r);
+
+                            return (
+                              <div key={i} style={{
+                                padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0',
+                                background: '#fff', display: 'flex', flexDirection: 'column', gap: 8,
+                                borderInlineStart: `3px solid ${c}`,
+                              }}>
+                                {/* Header row: name + company + total */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                  <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                                      {e.name || <span style={{ color: '#94a3b8' }}>(بدون اسم)</span>}
+                                    </div>
+                                    {e.company && (
+                                      <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 500 }}>الشركة:</span>
+                                        {e.company}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div style={{
+                                    padding: '4px 12px', borderRadius: 6, border: `1.5px solid ${c}`, color: c,
+                                    fontSize: 12, fontWeight: 800, minWidth: 60, textAlign: 'center', background: '#fff',
+                                  }}>الإجمالي: {fmtNum(e.total)}</div>
                                 </div>
-                                {e.company && <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500, marginTop: 2 }}>{e.company}</div>}
+
+                                {/* Regions + warehouses breakdown */}
+                                {regionOrder.length > 0 && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6, borderTop: '1px dashed #e2e8f0' }}>
+                                    {regionOrder.map(reg => {
+                                      const rq = regionQty(reg);
+                                      const rc = rq ? (rq.sev === 'out' ? '#dc2626' : rq.sev === 'critical' ? '#d97706' : '#65a30d') : '#94a3b8';
+                                      const whs = whByRegion[reg] || [];
+                                      return (
+                                        <div key={reg} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11 }}>
+                                          <span style={{
+                                            padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                                            background: '#f1f5f9', color: '#1e293b',
+                                            display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 110,
+                                          }}>
+                                            <span style={{ width: 7, height: 7, borderRadius: 99, background: rc }} />
+                                            {reg}
+                                            {rq && <span style={{ color: rc, fontWeight: 800, marginInlineStart: 4 }}>
+                                              {rq.qty === 0 ? 'نفد' : fmtNum(rq.qty)}
+                                            </span>}
+                                          </span>
+                                          {whs.length > 0 ? (
+                                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
+                                              {whs.map((w, k) => {
+                                                const wc = w.sev === 'out' ? '#dc2626' : w.sev === 'critical' ? '#d97706' : '#65a30d';
+                                                return (
+                                                  <span key={k} style={{
+                                                    padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600,
+                                                    background: '#fff', border: `1px solid ${wc}40`, color: '#334155',
+                                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                  }}>
+                                                    <span style={{ width: 5, height: 5, borderRadius: 99, background: wc }} />
+                                                    {w.warehouse}:
+                                                    <span style={{ color: wc, fontWeight: 800 }}>{w.qty === 0 ? '—' : fmtNum(w.qty)}</span>
+                                                  </span>
+                                                );
+                                              })}
+                                            </div>
+                                          ) : (
+                                            <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>المجموع منخفض (كل مخزن ضمن الحد)</span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                {e.lowRegions.map((r, j) => {
-                                  const rc = r.sev === 'out' ? '#dc2626' : r.sev === 'critical' ? '#d97706' : '#65a30d';
-                                  return (
-                                    <span key={j} style={{
-                                      padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
-                                      background: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155',
-                                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                                    }}>
-                                      <span style={{ width: 6, height: 6, borderRadius: 99, background: rc }} />
-                                      {r.region}: {r.qty === 0 ? '—' : fmtNum(r.qty)}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                              <div style={{
-                                padding: '3px 10px', borderRadius: 6, border: `1px solid ${c}`, color: c,
-                                fontSize: 12, fontWeight: 800, minWidth: 55, textAlign: 'center', background: '#fff',
-                              }}>{fmtNum(e.total)}</div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
