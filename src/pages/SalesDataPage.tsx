@@ -19,6 +19,7 @@ interface SalesFile {
   areaCols: ColMeta[];
   rows: Record<string, string>[];
   regions: string[];
+  sourceFileIds?: string[]; // set on merged files only
 }
 
 type RegionTotalCol = { key: string; label: string; region: string; colIdx: -1; isRegionTotal: true; cols: ColMeta[] };
@@ -412,6 +413,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     areaCols: mergedAreaCols,
     rows: [...rowMap.values()],
     regions: allRegions,
+    sourceFileIds: selectedFiles.map(f => f.id),
   };
 }
 
@@ -439,6 +441,8 @@ export default function SalesDataPage() {
   const [filterSearch, setFilterSearch]   = useState('');
   const [showMergePanel, setShowMergePanel] = useState(false);
   const [mergeChecked, setMergeChecked]     = useState<Set<string>>(new Set());
+  const [showAddToMerge, setShowAddToMerge] = useState(false);
+  const [addChecked, setAddChecked]         = useState<Set<string>>(new Set());
   const [showItemPills, setShowItemPills]   = useState(false);
 
   // Back button: close open overlays/panels
@@ -673,6 +677,26 @@ export default function SalesDataPage() {
     setMergeChecked(new Set());
   };
 
+  const doAddToMerge = () => {
+    if (!activeFile?.sourceFileIds || addChecked.size < 1) return;
+    // Reconstruct original source files (those still in files list)
+    const sourceFiles = files.filter(f => activeFile.sourceFileIds!.includes(f.id));
+    const newFiles    = files.filter(f => addChecked.has(f.id));
+    const allFiles    = [...sourceFiles, ...newFiles];
+    if (allFiles.length < 2) return;
+    const merged = buildMergedFile(allFiles, allFiles.map(f => f.name));
+    setFiles(prev => {
+      // Replace the current merged file with the new one
+      const next = prev.map(f => f.id === activeFile.id ? merged : f);
+      saveFiles(next, userId);
+      return next;
+    });
+    setActiveId(merged.id);
+    resetFilters();
+    setShowAddToMerge(false);
+    setAddChecked(new Set());
+  };
+
   return (
     <div style={{ padding: '16px 14px 80px', maxWidth: 1300, margin: '0 auto', direction: 'rtl' }}>
 
@@ -734,12 +758,23 @@ export default function SalesDataPage() {
             {/* Merge toggle button — only when 2+ files */}
             {files.length >= 2 && (
               <button
-                onClick={() => { setShowMergePanel(v => !v); setMergeChecked(new Set()); }}
+                onClick={() => { setShowMergePanel(v => !v); setMergeChecked(new Set()); setShowAddToMerge(false); }}
                 style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
                   border: `1.5px solid ${showMergePanel ? '#8b5cf6' : '#e2e8f0'}`,
                   background: showMergePanel ? '#ede9fe' : '#f8fafc',
                   color: showMergePanel ? '#7c3aed' : '#64748b' }}>
                 🔗 دمج ملفات
+              </button>
+            )}
+            {/* Add file to existing merge — only when active file is merged */}
+            {activeFile?.sourceFileIds && (
+              <button
+                onClick={() => { setShowAddToMerge(v => !v); setAddChecked(new Set()); setShowMergePanel(false); }}
+                style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: `1.5px solid ${showAddToMerge ? '#0891b2' : '#e2e8f0'}`,
+                  background: showAddToMerge ? '#e0f2fe' : '#f8fafc',
+                  color: showAddToMerge ? '#0e7490' : '#64748b' }}>
+                ➕ إضافة ملف للدمج
               </button>
             )}
           </div>
@@ -775,6 +810,53 @@ export default function SalesDataPage() {
               </div>
             </div>
           )}
+
+          {/* Add-to-merge panel */}
+          {showAddToMerge && activeFile?.sourceFileIds && (() => {
+            const alreadyIn = new Set(activeFile.sourceFileIds);
+            const available = files.filter(f => !alreadyIn.has(f.id) && f.id !== activeFile.id);
+            return (
+              <div style={{ marginTop: 10, background: '#f0f9ff', border: '1.5px solid #bae6fd', borderRadius: 12, padding: '12px 16px' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#0e7490', marginBottom: 6 }}>
+                  ➕ إضافة ملفات إلى الدمج الحالي
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>
+                  الملفات المدمجة حالياً: {activeFile.regions.join(' · ')}
+                </div>
+                {available.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد ملفات إضافية متاحة للإضافة.</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                      {available.map(f => (
+                        <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                          background: addChecked.has(f.id) ? '#e0f2fe' : '#fff',
+                          border: `1.5px solid ${addChecked.has(f.id) ? '#0891b2' : '#e2e8f0'}`,
+                          borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: addChecked.has(f.id) ? 700 : 400,
+                          color: addChecked.has(f.id) ? '#0e7490' : '#475569', transition: 'all 0.1s' }}>
+                          <input type="checkbox" checked={addChecked.has(f.id)}
+                            onChange={() => setAddChecked(prev => { const n = new Set(prev); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
+                            style={{ accentColor: '#0891b2' }} />
+                          {f.name}
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={doAddToMerge} disabled={addChecked.size < 1}
+                        style={{ padding: '6px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addChecked.size < 1 ? 'not-allowed' : 'pointer',
+                          background: addChecked.size < 1 ? '#e2e8f0' : '#0891b2', color: addChecked.size < 1 ? '#94a3b8' : '#fff', border: 'none' }}>
+                        ➕ إضافة المحدد ({addChecked.size})
+                      </button>
+                      <button onClick={() => { setShowAddToMerge(false); setAddChecked(new Set()); }}
+                        style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', fontWeight: 600 }}>
+                        إلغاء
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
