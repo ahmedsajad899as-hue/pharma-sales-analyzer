@@ -297,10 +297,6 @@ export default function SalesDataPage() {
   const [page, setPage]           = useState(1);
   const [tab, setTab]             = useState<'table' | 'analysis'>('table');
   const [showValue, setShowValue] = useState(false);
-  const [showPricePanel, setShowPricePanel] = useState(false);
-  const [manualPrices, setManualPrices]     = useState<Record<string, string>>({});
-  const [priceSearch, setPriceSearch]       = useState('');
-  const pricePanelRef = useRef<HTMLDivElement>(null);
   const [colFilters, setColFilters]       = useState<Record<string, string[]>>({});
   const [openFilterCol, setOpenFilterCol] = useState<string | null>(null);
   const [filterSearch, setFilterSearch]   = useState('');
@@ -309,7 +305,6 @@ export default function SalesDataPage() {
   useBackHandler([
     [showImport,              () => { setShowImport(false); setImportErr(''); }],
     [showItemDropdown,        () => setShowItemDropdown(false)],
-    [showPricePanel,          () => setShowPricePanel(false)],
     [openFilterCol !== null,  () => setOpenFilterCol(null)],
   ]);
   const PAGE_SIZE = 50;
@@ -420,17 +415,10 @@ export default function SalesDataPage() {
   // Returns display value: if showValue is on, multiply qty by price
   const cellDisplay = useCallback((row: Record<string, string>, col: ViewCol): number => {
     const qty = cellVal(row, col);
-    if (!showValue) return qty;
-    // Use column price first, then manual price map
-    if (priceCol) {
-      const price = toNum(row[priceCol] ?? '');
-      return price > 0 ? qty * price : qty;
-    }
-    // Find item name to look up manual price
-    const itemName = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
-    const manualPrice = itemName ? toNum(manualPrices[itemName] ?? '') : 0;
-    return manualPrice > 0 ? qty * manualPrice : qty;
-  }, [showValue, priceCol, itemNameCol, manualPrices]);
+    if (!showValue || !priceCol) return qty;
+    const price = toNum(row[priceCol] ?? '');
+    return price > 0 ? qty * price : qty;
+  }, [showValue, priceCol]);
 
   const rowDisplay = useCallback((row: Record<string, string>, cols: ViewCol[]): number =>
     cols.reduce((s, col) => s + cellDisplay(row, col), 0)
@@ -465,16 +453,6 @@ export default function SalesDataPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showItemDropdown]);
-
-  // Close price panel on outside click
-  useEffect(() => {
-    if (!showPricePanel) return;
-    const handler = (e: MouseEvent) => {
-      if (!pricePanelRef.current?.contains(e.target as Node)) setShowPricePanel(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showPricePanel]);
 
   const totalPages = 1;
   const pageRows = showValue
@@ -789,153 +767,21 @@ export default function SalesDataPage() {
             {([['table', '📋 الجدول'], ['analysis', '📈 التحليل']] as [string, string][]).map(([id, lbl]) => (
               <button key={id} onClick={() => setTab(id as 'table' | 'analysis')} style={fp(tab === id)}>{lbl}</button>
             ))}
-
-            {/* Financial value button + price panel */}
-            <div ref={pricePanelRef} style={{ position: 'relative' }}>
-              <button
-                onClick={() => { setTab('table'); setShowPricePanel(v => !v); }}
-                title="قيمة مالية — اضغط لإدخال أسعار الايتمات"
-                style={{
-                  padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  border: `1.5px solid ${showValue ? '#f59e0b' : '#e2e8f0'}`,
-                  background: showValue ? '#fffbeb' : '#f8fafc',
-                  color: showValue ? '#b45309' : '#64748b',
-                  boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
-                  transition: 'all 0.15s',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                }}>
-                <span>💰 قيمة مالية{showValue ? ' ✓' : ''}</span>
-                {/* indicator line — colored when prices are set */}
-                <span style={{
-                  display: 'block', width: '60%', height: 3, borderRadius: 99,
-                  background: Object.values(manualPrices).some(v => toNum(v) > 0) || priceCol
-                    ? '#f59e0b' : '#e2e8f0',
-                  transition: 'background 0.2s',
-                }} />
-              </button>
-
-              {/* Price panel dropdown */}
-              {showPricePanel && activeFile && (() => {
-                const allItems = [...new Set(activeFile.rows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
-                const filtered = priceSearch.trim()
-                  ? allItems.filter(n => n.toLowerCase().includes(priceSearch.trim().toLowerCase()))
-                  : allItems;
-                const filledCount = Object.values(manualPrices).filter(v => toNum(v) > 0).length;
-                return (
-                  <div style={{
-                    position: 'absolute', top: 'calc(100% + 6px)', right: 0,
-                    zIndex: 600, background: '#fff', borderRadius: 14,
-                    border: '1.5px solid #e2e8f0', boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
-                    width: 340, direction: 'rtl', overflow: 'hidden',
-                  }}>
-                    {/* Header */}
-                    <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid #f1f5f9', background: '#fffbeb' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: '#b45309' }}>💰 أسعار الايتمات</span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {filledCount > 0 && (
-                            <button
-                              onClick={() => { setShowValue(true); setShowPricePanel(false); setTab('table'); }}
-                              style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#f59e0b', color: '#fff', border: 'none' }}>
-                              ✓ تطبيق
-                            </button>
-                          )}
-                          {showValue && (
-                            <button
-                              onClick={() => { setShowValue(false); setShowPricePanel(false); }}
-                              style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: '#f1f5f9', color: '#64748b', border: 'none' }}>
-                              إيقاف
-                            </button>
-                          )}
-                          <button
-                            onClick={() => setShowPricePanel(false)}
-                            style={{ padding: '4px 8px', borderRadius: 8, fontSize: 14, cursor: 'pointer', background: 'none', color: '#94a3b8', border: 'none' }}>×</button>
-                        </div>
-                      </div>
-                      {priceCol ? (
-                        <div style={{ fontSize: 11, color: '#059669', background: '#ecfdf5', borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}>
-                          ✓ عمود السعر مكتشف تلقائياً: <strong>{priceCol}</strong>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: 11, color: '#92400e', background: '#fef3c7', borderRadius: 6, padding: '4px 8px' }}>
-                          لم يُكتشف عمود سعر — أدخل الأسعار يدوياً أدناه ({filledCount}/{allItems.length} مكتملة)
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Search */}
-                    <div style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 6, background: '#fafaf9' }}>
-                      <span style={{ fontSize: 13 }}>🔍</span>
-                      <input
-                        value={priceSearch}
-                        onChange={e => setPriceSearch(e.target.value)}
-                        placeholder="ابحث عن ايتم..."
-                        style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12, color: '#1e293b', direction: 'rtl' }}
-                      />
-                      {priceSearch && (
-                        <button onClick={() => setPriceSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, padding: 0 }}>×</button>
-                      )}
-                    </div>
-
-                    {/* Item rows */}
-                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                      {filtered.length === 0 && (
-                        <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>لا توجد نتائج</div>
-                      )}
-                      {filtered.map(itemName => {
-                        const val = manualPrices[itemName] ?? '';
-                        const hasPrice = toNum(val) > 0;
-                        return (
-                          <div key={itemName} style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            padding: '7px 12px', borderBottom: '1px solid #f8fafc',
-                            background: hasPrice ? '#fffbeb' : '#fff',
-                          }}>
-                            <span style={{ flex: 1, fontSize: 12, color: hasPrice ? '#92400e' : '#374151', fontWeight: hasPrice ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {itemName}
-                            </span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={val}
-                              onChange={e => setManualPrices(prev => ({ ...prev, [itemName]: e.target.value }))}
-                              placeholder="0"
-                              style={{
-                                width: 80, padding: '4px 8px', borderRadius: 7, border: `1.5px solid ${hasPrice ? '#f59e0b' : '#e2e8f0'}`,
-                                fontSize: 12, textAlign: 'center', outline: 'none', background: hasPrice ? '#fef3c7' : '#f8fafc',
-                                color: '#1e293b', direction: 'ltr',
-                              }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Footer */}
-                    <div style={{ padding: '8px 12px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: 6, background: '#fafaf9' }}>
-                      {filledCount > 0 && (
-                        <button
-                          onClick={() => { setShowValue(true); setShowPricePanel(false); setTab('table'); }}
-                          style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#f59e0b', color: '#fff', border: 'none' }}>
-                          ✓ تطبيق ({filledCount} ايتم)
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setManualPrices({})}
-                        style={{ padding: '7px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 600 }}>
-                        مسح الكل
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
+            <button
+              onClick={() => { setTab('table'); setShowValue(v => !v); }}
+              title={showValue ? 'إخفاء القيمة المالية والعودة للكميات' : 'عرض القيمة المالية (الكمية × السعر)'}
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                border: `1.5px solid ${showValue ? '#f59e0b' : '#e2e8f0'}`,
+                background: showValue ? '#fffbeb' : '#f8fafc',
+                color: showValue ? '#b45309' : '#64748b',
+                boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
+                transition: 'all 0.15s',
+              }}>💰 قيمة مالية{showValue ? ' ✓' : ''}</button>
           </div>
-
           {/* TABLE VIEW */}
           {tab === 'table' && (
-            <>
+            
               <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
                 {filteredRows.length} ايتم{regionFilter !== 'all' && ` · ${regionFilter}`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود
               </div>
