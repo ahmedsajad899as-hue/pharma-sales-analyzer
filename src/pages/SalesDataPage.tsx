@@ -1379,18 +1379,7 @@ export default function SalesDataPage() {
               <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 320px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
-                    {regionFilter === 'all' && (
-                      <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 3 }}>
-                        <td colSpan={activeFile.fixedCols.length + 1} style={{ padding: '6px 14px', color: '#94a3b8', fontSize: 10, fontWeight: 600 }}>الايتم</td>
-                        {activeFile.regions.map(r => (
-                          <td key={r} style={{ padding: '6px 12px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#4338ca', background: '#eef2ff', borderRight: '2px solid #c7d2fe', borderLeft: '2px solid #c7d2fe', whiteSpace: 'nowrap' }}>
-                            📍 {r}
-                          </td>
-                        ))}
-                        <td style={{ padding: '6px 10px', textAlign: 'center', background: '#f0fdf4', fontSize: 10, color: '#065f46', fontWeight: 600 }}>الإجمالي</td>
-                      </tr>
-                    )}
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', position: 'sticky', top: regionFilter === 'all' ? 29 : 0, zIndex: 3 }}>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 3 }}>
                       <th style={thS}>#</th>
                       {activeFile.fixedCols.map((c, i) => {
                         const isFilterable = c !== priceCol;
