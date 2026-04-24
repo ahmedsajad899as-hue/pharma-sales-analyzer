@@ -511,8 +511,20 @@ export default function SalesDataPage() {
   const [addChecked, setAddChecked]         = useState<Set<string>>(new Set());
   const [showItemPills, setShowItemPills]   = useState(false);
 
+  // ── Shortage Radar ─────────────────────────────────────────────
+  const [showShortages, setShowShortages]         = useState(false);
+  const [shortageThreshold, setShortageThreshold] = useState<number>(() => {
+    const v = parseInt(localStorage.getItem('sd_shortage_threshold') || '30', 10);
+    return Number.isFinite(v) && v >= 0 ? v : 30;
+  });
+  const [highlightLow, setHighlightLow] = useState<boolean>(() => localStorage.getItem('sd_highlight_low') === '1');
+  const [shortageView, setShortageView] = useState<'by-region' | 'by-item'>('by-region');
+  useEffect(() => { localStorage.setItem('sd_shortage_threshold', String(shortageThreshold)); }, [shortageThreshold]);
+  useEffect(() => { localStorage.setItem('sd_highlight_low', highlightLow ? '1' : '0'); }, [highlightLow]);
+
   // Back button: close open overlays/panels
   useBackHandler([
+    [showShortages,           () => setShowShortages(false)],
     [showImport,              () => { setShowImport(false); setImportErr(''); }],
     [openFilterCol !== null,  () => setOpenFilterCol(null)],
   ]);
@@ -658,6 +670,73 @@ export default function SalesDataPage() {
   const rowDisplay = useCallback((row: Record<string, string>, cols: ViewCol[]): number =>
     cols.reduce((s, col) => s + cellDisplay(row, col), 0)
   , [cellDisplay]);
+
+  // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
+  // Always uses region-total columns (not individual warehouses) so the breakdown is per region.
+  const shortages = useMemo(() => {
+    if (!activeFile) return { out: [], critical: [], low: [], totalCount: 0, allRegions: [] as string[] };
+    const groups: Record<string, ColMeta[]> = {};
+    activeFile.areaCols.forEach(ac => { (groups[ac.region] ||= []).push(ac); });
+    const regionCols: RegionTotalCol[] = Object.entries(groups).map(([region, cols]) => ({
+      key: `rt_${region}`, label: region, region, colIdx: -1 as const, isRegionTotal: true as const, cols,
+    }));
+    const allRegions = regionCols.map(r => r.region);
+
+    const T = Math.max(0, shortageThreshold || 0);
+    const half = Math.max(1, Math.floor(T / 2));
+
+    type LowRegion = { region: string; qty: number; sev: 'out' | 'critical' | 'low' };
+    type Entry = {
+      row: Record<string, string>;
+      name: string;
+      company: string;
+      total: number;
+      perRegion: { region: string; qty: number }[];
+      lowRegions: LowRegion[];
+      severity: 'out' | 'critical' | 'low';
+    };
+
+    const out: Entry[] = [];
+    const critical: Entry[] = [];
+    const low: Entry[] = [];
+
+    for (const row of filteredRows) {
+      const perRegion = regionCols.map(col => ({ region: col.region, qty: cellVal(row, col) }));
+      const total = perRegion.reduce((s, r) => s + r.qty, 0);
+      const lowRegions: LowRegion[] = perRegion
+        .map(r => {
+          const sev: LowRegion['sev'] | null =
+            r.qty === 0 ? 'out' :
+            (T > 0 && r.qty < half) ? 'critical' :
+            (T > 0 && r.qty < T) ? 'low' : null;
+          return sev ? { region: r.region, qty: r.qty, sev } : null;
+        })
+        .filter((x): x is LowRegion => !!x);
+
+      let severity: Entry['severity'] | null = null;
+      if (total === 0) severity = 'out';
+      else if (T > 0 && total < half) severity = 'critical';
+      else if (T > 0 && total < T) severity = 'low';
+      else if (lowRegions.some(r => r.sev === 'out')) severity = 'out';
+      else if (lowRegions.some(r => r.sev === 'critical')) severity = 'critical';
+      else if (lowRegions.some(r => r.sev === 'low')) severity = 'low';
+
+      if (!severity) continue;
+
+      const name = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
+      const company = companyCol ? String(row[companyCol] ?? '').trim() : '';
+      const entry: Entry = { row, name, company, total, perRegion, lowRegions, severity };
+      if (severity === 'out') out.push(entry);
+      else if (severity === 'critical') critical.push(entry);
+      else low.push(entry);
+    }
+
+    out.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    critical.sort((a, b) => a.total - b.total);
+    low.sort((a, b) => a.total - b.total);
+
+    return { out, critical, low, totalCount: out.length + critical.length + low.length, allRegions };
+  }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol]);
 
   // Unique values for the currently-open filter column
   const colUniqueVals = useMemo(() => {
