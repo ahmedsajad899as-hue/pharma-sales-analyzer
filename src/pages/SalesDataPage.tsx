@@ -1248,28 +1248,25 @@ export default function SalesDataPage() {
                 boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
                 transition: 'all 0.15s',
               }}>💰 قيمة مالية{showValue ? ' ✓' : ''}</button>
-            {/* 📡 Shortage Radar button */}
+            {/* Shortage Radar button */}
             <button
               onClick={() => setShowShortages(true)}
               title={`رادار النواقص · الحد الحالي ${shortageThreshold} قطعة`}
               style={{
-                position: 'relative',
-                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                border: `1.5px solid ${shortages.totalCount > 0 ? '#ef4444' : '#e2e8f0'}`,
-                background: shortages.totalCount > 0 ? '#fef2f2' : '#f8fafc',
-                color: shortages.totalCount > 0 ? '#b91c1c' : '#64748b',
-                boxShadow: shortages.totalCount > 0 ? '0 2px 10px rgba(239,68,68,0.25)' : 'none',
-                transition: 'all 0.15s',
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: '1.5px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#64748b',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >
-              📡 النواقص
+              النواقص
               {shortages.totalCount > 0 && (
                 <span style={{
-                  display: 'inline-block', marginInlineStart: 6, minWidth: 20, padding: '1px 6px',
-                  borderRadius: 10, fontSize: 10, fontWeight: 800,
-                  background: '#ef4444', color: '#fff',
-                  boxShadow: '0 0 0 2px #fff, 0 0 0 3px #fecaca',
-                  animation: shortages.out.length > 0 ? 'radarPulse 1.6s ease-in-out infinite' : undefined,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  minWidth: 20, padding: '0 6px', height: 18,
+                  borderRadius: 10, fontSize: 10, fontWeight: 700,
+                  background: '#dc2626', color: '#fff',
                 }}>{shortages.totalCount}</span>
               )}
             </button>
@@ -1630,122 +1627,105 @@ export default function SalesDataPage() {
         <div
           onClick={() => setShowShortages(false)}
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)',
             zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14,
-            animation: 'sdFadeIn 0.2s ease-out',
+            animation: 'sdFadeIn 0.15s ease-out',
           }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: '#fff', borderRadius: 20, width: 'min(860px, 100%)', maxHeight: '90vh',
+              background: '#fff', borderRadius: 14, width: 'min(860px, 100%)', maxHeight: '90vh',
               display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              boxShadow: '0 25px 60px rgba(0,0,0,0.25)',
-              animation: 'sdSlideUp 0.25s cubic-bezier(.2,.9,.3,1.2)',
+              border: '1.5px solid #e2e8f0',
+              boxShadow: '0 10px 30px rgba(15,23,42,0.12)',
             }}
           >
             {/* Header */}
             <div style={{
-              padding: '16px 20px', borderBottom: '1px solid #e2e8f0',
-              background: 'linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%)',
+              padding: '14px 18px', borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 14,
-                  background: shortages.totalCount > 0 ? '#fee2e2' : '#e0f2fe',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 24, boxShadow: '0 4px 12px rgba(239,68,68,0.15)',
-                  animation: shortages.out.length > 0 ? 'radarPulse 2s ease-in-out infinite' : undefined,
-                }}>📡</div>
-                <div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: '#1e293b' }}>رادار النواقص</div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                    {shortages.totalCount === 0
-                      ? '✨ لا توجد نواقص — كل شيء بخير'
-                      : `تم رصد ${fmtNum(shortages.totalCount)} ايتم يحتاج انتباه`}
-                  </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b' }}>📡 رادار النواقص</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+                  {shortages.totalCount === 0
+                    ? 'لا توجد نواقص حالياً'
+                    : `تم رصد ${fmtNum(shortages.totalCount)} ايتم يحتاج انتباه`}
                 </div>
               </div>
               <button onClick={() => setShowShortages(false)} style={{
-                width: 32, height: 32, borderRadius: 10, border: '1.5px solid #e2e8f0',
-                background: '#fff', color: '#64748b', fontSize: 16, cursor: 'pointer', fontWeight: 700,
+                width: 30, height: 30, borderRadius: 8, border: '1.5px solid #e2e8f0',
+                background: '#fff', color: '#64748b', fontSize: 14, cursor: 'pointer', fontWeight: 700,
               }}>✕</button>
             </div>
 
             {/* Threshold controls */}
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', background: '#fafafa' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>🎯 الحد الأدنى للتذكير:</span>
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>الحد الأدنى للتذكير:</span>
                 <input
                   type="number" min={0} step={1}
                   value={shortageThreshold}
                   onChange={e => setShortageThreshold(Math.max(0, parseInt(e.target.value) || 0))}
                   style={{
-                    width: 90, padding: '6px 10px', borderRadius: 10, border: '1.5px solid #cbd5e1',
-                    fontSize: 14, fontWeight: 800, color: '#1e293b', textAlign: 'center', outline: 'none',
+                    width: 80, padding: '5px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0',
+                    fontSize: 13, fontWeight: 700, color: '#1e293b', textAlign: 'center', outline: 'none',
+                    background: '#f8fafc',
                   }}
                 />
                 <span style={{ fontSize: 12, color: '#64748b' }}>قطعة</span>
                 <div style={{ marginInlineStart: 'auto', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   {[0, 10, 30, 50, 100].map(v => (
-                    <button key={v} onClick={() => setShortageThreshold(v)} style={{
-                      padding: '4px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                      border: `1.5px solid ${shortageThreshold === v ? '#6366f1' : '#e2e8f0'}`,
-                      background: shortageThreshold === v ? '#eef2ff' : '#fff',
-                      color: shortageThreshold === v ? '#4338ca' : '#64748b',
-                    }}>{v === 0 ? 'صفر فقط' : `<${v}`}</button>
+                    <button key={v} onClick={() => setShortageThreshold(v)} style={fp(shortageThreshold === v, true)}>
+                      {v === 0 ? 'صفر فقط' : `<${v}`}
+                    </button>
                   ))}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11, color: '#64748b' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#64748b' }}>
                   <input type="checkbox" checked={highlightLow} onChange={e => setHighlightLow(e.target.checked)} />
                   تلوين الخلايا المنخفضة في الجدول
                 </label>
-                <span style={{ color: '#cbd5e1' }}>·</span>
-                <span>🚨 نفد (= 0)</span>
-                <span style={{ color: '#cbd5e1' }}>·</span>
-                <span>⚠️ حرج (&lt; {Math.max(1, Math.floor(shortageThreshold / 2))})</span>
-                <span style={{ color: '#cbd5e1' }}>·</span>
-                <span>📉 منخفض (&lt; {shortageThreshold || '—'})</span>
               </div>
             </div>
 
-            {/* Summary badges */}
-            <div style={{ padding: '14px 20px', display: 'flex', gap: 10, flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9' }}>
+            {/* Summary row + actions */}
+            <div style={{ padding: '12px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
               {([
-                ['🚨', 'نفد', shortages.out.length, '#ef4444', '#fee2e2'],
-                ['⚠️', 'حرج', shortages.critical.length, '#f97316', '#ffedd5'],
-                ['📉', 'منخفض', shortages.low.length, '#eab308', '#fef9c3'],
-              ] as [string, string, number, string, string][]).map(([icon, lbl, n, c, bg]) => (
+                ['نفد', shortages.out.length, '#dc2626'],
+                ['حرج', shortages.critical.length, '#d97706'],
+                ['منخفض', shortages.low.length, '#65a30d'],
+              ] as [string, number, string][]).map(([lbl, n, c]) => (
                 <div key={lbl} style={{
-                  flex: '1 1 120px', minWidth: 100, padding: '10px 12px', borderRadius: 12,
-                  background: bg, border: `1.5px solid ${n > 0 ? c : 'transparent'}`,
-                  opacity: n > 0 ? 1 : 0.55,
+                  flex: '1 1 100px', minWidth: 90, padding: '8px 12px', borderRadius: 10,
+                  background: '#f8fafc', border: '1.5px solid #e2e8f0',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 }}>
-                  <div style={{ fontSize: 11, color: c, fontWeight: 700 }}>{icon} {lbl}</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: c, marginTop: 2 }}>{fmtNum(n)}</div>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 99, background: c, display: 'inline-block' }} />
+                    {lbl}
+                  </span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>{fmtNum(n)}</span>
                 </div>
               ))}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   onClick={() => {
                     const lines: string[] = [];
-                    const sev2label: Record<string, string> = { out: '🚨 نفد', critical: '⚠️ حرج', low: '📉 منخفض' };
+                    const sev2label: Record<string, string> = { out: 'نفد', critical: 'حرج', low: 'منخفض' };
                     [...shortages.out, ...shortages.critical, ...shortages.low].forEach(e => {
                       const regs = e.lowRegions.map(r => `${r.region}=${r.qty}`).join(' · ');
-                      lines.push(`${sev2label[e.severity]} · ${e.name}${e.company ? ` (${e.company})` : ''} · إجمالي ${fmtNum(e.total)}${regs ? ` · ${regs}` : ''}`);
+                      lines.push(`[${sev2label[e.severity]}] ${e.name}${e.company ? ` (${e.company})` : ''} · إجمالي ${fmtNum(e.total)}${regs ? ` · ${regs}` : ''}`);
                     });
                     navigator.clipboard.writeText(lines.join('\n'))
-                      .then(() => alert('✅ تم نسخ قائمة النواقص'))
+                      .then(() => alert('تم نسخ القائمة'))
                       .catch(() => alert('تعذّر النسخ'));
                   }}
                   disabled={shortages.totalCount === 0}
-                  style={{
-                    padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: shortages.totalCount === 0 ? 'default' : 'pointer',
-                    border: '1.5px solid #e2e8f0', background: '#fff', color: shortages.totalCount === 0 ? '#cbd5e1' : '#334155',
-                  }}>📋 نسخ القائمة</button>
+                  style={{ ...fp(false, true), cursor: shortages.totalCount === 0 ? 'default' : 'pointer', opacity: shortages.totalCount === 0 ? 0.5 : 1 }}
+                >نسخ القائمة</button>
                 <button
                   onClick={() => {
                     if (shortages.totalCount === 0) return;
@@ -1756,69 +1736,71 @@ export default function SalesDataPage() {
                     setShowShortages(false);
                   }}
                   disabled={shortages.totalCount === 0}
-                  style={{
-                    padding: '6px 12px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: shortages.totalCount === 0 ? 'default' : 'pointer',
-                    border: `1.5px solid ${shortages.totalCount === 0 ? '#e2e8f0' : '#6366f1'}`,
-                    background: shortages.totalCount === 0 ? '#fff' : '#eef2ff',
-                    color: shortages.totalCount === 0 ? '#cbd5e1' : '#4338ca',
-                  }}>🔎 عرضها في الجدول</button>
+                  style={{ ...fp(shortages.totalCount > 0, true), cursor: shortages.totalCount === 0 ? 'default' : 'pointer', opacity: shortages.totalCount === 0 ? 0.5 : 1 }}
+                >عرضها في الجدول</button>
               </div>
             </div>
 
             {/* View toggle */}
-            <div style={{ padding: '10px 20px 0', display: 'flex', gap: 6 }}>
-              {([['by-region', '🗺️ حسب المنطقة'], ['by-item', '📦 حسب الايتم']] as [typeof shortageView, string][]).map(([id, lbl]) => (
+            <div style={{ padding: '10px 18px 0', display: 'flex', gap: 6 }}>
+              {([['by-region', 'حسب المنطقة'], ['by-item', 'حسب الايتم']] as [typeof shortageView, string][]).map(([id, lbl]) => (
                 <button key={id} onClick={() => setShortageView(id)} style={fp(shortageView === id, true)}>{lbl}</button>
               ))}
             </div>
 
             {/* List body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px 20px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 18px' }}>
               {shortages.totalCount === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
-                  <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>لا توجد نواقص</div>
+                <div style={{ textAlign: 'center', padding: '50px 20px', color: '#94a3b8' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#64748b' }}>لا توجد نواقص</div>
                   <div style={{ fontSize: 12, marginTop: 6 }}>كل الايتمات فوق الحد المحدد ({shortageThreshold} قطعة)</div>
                 </div>
               ) : shortageView === 'by-item' ? (
                 <>
                   {([
-                    ['out', '🚨 نفد تماماً', '#ef4444', '#fee2e2'],
-                    ['critical', '⚠️ حالة حرجة', '#f97316', '#ffedd5'],
-                    ['low', '📉 مستوى منخفض', '#eab308', '#fef9c3'],
-                  ] as ['out' | 'critical' | 'low', string, string, string][]).map(([key, title, c, bg]) => {
+                    ['out',      'نفد تماماً',   '#dc2626'],
+                    ['critical', 'حالة حرجة',   '#d97706'],
+                    ['low',      'مستوى منخفض', '#65a30d'],
+                  ] as ['out' | 'critical' | 'low', string, string][]).map(([key, title, c]) => {
                     const list = shortages[key];
                     if (list.length === 0) return null;
                     return (
-                      <div key={key} style={{ marginBottom: 16 }}>
+                      <div key={key} style={{ marginBottom: 14 }}>
                         <div style={{
-                          padding: '6px 12px', borderRadius: 10, background: bg, color: c,
-                          fontSize: 12, fontWeight: 800, marginBottom: 8, display: 'inline-block',
+                          padding: '6px 10px', fontSize: 12, fontWeight: 700, marginBottom: 8,
+                          color: '#1e293b', borderInlineStart: `3px solid ${c}`, background: '#f8fafc',
+                          borderRadius: 6,
                         }}>{title} · {list.length}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {list.map((e, i) => (
                             <div key={i} style={{
-                              padding: '9px 12px', borderRadius: 10, border: '1px solid #e2e8f0',
+                              padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0',
                               background: '#fff', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
                             }}>
                               <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
                                   {e.name || <span style={{ color: '#94a3b8' }}>(بدون اسم)</span>}
                                 </div>
-                                {e.company && <div style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{e.company}</div>}
+                                {e.company && <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500, marginTop: 2 }}>{e.company}</div>}
                               </div>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                {e.lowRegions.map((r, j) => (
-                                  <span key={j} style={{
-                                    padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700,
-                                    background: r.sev === 'out' ? '#fee2e2' : r.sev === 'critical' ? '#ffedd5' : '#fef9c3',
-                                    color:      r.sev === 'out' ? '#b91c1c' : r.sev === 'critical' ? '#c2410c' : '#a16207',
-                                  }}>📍 {r.region}: {r.qty === 0 ? '✗' : fmtNum(r.qty)}</span>
-                                ))}
+                                {e.lowRegions.map((r, j) => {
+                                  const rc = r.sev === 'out' ? '#dc2626' : r.sev === 'critical' ? '#d97706' : '#65a30d';
+                                  return (
+                                    <span key={j} style={{
+                                      padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                                      background: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155',
+                                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    }}>
+                                      <span style={{ width: 6, height: 6, borderRadius: 99, background: rc }} />
+                                      {r.region}: {r.qty === 0 ? '—' : fmtNum(r.qty)}
+                                    </span>
+                                  );
+                                })}
                               </div>
                               <div style={{
-                                padding: '3px 10px', borderRadius: 10, background: bg, color: c,
-                                fontSize: 12, fontWeight: 800, minWidth: 60, textAlign: 'center',
+                                padding: '3px 10px', borderRadius: 6, border: `1px solid ${c}`, color: c,
+                                fontSize: 12, fontWeight: 800, minWidth: 55, textAlign: 'center', background: '#fff',
                               }}>{fmtNum(e.total)}</div>
                             </div>
                           ))}
@@ -1846,39 +1828,43 @@ export default function SalesDataPage() {
                     return regions.map(reg => (
                       <div key={reg} style={{ marginBottom: 14 }}>
                         <div style={{
-                          padding: '7px 12px', borderRadius: 10, background: '#f1f5f9',
-                          color: '#1e293b', fontSize: 13, fontWeight: 800, marginBottom: 8,
-                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '7px 12px', borderRadius: 8, background: '#f8fafc',
+                          color: '#1e293b', fontSize: 13, fontWeight: 700, marginBottom: 6,
+                          display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0',
                         }}>
-                          📍 {reg}
-                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>({byReg[reg].length} ايتم)</span>
-                          <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 4 }}>
+                          {reg}
+                          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>({byReg[reg].length} ايتم)</span>
+                          <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6 }}>
                             {(['out', 'critical', 'low'] as const).map(s => {
                               const n = byReg[reg].filter(x => x.sev === s).length;
                               if (n === 0) return null;
-                              const c = s === 'out' ? '#ef4444' : s === 'critical' ? '#f97316' : '#eab308';
+                              const c = s === 'out' ? '#dc2626' : s === 'critical' ? '#d97706' : '#65a30d';
+                              const lbl = s === 'out' ? 'نفد' : s === 'critical' ? 'حرج' : 'منخفض';
                               return <span key={s} style={{
-                                padding: '1px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
-                                background: `${c}22`, color: c,
-                              }}>{s === 'out' ? '🚨' : s === 'critical' ? '⚠️' : '📉'} {n}</span>;
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                fontSize: 11, fontWeight: 600, color: '#64748b',
+                              }}>
+                                <span style={{ width: 7, height: 7, borderRadius: 99, background: c }} />
+                                {lbl} {n}
+                              </span>;
                             })}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           {byReg[reg].sort((a, b) => a.qty - b.qty).map((x, i) => {
-                            const c = x.sev === 'out' ? '#ef4444' : x.sev === 'critical' ? '#f97316' : '#eab308';
+                            const c = x.sev === 'out' ? '#dc2626' : x.sev === 'critical' ? '#d97706' : '#65a30d';
                             return (
                               <div key={i} style={{
-                                padding: '6px 12px', borderRadius: 8, border: '1px solid #f1f5f9',
+                                padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
                                 display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
-                                borderInlineStart: `3px solid ${c}`,
+                                borderInlineStart: `3px solid ${c}`, background: '#fff',
                               }}>
                                 <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>
                                   {x.entry.name || '(بدون اسم)'}
-                                  {x.entry.company && <span style={{ color: '#94a3b8', fontSize: 10, marginInlineStart: 6 }}>· {x.entry.company}</span>}
+                                  {x.entry.company && <span style={{ color: '#94a3b8', fontSize: 10, marginInlineStart: 6, fontWeight: 500 }}>· {x.entry.company}</span>}
                                 </span>
-                                <span style={{ color: c, fontWeight: 800 }}>
-                                  {x.qty === 0 ? '🚨 نفد' : fmtNum(x.qty)}
+                                <span style={{ color: c, fontWeight: 700 }}>
+                                  {x.qty === 0 ? 'نفد' : fmtNum(x.qty)}
                                 </span>
                               </div>
                             );
@@ -1894,11 +1880,6 @@ export default function SalesDataPage() {
 
           <style>{`
             @keyframes sdFadeIn { from { opacity: 0 } to { opacity: 1 } }
-            @keyframes sdSlideUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
-            @keyframes radarPulse {
-              0%, 100% { box-shadow: 0 0 0 2px #fff, 0 0 0 3px #fecaca }
-              50%      { box-shadow: 0 0 0 2px #fff, 0 0 0 6px #fca5a5 }
-            }
           `}</style>
         </div>
       )}
