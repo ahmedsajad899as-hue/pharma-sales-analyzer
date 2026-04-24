@@ -759,7 +759,21 @@ export default function SalesDataPage() {
   }, [openFilterCol]);
 
   const totalPages = 1;
-  const pageRows = filteredRows;
+  // Sort: by total desc when showValue active, else by company → item name
+  const pageRows = useMemo(() => {
+    const rows = [...filteredRows];
+    if (showValue) {
+      return rows.sort((a, b) => rowDisplay(b, displayCols) - rowDisplay(a, displayCols));
+    }
+    return rows.sort((a, b) => {
+      const ca = String(a[companyCol] ?? '').toLowerCase();
+      const cb = String(b[companyCol] ?? '').toLowerCase();
+      if (ca !== cb) return ca.localeCompare(cb, 'ar');
+      const ia = String(a[itemNameCol] ?? '').toLowerCase();
+      const ib = String(b[itemNameCol] ?? '').toLowerCase();
+      return ia.localeCompare(ib, 'ar');
+    });
+  }, [filteredRows, showValue, rowDisplay, displayCols, companyCol, itemNameCol]);
 
   // Handlers
   const handleFile = useCallback((file: File): Promise<{ ok: boolean; err?: string; saved?: SalesFile }> => {
@@ -897,6 +911,21 @@ export default function SalesDataPage() {
     setAddChecked(new Set());
   };
 
+  // Rebuild existing merged file using current source files (re-applies latest normalization)
+  const doRebuildMerge = async () => {
+    if (!activeFile?.sourceFileIds) return;
+    const sourceFiles = files.filter(f => activeFile.sourceFileIds!.includes(f.id));
+    if (sourceFiles.length < 2) { alert('لا توجد ملفات مصدر كافية لإعادة البناء'); return; }
+    const merged = buildMergedFile(sourceFiles, sourceFiles.map(f => f.name));
+    const oldId = activeFile.id;
+    const saved = await apiCreateFile(merged);
+    if (!saved) { alert('فشل حفظ الملف المدمج على الخادم'); return; }
+    await apiDeleteFile(oldId);
+    setFiles(prev => [...prev.filter(f => f.id !== oldId), saved]);
+    setActiveId(saved.id);
+    resetFilters();
+  };
+
   return (
     <div style={{ padding: '16px 14px 80px', maxWidth: 1300, margin: '0 auto', direction: 'rtl' }}>
 
@@ -952,6 +981,13 @@ export default function SalesDataPage() {
                   title={`${f.name} · ${f.rows.length} صف · ${f.areaCols.length} مخزن · ${fmtDate(f.uploadedAt)}`}>
                   {f.name.startsWith('دمج:') ? '🔗' : '📄'} {f.name}
                 </button>
+                {f.sourceFileIds && files.filter(sf => f.sourceFileIds!.includes(sf.id)).length >= 2 && (
+                  <button onClick={() => { if (activeId !== f.id) { setActiveId(f.id); } setTimeout(doRebuildMerge, 0); }}
+                    title="إعادة بناء الملف المدمج بأحدث التحسينات"
+                    style={{ padding: '5px 8px', fontSize: 11, cursor: 'pointer',
+                      border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none', borderRight: 'none',
+                      background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#7c3aed' }}>🔄</button>
+                )}
                 <button onClick={() => deleteFile(f.id)} title="حذف"
                   style={{ padding: '5px 9px', borderRadius: '0 20px 20px 0', fontSize: 11, cursor: 'pointer',
                     border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderRight: 'none',
