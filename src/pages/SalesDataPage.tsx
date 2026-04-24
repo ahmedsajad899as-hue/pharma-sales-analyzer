@@ -762,35 +762,60 @@ export default function SalesDataPage() {
   const pageRows = filteredRows;
 
   // Handlers
-  const handleFile = useCallback((file: File) => {
-    setImportErr('');
-    setImporting(true);
-    const reader = new FileReader();
-    reader.onload = async e => {
-      const buf = e.target!.result as ArrayBuffer;
-      // Try multi-sheet stock format first, fall back to existing parser
-      const multiResult = parseMultiSheetStock(buf, file.name);
-      const result = multiResult === 'NO' ? parseExcel(buf, file.name) : multiResult;
-      if (typeof result === 'string') {
-        setImportErr(result);
-        setImporting(false);
-      } else {
-        const saved = await apiCreateFile(result as SalesFile);
-        if (!saved) {
-          setImportErr('فشل حفظ الملف على الخادم');
-          setImporting(false);
-          if (fileRef.current) fileRef.current.value = '';
+  const handleFile = useCallback((file: File): Promise<{ ok: boolean; err?: string; saved?: SalesFile }> => {
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = async e => {
+        const buf = e.target!.result as ArrayBuffer;
+        const multiResult = parseMultiSheetStock(buf, file.name);
+        const result = multiResult === 'NO' ? parseExcel(buf, file.name) : multiResult;
+        if (typeof result === 'string') {
+          resolve({ ok: false, err: `${file.name}: ${result}` });
           return;
         }
-        setFiles(prev => [...prev, saved]);
-        setActiveId(saved.id);
-        setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
-        setShowImport(false);
-        setImporting(false);
-      }
-      if (fileRef.current) fileRef.current.value = '';
-    };
-    reader.readAsArrayBuffer(file);
+        const saved = await apiCreateFile(result as SalesFile);
+        if (!saved) { resolve({ ok: false, err: `${file.name}: فشل حفظ الملف على الخادم` }); return; }
+        resolve({ ok: true, saved });
+      };
+      reader.onerror = () => resolve({ ok: false, err: `${file.name}: فشل قراءة الملف` });
+      reader.readAsArrayBuffer(file);
+    });
+  }, []);
+
+  // Multi-file batch import (sequential to avoid server race)
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; name: string } | null>(null);
+  const handleFilesList = useCallback(async (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    if (arr.length === 0) return;
+    setImportErr('');
+    setImporting(true);
+    const errors: string[] = [];
+    const savedFiles: SalesFile[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      setImportProgress({ current: i + 1, total: arr.length, name: arr[i].name });
+      const r = await handleFile(arr[i]);
+      if (r.ok && r.saved) savedFiles.push(r.saved);
+      else if (r.err) errors.push(r.err);
+    }
+    if (savedFiles.length > 0) {
+      setFiles(prev => [...prev, ...savedFiles]);
+      setActiveId(savedFiles[0].id);
+      setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
+      setShowImport(false);
+    }
+    if (errors.length > 0) setImportErr(errors.join('\n'));
+    setImporting(false);
+    setImportProgress(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }, [handleFile]);
+
+  // Opens native file picker directly
+  const openFilePicker = useCallback(() => {
+    setImportErr('');
+    if (fileRef.current) {
+      fileRef.current.value = '';
+      fileRef.current.click();
+    }
   }, []);
 
   const deleteFile = async (id: string) => {
@@ -881,29 +906,32 @@ export default function SalesDataPage() {
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1e293b' }}>📊 بيانات المبيعات</h1>
           <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>تحليل ملفات Excel مع البحث المتعدد — مناطق · مخازن · ايتمات</p>
         </div>
-        <button onClick={() => { setShowImport(v => !v); setImportErr(''); }}
-          style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}>
+        <button onClick={openFilePicker} disabled={importing}
+          style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
           ＋ استيراد Excel
         </button>
       </div>
 
-      {/* Import Panel */}
-      {showImport && (
-        <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 18px', marginBottom: 18 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>📁 رفع ملف Excel / CSV</div>
-          <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px', lineHeight: 1.7 }}>
-            يدعم نوعين من الملفات:<br/>
-            <strong>١- ملف مذاخر متعدد الشيتات:</strong> كل شيت = شركة، الصف الثاني = اسم المادة + أسماء المذاخر (يتم تجاهل مذخر7 مذخر8 ... تلقائياً).<br/>
-            <strong>٢- الصيغة العادية:</strong> صف واحد أو صفين (منطقة مدمجة + أسماء مذاخر).
-          </p>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" disabled={importing}
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-              style={{ fontSize: 13 }} />
-            {importing && <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 600 }}>⏳ جاري الاستيراد...</span>}
-          </div>
+      {/* Hidden file input — supports multi-file selection */}
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" multiple disabled={importing}
+        onChange={e => { if (e.target.files && e.target.files.length > 0) handleFilesList(e.target.files); }}
+        style={{ display: 'none' }} />
+
+      {/* Import progress / errors */}
+      {(importing || importErr) && (
+        <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '12px 16px', marginBottom: 14 }}>
+          {importing && importProgress && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 6 }}>
+                ⏳ جاري استيراد الملفات ({importProgress.current} / {importProgress.total}) — {importProgress.name}
+              </div>
+              <div style={{ height: 6, borderRadius: 99, background: '#e2e8f0', overflow: 'hidden' }}>
+                <div style={{ width: `${(importProgress.current / importProgress.total) * 100}%`, height: '100%', background: '#6366f1', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          )}
           {importErr && (
-            <div style={{ marginTop: 10, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#b91c1c' }}>
+            <div style={{ marginTop: importing ? 10 : 0, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#b91c1c', whiteSpace: 'pre-line' }}>
               ⚠️ {importErr}
             </div>
           )}
@@ -1041,10 +1069,11 @@ export default function SalesDataPage() {
           <div style={{ fontSize: 56, marginBottom: 16 }}>📊</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>لا توجد بيانات بعد</div>
           <div style={{ fontSize: 13, marginBottom: 20 }}>ارفع ملف Excel يحتوي على بيانات المبيعات</div>
-          <button onClick={() => setShowImport(true)}
-            style={{ padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}>
+          <button onClick={openFilePicker} disabled={importing}
+            style={{ padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
             ＋ استيراد ملف Excel
           </button>
+          <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>يمكنك اختيار أكثر من ملف في نفس الوقت</div>
         </div>
       )}
 
