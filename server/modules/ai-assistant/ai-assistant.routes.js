@@ -20,7 +20,7 @@ router.get('/test-key', async (_req, res) => {
   const results = [];
   for (const key of keys) {
     try {
-      const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.5-flash' });
       const r = await model.generateContent('say hi in one word');
       results.push({ prefix: key.slice(0, 12), status: 'ok', response: r.response.text().slice(0, 40) });
     } catch (err) {
