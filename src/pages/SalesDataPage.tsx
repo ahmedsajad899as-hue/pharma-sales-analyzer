@@ -1492,11 +1492,12 @@ export default function SalesDataPage() {
                               const T = shortageThreshold ?? 0;
                               const isAbove = shortageOnlyMode && !isRT(col) && v > 0 && (T === 0 || v >= T);
                               const isLow = highlightLow && !isRT(col) && (v === 0 || (T > 0 && v < T));
+                              const showZero = shortageOnlyMode && !isRT(col) && v === 0;
                               const lowBg = v === 0 ? '#fee2e2' : '#fef9c3';
                               const lowColor = v === 0 ? '#dc2626' : '#92400e';
                               return (
-                                <td key={col.key} style={{ ...tdA, color: isAbove ? '#86efac' : (isLow ? lowColor : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0')), fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
-                                  {isAbove ? '✓' : fmtNum(v)}
+                                <td key={col.key} style={{ ...tdA, color: isAbove ? '#86efac' : (isLow ? lowColor : (showZero ? '#dc2626' : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0'))), fontWeight: v > 0 || showZero ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
+                                  {isAbove ? '✓' : (showZero ? '0' : fmtNum(v))}
                                 </td>
                               );
                             })}
