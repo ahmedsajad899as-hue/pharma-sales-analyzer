@@ -540,6 +540,7 @@ export default function SalesDataPage() {
 
   // ── Shortage Radar ─────────────────────────────────────────────
   const [showShortages, setShowShortages]         = useState(false);
+  const [shortageOnlyMode, setShortageOnlyMode]   = useState(false);
   const [shortageThreshold, setShortageThreshold] = useState<number>(() => {
     const v = parseInt(localStorage.getItem('sd_shortage_threshold') || '30', 10);
     return Number.isFinite(v) && v >= 0 ? v : 30;
@@ -1201,7 +1202,7 @@ export default function SalesDataPage() {
                   style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
                 />
                 {(itemQuery || selectedItems.length > 0) && (
-                  <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setSelectedItems([]); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                  <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setSelectedItems([]); setShortageOnlyMode(false); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
                 )}
               </div>
               {(itemQuery || selectedItems.length > 0) && (
@@ -1365,8 +1366,14 @@ export default function SalesDataPage() {
           {/* TABLE VIEW */}
           {tab === 'table' && (
             <>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
-                {filteredRows.length} ايتم{regionFilter !== 'all' && ` · ${regionFilter}`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود
+              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>{filteredRows.length} ايتم{regionFilter !== 'all' && ` · ${regionFilter}`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
+                {shortageOnlyMode && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', color: '#dc2626', fontWeight: 700, fontSize: 11 }}>
+                    🔴 عرض النواقص فقط
+                    <button onClick={() => setShortageOnlyMode(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 13, padding: 0, lineHeight: 1, fontWeight: 700 }}>✕</button>
+                  </span>
+                )}
               </div>
 
               <div style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
@@ -1494,12 +1501,13 @@ export default function SalesDataPage() {
                             {displayCols.map(col => {
                               const v = cellDisplay(row, col);
                               const T = shortageThreshold ?? 0;
+                              const isAbove = shortageOnlyMode && !isRT(col) && v > 0 && (T === 0 || v >= T);
                               const isLow = highlightLow && !isRT(col) && (v === 0 || (T > 0 && v < T));
                               const lowBg = v === 0 ? '#fee2e2' : '#fef9c3';
                               const lowColor = v === 0 ? '#dc2626' : '#92400e';
                               return (
-                                <td key={col.key} style={{ ...tdA, background: isLow ? lowBg : (isRT(col) && v > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined), color: isLow ? lowColor : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0'), fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
-                                  {fmtNum(v)}
+                                <td key={col.key} style={{ ...tdA, background: isLow ? lowBg : (isRT(col) && v > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined), color: isAbove ? '#86efac' : (isLow ? lowColor : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0')), fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
+                                  {isAbove ? '✓' : fmtNum(v)}
                                 </td>
                               );
                             })}
@@ -1918,6 +1926,7 @@ export default function SalesDataPage() {
                     setShowItemPills(true);
                     setShowShortages(false);
                     setTab('table');
+                    setShortageOnlyMode(true);
                   }}
                   disabled={shortages.totalCount === 0}
                   style={{ ...fp(shortages.totalCount > 0, true), cursor: shortages.totalCount === 0 ? 'default' : 'pointer', opacity: shortages.totalCount === 0 ? 0.5 : 1 }}
