@@ -1599,7 +1599,7 @@ export default function SalesDataPage() {
                               const hi = itemQuery && val.toLowerCase().includes(itemQuery.toLowerCase());
                               const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
                               return (
-                                <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: '#6366f1' } : {}) }}>
+                                <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: '#1e293b' } : {}) }}>
                                   {hi ? <span style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 4px' }}>{display}</span> : (display || <span style={{ color: '#d1d5db' }}>—</span>)}
                                 </td>
                               );
@@ -1625,7 +1625,7 @@ export default function SalesDataPage() {
                               return (
                                 <td key={col.key} style={{
                                   ...tdA,
-                                  background: aGap ? '#fef2f2' : (focusA ? '#f8fafc' : undefined),
+                                  background: aGap || aLow ? '#fef2f2' : (focusA ? '#f8fafc' : undefined),
                                   color,
                                   fontWeight: aGap || aLow || v > 0 || showZero ? 700 : 400,
                                   borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
