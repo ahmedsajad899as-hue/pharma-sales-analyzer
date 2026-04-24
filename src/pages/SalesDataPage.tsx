@@ -305,7 +305,6 @@ export default function SalesDataPage() {
   // Back button: close open overlays/panels
   useBackHandler([
     [showImport,              () => { setShowImport(false); setImportErr(''); }],
-    [showItemDropdown,        () => setShowItemDropdown(false)],
     [openFilterCol !== null,  () => setOpenFilterCol(null)],
   ]);
   const PAGE_SIZE = 50;
