@@ -757,80 +757,85 @@ export default function SalesDataPage() {
               )}
             </div>
 
-            {/* Company pills */}
-            {companyCol && companies.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركات</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => selectCompany('all')} style={fp(companyFilter === 'all')}>الكل</button>
-                  {companies.map(c => (
-                    <button key={c} onClick={() => selectCompany(c)} style={fp(companyFilter === c)}>{c}</button>
-                  ))}
-                </div>
-              </div>
-            )}
+            {(() => {
+              const isMergedFile = activeFile.name.startsWith('دمج:');
 
-            {/* Items pills — only shown when a specific company is selected (or if no company column exists) */}
-            {activeFile && itemNameCol && ((!companyCol || companies.length === 0) || companyFilter !== 'all') && (() => {
-              const sourceRows = companyCol && companyFilter !== 'all'
-                ? activeFile.rows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter)
-                : activeFile.rows;
-              const allItems = [...new Set(
-                sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
-              )].sort((a, b) => a.localeCompare(b, 'ar'));
-              const q = itemQuery.trim().toLowerCase();
-              const visibleItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
-              return (
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>💊 الايتمات</div>
-                    {selectedItems.length > 1 && (
-                      <button onClick={() => { setSelectedItems([]); setPage(1); }} style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}>مسح الكل</button>
-                    )}
-                  </div>
+              const regionsSection = (
+                <div key="regions" style={{ marginBottom: regionFilter !== 'all' ? 12 : 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المناطق</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} style={fp(selectedItems.length === 0 && !itemQuery)}>الكل</button>
-                    {visibleItems.map(name => (
-                      <button
-                        key={name}
-                        onClick={() => { setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]); setItemQuery(''); setPage(1); }}
-                        style={fp(selectedItems.includes(name))}
-                      >{name}</button>
+                    <button onClick={() => selectRegion('all')} style={fp(regionFilter === 'all')}>الكل</button>
+                    {activeFile.regions.map(region => (
+                      <button key={region} onClick={() => selectRegion(region)} style={fp(regionFilter === region)}>{region}</button>
                     ))}
-                    {q && visibleItems.length === 0 && (
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>لا نتائج لـ "{itemQuery}"</span>
-                    )}
                   </div>
-                  {selectedItems.length > 0 && (
-                    <div style={{ fontSize: 11, color: '#10b981', marginTop: 6, fontWeight: 600 }}>✓ {filteredRows.length} صف مطابق ({selectedItems.length} ايتم)</div>
-                  )}
                 </div>
               );
-            })()}
 
-            {/* Region pills */}
-            <div style={{ marginBottom: regionFilter !== 'all' ? 12 : 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المناطق</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button onClick={() => selectRegion('all')} style={fp(regionFilter === 'all')}>الكل</button>
-                {activeFile.regions.map(region => (
-                  <button key={region} onClick={() => selectRegion(region)} style={fp(regionFilter === region)}>{region}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* Warehouse pills (only when region selected) */}
-            {regionFilter !== 'all' && (
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏪 المخزن</div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={fp(warehouseKeys.size === 0, true)}>الكل</button>
-                  {activeFile.areaCols.filter(ac => ac.region === regionFilter).map(ac => (
-                    <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
-                  ))}
+              const warehousesSection = regionFilter !== 'all' ? (
+                <div key="warehouses" style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏪 المخزن</div>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={fp(warehouseKeys.size === 0, true)}>الكل</button>
+                    {activeFile.areaCols.filter(ac => ac.region === regionFilter).map(ac => (
+                      <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : null;
+
+              const companiesSection = companyCol && companies.length > 0 ? (
+                <div key="companies" style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركات</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => selectCompany('all')} style={fp(companyFilter === 'all')}>الكل</button>
+                    {companies.map(c => (
+                      <button key={c} onClick={() => selectCompany(c)} style={fp(companyFilter === c)}>{c}</button>
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+
+              const itemsSection = activeFile && itemNameCol && ((!companyCol || companies.length === 0) || companyFilter !== 'all') ? (() => {
+                const sourceRows = companyCol && companyFilter !== 'all'
+                  ? activeFile.rows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter)
+                  : activeFile.rows;
+                const allItems = [...new Set(
+                  sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
+                )].sort((a, b) => a.localeCompare(b, 'ar'));
+                const q = itemQuery.trim().toLowerCase();
+                const visibleItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
+                return (
+                  <div key="items" style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>💊 الايتمات</div>
+                      {selectedItems.length > 1 && (
+                        <button onClick={() => { setSelectedItems([]); setPage(1); }} style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}>مسح الكل</button>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} style={fp(selectedItems.length === 0 && !itemQuery)}>الكل</button>
+                      {visibleItems.map(name => (
+                        <button key={name}
+                          onClick={() => { setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]); setItemQuery(''); setPage(1); }}
+                          style={fp(selectedItems.includes(name))}
+                        >{name}</button>
+                      ))}
+                      {q && visibleItems.length === 0 && (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>لا نتائج لـ "{itemQuery}"</span>
+                      )}
+                    </div>
+                    {selectedItems.length > 0 && (
+                      <div style={{ fontSize: 11, color: '#10b981', marginTop: 6, fontWeight: 600 }}>✓ {filteredRows.length} صف مطابق ({selectedItems.length} ايتم)</div>
+                    )}
+                  </div>
+                );
+              })() : null;
+
+              return isMergedFile
+                ? <>{regionsSection}{warehousesSection}{companiesSection}{itemsSection}</>
+                : <>{companiesSection}{itemsSection}{regionsSection}{warehousesSection}</>;
+            })()}
           </div>
 
           {/* Tab switcher + value toggle */}
