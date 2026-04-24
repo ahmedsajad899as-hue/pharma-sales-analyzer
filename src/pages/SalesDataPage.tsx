@@ -337,7 +337,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
       const item    = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
       if (!item) continue;
 
-      const obj: Record<string, string> = { 'الشركة': company, 'المادة': item };
+      const obj: Record<string, string> = { 'الشركة': company, 'المادة': item, '_sourceFile': f.name };
       for (const ac of f.areaCols) {
         const mk = acKeyToMerged.get(ac.key);
         if (mk) obj[mk] = String(row[ac.key] ?? '');
@@ -422,13 +422,16 @@ export default function SalesDataPage() {
   // Unique company values for pills
   const companies = useMemo(() => {
     if (!activeFile || !companyCol) return [];
-    return [...new Set(activeFile.rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
-  }, [activeFile, companyCol]);
+    let rows = activeFile.rows;
+    if (regionFilter !== 'all') rows = rows.filter(r => r['_sourceFile'] === regionFilter);
+    return [...new Set(rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
+  }, [activeFile, companyCol, regionFilter]);
 
   // Filtered rows by item selection / text query + company filter + column filters
   const filteredRows = useMemo(() => {
     if (!activeFile) return [];
     let rows = activeFile.rows;
+    if (regionFilter !== 'all') rows = rows.filter(row => row['_sourceFile'] ? row['_sourceFile'] === regionFilter : true);
     if (selectedItems.length > 0) {
       rows = rows.filter(row =>
         selectedItems.some(sel => activeFile.fixedCols.some(c => String(row[c] ?? '').trim() === sel))
@@ -442,7 +445,7 @@ export default function SalesDataPage() {
       if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return rows;
-  }, [activeFile, selectedItems, itemQuery, companyFilter, companyCol, colFilters]);
+  }, [activeFile, selectedItems, itemQuery, companyFilter, companyCol, colFilters, regionFilter]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
