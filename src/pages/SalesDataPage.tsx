@@ -1376,7 +1376,7 @@ export default function SalesDataPage() {
                 )}
               </div>
 
-              <div style={{ overflow: 'auto', height: 'calc(100vh - 200px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
+              <div style={{ overflow: 'auto', height: 'calc(100vh - 120px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 3 }}>
