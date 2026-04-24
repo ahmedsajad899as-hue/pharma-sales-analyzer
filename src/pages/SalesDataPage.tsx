@@ -1615,18 +1615,19 @@ export default function SalesDataPage() {
                               const cat = !isRT(col) ? getCategory((col as ColMeta).region, (col as ColMeta).label) : null;
                               const dim = focusCategoryA && !isRT(col) && cat !== 'A';
                               const focusA = focusCategoryA && cat === 'A';
-                              const aGap = focusA && v === 0; // empty cell in A column → highlight strongly
+                              const aGap  = focusA && v === 0;             // empty A cell
+                              const aLow  = focusA && v > 0 && T > 0 && v < T; // low (but not zero) in A
                               return (
                                 <td key={col.key} style={{
                                   ...tdA,
-                                  background: aGap ? '#fee2e2' : (focusA ? '#f0fdf4' : undefined),
-                                  color: aGap ? '#dc2626' : (isAbove ? '#86efac' : (isLow ? lowColor : (showZero ? '#dc2626' : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0')))),
-                                  fontWeight: aGap || v > 0 || showZero ? 800 : 400,
+                                  background: aGap ? '#fee2e2' : (aLow ? '#fef9c3' : (focusA ? '#f0fdf4' : undefined)),
+                                  color: aGap ? '#dc2626' : (aLow ? '#92400e' : (isAbove ? '#86efac' : (isLow ? lowColor : (showZero ? '#dc2626' : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0'))))),
+                                  fontWeight: aGap || aLow || v > 0 || showZero ? 800 : 400,
                                   borderRight: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
                                   borderLeft:  focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
                                   opacity: dim ? 0.35 : 1,
                                 }}>
-                                  {isAbove ? '✓' : (aGap ? '∅ 0' : (showZero ? '0' : fmtNum(v)))}
+                                  {isAbove ? '✓' : (showZero ? '0' : fmtNum(v))}
                                 </td>
                               );
                             })}
