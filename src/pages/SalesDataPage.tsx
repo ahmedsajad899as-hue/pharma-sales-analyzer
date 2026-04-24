@@ -41,7 +41,7 @@ function toLocalFile(f: any): SalesFile {
     areaCols: f.areaCols || [],
     rows: f.rows || [],
     regions: f.regions || [],
-    sourceFileIds: f.sourceFileIds ?? undefined,
+    sourceFileIds: Array.isArray(f.sourceFileIds) ? f.sourceFileIds.map(String) : undefined,
   };
 }
 async function apiListFiles(): Promise<SalesFile[]> {
