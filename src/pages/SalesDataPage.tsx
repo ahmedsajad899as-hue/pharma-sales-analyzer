@@ -750,12 +750,9 @@ export default function SalesDataPage() {
         .filter((x): x is LowWarehouse => !!x);
 
       let severity: Entry['severity'] | null = null;
-      if (total === 0) severity = 'out';
-      else if (T > 0 && total < half) severity = 'critical';
-      else if (T > 0 && total < T) severity = 'low';
-      else if (lowRegions.some(r => r.sev === 'out')) severity = 'out';
-      else if (lowRegions.some(r => r.sev === 'critical')) severity = 'critical';
-      else if (lowRegions.some(r => r.sev === 'low')) severity = 'low';
+      if (lowWarehouses.some(w => w.sev === 'out')) severity = 'out';
+      else if (lowWarehouses.some(w => w.sev === 'critical')) severity = 'critical';
+      else if (lowWarehouses.some(w => w.sev === 'low')) severity = 'low';
 
       if (!severity) continue;
 
