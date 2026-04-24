@@ -400,7 +400,7 @@ export default function SalesDataPage() {
     if (!activeFile) return '';
     const lower = activeFile.fixedCols.map(c => c.toLowerCase().trim());
     // Prefer exact match first, then partial match — to avoid "Item Code" beating "Item"
-    const exactKeywords = ['item', 'الايتم', 'اسم الايتم', 'اسم المادة', 'اسم الماده', 'name', 'product'];
+    const exactKeywords = ['item', 'الايتم', 'اسم الايتم', 'اسم المادة', 'اسم الماده', 'المادة', 'مادة', 'المواد', 'name', 'product', 'منتج', 'المنتج'];
     const exactMatch = activeFile.fixedCols.find((_, i) =>
       exactKeywords.some(k => lower[i] === k)
     );
@@ -606,9 +606,9 @@ export default function SalesDataPage() {
               </div>
             )}
 
-            {/* Items pills — only shown when a specific company is selected */}
-            {activeFile && itemNameCol && companyFilter !== 'all' && (() => {
-              const sourceRows = companyCol
+            {/* Items pills — only shown when a specific company is selected (or if no company column exists) */}
+            {activeFile && itemNameCol && ((!companyCol || companies.length === 0) || companyFilter !== 'all') && (() => {
+              const sourceRows = companyCol && companyFilter !== 'all'
                 ? activeFile.rows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter)
                 : activeFile.rows;
               const allItems = [...new Set(
