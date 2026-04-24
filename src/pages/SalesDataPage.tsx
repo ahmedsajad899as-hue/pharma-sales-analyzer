@@ -717,7 +717,7 @@ export default function SalesDataPage() {
       )}
 
       {/* Main content */}
-      {activeFile && (
+      {activeFile && !showMergePanel && (
         <>
           {/* Summary cards */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
