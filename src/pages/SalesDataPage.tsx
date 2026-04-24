@@ -676,7 +676,11 @@ export default function SalesDataPage() {
   const shortages = useMemo(() => {
     if (!activeFile) return { out: [], critical: [], low: [], totalCount: 0, allRegions: [] as string[] };
     const groups: Record<string, ColMeta[]> = {};
-    activeFile.areaCols.forEach(ac => { (groups[ac.region] ||= []).push(ac); });
+    // When a region is selected, only include warehouses of that region
+    const relevantCols = regionFilter === 'all'
+      ? activeFile.areaCols
+      : activeFile.areaCols.filter(ac => ac.region === regionFilter);
+    relevantCols.forEach(ac => { (groups[ac.region] ||= []).push(ac); });
     const regionCols: RegionTotalCol[] = Object.entries(groups).map(([region, cols]) => ({
       key: `rt_${region}`, label: region, region, colIdx: -1 as const, isRegionTotal: true as const, cols,
     }));
@@ -717,7 +721,7 @@ export default function SalesDataPage() {
         .map(r => { const sev = sevOf(r.qty); return sev ? { region: r.region, qty: r.qty, sev } : null; })
         .filter((x): x is LowRegion => !!x);
 
-      const lowWarehouses: LowWarehouse[] = activeFile.areaCols
+      const lowWarehouses: LowWarehouse[] = relevantCols
         .map(ac => { const qty = toNum(row[ac.key] ?? ''); const sev = sevOf(qty); return sev ? { warehouse: ac.label, region: ac.region, qty, sev } : null; })
         .filter((x): x is LowWarehouse => !!x);
 
@@ -744,7 +748,7 @@ export default function SalesDataPage() {
     low.sort((a, b) => a.total - b.total);
 
     return { out, critical, low, totalCount: out.length + critical.length + low.length, allRegions };
-  }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol]);
+  }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol, regionFilter]);
 
   // Unique values for the currently-open filter column
   const colUniqueVals = useMemo(() => {
