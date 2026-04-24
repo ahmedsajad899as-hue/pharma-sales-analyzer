@@ -1468,11 +1468,12 @@ export default function SalesDataPage() {
                           {col.label}
                         </th>
                       ))}
+                      <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>الشامل</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pageRows.length === 0
-                      ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 1} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
+                      ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
                       : pageRows.map((row, idx) => {
                         const rt = rowDisplay(row, displayCols);
                         return (
@@ -1498,6 +1499,7 @@ export default function SalesDataPage() {
                                 </td>
                               );
                             })}
+                            <td style={{ ...tdA, background: rt > 0 ? '#f0fdf4' : undefined, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, borderRight: '2px solid #bbf7d0' }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
                           </tr>
                         );
                       })
@@ -1511,6 +1513,7 @@ export default function SalesDataPage() {
                       {displayCols.map(col => (
                         <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800, position: 'sticky', bottom: 0, background: '#f1f5f9' }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
                       ))}
+                      <td style={{ ...tdA, color: '#065f46', fontWeight: 800, position: 'sticky', bottom: 0, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0))}</td>
                     </tr>
                   </tfoot>
                 </table>
