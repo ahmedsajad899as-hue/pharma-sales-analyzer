@@ -1913,78 +1913,124 @@ export default function SalesDataPage() {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px' }}>
-              {warehouseClasses.length === 0 ? (
+              {!activeFile ? (
                 <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '40px 0' }}>
-                  لا يوجد تصنيف بعد. ارفع ملف Excel لبدء العمل.
+                  لا يوجد ملف ستوك نشط لعرض المذاخر.
                 </div>
-              ) : (
-                <>
-                  {/* Match report against active file */}
-                  {activeFile && (() => {
-                    const matched: { region: string; warehouse: string; cat: WarehouseCategory }[] = [];
-                    const unmatchedClass: WarehouseClass[] = [];
-                    const matchedKeys = new Set<string>();
-                    for (const c of warehouseClasses) {
-                      const hit = activeWarehousesAll.find(w => normName(w.warehouse) === normName(c.warehouse) && (!c.region || normName(w.region) === normName(c.region)));
-                      if (hit) { matched.push({ region: hit.region, warehouse: hit.warehouse, cat: c.category }); matchedKeys.add(`${normName(hit.region)}||${normName(hit.warehouse)}`); }
-                      else { unmatchedClass.push(c); }
-                    }
-                    const unmatchedFile = activeWarehousesAll.filter(w => !matchedKeys.has(`${normName(w.region)}||${normName(w.warehouse)}`));
-                    return (
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 12, flexWrap: 'wrap' }}>
-                        <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: 8, fontWeight: 700 }}>✓ مطابق: {matched.length}</span>
-                        {unmatchedClass.length > 0 && <span style={{ background: '#fff7ed', color: '#9a3412', padding: '4px 10px', borderRadius: 8, fontWeight: 700 }} title={unmatchedClass.map(c => `${c.region} / ${c.warehouse}`).join('\n')}>⚠ بالملف وليس بالستوك: {unmatchedClass.length}</span>}
-                        {unmatchedFile.length > 0 && <span style={{ background: '#fef2f2', color: '#991b1b', padding: '4px 10px', borderRadius: 8, fontWeight: 700 }} title={unmatchedFile.map(w => `${w.region} / ${w.warehouse}`).join('\n')}>⚠ بالستوك وغير مصنّف: {unmatchedFile.length}</span>}
-                      </div>
-                    );
-                  })()}
+              ) : (() => {
+                const setCat = (region: string, warehouse: string, cat: WarehouseCategory | null) => {
+                  setWarehouseClasses(prev => {
+                    const filtered = prev.filter(c => !(normName(c.warehouse) === normName(warehouse) && (!c.region || normName(c.region) === normName(region))));
+                    return cat ? [...filtered, { region, warehouse, category: cat }] : filtered;
+                  });
+                };
+                // Group active warehouses by region
+                const byRegion: Record<string, { region: string; warehouse: string }[]> = {};
+                for (const w of activeWarehousesAll) (byRegion[w.region] ||= []).push(w);
+                // Match counters
+                const matchedKeys = new Set<string>();
+                let matchedCount = 0;
+                for (const c of warehouseClasses) {
+                  const hit = activeWarehousesAll.find(w => normName(w.warehouse) === normName(c.warehouse) && (!c.region || normName(w.region) === normName(c.region)));
+                  if (hit) { matchedKeys.add(`${normName(hit.region)}||${normName(hit.warehouse)}`); matchedCount++; }
+                }
+                const unmatchedClasses = warehouseClasses.filter(c => {
+                  const hit = activeWarehousesAll.find(w => normName(w.warehouse) === normName(c.warehouse) && (!c.region || normName(w.region) === normName(c.region)));
+                  return !hit;
+                });
+                const unclassifiedCount = activeWarehousesAll.filter(w => !matchedKeys.has(`${normName(w.region)}||${normName(w.warehouse)}`)).length;
 
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        <th style={{ padding: 8, textAlign: 'right', fontWeight: 700, color: '#475569' }}>المنطقة</th>
-                        <th style={{ padding: 8, textAlign: 'right', fontWeight: 700, color: '#475569' }}>المخزن</th>
-                        <th style={{ padding: 8, textAlign: 'center', fontWeight: 700, color: '#475569', width: 90 }}>التصنيف</th>
-                        <th style={{ padding: 8, textAlign: 'center', fontWeight: 700, color: '#475569', width: 80 }}>مطابقة</th>
-                        <th style={{ padding: 8, textAlign: 'center', width: 50 }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {warehouseClasses.map((c, i) => {
-                        const colors = { A: { bg: '#dcfce7', fg: '#166534' }, B: { bg: '#fef9c3', fg: '#854d0e' }, C: { bg: '#fee2e2', fg: '#991b1b' } }[c.category];
-                        const matched = activeFile ? activeWarehousesAll.some(w => normName(w.warehouse) === normName(c.warehouse) && (!c.region || normName(w.region) === normName(c.region))) : null;
-                        return (
-                          <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: 8, color: '#475569' }}>{c.region || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                            <td style={{ padding: 8, fontWeight: 600, color: '#1e293b' }}>{c.warehouse}</td>
-                            <td style={{ padding: 8, textAlign: 'center' }}>
-                              <select
-                                value={c.category}
-                                onChange={e => setWarehouseClasses(prev => prev.map((x, idx) => idx === i ? { ...x, category: e.target.value as WarehouseCategory } : x))}
-                                style={{ background: colors.bg, color: colors.fg, fontWeight: 800, border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}
-                              >
-                                <option value="A">A</option>
-                                <option value="B">B</option>
-                                <option value="C">C</option>
-                              </select>
-                            </td>
-                            <td style={{ padding: 8, textAlign: 'center' }}>
-                              {matched === null ? <span style={{ color: '#cbd5e1' }}>—</span>
-                                : matched ? <span style={{ color: '#16a34a' }}>✓</span>
-                                : <span title="غير موجود في الستوك الحالي" style={{ color: '#dc2626' }}>✕</span>}
-                            </td>
-                            <td style={{ padding: 8, textAlign: 'center' }}>
-                              <button onClick={() => setWarehouseClasses(prev => prev.filter((_, idx) => idx !== i))}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 14 }}
-                                title="حذف">🗑</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </>
-              )}
+                const catColors: Record<WarehouseCategory | '', { bg: string; fg: string; br: string }> = {
+                  A: { bg: '#f0fdf4', fg: '#166534', br: '#86efac' },
+                  B: { bg: '#fefce8', fg: '#854d0e', br: '#fde047' },
+                  C: { bg: '#fef2f2', fg: '#991b1b', br: '#fca5a5' },
+                  '': { bg: '#f8fafc', fg: '#94a3b8', br: '#e2e8f0' },
+                };
+                const renderSelect = (region: string, warehouse: string) => {
+                  const cur = getCategory(region, warehouse) ?? '';
+                  const c = catColors[cur as WarehouseCategory | ''];
+                  return (
+                    <select
+                      value={cur}
+                      onChange={e => setCat(region, warehouse, (e.target.value || null) as WarehouseCategory | null)}
+                      style={{ background: c.bg, color: c.fg, fontWeight: 700, border: `1px solid ${c.br}`, borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', minWidth: 70 }}
+                    >
+                      <option value="">— غير مصنّف</option>
+                      <option value="A">A — مفتوح</option>
+                      <option value="B">B — يحتاج موافقة</option>
+                      <option value="C">C — لا يجهز</option>
+                    </select>
+                  );
+                };
+
+                return (
+                  <>
+                    {/* Match summary */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 12, flexWrap: 'wrap' }}>
+                      <span style={{ background: '#f0fdf4', color: '#166534', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid #bbf7d0' }}>✓ مصنّف: {matchedCount}</span>
+                      {unclassifiedCount > 0 && <span style={{ background: '#f8fafc', color: '#475569', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid #e2e8f0' }}>غير مصنّف: {unclassifiedCount}</span>}
+                      {unmatchedClasses.length > 0 && <span style={{ background: '#fff7ed', color: '#9a3412', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid #fed7aa' }}>⚠ خارج الستوك: {unmatchedClasses.length}</span>}
+                    </div>
+
+                    {/* Regions & warehouses */}
+                    {Object.entries(byRegion).map(([region, list]) => (
+                      <div key={region} style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: '#f8fafc', padding: '8px 12px', fontSize: 13, fontWeight: 800, color: '#1e293b', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                          <span>📍 {region} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginInlineStart: 6 }}>({list.length} مخزن)</span></span>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {(['A', 'B', 'C'] as WarehouseCategory[]).map(cat => (
+                              <button key={cat} title={`تطبيق ${cat} على كل مذاخر ${region}`}
+                                onClick={() => list.forEach(w => setCat(w.region, w.warehouse, cat))}
+                                style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${catColors[cat].br}`, background: catColors[cat].bg, color: catColors[cat].fg, fontWeight: 700, cursor: 'pointer' }}>
+                                {cat}
+                              </button>
+                            ))}
+                            <button title={`مسح تصنيفات ${region}`}
+                              onClick={() => list.forEach(w => setCat(w.region, w.warehouse, null))}
+                              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer' }}>
+                              مسح
+                            </button>
+                          </div>
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
+                          <tbody>
+                            {list.map(w => (
+                              <tr key={`${w.region}__${w.warehouse}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{w.warehouse}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'left', width: 200 }}>{renderSelect(w.region, w.warehouse)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+
+                    {/* Extra entries from uploaded file (not in active stock) */}
+                    {unmatchedClasses.length > 0 && (
+                      <div style={{ marginBottom: 16, border: '1px dashed #fed7aa', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: '#fff7ed', padding: '8px 12px', fontSize: 13, fontWeight: 800, color: '#9a3412', borderBottom: '1px solid #fed7aa' }}>
+                          ⚠ تصنيفات خارج ملف الستوك الحالي ({unmatchedClasses.length})
+                        </div>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
+                          <tbody>
+                            {unmatchedClasses.map((c, i) => (
+                              <tr key={`${c.region}-${c.warehouse}-${i}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 12px', color: '#475569', width: 140 }}>{c.region || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{c.warehouse}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'left', width: 200 }}>{renderSelect(c.region, c.warehouse)}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'center', width: 50 }}>
+                                  <button onClick={() => setWarehouseClasses(prev => prev.filter(x => !(normName(x.warehouse) === normName(c.warehouse) && normName(x.region) === normName(c.region))))}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 14 }} title="حذف">🗑</button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
