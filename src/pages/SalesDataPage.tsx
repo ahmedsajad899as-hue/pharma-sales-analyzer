@@ -711,6 +711,32 @@ table{border-collapse:collapse;width:100%}
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [activeFile, buildStyledTableHTML]);
 
+  const exportTableToPDF = useCallback(() => {
+    const tableHTML = buildStyledTableHTML();
+    if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const title = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}`;
+    const html = `<!DOCTYPE html><html lang="ar" dir="rtl"><head>
+<meta charset="utf-8"/>
+<title>${title}</title>
+<style>
+@page{size:A3 landscape;margin:8mm}
+*{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+body{font-family:Arial,Tahoma,sans-serif;direction:rtl;margin:0;padding:8px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:10px}
+th,td{padding:4px 6px;border:1px solid #e2e8f0}
+thead{display:table-header-group}
+tr{page-break-inside:avoid}
+</style>
+</head><body dir="rtl">${tableHTML}
+<script>window.addEventListener('load',function(){setTimeout(function(){window.focus();window.print();},250);});</script>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { alert('فعّل النوافذ المنبثقة لتصدير PDF'); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }, [activeFile, buildStyledTableHTML]);
+
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
     if (!activeFile) return [];
@@ -1554,6 +1580,15 @@ table{border-collapse:collapse;width:100%}
                 display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >📝 Word</button>
+            <button
+              onClick={exportTableToPDF}
+              title="تصدير الجدول إلى PDF (طباعة → حفظ كـ PDF) مع نفس الترتيب والألوان"
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >📄 PDF</button>
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (
