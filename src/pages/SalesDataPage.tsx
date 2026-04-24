@@ -1493,8 +1493,12 @@ export default function SalesDataPage() {
                             })}
                             {displayCols.map(col => {
                               const v = cellDisplay(row, col);
+                              const T = shortageThreshold ?? 0;
+                              const isLow = highlightLow && !isRT(col) && (v === 0 || (T > 0 && v < T));
+                              const lowBg = v === 0 ? '#fee2e2' : '#fef9c3';
+                              const lowColor = v === 0 ? '#dc2626' : '#92400e';
                               return (
-                                <td key={col.key} style={{ ...tdA, background: isRT(col) && v > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined, color: v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0', fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
+                                <td key={col.key} style={{ ...tdA, background: isLow ? lowBg : (isRT(col) && v > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined), color: isLow ? lowColor : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0'), fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
                                   {fmtNum(v)}
                                 </td>
                               );
@@ -1913,6 +1917,7 @@ export default function SalesDataPage() {
                     setItemQuery('');
                     setShowItemPills(true);
                     setShowShortages(false);
+                    setTab('table');
                   }}
                   disabled={shortages.totalCount === 0}
                   style={{ ...fp(shortages.totalCount > 0, true), cursor: shortages.totalCount === 0 ? 'default' : 'pointer', opacity: shortages.totalCount === 0 ? 0.5 : 1 }}
