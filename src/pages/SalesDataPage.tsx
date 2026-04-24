@@ -560,6 +560,7 @@ export default function SalesDataPage() {
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyUploadMsg, setClassifyUploadMsg] = useState('');
   const classifyFileRef = useRef<HTMLInputElement>(null);
+  const [focusCategoryA, setFocusCategoryA] = useState(false);
 
   const normName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const classifyMap = useMemo(() => {
@@ -1559,13 +1560,15 @@ export default function SalesDataPage() {
                           </th>
                         );
                       })}
-                      {displayCols.map(col => (
-                        <th key={col.key} style={{ ...thA, background: isRT(col) ? '#eef2ff' : '#f8fafc', color: isRT(col) ? '#4338ca' : '#1e293b', borderRight: isRT(col) ? '2px solid #c7d2fe' : undefined, borderLeft: isRT(col) ? '2px solid #c7d2fe' : undefined }}>
+                      {displayCols.map(col => {
+                        const cat = !isRT(col) ? getCategory((col as ColMeta).region, (col as ColMeta).label) : null;
+                        const dim = focusCategoryA && !isRT(col) && cat !== 'A';
+                        const focusA = focusCategoryA && cat === 'A';
+                        return (
+                        <th key={col.key} style={{ ...thA, background: focusA ? '#dcfce7' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (focusA ? '#14532d' : (isRT(col) ? '#4338ca' : '#1e293b')), borderRight: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.45 : 1 }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
                             <span>{col.label}</span>
-                            {!isRT(col) && (() => {
-                              const cat = getCategory((col as ColMeta).region, (col as ColMeta).label);
-                              if (!cat) return null;
+                            {!isRT(col) && cat && (() => {
                               const colors = { A: { bg: '#dcfce7', fg: '#166534', br: '#86efac' }, B: { bg: '#fef9c3', fg: '#854d0e', br: '#fde047' }, C: { bg: '#fee2e2', fg: '#991b1b', br: '#fca5a5' } }[cat];
                               return (
                                 <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
@@ -1576,7 +1579,8 @@ export default function SalesDataPage() {
                             })()}
                           </div>
                         </th>
-                      ))}
+                        );
+                      })}
                       <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>الشامل</th>
                     </tr>
                   </thead>
@@ -1608,9 +1612,21 @@ export default function SalesDataPage() {
                               const showZero = shortageOnlyMode && !isRT(col) && v === 0;
                               const lowBg = v === 0 ? '#fee2e2' : '#fef9c3';
                               const lowColor = v === 0 ? '#dc2626' : '#92400e';
+                              const cat = !isRT(col) ? getCategory((col as ColMeta).region, (col as ColMeta).label) : null;
+                              const dim = focusCategoryA && !isRT(col) && cat !== 'A';
+                              const focusA = focusCategoryA && cat === 'A';
+                              const aGap = focusA && v === 0; // empty cell in A column → highlight strongly
                               return (
-                                <td key={col.key} style={{ ...tdA, color: isAbove ? '#86efac' : (isLow ? lowColor : (showZero ? '#dc2626' : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0'))), fontWeight: v > 0 || showZero ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
-                                  {isAbove ? '✓' : (showZero ? '0' : fmtNum(v))}
+                                <td key={col.key} style={{
+                                  ...tdA,
+                                  background: aGap ? '#fee2e2' : (focusA ? '#f0fdf4' : undefined),
+                                  color: aGap ? '#dc2626' : (isAbove ? '#86efac' : (isLow ? lowColor : (showZero ? '#dc2626' : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0')))),
+                                  fontWeight: aGap || v > 0 || showZero ? 800 : 400,
+                                  borderRight: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
+                                  borderLeft:  focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
+                                  opacity: dim ? 0.35 : 1,
+                                }}>
+                                  {isAbove ? '✓' : (aGap ? '∅ 0' : (showZero ? '0' : fmtNum(v)))}
                                 </td>
                               );
                             })}
@@ -1858,6 +1874,18 @@ export default function SalesDataPage() {
               <button onClick={downloadClassifyTemplate}
                 style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 ⬇ تحميل نموذج
+              </button>
+              <button
+                onClick={() => setFocusCategoryA(v => !v)}
+                title="إبراز مذاخر التصنيف A وتوضيح فجواتها وتعتيم باقي المذاخر"
+                style={{
+                  padding: '6px 14px', borderRadius: 8,
+                  border: `1.5px solid ${focusCategoryA ? '#16a34a' : '#bbf7d0'}`,
+                  background: focusCategoryA ? '#16a34a' : '#f0fdf4',
+                  color: focusCategoryA ? '#fff' : '#166534',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}>
+                🎯 تركيز على A {focusCategoryA ? '✓' : ''}
               </button>
               {warehouseClasses.length > 0 && (
                 <button onClick={() => { if (confirm('مسح كل التصنيفات؟')) { setWarehouseClasses([]); setClassifyUploadMsg(''); } }}
