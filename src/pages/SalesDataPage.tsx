@@ -368,6 +368,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
   for (const f of selectedFiles) {
     const cCol = detectCompanyCol(f);
     const iCol = detectItemNameCol(f);
+    const pCol = detectPriceCol(f);
     const acKeyToMerged = new Map<string, string>();
     for (const ac of f.areaCols) {
       const m = colMap.get(`${f.name}||${ac.label}`);
@@ -393,8 +394,14 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
         const mk = acKeyToMerged.get(ac.key);
         if (mk) obj[mk] = String(toNum(obj[mk] ?? '') + toNum(String(row[ac.key] ?? '')));
       }
+      // Copy price — first non-zero value wins
+      if (pCol && !obj['السعر'] && toNum(String(row[pCol] ?? '')) > 0) {
+        obj['السعر'] = String(row[pCol]);
+      }
     }
   }
+
+  const hasPriceInAnyFile = selectedFiles.some(f => detectPriceCol(f));
 
   const shortNames = names.map(n => n.length > 12 ? n.slice(0, 12) + '…' : n).join(' + ');
   return {
