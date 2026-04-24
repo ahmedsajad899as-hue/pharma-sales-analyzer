@@ -940,16 +940,23 @@ tr{page-break-inside:avoid}
       const name = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
       const company = companyCol ? String(row[companyCol] ?? '').trim() : '';
       const entry: Entry = { row, name, company, total, perRegion, lowRegions, lowWarehouses, severity };
-      if (severity === 'out') out.push(entry);
-      else if (severity === 'critical') critical.push(entry);
-      else low.push(entry);
+      // An item appears in every bucket it has at least one warehouse in.
+      // (Previously we placed each item in only its WORST bucket, which left
+      //  the "حرج" and "منخفض" lists nearly empty whenever the item had any
+      //  zero warehouse anywhere.)
+      if (lowWarehouses.some(w => w.sev === 'out'))      out.push(entry);
+      if (lowWarehouses.some(w => w.sev === 'critical')) critical.push(entry);
+      if (lowWarehouses.some(w => w.sev === 'low'))      low.push(entry);
     }
 
     out.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
     critical.sort((a, b) => a.total - b.total);
     low.sort((a, b) => a.total - b.total);
 
-    return { out, critical, low, totalCount: out.length + critical.length + low.length, allRegions };
+    // Total count = unique items across all buckets
+    const uniq = new Set<string>();
+    for (const e of [...out, ...critical, ...low]) uniq.add(e.name + '|' + e.company);
+    return { out, critical, low, totalCount: uniq.size, allRegions };
   }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol, regionFilter]);
 
   // Unique values for the currently-open filter column
