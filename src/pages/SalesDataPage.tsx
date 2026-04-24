@@ -1565,14 +1565,14 @@ export default function SalesDataPage() {
                         const dim = focusCategoryA && !isRT(col) && cat !== 'A';
                         const focusA = focusCategoryA && cat === 'A';
                         return (
-                        <th key={col.key} style={{ ...thA, background: focusA ? '#dcfce7' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (focusA ? '#14532d' : (isRT(col) ? '#4338ca' : '#1e293b')), borderRight: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.45 : 1 }}>
+                        <th key={col.key} style={{ ...thA, background: focusA ? '#f1f5f9' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (isRT(col) ? '#4338ca' : '#1e293b'), borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
                             <span>{col.label}</span>
                             {!isRT(col) && cat && (() => {
-                              const colors = { A: { bg: '#dcfce7', fg: '#166534', br: '#86efac' }, B: { bg: '#fef9c3', fg: '#854d0e', br: '#fde047' }, C: { bg: '#fee2e2', fg: '#991b1b', br: '#fca5a5' } }[cat];
+                              const colors = { A: { bg: '#f1f5f9', fg: '#334155', br: '#cbd5e1' }, B: { bg: '#f1f5f9', fg: '#64748b', br: '#cbd5e1' }, C: { bg: '#f1f5f9', fg: '#94a3b8', br: '#cbd5e1' } }[cat];
                               return (
                                 <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
-                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: 4, fontSize: 9, fontWeight: 800, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}` }}>
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: 4, fontSize: 9, fontWeight: 700, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}` }}>
                                   {cat}
                                 </span>
                               );
@@ -1610,22 +1610,27 @@ export default function SalesDataPage() {
                               const isAbove = shortageOnlyMode && !isRT(col) && v > 0 && (T === 0 || v >= T);
                               const isLow = highlightLow && !isRT(col) && (v === 0 || (T > 0 && v < T));
                               const showZero = shortageOnlyMode && !isRT(col) && v === 0;
-                              const lowBg = v === 0 ? '#fee2e2' : '#fef9c3';
-                              const lowColor = v === 0 ? '#dc2626' : '#92400e';
                               const cat = !isRT(col) ? getCategory((col as ColMeta).region, (col as ColMeta).label) : null;
                               const dim = focusCategoryA && !isRT(col) && cat !== 'A';
                               const focusA = focusCategoryA && cat === 'A';
-                              const aGap  = focusA && v === 0;             // empty A cell
-                              const aLow  = focusA && v > 0 && T > 0 && v < T; // low (but not zero) in A
+                              const aGap  = focusA && v === 0;                  // empty A cell
+                              const aLow  = focusA && v > 0 && T > 0 && v < T;  // low (non-zero) in A
+                              // Base color logic kept simple: red only for A-gaps; everything else neutral.
+                              const color = aGap
+                                ? '#dc2626'
+                                : (isAbove ? '#16a34a'
+                                : (showZero ? '#dc2626'
+                                : (v > 0 ? (showValue ? '#92400e' : '#1e293b')
+                                : '#cbd5e1')));
                               return (
                                 <td key={col.key} style={{
                                   ...tdA,
-                                  background: aGap ? '#fee2e2' : (aLow ? '#fef9c3' : (focusA ? '#f0fdf4' : undefined)),
-                                  color: aGap ? '#dc2626' : (aLow ? '#92400e' : (isAbove ? '#86efac' : (isLow ? lowColor : (showZero ? '#dc2626' : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0'))))),
-                                  fontWeight: aGap || aLow || v > 0 || showZero ? 800 : 400,
-                                  borderRight: focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
-                                  borderLeft:  focusA ? '2px solid #16a34a' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
-                                  opacity: dim ? 0.35 : 1,
+                                  background: aGap ? '#fef2f2' : (focusA ? '#f8fafc' : undefined),
+                                  color,
+                                  fontWeight: aGap || aLow || v > 0 || showZero ? 700 : 400,
+                                  borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
+                                  borderLeft:  focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
+                                  opacity: dim ? 0.3 : 1,
                                 }}>
                                   {isAbove ? '✓' : (showZero ? '0' : fmtNum(v))}
                                 </td>
