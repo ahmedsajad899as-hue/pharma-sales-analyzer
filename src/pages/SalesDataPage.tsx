@@ -401,9 +401,18 @@ export default function SalesDataPage() {
   // Detect item name column
   const itemNameCol = useMemo(() => {
     if (!activeFile) return '';
-    const lower = activeFile.fixedCols.map(c => c.toLowerCase());
+    const lower = activeFile.fixedCols.map(c => c.toLowerCase().trim());
+    // Prefer exact match first, then partial match — to avoid "Item Code" beating "Item"
+    const exactKeywords = ['item', 'الايتم', 'اسم الايتم', 'اسم المادة', 'اسم الماده', 'name', 'product'];
+    const exactMatch = activeFile.fixedCols.find((_, i) =>
+      exactKeywords.some(k => lower[i] === k)
+    );
+    if (exactMatch) return exactMatch;
+    const partialKeywords = ['item', 'الايتم', 'اسم', 'نام', 'name', 'product'];
     return (
-      activeFile.fixedCols.find((_, i) => ['item', 'الايتم', 'اسم', 'نام', 'name', 'product'].some(k => lower[i].includes(k))) ??
+      activeFile.fixedCols.find((_, i) =>
+        partialKeywords.some(k => lower[i].includes(k)) && !lower[i].includes('code') && !lower[i].includes('كود') && !lower[i].includes('id')
+      ) ??
       activeFile.fixedCols[1] ?? activeFile.fixedCols[0] ?? ''
     );
   }, [activeFile]);
