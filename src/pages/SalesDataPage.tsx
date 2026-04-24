@@ -799,6 +799,25 @@ export default function SalesDataPage() {
           {/* Filter Panel */}
           <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
 
+            {/* Item search — always at top */}
+            <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: `1.5px solid ${itemQuery || selectedItems.length > 0 ? '#6366f1' : '#e2e8f0'}`, borderRadius: 10, padding: '7px 12px', boxShadow: itemQuery || selectedItems.length > 0 ? '0 0 0 3px rgba(99,102,241,0.08)' : 'none' }}>
+                <span style={{ fontSize: 15 }}>🔍</span>
+                <input
+                  value={itemQuery}
+                  onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); setShowItemPills(true); }}
+                  placeholder="ابحث عن ايتم..."
+                  style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
+                />
+                {(itemQuery || selectedItems.length > 0) && (
+                  <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setSelectedItems([]); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                )}
+              </div>
+              {(itemQuery || selectedItems.length > 0) && (
+                <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ {filteredRows.length} ايتم</span>
+              )}
+            </div>
+
             {/* Regions */}
             <div style={{ marginBottom: regionFilter !== 'all' ? 12 : 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المناطق</div>
@@ -861,43 +880,35 @@ export default function SalesDataPage() {
                   <div
                     onClick={() => setShowItemPills(v => !v)}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none', marginBottom: showItemPills ? 8 : 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: hasActive ? '#6366f1' : '#64748b' }}>💊 الايتمات</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: hasActive ? '#6366f1' : '#64748b' }}>💊 الايتمات</div>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 18, height: 18, borderRadius: '50%',
+                        background: showItemPills ? '#ede9fe' : '#f1f5f9',
+                        border: `1.5px solid ${showItemPills ? '#8b5cf6' : '#cbd5e1'}`,
+                        color: showItemPills ? '#7c3aed' : '#64748b',
+                        fontSize: 9, fontWeight: 900,
+                        transform: showItemPills ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s, background 0.15s'
+                      }}>▼</span>
+                    </div>
                     {hasActive && (
                       <span style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>
                         {selectedItems.length > 0 ? `(${selectedItems.length} محدد)` : '(بحث نشط)'}
                       </span>
                     )}
-                    <span style={{
-                      fontSize: 10, color: '#94a3b8', marginRight: 'auto',
-                      transform: showItemPills ? 'rotate(180deg)' : 'rotate(0deg)',
-                      display: 'inline-block', transition: 'transform 0.2s'
-                    }}>▼</span>
                     {selectedItems.length > 1 && (
                       <button
                         onClick={e => { e.stopPropagation(); setSelectedItems([]); setPage(1); }}
-                        style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}
+                        style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer', marginRight: 'auto' }}
                       >مسح الكل</button>
                     )}
                   </div>
 
-                  {/* Expanded: search + pills */}
+                  {/* Expanded: pills only */}
                   {showItemPills && (
                     <>
-                      {/* search */}
-                      <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: `1.5px solid ${itemQuery ? '#6366f1' : '#e2e8f0'}`, borderRadius: 10, padding: '6px 10px' }}>
-                          <span style={{ fontSize: 14 }}>🔍</span>
-                          <input
-                            value={itemQuery}
-                            onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); }}
-                            placeholder="ابحث عن ايتم..."
-                            style={{ flex: 1, fontSize: 12, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
-                          />
-                          {itemQuery && (
-                            <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15, padding: 0 }}>×</button>
-                          )}
-                        </div>
-                      </div>
                       {/* pills */}
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} style={fp(selectedItems.length === 0 && !itemQuery)}>الكل</button>
