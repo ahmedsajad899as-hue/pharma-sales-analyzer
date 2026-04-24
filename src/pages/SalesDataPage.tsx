@@ -20,6 +20,8 @@ interface SalesFile {
   rows: Record<string, string>[];
   regions: string[];
   sourceFileIds?: string[]; // set on merged files only
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _mergeDebug?: { file: string; companyCol: string; itemCol: string; rows: number }[];
 }
 
 type RegionTotalCol = { key: string; label: string; region: string; colIdx: -1; isRegionTotal: true; cols: ColMeta[] };
@@ -320,25 +322,38 @@ function parseMultiSheetStock(buffer: ArrayBuffer, filename: string): SalesFile 
 }
 
 // ── Merge helper: detect company col in a SalesFile ───────────────────────────
-const COMPANY_KW = ['company','comp','شركة','الشركة','vendor','supplier','brand','manufacture','principal','item code','itemcode'];
-const ITEM_KW_EXACT = ['item','الايتم','اسم الايتم','اسم المادة','اسم الماده','المادة','مادة','المواد','name','product','منتج','المنتج'];
-const ITEM_KW_PART  = ['item','الايتم','اسم','نام','name','product'];
+const COMPANY_KW = ['company','comp','شركة','الشركة','شركه','الشركه','vendor','supplier','brand','manufacture','principal','item code','itemcode'];
+const ITEM_KW_EXACT = ['item','الايتم','اسم الايتم','اسم المادة','اسم الماده','المادة','المادة','مادة','مادة','المواد','مواد','name','product','منتج','المنتج','الاصناف','اصناف','صنف','الدواء','دواء'];
+const ITEM_KW_PART  = ['item','الايتم','اسم','نام','name','product','مادة','مادة','دواء','صنف'];
 
 const PRICE_KW = ['price', 'سعر', 'السعر', 'unit price', 'سعر الوحدة', 'سعر الوحده', 'cost', 'تكلفة'];
 
+// Normalize a column header the same way we normalize item/company values
+function normColHeader(s: string): string {
+  return s.toLowerCase().trim()
+    .replace(/[\u064B-\u065F\u0670]/g, '')           // strip tashkeel
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627') // alef variants → ا
+    .replace(/\u0629/g, '\u0647')                     // ة → ه
+    .replace(/\u0649/g, '\u064A')                     // ى → ي
+    .replace(/\s+/g, ' ');
+}
+
 function detectCompanyCol(f: SalesFile): string {
-  const lower = f.fixedCols.map(c => c.toLowerCase().trim());
-  return f.fixedCols.find((_, i) => COMPANY_KW.some(k => lower[i].includes(k))) ?? '';
+  const normed = f.fixedCols.map(c => normColHeader(c));
+  const kwNormed = COMPANY_KW.map(normColHeader);
+  return f.fixedCols.find((_, i) => kwNormed.some(k => normed[i].includes(k))) ?? '';
 }
 
 function detectItemNameCol(f: SalesFile): string {
-  const lower = f.fixedCols.map(c => c.toLowerCase().trim());
-  const exact = f.fixedCols.find((_, i) => ITEM_KW_EXACT.some(k => lower[i] === k));
+  const normed = f.fixedCols.map(c => normColHeader(c));
+  const exactN = ITEM_KW_EXACT.map(normColHeader);
+  const partN  = ITEM_KW_PART.map(normColHeader);
+  const exact = f.fixedCols.find((_, i) => exactN.some(k => normed[i] === k));
   if (exact) return exact;
   return (
     f.fixedCols.find((_, i) =>
-      ITEM_KW_PART.some(k => lower[i].includes(k)) &&
-      !lower[i].includes('code') && !lower[i].includes('كود') && !lower[i].includes('id')
+      partN.some(k => normed[i].includes(k)) &&
+      !normed[i].includes('code') && !normed[i].includes('كود') && !normed[i].includes('id')
     ) ?? f.fixedCols[1] ?? f.fixedCols[0] ?? ''
   );
 }
@@ -456,6 +471,14 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
 
   const hasPriceInAnyFile = selectedFiles.some(f => detectPriceCol(f));
 
+  // Build debug info: which column was detected for each source file
+  const _mergeDebug = selectedFiles.map(f => ({
+    file: f.name,
+    companyCol: detectCompanyCol(f) || `(لم يُعثر — استخدم اسم الملف)`,
+    itemCol:    detectItemNameCol(f),
+    rows:       f.rows.length,
+  }));
+
   const shortNames = names.map(n => n.length > 12 ? n.slice(0, 12) + '…' : n).join(' + ');
   return {
     id: uid(),
@@ -466,6 +489,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     rows: [...rowMap.values()],
     regions: allRegions,
     sourceFileIds: selectedFiles.map(f => f.id),
+    _mergeDebug,
   };
 }
 
@@ -1128,6 +1152,28 @@ export default function SalesDataPage() {
       {/* Main content */}
       {activeFile && !showMergePanel && (
         <>
+          {/* Merge debug panel — visible only for merged files that have _mergeDebug */}
+          {activeFile._mergeDebug && (
+            <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+                🔎 تشخيص الدمج — الأعمدة المكتشفة لكل ملف:
+                <span style={{ fontWeight: 400, color: '#78350f', marginRight: 6 }}>إذا ظهر "(لم يُعثر)" في عمود الشركة، يعني الملف ما فيه عمود شركة معروف → راح يستخدم اسم الملف كشركة → ايتمات مكررة!</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {activeFile._mergeDebug.map((d, i) => {
+                  const warn = d.companyCol.includes('لم يُعثر');
+                  return (
+                    <div key={i} style={{ background: warn ? '#fee2e2' : '#f0fdf4', border: `1px solid ${warn ? '#fca5a5' : '#bbf7d0'}`, borderRadius: 8, padding: '6px 10px', minWidth: 160 }}>
+                      <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>📄 {d.file} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({d.rows} صف)</span></div>
+                      <div style={{ color: warn ? '#dc2626' : '#16a34a' }}>🏢 شركة: <strong>{d.companyCol}</strong></div>
+                      <div style={{ color: '#64748b' }}>💊 ايتم: <strong>{d.itemCol}</strong></div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Summary cards */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
             {[
