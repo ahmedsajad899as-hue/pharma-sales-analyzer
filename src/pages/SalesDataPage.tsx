@@ -423,7 +423,8 @@ export default function SalesDataPage() {
   const companies = useMemo(() => {
     if (!activeFile || !companyCol) return [];
     let rows = activeFile.rows;
-    if (regionFilter !== 'all') rows = rows.filter(r => r['_sourceFile'] === regionFilter);
+    const hasTags = rows.some(r => r['_sourceFile']);
+    if (hasTags && regionFilter !== 'all') rows = rows.filter(r => r['_sourceFile'] === regionFilter);
     return [...new Set(rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
   }, [activeFile, companyCol, regionFilter]);
 
@@ -431,7 +432,8 @@ export default function SalesDataPage() {
   const filteredRows = useMemo(() => {
     if (!activeFile) return [];
     let rows = activeFile.rows;
-    if (regionFilter !== 'all') rows = rows.filter(row => row['_sourceFile'] ? row['_sourceFile'] === regionFilter : true);
+    const hasTags = rows.some(r => r['_sourceFile']);
+    if (hasTags && regionFilter !== 'all') rows = rows.filter(row => row['_sourceFile'] === regionFilter);
     if (selectedItems.length > 0) {
       rows = rows.filter(row =>
         selectedItems.some(sel => activeFile.fixedCols.some(c => String(row[c] ?? '').trim() === sel))
