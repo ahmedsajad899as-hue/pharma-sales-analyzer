@@ -1522,28 +1522,8 @@ function getNextApiKey() {
   return key;
 }
 
-// ── Test key endpoint ─────────────────────────────────────────
-export async function testKey(req, res) {
-  const keys = [
-    process.env.GEMINI_API_KEY_1,
-    process.env.GEMINI_API_KEY_2,
-    process.env.GEMINI_API_KEY_3,
-    process.env.GEMINI_API_KEY,
-    process.env.GOOGLE_API_KEY,
-  ].filter(Boolean);
-
-  const results = [];
-  for (const key of keys) {
-    try {
-      const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
-      const r = await model.generateContent('say hi');
-      results.push({ prefix: key.slice(0, 10), status: 'ok', response: r.response.text().slice(0, 50) });
-    } catch (err) {
-      results.push({ prefix: key.slice(0, 10), status: 'error', error: err?.message?.slice(0, 200) });
-    }
-  }
-  res.json({ keyCount: keys.length, results });
-}
+// ── Main handler ─────────────────────────────────────────────
+export async function handleCommand(req, res) {
   try {
     const apiKey = getNextApiKey();
     if (!apiKey) return res.status(500).json({ success: false, error: '\u0645\u0641\u062a\u0627\u062d Gemini \u063a\u064a\u0631 \u0645\u0647\u064a\u0623' });
