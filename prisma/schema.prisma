@@ -46,6 +46,7 @@ model User {
   distributorUploads         DistributorSalesUpload[]
   distributorSaleRecords     DistributorSaleRecord[]
   filterPresets              FilterPreset[]
+  salesDataFiles             SalesDataFile[]
   sales          Sale[]
   doctors        Doctor[]
   monthlyPlans   MonthlyPlan[]
@@ -1214,4 +1215,23 @@ model ActivityLog {
   @@index([createdAt])
   @@index([action])
   @@map("activity_logs")
+}
+
+
+// Sales data files (synced across devices)
+model SalesDataFile {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  name       String
+  uploadedAt DateTime @default(now())
+  fixedCols  String   // JSON
+  areaCols   String   // JSON
+  rows       String   // JSON
+  regions    String   // JSON
+  sourceFileIds String? // JSON
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("sales_data_files")
 }

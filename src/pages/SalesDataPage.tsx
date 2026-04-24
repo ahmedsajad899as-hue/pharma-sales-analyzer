@@ -26,20 +26,59 @@ type RegionTotalCol = { key: string; label: string; region: string; colIdx: -1; 
 type ViewCol = ColMeta | RegionTotalCol;
 function isRT(col: ViewCol): col is RegionTotalCol { return 'isRegionTotal' in col; }
 
-// ── Persistence ────────────────────────────────────────────────────────────────
-const STORE_KEY_PREFIX = 'sales_data_v3';
-function storeKey(userId: number | null | undefined) {
-  return userId ? `${STORE_KEY_PREFIX}_${userId}` : STORE_KEY_PREFIX;
+// ── API helpers (server-side persistence — synced across devices) ─────────────
+const API = import.meta.env.VITE_API_URL || '';
+function authHeaders(): Record<string, string> {
+  const t = localStorage.getItem('auth_token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
 }
-function loadFiles(userId: number | null | undefined): SalesFile[] {
+function toLocalFile(f: any): SalesFile {
+  return {
+    id: String(f.id),
+    name: f.name,
+    uploadedAt: typeof f.uploadedAt === 'string' ? f.uploadedAt : new Date(f.uploadedAt).toISOString(),
+    fixedCols: f.fixedCols || [],
+    areaCols: f.areaCols || [],
+    rows: f.rows || [],
+    regions: f.regions || [],
+    sourceFileIds: f.sourceFileIds ?? undefined,
+  };
+}
+async function apiListFiles(): Promise<SalesFile[]> {
   try {
-    const raw = localStorage.getItem(storeKey(userId));
-    if (!raw) return [];
-    return (JSON.parse(raw) as any[]).filter(f => 'fixedCols' in f) as SalesFile[];
+    const r = await fetch(`${API}/api/sales-data-files`, { headers: authHeaders() });
+    const j = await r.json();
+    if (!j.success) return [];
+    return (j.data as any[]).map(toLocalFile);
   } catch { return []; }
 }
-function saveFiles(files: SalesFile[], userId: number | null | undefined) {
-  try { localStorage.setItem(storeKey(userId), JSON.stringify(files)); } catch {}
+async function apiCreateFile(f: SalesFile): Promise<SalesFile | null> {
+  try {
+    const r = await fetch(`${API}/api/sales-data-files`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: f.name,
+        uploadedAt: f.uploadedAt,
+        fixedCols: f.fixedCols,
+        areaCols: f.areaCols,
+        rows: f.rows,
+        regions: f.regions,
+        sourceFileIds: f.sourceFileIds ?? null,
+      }),
+    });
+    const j = await r.json();
+    return j.success ? toLocalFile(j.data) : null;
+  } catch { return null; }
+}
+async function apiDeleteFile(id: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${API}/api/sales-data-files/${id}`, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    const j = await r.json();
+    return !!j.success;
+  } catch { return false; }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -421,11 +460,25 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
 export default function SalesDataPage() {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const [files, setFiles]           = useState<SalesFile[]>(() => loadFiles(userId));
-  const [activeId, setActiveId]     = useState<string>(() => loadFiles(userId)[0]?.id ?? '');
+  const [files, setFiles]           = useState<SalesFile[]>([]);
+  const [activeId, setActiveId]     = useState<string>('');
+  const [loadingFiles, setLoadingFiles] = useState(true);
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting]   = useState(false);
   const [importErr, setImportErr]   = useState('');
+
+  // Fetch files from server on mount / when user changes
+  useEffect(() => {
+    let alive = true;
+    setLoadingFiles(true);
+    apiListFiles().then(list => {
+      if (!alive) return;
+      setFiles(list);
+      setActiveId(prev => prev || (list[0]?.id ?? ''));
+      setLoadingFiles(false);
+    });
+    return () => { alive = false; };
+  }, [userId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -621,7 +674,7 @@ export default function SalesDataPage() {
     setImportErr('');
     setImporting(true);
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = async e => {
       const buf = e.target!.result as ArrayBuffer;
       // Try multi-sheet stock format first, fall back to existing parser
       const multiResult = parseMultiSheetStock(buf, file.name);
@@ -630,8 +683,15 @@ export default function SalesDataPage() {
         setImportErr(result);
         setImporting(false);
       } else {
-        setFiles(prev => { const next = [...prev, result as SalesFile]; saveFiles(next, userId); return next; });
-        setActiveId((result as SalesFile).id);
+        const saved = await apiCreateFile(result as SalesFile);
+        if (!saved) {
+          setImportErr('فشل حفظ الملف على الخادم');
+          setImporting(false);
+          if (fileRef.current) fileRef.current.value = '';
+          return;
+        }
+        setFiles(prev => [...prev, saved]);
+        setActiveId(saved.id);
         setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
         setShowImport(false);
         setImporting(false);
@@ -641,14 +701,40 @@ export default function SalesDataPage() {
     reader.readAsArrayBuffer(file);
   }, []);
 
-  const deleteFile = (id: string) => {
+  const deleteFile = async (id: string) => {
     if (!confirm('حذف هذا الملف؟')) return;
-    setFiles(prev => {
-      const next = prev.filter(f => f.id !== id);
-      saveFiles(next, userId);
-      if (activeId === id) setActiveId(next[0]?.id ?? '');
-      return next;
-    });
+    const ok = await apiDeleteFile(id);
+    if (!ok) { alert('فشل حذف الملف من الخادم'); return; }
+
+    // Remove the deleted file and any merged files that depended on it (server-side too)
+    const current = files;
+    let next = current.filter(f => f.id !== id);
+
+    // Find merged files that depended on the deleted source and need rebuilding/removal
+    const toRebuild: { oldId: string; rebuilt: SalesFile | null }[] = [];
+    for (const f of next) {
+      if (!f.sourceFileIds?.includes(id)) continue;
+      const remainingSources = next.filter(s => f.sourceFileIds!.includes(s.id));
+      if (remainingSources.length >= 2) {
+        const rebuilt = buildMergedFile(remainingSources, remainingSources.map(s => s.name));
+        toRebuild.push({ oldId: f.id, rebuilt });
+      } else {
+        toRebuild.push({ oldId: f.id, rebuilt: null });
+      }
+    }
+
+    // Apply rebuilds: delete old merged file, create new one (if rebuilt)
+    for (const { oldId, rebuilt } of toRebuild) {
+      await apiDeleteFile(oldId);
+      next = next.filter(f => f.id !== oldId);
+      if (rebuilt) {
+        const saved = await apiCreateFile(rebuilt);
+        if (saved) next = [...next, saved];
+      }
+    }
+
+    setFiles(next);
+    if (!next.find(f => f.id === activeId)) setActiveId(next[0]?.id ?? '');
   };
 
   const selectRegion = (r: string) => { setRegionFilter(r); setWarehouseKeys(new Set()); setPage(1); };
@@ -662,22 +748,20 @@ export default function SalesDataPage() {
     selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setColFilters({}); setPage(1);
   };
 
-  const doMerge = () => {
+  const doMerge = async () => {
     const selected = files.filter(f => mergeChecked.has(f.id));
     if (selected.length < 2) return;
     const merged = buildMergedFile(selected, selected.map(f => f.name));
-    setFiles(prev => {
-      const next = [...prev, merged];
-      saveFiles(next, userId);
-      return next;
-    });
-    setActiveId(merged.id);
+    const saved = await apiCreateFile(merged);
+    if (!saved) { alert('فشل حفظ الملف المدمج على الخادم'); return; }
+    setFiles(prev => [...prev, saved]);
+    setActiveId(saved.id);
     resetFilters();
     setShowMergePanel(false);
     setMergeChecked(new Set());
   };
 
-  const doAddToMerge = () => {
+  const doAddToMerge = async () => {
     if (!activeFile?.sourceFileIds || addChecked.size < 1) return;
     // Reconstruct original source files (those still in files list)
     const sourceFiles = files.filter(f => activeFile.sourceFileIds!.includes(f.id));
@@ -685,13 +769,12 @@ export default function SalesDataPage() {
     const allFiles    = [...sourceFiles, ...newFiles];
     if (allFiles.length < 2) return;
     const merged = buildMergedFile(allFiles, allFiles.map(f => f.name));
-    setFiles(prev => {
-      // Replace the current merged file with the new one
-      const next = prev.map(f => f.id === activeFile.id ? merged : f);
-      saveFiles(next, userId);
-      return next;
-    });
-    setActiveId(merged.id);
+    const oldId = activeFile.id;
+    const saved = await apiCreateFile(merged);
+    if (!saved) { alert('فشل حفظ الملف المدمج على الخادم'); return; }
+    await apiDeleteFile(oldId);
+    setFiles(prev => [...prev.filter(f => f.id !== oldId), saved]);
+    setActiveId(saved.id);
     resetFilters();
     setShowAddToMerge(false);
     setAddChecked(new Set());

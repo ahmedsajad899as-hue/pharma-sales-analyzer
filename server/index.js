@@ -1099,6 +1099,54 @@ app.delete('/api/filter-presets/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Sales Data Files (synced across devices) ─────────────────
+// GET    /api/sales-data-files       — list all files for current user
+// POST   /api/sales-data-files       — create new file
+// DELETE /api/sales-data-files/:id   — delete one file
+app.get('/api/sales-data-files', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const files = await prisma.salesDataFile.findMany({
+      where: { userId },
+      orderBy: { uploadedAt: 'desc' },
+    });
+    res.json({ success: true, data: files });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/sales-data-files', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { name, fixedCols, areaCols, rows, regions, sourceFileIds, uploadedAt } = req.body;
+    if (!name || !Array.isArray(fixedCols) || !Array.isArray(areaCols) || !Array.isArray(rows) || !Array.isArray(regions)) {
+      return res.status(400).json({ error: 'بيانات الملف غير مكتملة' });
+    }
+    const file = await prisma.salesDataFile.create({
+      data: {
+        userId,
+        name,
+        uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
+        fixedCols,
+        areaCols,
+        rows,
+        regions,
+        sourceFileIds: sourceFileIds ?? null,
+      },
+    });
+    res.json({ success: true, data: file });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/sales-data-files/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const userId = req.user?.id;
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    await prisma.salesDataFile.deleteMany({ where: { id, userId } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Currency settings per file ───────────────────────────────
 // PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate, sourceCurrency? }
 app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {  const id = parseInt(req.params.id);

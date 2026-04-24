@@ -89,6 +89,9 @@ model User {
   // Filter Presets
   filterPresets            FilterPreset[]
 
+  // Sales Data Files (uploaded Excel sheets — synced across devices)
+  salesDataFiles           SalesDataFile[]
+
   @@index([officeId])
   @@map("users")
 }
@@ -1221,4 +1224,27 @@ model FilterPreset {
   @@unique([userId, name])
   @@index([userId])
   @@map("filter_presets")
+}
+
+
+// ------------------------------------------------------------
+// SALES DATA FILES � ????? Excel ?????? ??????? ??? ???????
+// ------------------------------------------------------------
+model SalesDataFile {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  name       String
+  uploadedAt DateTime @default(now())
+  fixedCols  Json     // string[]
+  areaCols   Json     // ColMeta[]
+  rows       Json     // Record<string,string>[]
+  regions    Json     // string[]
+  sourceFileIds Json? // number[] (for merged files)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sales_data_files")
 }
