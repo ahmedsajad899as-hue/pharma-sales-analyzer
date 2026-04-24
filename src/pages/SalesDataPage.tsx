@@ -187,6 +187,8 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     const isTotalLabel = (s: string) =>
       /مجموع|اجمالي|إجمالي|الاجمالي|الإجمالي|مجموع كلي|الكلي|grand.?total|total.?iraq|total.?all|sub.?total|subtotal|overall/i
         .test(s);
+    const isExpiry = (s: string) =>
+      /اكسباير|اكسبير|expir|صلاحي|انتهاء|تاريخ/i.test(s);
 
     const labelCount: Record<string, number> = {};
     const areaCols: ColMeta[] = [];
@@ -196,6 +198,7 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       if (!reg) continue; // no region header → not a warehouse/quantity col
       if (!wv && !reg) continue;
       if (isTotalLabel(wv) || isTotalLabel(reg)) continue; // skip total columns
+      if (isExpiry(wv)) continue; // skip expiry/date columns
       const rawLabel = wv || `${reg}_${ci}`;
       labelCount[rawLabel] = (labelCount[rawLabel] ?? 0) + 1;
       const label = labelCount[rawLabel] > 1 ? `${rawLabel}_${labelCount[rawLabel]}` : rawLabel;
@@ -233,7 +236,7 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
 // ── Multi-sheet Stock File Parser ────────────────────────────────────────────
 // Format: file = one region, sheets = companies, row0 = title, row1 = headers
 //         (المادة in col A, warehouse names in cols B+, skip مذخر+number cols)
-const IGNORE_WH_PAT = /^مذخر\s*\d+$|^مخزن\s*\d+$|^warehouse\s*\d+$/i;
+const IGNORE_WH_PAT = /^مذخر\s*\d+$|^مخزن\s*\d+$|^warehouse\s*\d+$|اكسباير|اكسبير|expir|صلاحي|انتهاء|تاريخ/i;
 
 function parseMultiSheetStock(buffer: ArrayBuffer, filename: string): SalesFile | 'NO' | string {
   try {
@@ -1501,12 +1504,12 @@ export default function SalesDataPage() {
                     }
                   </tbody>
                   <tfoot>
-                    <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
-                      <td style={{ ...tdS, color: '#64748b', fontSize: 11 }} colSpan={activeFile.fixedCols.length + 1}>
+                    <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
+                      <td style={{ ...tdS, color: '#475569', fontSize: 11, fontWeight: 700, position: 'sticky', bottom: 0, background: '#f1f5f9' }} colSpan={activeFile.fixedCols.length + 1}>
                         المجموع ({filteredRows.length} ايتم)
                       </td>
                       {displayCols.map(col => (
-                        <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
+                        <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800, position: 'sticky', bottom: 0, background: '#f1f5f9' }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
                       ))}
                     </tr>
                   </tfoot>
