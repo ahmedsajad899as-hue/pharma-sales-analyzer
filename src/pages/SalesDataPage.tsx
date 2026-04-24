@@ -284,6 +284,8 @@ const COMPANY_KW = ['company','comp','شركة','الشركة','vendor','supplie
 const ITEM_KW_EXACT = ['item','الايتم','اسم الايتم','اسم المادة','اسم الماده','المادة','مادة','المواد','name','product','منتج','المنتج'];
 const ITEM_KW_PART  = ['item','الايتم','اسم','نام','name','product'];
 
+const PRICE_KW = ['price', 'سعر', 'السعر', 'unit price', 'سعر الوحدة', 'سعر الوحده', 'cost', 'تكلفة'];
+
 function detectCompanyCol(f: SalesFile): string {
   const lower = f.fixedCols.map(c => c.toLowerCase().trim());
   return f.fixedCols.find((_, i) => COMPANY_KW.some(k => lower[i].includes(k))) ?? '';
@@ -299,6 +301,11 @@ function detectItemNameCol(f: SalesFile): string {
       !lower[i].includes('code') && !lower[i].includes('كود') && !lower[i].includes('id')
     ) ?? f.fixedCols[1] ?? f.fixedCols[0] ?? ''
   );
+}
+
+function detectPriceCol(f: SalesFile): string {
+  const lower = f.fixedCols.map(c => c.toLowerCase().trim());
+  return f.fixedCols.find((_, i) => PRICE_KW.some(k => lower[i].includes(k))) ?? '';
 }
 
 // ── Name normalization: strip country/origin suffixes so variant spellings merge ─
@@ -394,7 +401,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     id: uid(),
     name: `دمج: ${shortNames}`,
     uploadedAt: new Date().toISOString(),
-    fixedCols: ['الشركة', 'المادة'],
+    fixedCols: hasPriceInAnyFile ? ['الشركة', 'المادة', 'السعر'] : ['الشركة', 'المادة'],
     areaCols: mergedAreaCols,
     rows: [...rowMap.values()],
     regions: allRegions,
