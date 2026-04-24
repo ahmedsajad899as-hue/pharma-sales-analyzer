@@ -303,20 +303,20 @@ function detectItemNameCol(f: SalesFile): string {
 
 // ── buildMergedFile: combine multiple SalesFiles into one ─────────────────────
 function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile {
-  // Union of areaCols — key by region+label to deduplicate same warehouse across files
+  // Union of areaCols — key by FILE NAME + label so each file keeps its own identity
   const colMap = new Map<string, ColMeta>();
   for (const f of selectedFiles) {
     for (const ac of f.areaCols) {
-      const mapKey = `${ac.region}||${ac.label}`;
+      const mapKey = `${f.name}||${ac.label}`;
       if (!colMap.has(mapKey)) {
-        colMap.set(mapKey, { key: `m_${colMap.size}`, label: ac.label, region: ac.region, colIdx: -1 });
+        colMap.set(mapKey, { key: `m_${colMap.size}`, label: ac.label, region: f.name, colIdx: -1 });
       }
     }
   }
   const mergedAreaCols = [...colMap.values()];
 
-  // Union of regions (preserve order)
-  const allRegions = [...new Set(selectedFiles.flatMap(f => f.regions))];
+  // Regions = file names (preserve order)
+  const allRegions = selectedFiles.map(f => f.name);
 
   // Build rows
   const allRows: Record<string, string>[] = [];
@@ -324,10 +324,10 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     const companyCol  = detectCompanyCol(f);
     const itemNameCol = detectItemNameCol(f);
 
-    // Build lookup: (region, label) → merged key for this file's areaCols
+    // Build lookup: areaCol key → merged key, scoped by file name
     const acKeyToMerged = new Map<string, string>();
     for (const ac of f.areaCols) {
-      const mapKey = `${ac.region}||${ac.label}`;
+      const mapKey = `${f.name}||${ac.label}`;
       const merged = colMap.get(mapKey);
       if (merged) acKeyToMerged.set(ac.key, merged.key);
     }
