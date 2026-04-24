@@ -518,7 +518,7 @@ export default function SalesDataPage() {
     return Number.isFinite(v) && v >= 0 ? v : 30;
   });
   const [highlightLow, setHighlightLow] = useState<boolean>(() => localStorage.getItem('sd_highlight_low') === '1');
-  const [shortageView, setShortageView] = useState<'by-region' | 'by-item'>('by-region');
+  const [shortageView, setShortageView] = useState<'by-region' | 'by-item' | 'by-warehouse' | 'by-company'>('by-region');
   useEffect(() => { localStorage.setItem('sd_shortage_threshold', String(shortageThreshold)); }, [shortageThreshold]);
   useEffect(() => { localStorage.setItem('sd_highlight_low', highlightLow ? '1' : '0'); }, [highlightLow]);
 
@@ -672,7 +672,7 @@ export default function SalesDataPage() {
   , [cellDisplay]);
 
   // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
-  // Always uses region-total columns (not individual warehouses) so the breakdown is per region.
+  // Tracks both region totals and individual warehouse columns.
   const shortages = useMemo(() => {
     if (!activeFile) return { out: [], critical: [], low: [], totalCount: 0, allRegions: [] as string[] };
     const groups: Record<string, ColMeta[]> = {};
@@ -685,7 +685,15 @@ export default function SalesDataPage() {
     const T = Math.max(0, shortageThreshold || 0);
     const half = Math.max(1, Math.floor(T / 2));
 
-    type LowRegion = { region: string; qty: number; sev: 'out' | 'critical' | 'low' };
+    const sevOf = (qty: number): 'out' | 'critical' | 'low' | null => {
+      if (qty === 0) return 'out';
+      if (T > 0 && qty < half) return 'critical';
+      if (T > 0 && qty < T) return 'low';
+      return null;
+    };
+
+    type LowRegion    = { region: string; qty: number; sev: 'out' | 'critical' | 'low' };
+    type LowWarehouse = { warehouse: string; region: string; qty: number; sev: 'out' | 'critical' | 'low' };
     type Entry = {
       row: Record<string, string>;
       name: string;
@@ -693,6 +701,7 @@ export default function SalesDataPage() {
       total: number;
       perRegion: { region: string; qty: number }[];
       lowRegions: LowRegion[];
+      lowWarehouses: LowWarehouse[];
       severity: 'out' | 'critical' | 'low';
     };
 
@@ -703,15 +712,14 @@ export default function SalesDataPage() {
     for (const row of filteredRows) {
       const perRegion = regionCols.map(col => ({ region: col.region, qty: cellVal(row, col) }));
       const total = perRegion.reduce((s, r) => s + r.qty, 0);
+
       const lowRegions: LowRegion[] = perRegion
-        .map(r => {
-          const sev: LowRegion['sev'] | null =
-            r.qty === 0 ? 'out' :
-            (T > 0 && r.qty < half) ? 'critical' :
-            (T > 0 && r.qty < T) ? 'low' : null;
-          return sev ? { region: r.region, qty: r.qty, sev } : null;
-        })
+        .map(r => { const sev = sevOf(r.qty); return sev ? { region: r.region, qty: r.qty, sev } : null; })
         .filter((x): x is LowRegion => !!x);
+
+      const lowWarehouses: LowWarehouse[] = activeFile.areaCols
+        .map(ac => { const qty = toNum(row[ac.key] ?? ''); const sev = sevOf(qty); return sev ? { warehouse: ac.label, region: ac.region, qty, sev } : null; })
+        .filter((x): x is LowWarehouse => !!x);
 
       let severity: Entry['severity'] | null = null;
       if (total === 0) severity = 'out';
@@ -725,7 +733,7 @@ export default function SalesDataPage() {
 
       const name = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
       const company = companyCol ? String(row[companyCol] ?? '').trim() : '';
-      const entry: Entry = { row, name, company, total, perRegion, lowRegions, severity };
+      const entry: Entry = { row, name, company, total, perRegion, lowRegions, lowWarehouses, severity };
       if (severity === 'out') out.push(entry);
       else if (severity === 'critical') critical.push(entry);
       else low.push(entry);
@@ -1779,7 +1787,12 @@ export default function SalesDataPage() {
 
             {/* View toggle */}
             <div style={{ padding: '10px 18px 0', display: 'flex', gap: 6 }}>
-              {([['by-region', 'حسب المنطقة'], ['by-item', 'حسب الايتم']] as [typeof shortageView, string][]).map(([id, lbl]) => (
+              {([
+                ['by-region',    'حسب المنطقة'],
+                ['by-warehouse', 'حسب المخزن'],
+                ['by-company',   'حسب الشركة'],
+                ['by-item',      'حسب الايتم'],
+              ] as [typeof shortageView, string][]).map(([id, lbl]) => (
                 <button key={id} onClick={() => setShortageView(id)} style={fp(shortageView === id, true)}>{lbl}</button>
               ))}
             </div>
@@ -1846,68 +1859,109 @@ export default function SalesDataPage() {
                   })}
                 </>
               ) : (
+                // Group-based views: by-region / by-warehouse / by-company
                 <>
                   {(() => {
                     const allEntries = [...shortages.out, ...shortages.critical, ...shortages.low];
-                    const byReg: Record<string, { entry: typeof allEntries[0]; qty: number; sev: string }[]> = {};
-                    allEntries.forEach(e => {
-                      e.lowRegions.forEach(r => {
-                        (byReg[r.region] ||= []).push({ entry: e, qty: r.qty, sev: r.sev });
+                    type Item = { entry: typeof allEntries[0]; qty: number; sev: string; subLabel?: string };
+                    const groups: Record<string, Item[]> = {};
+
+                    if (shortageView === 'by-region') {
+                      allEntries.forEach(e => {
+                        e.lowRegions.forEach(r => {
+                          (groups[r.region] ||= []).push({ entry: e, qty: r.qty, sev: r.sev });
+                        });
                       });
-                    });
-                    const regions = Object.keys(byReg).sort((a, b) => byReg[b].length - byReg[a].length);
-                    if (regions.length === 0) return (
+                    } else if (shortageView === 'by-warehouse') {
+                      allEntries.forEach(e => {
+                        e.lowWarehouses.forEach(w => {
+                          const key = `${w.warehouse}  ·  ${w.region}`;
+                          (groups[key] ||= []).push({ entry: e, qty: w.qty, sev: w.sev, subLabel: w.region });
+                        });
+                      });
+                    } else if (shortageView === 'by-company') {
+                      allEntries.forEach(e => {
+                        const key = e.company || '(بدون شركة)';
+                        (groups[key] ||= []).push({ entry: e, qty: e.total, sev: e.severity });
+                      });
+                    }
+
+                    const emptyMsg =
+                      shortageView === 'by-warehouse' ? 'لا توجد نواقص على مستوى أي مخزن'
+                      : shortageView === 'by-company' ? 'لا توجد شركات بها نواقص'
+                      : 'لا توجد نواقص على مستوى أي منطقة — الإجماليات منخفضة فقط';
+
+                    const keys = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
+                    if (keys.length === 0) return (
                       <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 12 }}>
-                        لا توجد نواقص على مستوى أي منطقة — الإجماليات منخفضة فقط
+                        {emptyMsg}
                       </div>
                     );
-                    return regions.map(reg => (
-                      <div key={reg} style={{ marginBottom: 14 }}>
-                        <div style={{
-                          padding: '7px 12px', borderRadius: 8, background: '#f8fafc',
-                          color: '#1e293b', fontSize: 13, fontWeight: 700, marginBottom: 6,
-                          display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0',
-                        }}>
-                          {reg}
-                          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>({byReg[reg].length} ايتم)</span>
-                          <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6 }}>
-                            {(['out', 'critical', 'low'] as const).map(s => {
-                              const n = byReg[reg].filter(x => x.sev === s).length;
-                              if (n === 0) return null;
-                              const c = s === 'out' ? '#dc2626' : s === 'critical' ? '#d97706' : '#65a30d';
-                              const lbl = s === 'out' ? 'نفد' : s === 'critical' ? 'حرج' : 'منخفض';
-                              return <span key={s} style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 4,
-                                fontSize: 11, fontWeight: 600, color: '#64748b',
-                              }}>
-                                <span style={{ width: 7, height: 7, borderRadius: 99, background: c }} />
-                                {lbl} {n}
-                              </span>;
+
+                    const unit =
+                      shortageView === 'by-warehouse' ? 'ايتم'
+                      : shortageView === 'by-company' ? 'ايتم'
+                      : 'ايتم';
+
+                    return keys.map(key => {
+                      const list = groups[key];
+                      // For warehouse key format "warehouse · region", split display
+                      const parts = shortageView === 'by-warehouse' ? key.split('  ·  ') : null;
+                      return (
+                        <div key={key} style={{ marginBottom: 14 }}>
+                          <div style={{
+                            padding: '7px 12px', borderRadius: 8, background: '#f8fafc',
+                            color: '#1e293b', fontSize: 13, fontWeight: 700, marginBottom: 6,
+                            display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0',
+                          }}>
+                            {parts ? (
+                              <>
+                                <span>{parts[0]}</span>
+                                {parts[1] && <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, background: '#eef2ff', padding: '1px 7px', borderRadius: 10 }}>{parts[1]}</span>}
+                              </>
+                            ) : key}
+                            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>({list.length} {unit})</span>
+                            <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6 }}>
+                              {(['out', 'critical', 'low'] as const).map(s => {
+                                const n = list.filter(x => x.sev === s).length;
+                                if (n === 0) return null;
+                                const c = s === 'out' ? '#dc2626' : s === 'critical' ? '#d97706' : '#65a30d';
+                                const lbl = s === 'out' ? 'نفد' : s === 'critical' ? 'حرج' : 'منخفض';
+                                return <span key={s} style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  fontSize: 11, fontWeight: 600, color: '#64748b',
+                                }}>
+                                  <span style={{ width: 7, height: 7, borderRadius: 99, background: c }} />
+                                  {lbl} {n}
+                                </span>;
+                              })}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {list.sort((a, b) => a.qty - b.qty).map((x, i) => {
+                              const c = x.sev === 'out' ? '#dc2626' : x.sev === 'critical' ? '#d97706' : '#65a30d';
+                              return (
+                                <div key={i} style={{
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
+                                  display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
+                                  borderInlineStart: `3px solid ${c}`, background: '#fff',
+                                }}>
+                                  <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>
+                                    {x.entry.name || '(بدون اسم)'}
+                                    {shortageView !== 'by-company' && x.entry.company && (
+                                      <span style={{ color: '#94a3b8', fontSize: 10, marginInlineStart: 6, fontWeight: 500 }}>· {x.entry.company}</span>
+                                    )}
+                                  </span>
+                                  <span style={{ color: c, fontWeight: 700 }}>
+                                    {x.qty === 0 ? 'نفد' : fmtNum(x.qty)}
+                                  </span>
+                                </div>
+                              );
                             })}
-                          </span>
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          {byReg[reg].sort((a, b) => a.qty - b.qty).map((x, i) => {
-                            const c = x.sev === 'out' ? '#dc2626' : x.sev === 'critical' ? '#d97706' : '#65a30d';
-                            return (
-                              <div key={i} style={{
-                                padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
-                                display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
-                                borderInlineStart: `3px solid ${c}`, background: '#fff',
-                              }}>
-                                <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>
-                                  {x.entry.name || '(بدون اسم)'}
-                                  {x.entry.company && <span style={{ color: '#94a3b8', fontSize: 10, marginInlineStart: 6, fontWeight: 500 }}>· {x.entry.company}</span>}
-                                </span>
-                                <span style={{ color: c, fontWeight: 700 }}>
-                                  {x.qty === 0 ? 'نفد' : fmtNum(x.qty)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                 </>
               )}
