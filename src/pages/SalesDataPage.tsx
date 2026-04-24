@@ -664,7 +664,15 @@ export default function SalesDataPage() {
                     })
                 ).values()]
                   .filter(it => it.name && !selectedItems.includes(it.name))
-                  .slice(0, 50);
+                  .slice(0, q ? 50 : 20);
+
+                // highlight matched text
+                const highlight = (text: string) => {
+                  if (!q) return <span>{text}</span>;
+                  const idx = text.toLowerCase().indexOf(q);
+                  if (idx < 0) return <span>{text}</span>;
+                  return <span>{text.slice(0, idx)}<mark style={{ background: '#fef08a', borderRadius: 3, padding: 0 }}>{text.slice(idx, idx + q.length)}</mark>{text.slice(idx + q.length)}</span>;
+                };
 
                 if (suggestions.length === 0 && !q) return null;
 
@@ -676,18 +684,23 @@ export default function SalesDataPage() {
                     maxHeight: 320, overflowY: 'auto',
                   }}>
                     {suggestions.length === 0 && q && (
-                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج</div>
+                      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج لـ "{itemQuery}"</div>
+                    )}
+                    {!q && suggestions.length > 0 && (
+                      <div style={{ padding: '6px 14px 4px', fontSize: 11, color: '#94a3b8', fontWeight: 700, borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
+                        اكتب للبحث أو اختر ايتم
+                      </div>
                     )}
                     {suggestions.map(it => (
                       <div
                         key={it.name + '||' + it.company}
                         style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid #f8fafc', fontSize: 13 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f5f3ff')}
                         onMouseLeave={e => (e.currentTarget.style.background = '')}
                       >
                         {/* Left: + icon — add + keep dropdown open */}
                         <div
-                          title="اضغط لإضافة والإبقاء على القائمة مفتوحة"
+                          title="أضف وابقِ القائمة مفتوحة"
                           onMouseDown={e => {
                             e.preventDefault();
                             if (!selectedItems.includes(it.name)) setSelectedItems(prev => [...prev, it.name]);
@@ -709,10 +722,10 @@ export default function SalesDataPage() {
                           }}
                           style={{ flex: 1, padding: '8px 14px 8px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, cursor: 'pointer' }}
                         >
-                          <span style={{ color: '#4338ca', fontWeight: 600, fontSize: 13 }}>{it.name}</span>
+                          <span style={{ color: '#4338ca', fontWeight: 600, fontSize: 13 }}>{highlight(it.name)}</span>
                           {it.company && (
                             <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 6px', alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>
-                              🏢 {it.company}
+                              🏢 {highlight(it.company)}
                             </span>
                           )}
                         </div>
