@@ -606,9 +606,9 @@ export default function SalesDataPage() {
               </div>
             )}
 
-            {/* Items pills — filtered by selected company */}
-            {activeFile && itemNameCol && (() => {
-              const sourceRows = companyFilter !== 'all' && companyCol
+            {/* Items pills — only shown when a specific company is selected */}
+            {activeFile && itemNameCol && companyFilter !== 'all' && (() => {
+              const sourceRows = companyCol
                 ? activeFile.rows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter)
                 : activeFile.rows;
               const allItems = [...new Set(
