@@ -301,6 +301,26 @@ function detectItemNameCol(f: SalesFile): string {
   );
 }
 
+// ── Name normalization: strip country/origin suffixes so variant spellings merge ─
+function stripMergeSuffix(s: string): string {
+  let n = s.trim();
+  // e.g. "RAM PharmaJordanN/A" → "RAM"
+  const RE_PHAR    = /\s+(phar|pharma)\s*(iraq|iraqi|turkey|jordan|egypt|italy|canadian|cyprus|iran|lebanon|germany|france|syria)?\s*(n\/a)?\s*$/i;
+  // e.g. "ALBALSAMIraqiN/A" or "ALBALSAM Iraq N/A" → "ALBALSAM"
+  const RE_COUNTRY = /\s*(iraq|iraqi|turkey|jordan|egypt|italy|canadian|cyprus|iran|lebanon|germany|france|syria)\s*(n\/a)?\s*$/i;
+  // standalone N/A
+  const RE_NA      = /\s*n\/a\s*$/i;
+  let prev = '';
+  while (n !== prev) {
+    prev = n;
+    n = n.replace(RE_PHAR, '').replace(RE_COUNTRY, '').replace(RE_NA, '').trim();
+  }
+  return n || s.trim(); // never return empty
+}
+function normalMergeKey(s: string): string {
+  return stripMergeSuffix(s).toLowerCase().replace(/\s+/g, ' ');
+}
+
 // ── buildMergedFile: combine multiple SalesFiles into one ─────────────────────
 function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile {
   // Union of areaCols — key by FILE NAME + label so each file keeps its own identity
@@ -314,35 +334,58 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     }
   }
   const mergedAreaCols = [...colMap.values()];
-
-  // Regions = file names (preserve order)
   const allRegions = selectedFiles.map(f => f.name);
 
-  // Build rows
-  const allRows: Record<string, string>[] = [];
+  // Pass 1: build canonical name maps — shortest clean version wins
+  const canonCompany = new Map<string, string>(); // normKey → display name
+  const canonItem    = new Map<string, string>();
+  function updateCanon(map: Map<string, string>, raw: string) {
+    const key   = normalMergeKey(raw);
+    const clean = stripMergeSuffix(raw);
+    if (!map.has(key) || clean.length < map.get(key)!.length) map.set(key, clean);
+  }
   for (const f of selectedFiles) {
-    const companyCol  = detectCompanyCol(f);
-    const itemNameCol = detectItemNameCol(f);
+    const cCol = detectCompanyCol(f);
+    const iCol = detectItemNameCol(f);
+    for (const row of f.rows) {
+      const rawC = cCol ? String(row[cCol] ?? '').trim() : f.name;
+      const rawI = iCol ? String(row[iCol] ?? '').trim() : '';
+      if (!rawI) continue;
+      updateCanon(canonCompany, rawC);
+      updateCanon(canonItem, rawI);
+    }
+  }
 
-    // Build lookup: areaCol key → merged key, scoped by file name
+  // Pass 2: group rows by canonical (company, item), accumulate area values
+  const rowMap = new Map<string, Record<string, string>>();
+  for (const f of selectedFiles) {
+    const cCol = detectCompanyCol(f);
+    const iCol = detectItemNameCol(f);
     const acKeyToMerged = new Map<string, string>();
     for (const ac of f.areaCols) {
-      const mapKey = `${f.name}||${ac.label}`;
-      const merged = colMap.get(mapKey);
-      if (merged) acKeyToMerged.set(ac.key, merged.key);
+      const m = colMap.get(`${f.name}||${ac.label}`);
+      if (m) acKeyToMerged.set(ac.key, m.key);
     }
-
     for (const row of f.rows) {
-      const company = companyCol  ? String(row[companyCol]  ?? '').trim() : f.name;
-      const item    = itemNameCol ? String(row[itemNameCol] ?? '').trim() : '';
-      if (!item) continue;
-
-      const obj: Record<string, string> = { 'الشركة': company, 'المادة': item, '_sourceFile': f.name };
+      const rawC = cCol ? String(row[cCol] ?? '').trim() : f.name;
+      const rawI = iCol ? String(row[iCol] ?? '').trim() : '';
+      if (!rawI) continue;
+      const company = canonCompany.get(normalMergeKey(rawC)) ?? stripMergeSuffix(rawC);
+      const item    = canonItem.get(normalMergeKey(rawI))    ?? stripMergeSuffix(rawI);
+      const rowKey  = `${normalMergeKey(rawC)}||${normalMergeKey(rawI)}`;
+      if (!rowMap.has(rowKey)) {
+        rowMap.set(rowKey, { 'الشركة': company, 'المادة': item, '_regions': f.name });
+      } else {
+        const obj = rowMap.get(rowKey)!;
+        const seen = obj['_regions'].split(',');
+        if (!seen.includes(f.name)) obj['_regions'] = [...seen, f.name].join(',');
+      }
+      // Accumulate numeric area column values
+      const obj = rowMap.get(rowKey)!;
       for (const ac of f.areaCols) {
         const mk = acKeyToMerged.get(ac.key);
-        if (mk) obj[mk] = String(row[ac.key] ?? '');
+        if (mk) obj[mk] = String(toNum(obj[mk] ?? '') + toNum(String(row[ac.key] ?? '')));
       }
-      allRows.push(obj);
     }
   }
 
@@ -353,7 +396,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     uploadedAt: new Date().toISOString(),
     fixedCols: ['الشركة', 'المادة'],
     areaCols: mergedAreaCols,
-    rows: allRows,
+    rows: [...rowMap.values()],
     regions: allRegions,
   };
 }
@@ -423,8 +466,14 @@ export default function SalesDataPage() {
   const companies = useMemo(() => {
     if (!activeFile || !companyCol) return [];
     let rows = activeFile.rows;
-    const hasTags = rows.some(r => r['_sourceFile']);
-    if (hasTags && regionFilter !== 'all') rows = rows.filter(r => r['_sourceFile'] === regionFilter);
+    if (regionFilter !== 'all') {
+      const hasTags = rows.some(r => r['_regions'] || r['_sourceFile']);
+      if (hasTags) rows = rows.filter(r => {
+        if (r['_regions'])    return r['_regions'].split(',').includes(regionFilter);
+        if (r['_sourceFile']) return r['_sourceFile'] === regionFilter;
+        return true;
+      });
+    }
     return [...new Set(rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
   }, [activeFile, companyCol, regionFilter]);
 
@@ -432,8 +481,14 @@ export default function SalesDataPage() {
   const filteredRows = useMemo(() => {
     if (!activeFile) return [];
     let rows = activeFile.rows;
-    const hasTags = rows.some(r => r['_sourceFile']);
-    if (hasTags && regionFilter !== 'all') rows = rows.filter(row => row['_sourceFile'] === regionFilter);
+    if (regionFilter !== 'all') {
+      const hasTags = rows.some(r => r['_regions'] || r['_sourceFile']);
+      if (hasTags) rows = rows.filter(row => {
+        if (row['_regions'])    return row['_regions'].split(',').includes(regionFilter);
+        if (row['_sourceFile']) return row['_sourceFile'] === regionFilter;
+        return true;
+      });
+    }
     if (selectedItems.length > 0) {
       rows = rows.filter(row =>
         selectedItems.some(sel => activeFile.fixedCols.some(c => String(row[c] ?? '').trim() === sel))
@@ -802,9 +857,17 @@ export default function SalesDataPage() {
               ) : null;
 
               const itemsSection = activeFile && itemNameCol && ((!companyCol || companies.length === 0) || companyFilter !== 'all') ? (() => {
-                const sourceRows = companyCol && companyFilter !== 'all'
-                  ? activeFile.rows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter)
-                  : activeFile.rows;
+                let sourceRows = activeFile.rows;
+                if (regionFilter !== 'all') {
+                  const hasTags = sourceRows.some(r => r['_regions'] || r['_sourceFile']);
+                  if (hasTags) sourceRows = sourceRows.filter(r => {
+                    if (r['_regions'])    return r['_regions'].split(',').includes(regionFilter);
+                    if (r['_sourceFile']) return r['_sourceFile'] === regionFilter;
+                    return true;
+                  });
+                }
+                if (companyCol && companyFilter !== 'all')
+                  sourceRows = sourceRows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter);
                 const allItems = [...new Set(
                   sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
                 )].sort((a, b) => a.localeCompare(b, 'ar'));
