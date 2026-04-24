@@ -561,6 +561,7 @@ export default function SalesDataPage() {
   const [classifyUploadMsg, setClassifyUploadMsg] = useState('');
   const classifyFileRef = useRef<HTMLInputElement>(null);
   const [focusCategoryA, setFocusCategoryA] = useState(false);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
 
   const normName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const classifyMap = useMemo(() => {
@@ -638,6 +639,77 @@ export default function SalesDataPage() {
     if (!activeFile) return [] as { region: string; warehouse: string; key: string }[];
     return activeFile.areaCols.map(ac => ({ region: ac.region, warehouse: ac.label, key: ac.key }));
   }, [activeFile]);
+
+  // ── Export rendered table (preserving inline styles) ──────────────────────
+  const buildStyledTableHTML = useCallback((): string | null => {
+    const container = tableContainerRef.current;
+    if (!container) return null;
+    const table = container.querySelector('table');
+    if (!table) return null;
+    const clone = table.cloneNode(true) as HTMLTableElement;
+    // Strip interactive controls (filter buttons, dropdowns) from cloned headers
+    clone.querySelectorAll('button, input, [data-col-filter] > div').forEach(el => {
+      const hostCell = el.closest('th, td');
+      const tagged = (el as HTMLElement).getAttribute && (el as HTMLElement).getAttribute('data-col-filter');
+      if (tagged && hostCell) (el as HTMLElement).remove();
+      else if ((el as HTMLElement).tagName === 'BUTTON') (el as HTMLElement).remove();
+      else if ((el as HTMLElement).tagName === 'INPUT') (el as HTMLElement).remove();
+    });
+    // Force solid borders on all cells for Word/Excel readability
+    clone.style.borderCollapse = 'collapse';
+    clone.querySelectorAll('th, td').forEach(c => {
+      const el = c as HTMLElement;
+      if (!el.style.border) el.style.border = '1px solid #e2e8f0';
+      el.style.padding = el.style.padding || '6px 8px';
+    });
+    return clone.outerHTML;
+  }, []);
+
+  const exportTableToExcel = useCallback(() => {
+    const tableHTML = buildStyledTableHTML();
+    if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head>
+<meta charset="utf-8"/>
+<!--[if gte mso 9]><xml>
+ <x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+  <x:Name>بيانات المبيعات</x:Name>
+  <x:WorksheetOptions><x:DisplayRightToLeft/></x:WorksheetOptions>
+ </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>
+</xml><![endif]-->
+<style>body{font-family:Arial,Tahoma,sans-serif;direction:rtl}table{border-collapse:collapse}</style>
+</head><body dir="rtl">${tableHTML}</body></html>`;
+    const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.xls`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [activeFile, buildStyledTableHTML]);
+
+  const exportTableToWord = useCallback(() => {
+    const tableHTML = buildStyledTableHTML();
+    if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head>
+<meta charset="utf-8"/>
+<title>بيانات المبيعات</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>90</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->
+<style>
+@page{size:A3 landscape;margin:1cm}
+body{font-family:Arial,Tahoma,sans-serif;direction:rtl}
+table{border-collapse:collapse;width:100%}
+</style>
+</head><body dir="rtl">${tableHTML}</body></html>`;
+    const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.doc`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [activeFile, buildStyledTableHTML]);
 
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
@@ -1463,6 +1535,25 @@ export default function SalesDataPage() {
                 }}>{warehouseClasses.length}</span>
               )}
             </button>
+            {/* Export styled table */}
+            <button
+              onClick={exportTableToExcel}
+              title="تصدير الجدول إلى Excel مع نفس الترتيب والألوان"
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >📊 Excel</button>
+            <button
+              onClick={exportTableToWord}
+              title="تصدير الجدول إلى Word مع نفس الترتيب والألوان"
+              style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >📝 Word</button>
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (
@@ -1477,7 +1568,7 @@ export default function SalesDataPage() {
                 )}
               </div>
 
-              <div style={{ overflow: 'auto', height: 'calc(100vh - 60px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
+              <div ref={tableContainerRef} style={{ overflow: 'auto', height: 'calc(100vh - 60px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 3 }}>
