@@ -1495,12 +1495,12 @@ export default function SalesDataPage() {
                               const lowBg = v === 0 ? '#fee2e2' : '#fef9c3';
                               const lowColor = v === 0 ? '#dc2626' : '#92400e';
                               return (
-                                <td key={col.key} style={{ ...tdA, background: isLow ? lowBg : (isRT(col) && v > 0 ? (showValue ? '#fffbeb' : '#f0fdf4') : undefined), color: isAbove ? '#86efac' : (isLow ? lowColor : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0')), fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
+                                <td key={col.key} style={{ ...tdA, color: isAbove ? '#86efac' : (isLow ? lowColor : (v > 0 ? (showValue ? '#92400e' : '#1e293b') : '#e2e8f0')), fontWeight: v > 0 ? 700 : 400, borderRight: isRT(col) ? '2px solid #e2e8f0' : undefined, borderLeft: isRT(col) ? '2px solid #e2e8f0' : undefined }}>
                                   {isAbove ? '✓' : fmtNum(v)}
                                 </td>
                               );
                             })}
-                            <td style={{ ...tdA, background: rt > 0 ? '#f0fdf4' : undefined, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, borderRight: '2px solid #bbf7d0' }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
+                            <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, borderRight: '2px solid #bbf7d0' }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
                           </tr>
                         );
                       })
