@@ -1823,27 +1823,28 @@ export default function SalesDataPage() {
                     const sev2label: Record<string, string> = { out: 'نفد', critical: 'حرج', low: 'منخفض' };
                     const all = [...shortages.out, ...shortages.critical, ...shortages.low];
 
-                    // Sheet 1: Summary (one row per item with region & warehouse breakdown)
+                    // Sheet 1: Summary — one column per region + one column for its warehouses
+                    const allRegions = [...new Set(
+                      (regionFilter === 'all'
+                        ? activeFile!.areaCols
+                        : activeFile!.areaCols.filter(ac => ac.region === regionFilter)
+                      ).map(ac => ac.region)
+                    )];
                     const summaryRows = all.map(e => {
-                      const whByReg: Record<string, string[]> = {};
-                      e.lowWarehouses.forEach(w => {
-                        (whByReg[w.region] ||= []).push(`${w.warehouse}=${w.qty}`);
-                      });
-                      const regionsStr = e.lowRegions
-                        .map(r => `${r.region} (${r.qty === 0 ? 'نفد' : r.qty})`)
-                        .join(' | ');
-                      const warehousesStr = Object.entries(whByReg)
-                        .map(([reg, arr]) => `${reg}: ${arr.join(', ')}`)
-                        .join(' | ');
-                      return {
+                      const row: Record<string, any> = {
                         'الحالة': sev2label[e.severity],
                         'الايتم': e.name || '(بدون اسم)',
                         'الشركة': e.company || '',
-                        'المناطق الناقصة': regionsStr,
-                        'المذاخر الناقصة': warehousesStr,
-                        'عدد المناطق': e.lowRegions.length,
-                        'عدد المذاخر': e.lowWarehouses.length,
                       };
+                      allRegions.forEach(region => {
+                        const rd = e.lowRegions.find(r => r.region === region);
+                        const whs = e.lowWarehouses.filter(w => w.region === region);
+                        row[region] = rd ? (rd.qty === 0 ? 'نفد' : rd.qty) : '';
+                        row[`مذاخر ${region}`] = whs.length > 0
+                          ? whs.map(w => `${w.warehouse}${w.qty === 0 ? ' (نفد)' : `=${w.qty}`}`).join(', ')
+                          : (rd ? '(إجمالي المنطقة)' : '');
+                      });
+                      return row;
                     });
 
                     // Sheet 2: Detail (one row per warehouse shortage — for pivoting)
@@ -1880,8 +1881,10 @@ export default function SalesDataPage() {
                     const wb = XLSX.utils.book_new();
                     const ws1 = XLSX.utils.json_to_sheet(summaryRows);
                     const ws2 = XLSX.utils.json_to_sheet(detailRows);
-                    // Column widths
-                    ws1['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 50 }, { wch: 60 }, { wch: 10 }, { wch: 10 }];
+                    // Column widths — 3 fixed cols + 2 cols per region
+                    const ws1Cols = [{ wch: 10 }, { wch: 32 }, { wch: 18 }];
+                    allRegions.forEach(() => { ws1Cols.push({ wch: 12 }, { wch: 45 }); });
+                    ws1['!cols'] = ws1Cols;
                     ws2['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 12 }];
                     // RTL
                     (ws1 as any)['!views'] = [{ RTL: true }];
