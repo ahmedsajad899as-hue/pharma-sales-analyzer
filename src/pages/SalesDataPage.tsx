@@ -1614,7 +1614,7 @@ export default function SalesDataPage() {
                                 </td>
                               );
                             })}
-                            <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, borderRight: '2px solid #bbf7d0' }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
+                            <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
                           </tr>
                         );
                       })
