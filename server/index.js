@@ -244,8 +244,8 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
 // ── All /api routes below require a valid JWT ────────────────
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
-  // Skip JWT for: health-check, auth, and commercial webhook (uses API key auth instead)
-  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook') return next();
+  // Skip JWT for: health-check, auth, commercial webhook, and Gemini key diagnostic
+  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/ai-assistant/test-key') return next();
   requireAuth(req, res, next);
 });
 
