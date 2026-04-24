@@ -138,7 +138,10 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
 
     // Build area columns (deduplicate labels).
     // Columns with no region assigned are price/total/info cols — skip them.
-    // Also skip any column whose label looks like a grand-total / subtotal.
+    // EXCEPTION: for single-row header files (no region row), use a fallback
+    // region name so warehouse columns are not accidentally dropped.
+    const defaultRegion = rRowIdx < 0 ? (filename.replace(/\.[^.]+$/, '') || 'مذاخر') : '';
+
     const isTotalLabel = (s: string) =>
       /مجموع|اجمالي|إجمالي|الاجمالي|الإجمالي|مجموع كلي|الكلي|grand.?total|total.?iraq|total.?all|sub.?total|subtotal|overall/i
         .test(s);
@@ -147,7 +150,7 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     const areaCols: ColMeta[] = [];
     for (let ci = areaStart; ci < wRow.length; ci++) {
       const wv = String(wRow[ci] ?? '').trim();
-      const reg = regionByCol[ci] || '';
+      const reg = regionByCol[ci] || defaultRegion;
       if (!reg) continue; // no region header → not a warehouse/quantity col
       if (!wv && !reg) continue;
       if (isTotalLabel(wv) || isTotalLabel(reg)) continue; // skip total columns
@@ -781,7 +784,7 @@ export default function SalesDataPage() {
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (
-            
+            <>
               <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
                 {filteredRows.length} ايتم{regionFilter !== 'all' && ` · ${regionFilter}`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود
               </div>
