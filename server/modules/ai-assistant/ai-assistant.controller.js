@@ -1570,17 +1570,23 @@ export async function handleCommand(req, res) {
       });
 
       async function callGeminiComm(parts, retries = 5, delayMs = 1000) {
+        let lastErr;
         for (let attempt = 1; attempt <= retries; attempt++) {
-          const model = new GoogleGenerativeAI(getNextApiKey()).getGenerativeModel({ model: 'gemini-2.0-flash' });
+          const key = getNextApiKey();
+          console.log(`[ai-assistant] callGeminiComm attempt ${attempt}/${retries}, key prefix: ${key?.slice(0,8)}`);
+          const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
           try {
             const result = await model.generateContent(parts);
             return result.response.text();
           } catch (err) {
+            lastErr = err;
+            console.error(`[ai-assistant] Gemini comm error attempt ${attempt}:`, err?.message || err);
             const is429 = String(err?.message || '').includes('429') || err?.status === 429;
             if (is429 && attempt < retries) await new Promise(r => setTimeout(r, delayMs * attempt));
             else throw err;
           }
         }
+        throw lastErr;
       }
 
       let geminiText;
@@ -1653,12 +1659,17 @@ export async function handleCommand(req, res) {
 
     // ── Retry helper: rotate API key on each attempt on 429 ──
     async function callGemini(parts, retries = 5, delayMs = 1000) {
+      let lastErr;
       for (let attempt = 1; attempt <= retries; attempt++) {
-        const model = new GoogleGenerativeAI(getNextApiKey()).getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const key = getNextApiKey();
+        console.log(`[ai-assistant] callGemini attempt ${attempt}/${retries}, key prefix: ${key?.slice(0,8)}`);
+        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' });
         try {
           const result = await model.generateContent(parts);
           return result.response.text();
         } catch (err) {
+          lastErr = err;
+          console.error(`[ai-assistant] Gemini error attempt ${attempt}:`, err?.message || err);
           const is429 = String(err?.message || '').includes('429') || err?.status === 429;
           if (is429 && attempt < retries) {
             await new Promise(r => setTimeout(r, delayMs * attempt));
@@ -1667,6 +1678,7 @@ export async function handleCommand(req, res) {
           }
         }
       }
+      throw lastErr;
     }
 
     if (hasAudio) {
@@ -1726,12 +1738,10 @@ export async function handleCommand(req, res) {
     return res.json({ success: true, data: { ...parsed, navigatePage, pageAction, pageActionParam, queryResult } });
 
   } catch (err) {
-    console.error('[ai-assistant] error:', err);
+    console.error('[ai-assistant] FINAL error:', err?.message || err, '| status:', err?.status);
     const msg = String(err?.message || '');
     const is429 = msg.includes('429') || msg.includes('Too Many Requests') || msg.includes('quota') || msg.includes('Quota');
-    const friendly = is429
-      ? '\u0627\u0644\u0645\u0633\u0627\u0639\u062f \u0627\u0644\u0630\u0643\u064a \u0648\u0635\u0644 \u0644\u062d\u062f \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0627\u0644\u064a\u0648\u0645\u064a\u060c \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629 \u0644\u0627\u062d\u0642\u0627\u064b.'
-      : (msg || '\u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639');
+    const friendly = `Gemini Error: ${msg.slice(0, 400) || 'خطأ غير متوقع'}`;
     return res.status(is429 ? 429 : 500).json({ success: false, error: friendly });
   }
 }
