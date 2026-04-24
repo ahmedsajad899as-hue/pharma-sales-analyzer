@@ -562,6 +562,7 @@ export default function SalesDataPage() {
   const classifyFileRef = useRef<HTMLInputElement>(null);
   const [focusCategoryA, setFocusCategoryA] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const normName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const classifyMap = useMemo(() => {
@@ -1569,33 +1570,43 @@ tr{page-break-inside:avoid}
               )}
             </button>
             {/* Export styled table */}
-            <button
-              onClick={exportTableToExcel}
-              title="تصدير الجدول إلى Excel مع نفس الترتيب والألوان"
-              style={{
-                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}
-            >📊 Excel</button>
-            <button
-              onClick={exportTableToWord}
-              title="تصدير الجدول إلى Word مع نفس الترتيب والألوان"
-              style={{
-                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}
-            >📝 Word</button>
-            <button
-              onClick={exportTableToPDF}
-              title="تصدير الجدول إلى PDF (طباعة → حفظ كـ PDF) مع نفس الترتيب والألوان"
-              style={{
-                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: '1.5px solid #e2e8f0', background: '#f8fafc', color: '#64748b',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}
-            >📄 PDF</button>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setExportMenuOpen(o => !o)}
+                title="تصدير الجدول"
+                style={{
+                  padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: '1.5px solid #e2e8f0',
+                  background: exportMenuOpen ? '#eef2ff' : '#f8fafc',
+                  color: exportMenuOpen ? '#4338ca' : '#64748b',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}
+              >⬇ تصدير {exportMenuOpen ? '▲' : '▼'}</button>
+              {exportMenuOpen && (
+                <>
+                  <div onClick={() => setExportMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+                    minWidth: 160, background: '#fff', border: '1.5px solid #e2e8f0',
+                    borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
+                    zIndex: 60, overflow: 'hidden',
+                  }}>
+                    {[
+                      { label: '📊 Excel', onClick: exportTableToExcel },
+                      { label: '📝 Word',  onClick: exportTableToWord  },
+                      { label: '📄 PDF',   onClick: exportTableToPDF   },
+                    ].map(item => (
+                      <button key={item.label}
+                        onClick={() => { setExportMenuOpen(false); item.onClick(); }}
+                        style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 14px', background: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#475569' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                      >{item.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (
