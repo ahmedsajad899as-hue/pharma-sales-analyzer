@@ -53,7 +53,8 @@ interface QueryResult {
        | 'survey_list' | 'survey_grouped'
        | 'stats_summary'
        | 'plan_stats'
-       | 'stock_list';
+       | 'stock_list'
+       | 'distributor_sales';
   visitType?: 'doctor' | 'pharmacy' | 'all';
   groupBy?: string;
   totalVisits?: number;
@@ -102,6 +103,10 @@ interface QueryResult {
   }[];
   stockColumns?: { region: string; warehouse: string }[];
   stockFilters?: { itemQuery?: string | null; companyQuery?: string | null; regionQueries?: string[] | null; warehouseQueries?: string[] | null };
+  // distributor sales aggregation
+  metric?: 'all' | 'sold' | 'returns' | 'net' | string;
+  totals?: { month3: number; month4: number; sold: number; returns: number; net: number; records: number };
+  resolvedNames?: { items: string[] | null; distributors: string[] | null; teams: string[] | null };
 }
 
 interface AssistantResult {
@@ -306,10 +311,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       // Attach a digest of the active Sales Data file (if any) so the backend
       // prompt knows which items/companies/regions/warehouses are available.
       const digest = (window as any).__salesDataDigest || null;
+      const distributorDigest = (window as any).__distributorSalesDigest || null;
       fd.append('context', JSON.stringify({
         currentPage: activePage,
         userRole: user?.role ?? 'user',
         salesContext: digest,
+        distributorContext: distributorDigest,
       }));
       const r = await fetch(`${API}/api/ai-assistant/command`, {
         method: 'POST',
@@ -1483,7 +1490,127 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 );
               }
 
-              // ── plan_stats ────────────────────────────────────────────
+              // ── distributor_sales (تحليل ملفات المندوبين/الموزعين) ────
+              if (qr?.type === 'distributor_sales') {
+                const fmtN = (n: number) => Number(n || 0).toLocaleString('en-US');
+                const t = qr.totals || { month3: 0, month4: 0, sold: 0, returns: 0, net: 0, records: 0 };
+                const groups = (qr.groups || []) as { key: string; month3: number; month4: number; sold: number; returns: number; net: number; records: number }[];
+                const metric = qr.metric || 'all';
+                const filterChips: string[] = [];
+                const f: any = (qr as any).filters || {};
+                if (Array.isArray(f.itemQueries)        && f.itemQueries.length)        filterChips.push(`الإيتم: ${f.itemQueries.join('، ')}`);
+                if (Array.isArray(f.distributorQueries) && f.distributorQueries.length) filterChips.push(`الموزع: ${f.distributorQueries.join('، ')}`);
+                if (Array.isArray(f.teamQueries)        && f.teamQueries.length)        filterChips.push(`الفريق: ${f.teamQueries.join('، ')}`);
+                if (metric && metric !== 'all') filterChips.push(`المقياس: ${metric === 'sold' ? 'مبيع' : metric === 'returns' ? 'ارجاع' : 'صافي'}`);
+
+                if (!qr.found) {
+                  return (
+                    <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>
+                      ❌ {qr.message || 'لا توجد سجلات مطابقة.'}
+                      {filterChips.length > 0 && (
+                        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {filterChips.map((c, i) => (
+                            <span key={i} style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{c}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const showCol = (m: string) => metric === 'all' || metric === m;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Header */}
+                    <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>📦 تحليل مبيعات الموزعين</div>
+                      <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>{t.records} سجل</div>
+                      {filterChips.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                          {filterChips.map((c, i) => (
+                            <span key={i} style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{c}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Totals cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      {showCol('sold') && (
+                        <div style={{ background: '#f0fdf4', border: '1.5px solid #a7f3d0', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, marginBottom: 4 }}>📤 المبيع</div>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: '#064e3b' }}>{fmtN(t.sold)}</div>
+                        </div>
+                      )}
+                      {showCol('returns') && (
+                        <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700, marginBottom: 4 }}>↩️ الإرجاع</div>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: '#7f1d1d' }}>{fmtN(t.returns)}</div>
+                        </div>
+                      )}
+                      {showCol('net') && (
+                        <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700, marginBottom: 4 }}>✨ الصافي</div>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{fmtN(t.net)}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Months breakdown */}
+                    {(t.month3 > 0 || t.month4 > 0) && metric === 'all' && (
+                      <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#64748b' }}>
+                        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
+                          <span style={{ fontWeight: 700 }}>شهر 3:</span> {fmtN(t.month3)}
+                        </div>
+                        <div style={{ flex: 1, background: '#f8fafc', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
+                          <span style={{ fontWeight: 700 }}>شهر 4:</span> {fmtN(t.month4)}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Groups table */}
+                    {groups.length > 0 && (
+                      <div style={{ overflow: 'auto', maxHeight: 320, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                          <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                            <tr>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'right', color: '#475569', fontWeight: 700 }}>
+                                {qr.groupBy === 'item' ? 'الإيتم' : qr.groupBy === 'team' ? 'الفريق' : 'الموزع'}
+                              </th>
+                              {showCol('sold')    && <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#065f46', fontWeight: 700 }}>مبيع</th>}
+                              {showCol('returns') && <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#991b1b', fontWeight: 700 }}>ارجاع</th>}
+                              {showCol('net')     && <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#1e3a8a', fontWeight: 700 }}>صافي</th>}
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#64748b', fontWeight: 700 }}>سجلات</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groups.map((g, i) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{g.key}</td>
+                                {showCol('sold')    && <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: '#065f46' }}>{fmtN(g.sold)}</td>}
+                                {showCol('returns') && <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: '#991b1b' }}>{fmtN(g.returns)}</td>}
+                                {showCol('net')     && <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: '#1e3a8a' }}>{fmtN(g.net)}</td>}
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#94a3b8' }}>{g.records}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Resolved names hint */}
+                    {qr.resolvedNames && (qr.resolvedNames.items || qr.resolvedNames.distributors || qr.resolvedNames.teams) && (
+                      <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right' }}>
+                        تطابق ذكي:{' '}
+                        {qr.resolvedNames.items?.length        ? `إيتم: ${qr.resolvedNames.items.slice(0, 3).join('، ')}${qr.resolvedNames.items.length > 3 ? '…' : ''}` : ''}
+                        {qr.resolvedNames.distributors?.length ? ` · موزعون: ${qr.resolvedNames.distributors.slice(0, 3).join('، ')}${qr.resolvedNames.distributors.length > 3 ? '…' : ''}` : ''}
+                        {qr.resolvedNames.teams?.length        ? ` · فِرَق: ${qr.resolvedNames.teams.slice(0, 3).join('، ')}` : ''}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               if (qr?.type === 'plan_stats') {
                 if (!qr.found) {
                   return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا يوجد بلان'}</div>;

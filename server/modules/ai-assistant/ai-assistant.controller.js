@@ -33,7 +33,7 @@ function fuzzyFind(list, key, query) {
 }
 
 // ── Gemini system prompt ──────────────────────────────────────
-function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext }) {
+function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext }) {
   const now      = new Date();
   const curDay   = now.getDate();
   const curMonth = now.getMonth() + 1;
@@ -51,6 +51,12 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
   const salesCompText   = sc && sc.companies?.length  ? sc.companies.join('، ')                 : 'لا يوجد';
   const salesRegText    = sc && sc.regions?.length    ? sc.regions.join('، ')                   : 'لا يوجد';
   const salesWhText     = sc && sc.warehouses?.length ? sc.warehouses.join('، ')                : 'لا يوجد';
+
+  // ── Distributor-sales context (تحليل ملفات المندوبين/الموزعين) ──
+  const dc = distributorContext || null;
+  const distItemsText = dc && dc.items?.length        ? dc.items.slice(0, 200).join('، ')   : 'لا يوجد';
+  const distNamesText = dc && dc.distributors?.length ? dc.distributors.join('، ')          : 'لا يوجد';
+  const distTeamsText = dc && dc.teams?.length        ? dc.teams.join('، ')                 : 'لا يوجد';
 
   return `أنت مساعد ذكي للتحكم الكامل في تطبيق مبيعات صيدلانية. مهمتك: تحليل أمر المستخدم وإرجاع query spec دقيق.
 
@@ -93,9 +99,10 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 4. query_stats             → إحصائيات وملخص سريع للزيارات (كم زيارة، أكثر ايتم، أكثر منطقة...)
 5. query_plan_stats        → نسبة تحقيق البلان الشهري (كم المطلوب وكم المنجز ونسبة التحقيق)
 6. query_stock             → عرض كميات الستوك من ملف بيانات المبيعات (Sales Data) المرفوع/المدمج: ستوك ايتم/شركة في منطقة/منطقتين/مذاخر معينة
-7. navigate                → الانتقال لصفحة
-8. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
-9. unknown                 → لا يمكن فهم الطلب
+7. query_distributor_sales → تحليل مبيعات/إرجاعات/صافي من ملف "تحليل مبيعات الموزعين/المندوبين": مبيع ايتم في موزعين/فِرَق، مجموع/تفصيل، حسب الإيتم/الموزع/الفريق
+8. navigate                → الانتقال لصفحة
+9. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
+10. unknown                → لا يمكن فهم الطلب
 
 ═══ بيانات الستوكات (Sales Data) المتاحة الآن ═══
 ملف نشط: ${sc ? (sc.fileName || 'غير معروف') : 'لا يوجد ملف مرفوع/نشط حالياً'}
@@ -103,6 +110,36 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 الشركات في الملف: ${salesCompText}
 المناطق في الملف: ${salesRegText}
 المذاخر في الملف: ${salesWhText}
+
+═══ بيانات تحليل مبيعات الموزعين (Distributor Sales) المتاحة الآن ═══
+ملف موزعين نشط: ${dc ? `معرّف ${dc.uploadId}` : 'لا يوجد ملف نشط'}
+الأيتمات: ${distItemsText}
+الموزعون / "المناطق" بمصطلح المستخدم (distributorName): ${distNamesText}
+الفِرَق (teamName): ${distTeamsText}
+
+═══ متى تستخدم query_distributor_sales ═══
+• "مبيع ايتم X في الموزع Y" / "مبيع ايتم X بمنطقة Y" (هنا "منطقة" تعني الموزع) → query_distributor_sales + itemQueries:["X"] + distributorQueries:["Y"]
+• "مجموع مبيع الايتم X في الموزعين A و B" → query_distributor_sales + itemQueries:["X"] + distributorQueries:["A","B"]
+• "صافي مبيع الايتم X" / "نت مبيع X" → query_distributor_sales + itemQueries:["X"] + metric:"net"
+• "ارجاعات الايتم X" / "اعادة فوترة X" → query_distributor_sales + itemQueries:["X"] + metric:"returns"
+• "كم مبيع لكل موزع" / "تفاصيل المبيع حسب الموزع" → query_distributor_sales + groupBy:"distributor"
+• "كم مبيع لكل فريق" / "حسب الفريق" / "لكل تيم" → query_distributor_sales + groupBy:"team"
+• "كم مبيع لكل ايتم" → query_distributor_sales + groupBy:"item"
+• "مبيع وارجاع وصافي للموزع X" → query_distributor_sales + distributorQueries:["X"] + metric:"all"
+• "مبيع المندوب العلمي X" / "مبيع تيم X" → عامِلها كفريق/موزع ومرّرها في teamQueries أو distributorQueries (الأقرب للقوائم أعلاه)
+
+⚠️ ملاحظات:
+  - لا توجد "أسعار" في هذا الملف، فقط كميات. الصافي = الكمية المباعة − اعادة الفوترة (returns).
+  - "مناطق" في كلام المستخدم تعني عادةً الموزعين (distributorName) في هذا السياق، إلا إذا قال صراحةً "فريق" أو "تيم" → teamQueries.
+  - استخدم الأسماء كما نطقها المستخدم — النظام الخلفي سيتولى المطابقة الذكية.
+
+═══ فلاتر query_distributor_sales (داخل filters) ═══
+itemQueries        : مصفوفة أسماء أيتمات أو null
+distributorQueries : مصفوفة أسماء موزعين (≈ "مناطق" بمصطلح المستخدم) أو null
+teamQueries        : مصفوفة أسماء فِرَق أو null
+metric             : "all" | "sold" | "returns" | "net" (افتراضي "all")
+groupBy            : null | "item" | "distributor" | "team"
+limit              : افتراضي 30، زِد لـ100 إذا قال "كل"
 
 ═══ متى تستخدم query_stock ═══
 • "شكد ستوك ايتم X" / "كم متوفر من ايتم X" / "ستوك المادة X" → query_stock + itemQuery
@@ -366,7 +403,7 @@ null        → قائمة مباشرة
 
 ═══ صيغة الرد (JSON فقط) ═══
 {
-  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "navigate" | "page_action" | "unknown",
+  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "query_distributor_sales" | "navigate" | "page_action" | "unknown",
   "navigatePage": null,
   "pageAction": null,
   "pageActionParam": null,
@@ -389,7 +426,11 @@ null        → قائمة مباشرة
     "itemQuery": null,
     "companyQuery": null,
     "regionQueries": null,
-    "warehouseQueries": null
+    "warehouseQueries": null,
+    "itemQueries": null,
+    "distributorQueries": null,
+    "teamQueries": null,
+    "metric": null
   },
   "groupBy": null,
   "sortBy": "date_desc",
@@ -686,6 +727,148 @@ async function executePlanStatsQuery(spec, userId) {
     byItem: filteredItem ? [filteredItem] : byItem,
     filteredAreaName: filteredArea?.name || null,
     filteredItemName: filteredItem?.name || null,
+  };
+}
+
+// ── Execute: Distributor Sales Query ──────────────────────────
+// Aggregates DistributorSaleRecord by item / distributor / team with
+// optional fuzzy filtering on item / distributor / team names.
+async function executeDistributorSalesQuery(spec, userId, distributorContext) {
+  const { filters = {}, groupBy = null, limit = 30 } = spec;
+  const itemQueries        = Array.isArray(filters.itemQueries)        ? filters.itemQueries.filter(Boolean)        : [];
+  const distributorQueries = Array.isArray(filters.distributorQueries) ? filters.distributorQueries.filter(Boolean) : [];
+  const teamQueries        = Array.isArray(filters.teamQueries)        ? filters.teamQueries.filter(Boolean)        : [];
+  const metric             = filters.metric || 'all'; // all|sold|returns|net
+
+  // Pick latest upload by default (or honour digest's uploadId if provided)
+  let uploadId = distributorContext?.uploadId || null;
+  if (!uploadId) {
+    const latest = await prisma.distributorSalesUpload.findFirst({
+      where: userId ? { userId } : {},
+      orderBy: { uploadedAt: 'desc' },
+      select: { id: true },
+    }).catch(() => null);
+    uploadId = latest?.id || null;
+  }
+  if (!uploadId) {
+    return { found: false, message: 'لا يوجد ملف مبيعات موزعين مرفوع — ارفع ملفاً أولاً.' };
+  }
+
+  // Fetch all records for the upload (typical files are < 10k rows)
+  const where = { uploadId };
+  if (userId) where.userId = userId;
+  const records = await prisma.distributorSaleRecord.findMany({
+    where,
+    select: {
+      itemName: true,
+      distributorName: true,
+      teamName: true,
+      month3Qty: true,
+      month4Qty: true,
+      totalQtySold: true,
+      reinvoicingCount: true,
+    },
+  }).catch(() => []);
+
+  if (!records.length) {
+    return { found: false, message: 'الملف لا يحتوي بيانات.' };
+  }
+
+  // Build distinct value pools to power fuzzy matching
+  const distinctItems = [...new Set(records.map(r => r.itemName).filter(Boolean))];
+  const distinctDists = [...new Set(records.map(r => r.distributorName).filter(Boolean))];
+  const distinctTeams = [...new Set(records.map(r => r.teamName).filter(Boolean))];
+
+  // Fuzzy-resolve user-spoken queries → set of canonical names
+  const resolveSet = (queries, pool) => {
+    const out = new Set();
+    for (const raw of queries) {
+      const exact   = pool.find(p => norm(p) === norm(raw));
+      if (exact) { out.add(exact); continue; }
+      const starts  = pool.find(p => norm(p).startsWith(norm(raw)) || norm(raw).startsWith(norm(p)));
+      if (starts) { out.add(starts); continue; }
+      const incl    = pool.filter(p => norm(p).includes(norm(raw)) || norm(raw).includes(norm(p)));
+      incl.forEach(p => out.add(p));
+    }
+    return out;
+  };
+
+  const itemSet = itemQueries.length        ? resolveSet(itemQueries,        distinctItems) : null;
+  const distSet = distributorQueries.length ? resolveSet(distributorQueries, distinctDists) : null;
+  const teamSet = teamQueries.length        ? resolveSet(teamQueries,        distinctTeams) : null;
+
+  // Filter records
+  const filtered = records.filter(r => {
+    if (itemSet && !itemSet.has(r.itemName)) return false;
+    if (distSet && !distSet.has(r.distributorName)) return false;
+    if (teamSet && !teamSet.has(r.teamName)) return false;
+    return true;
+  });
+
+  if (!filtered.length) {
+    return {
+      found: false,
+      message: 'لا توجد سجلات مطابقة. تأكد من أسماء الإيتم/الموزع/الفريق.',
+      type: 'distributor_sales',
+      filters: { itemQueries, distributorQueries, teamQueries, metric },
+      resolvedNames: {
+        items:        itemSet ? [...itemSet] : null,
+        distributors: distSet ? [...distSet] : null,
+        teams:        teamSet ? [...teamSet] : null,
+      },
+    };
+  }
+
+  // Compute aggregates
+  const aggOf = (rows) => {
+    let m3 = 0, m4 = 0, sold = 0, ret = 0;
+    for (const r of rows) {
+      m3   += r.month3Qty || 0;
+      m4   += r.month4Qty || 0;
+      sold += r.totalQtySold || 0;
+      ret  += r.reinvoicingCount || 0;
+    }
+    return {
+      month3: Math.round(m3 * 100) / 100,
+      month4: Math.round(m4 * 100) / 100,
+      sold:   Math.round(sold * 100) / 100,
+      returns: Math.round(ret * 100) / 100,
+      net:    Math.round((sold - ret) * 100) / 100,
+      records: rows.length,
+    };
+  };
+
+  const totals = aggOf(filtered);
+
+  // Optional grouping
+  let groups = null;
+  if (groupBy === 'item' || groupBy === 'distributor' || groupBy === 'team') {
+    const keyOf = (r) => groupBy === 'item' ? r.itemName : groupBy === 'distributor' ? r.distributorName : (r.teamName || 'بدون فريق');
+    const buckets = new Map();
+    for (const r of filtered) {
+      const k = keyOf(r) || '—';
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(r);
+    }
+    groups = [...buckets.entries()]
+      .map(([key, rows]) => ({ key, ...aggOf(rows) }))
+      .sort((a, b) => b.sold - a.sold)
+      .slice(0, Math.min(limit, 100));
+  }
+
+  return {
+    found: true,
+    type: 'distributor_sales',
+    metric,
+    groupBy: groupBy || null,
+    totals,
+    groups,
+    filters: { itemQueries, distributorQueries, teamQueries, metric },
+    resolvedNames: {
+      items:        itemSet ? [...itemSet] : null,
+      distributors: distSet ? [...distSet] : null,
+      teams:        teamSet ? [...teamSet] : null,
+    },
   };
 }
 
@@ -1725,6 +1908,7 @@ export async function handleCommand(req, res) {
       areaNames:   areasRaw.map(a => a.name),
       planNames:   [...new Set(plansRaw.map(p => p.scientificRep?.name).filter(Boolean))],
       salesContext: context.salesContext || null,
+      distributorContext: context.distributorContext || null,
     });
 
     let geminiText;
@@ -1767,6 +1951,8 @@ export async function handleCommand(req, res) {
       queryResult = await executeStatsQuery(parsed, userId);
     } else if (parsed.action === 'query_plan_stats') {
       queryResult = await executePlanStatsQuery(parsed, userId);
+    } else if (parsed.action === 'query_distributor_sales') {
+      queryResult = await executeDistributorSalesQuery(parsed, userId, context.distributorContext || null);
     }
     // query_stock is executed entirely on the frontend against window.__salesData,
     // so we only echo the parsed filters back. Frontend reads parsed.filters and runs the search.

@@ -177,6 +177,37 @@ export default function DistributorSalesPage() {
 
   useEffect(() => { fetchUploads(); }, [fetchUploads]);
 
+  // ── Eagerly fetch distributors/teams/items when an upload is selected,
+  //     so the AI Assistant has full context (names) to filter against. ──
+  useEffect(() => {
+    if (!selectedUploadId) return;
+    const qs2 = `?uploadId=${selectedUploadId}`;
+    const headers2 = { Authorization: `Bearer ${token}` };
+    Promise.all([
+      teams.length        ? Promise.resolve({ data: teams })        : axios.get(`/api/distributor-sales/analysis/teams${qs2}`,        { headers: headers2 }).then(r => { setTeams(r.data); return r; }).catch(() => ({ data: [] })),
+      distributors.length ? Promise.resolve({ data: distributors }) : axios.get(`/api/distributor-sales/analysis/distributors${qs2}`, { headers: headers2 }).then(r => { setDistributors(r.data); return r; }).catch(() => ({ data: [] })),
+      items.length        ? Promise.resolve({ data: items })        : axios.get(`/api/distributor-sales/analysis/items${qs2}`,        { headers: headers2 }).then(r => { setItems(r.data); return r; }).catch(() => ({ data: [] })),
+    ]).catch(() => {});
+  }, [selectedUploadId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Expose distributor-sales context for the AI Assistant ───────
+  useEffect(() => {
+    if (!selectedUploadId) {
+      delete (window as any).__distributorSalesDigest;
+      return;
+    }
+    const distributorNames = [...new Set(distributors.map(d => d.distributorName).filter(Boolean))];
+    const teamNames        = [...new Set([...teams.map(t => t.teamName), ...distributors.map(d => d.teamName)].filter(Boolean))];
+    const itemNames        = [...new Set(items.map(i => i.itemName).filter(Boolean))];
+    (window as any).__distributorSalesDigest = {
+      uploadId: selectedUploadId,
+      distributors: distributorNames,
+      teams: teamNames,
+      items: itemNames,
+    };
+    return () => { delete (window as any).__distributorSalesDigest; };
+  }, [selectedUploadId, distributors, teams, items]);
+
   // ── Fetch analysis when tab or upload changes ───────────────
   useEffect(() => {
     if (activeTab === 'upload' || !selectedUploadId) return;
