@@ -720,8 +720,8 @@ table{border-collapse:collapse;width:100%}
     const table = container.querySelector('table');
     if (!table) { alert('لا يوجد جدول للتصدير'); return; }
 
-    // Clone + clean (same rules as buildStyledTableHTML, but we keep the LIVE
-    // computed sizes so the rendered image matches the screen exactly).
+    // Clone the table off-screen with sticky positioning reset, so the
+    // rendered image matches the visual layout exactly.
     const clone = table.cloneNode(true) as HTMLTableElement;
     clone.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
     clone.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
@@ -729,67 +729,40 @@ table{border-collapse:collapse;width:100%}
     clone.style.background = '#fff';
     clone.querySelectorAll('th, td').forEach(c => {
       const el = c as HTMLElement;
-      // Sticky positioning from the live UI breaks the layout once we render
-      // the table off-screen; reset it so columns align correctly in the image.
       el.style.position = 'static';
       if (!el.style.border) el.style.border = '1px solid #e2e8f0';
       el.style.padding = el.style.padding || '6px 8px';
     });
 
-    // Off-screen wrapper to measure full natural size
     const wrap = document.createElement('div');
     wrap.setAttribute('dir', 'rtl');
-    wrap.style.cssText = 'position:fixed;top:-99999px;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
+    wrap.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
     wrap.appendChild(clone);
     document.body.appendChild(wrap);
-    const W = Math.ceil(wrap.scrollWidth);
-    const H = Math.ceil(wrap.scrollHeight);
-
-    // Serialize the wrapper into an SVG <foreignObject> and rasterize it
-    const xml = new XMLSerializer().serializeToString(wrap);
-    document.body.removeChild(wrap);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
-      <foreignObject width="100%" height="100%">${xml}</foreignObject>
-    </svg>`;
-    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
 
     try {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('فشل تحميل صورة الجدول'));
-        img.src = url;
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(wrap, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
       });
-
-      const scale = 2; // higher resolution
-      const canvas = document.createElement('canvas');
-      canvas.width = W * scale;
-      canvas.height = H * scale;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas غير مدعوم');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
 
       const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
       if (!blob) throw new Error('تعذّر إنشاء الصورة');
 
-      // Copy to clipboard
       let copied = false;
       try {
         if (navigator.clipboard && (window as any).ClipboardItem) {
           await navigator.clipboard.write([new (window as any).ClipboardItem({ 'image/png': blob })]);
           copied = true;
         }
-      } catch { /* fall through to download */ }
+      } catch { /* fall through */ }
 
       if (copied) {
         alert('✅ تم نسخ صورة الجدول إلى الحافظة — الصقها مباشرة (Ctrl+V)');
       } else {
-        // Fallback: download the PNG so the user still gets the image
         const a = document.createElement('a');
         const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.png`;
         a.href = URL.createObjectURL(blob);
@@ -804,7 +777,7 @@ table{border-collapse:collapse;width:100%}
       console.error(err);
       alert('فشل تحويل الجدول إلى صورة: ' + (err as Error).message);
     } finally {
-      URL.revokeObjectURL(url);
+      document.body.removeChild(wrap);
     }
   }, [activeFile]);
 
