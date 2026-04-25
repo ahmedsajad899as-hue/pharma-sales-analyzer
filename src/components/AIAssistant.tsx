@@ -140,20 +140,44 @@ interface HistoryEntry {
 }
 
 // ── Stock query (against Sales Data file exposed on window.__salesData) ──
-const stockNorm = (s: any) =>
-  String(s ?? '').trim().toLowerCase()
-    .replace(/[\u0623\u0625\u0622\u0627]/g, '\u0627')
-    .replace(/[\u0629\u0647]/g, '\u0647')
-    .replace(/[\u064a\u0649]/g, '\u064a')
-    .replace(/\s+/g, ' ');
+// Aggressive Arabic-aware normalization: strips ال prefix, hamza variants, ة/ه,
+// ي/ى, tatweel, diacritics, punctuation, and collapses whitespace.
+const stockNorm = (s: any) => {
+  let t = String(s ?? '').trim().toLowerCase();
+  t = t.replace(/[\u064b-\u0652\u0670\u0640]/g, '');           // diacritics + tatweel
+  t = t.replace(/[\u0623\u0625\u0622\u0627]/g, '\u0627');     // alef variants → ا
+  t = t.replace(/[\u0629]/g, '\u0647');                        // ة → ه
+  t = t.replace(/[\u0649]/g, '\u064a');                        // ى → ي
+  t = t.replace(/[\u0624]/g, '\u0648');                        // ؤ → و
+  t = t.replace(/[\u0626]/g, '\u064a');                        // ئ → ي
+  t = t.replace(/[^\p{L}\p{N}\s]/gu, ' ');                    // strip punctuation
+  t = t.replace(/\s+/g, ' ').trim();
+  return t;
+};
 
+// Strip leading "ال" article from a word (e.g. الكرادة → كرادة)
+const stripAl = (w: string) => w.length > 3 && w.startsWith('\u0627\u0644') ? w.slice(2) : w;
+
+// Token-level lenient match: query matches haystack if any "meaningful" query
+// token (>=2 chars after stripping ال) is contained in any haystack token, or
+// vice-versa. Handles repetitions like "ايتم ايتم ايرتايد" by splitting tokens.
 const stockMatchesAny = (haystack: string, queries: string[]) => {
   if (!queries || queries.length === 0) return true;
-  const h = stockNorm(haystack);
-  if (!h) return false;
+  const hTokens = stockNorm(haystack).split(' ').map(stripAl).filter(Boolean);
+  if (hTokens.length === 0) return false;
+  const hJoined = hTokens.join(' ');
   return queries.some(q => {
-    const n = stockNorm(q);
-    return n && (h === n || h.includes(n) || n.includes(h));
+    const nTokens = stockNorm(q).split(' ').map(stripAl).filter(t => t.length >= 2);
+    if (nTokens.length === 0) return false;
+    const nJoined = nTokens.join(' ');
+    // Whole-string substring match (after normalization + ال stripping)
+    if (hJoined.includes(nJoined) || nJoined.includes(hJoined)) return true;
+    // Token-level: every query token must be a substring of some haystack token
+    // (or the other way around for very short tokens)
+    const allMatch = nTokens.every(nt =>
+      hTokens.some(ht => ht.includes(nt) || (nt.length <= 4 && nt.includes(ht)))
+    );
+    return allMatch;
   });
 };
 
