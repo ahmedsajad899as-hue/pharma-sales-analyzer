@@ -1806,19 +1806,17 @@ table{border-collapse:collapse;width:100%}
                         const dim = focusCategoryA && !isRT(col) && cat !== 'A';
                         const focusA = focusCategoryA && cat === 'A';
                         return (
-                        <th key={col.key} style={{ ...thA, background: focusA ? '#f1f5f9' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (isRT(col) ? '#4338ca' : '#1e293b'), borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
-                            <span>{col.label}</span>
-                            {!isRT(col) && cat && (() => {
-                              const colors = { A: { bg: '#f1f5f9', fg: '#334155', br: '#cbd5e1' }, B: { bg: '#f1f5f9', fg: '#64748b', br: '#cbd5e1' }, C: { bg: '#f1f5f9', fg: '#94a3b8', br: '#cbd5e1' } }[cat];
+                        <th key={col.key} style={{ ...thA, position: 'relative', background: focusA ? '#f1f5f9' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (isRT(col) ? '#4338ca' : '#1e293b'), borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
+                          <span>{col.label}</span>
+                          {!isRT(col) && cat && (() => {
+                              const colors = { A: { bg: '#dcfce7', fg: '#16a34a', br: '#bbf7d0' }, B: { bg: '#fef9c3', fg: '#ca8a04', br: '#fde68a' }, C: { bg: '#fee2e2', fg: '#dc2626', br: '#fca5a5' } }[cat];
                               return (
                                 <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
-                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: 4, fontSize: 9, fontWeight: 700, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}` }}>
+                                  style={{ position: 'absolute', top: 2, left: 3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: 3, fontSize: 8, fontWeight: 700, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}`, lineHeight: 1 }}>
                                   {cat}
                                 </span>
                               );
                             })()}
-                          </div>
                         </th>
                         );
                       })}
