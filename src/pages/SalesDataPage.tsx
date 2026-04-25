@@ -869,6 +869,126 @@ table{border-collapse:collapse;width:100%}
     }
   }, [activeFile]);
 
+  // ── Export the table as a multi-page PDF ────────────────────────────
+  // PDF preserves quality through WhatsApp/Telegram when sent as a Document
+  // (no compression), and is sharper than a single PNG at zoom-in.
+  const exportTableToPDFFile = useCallback(async () => {
+    const container = tableContainerRef.current;
+    if (!container) { alert('لا يوجد جدول للتصدير'); return; }
+    const table = container.querySelector('table');
+    if (!table) { alert('لا يوجد جدول للتصدير'); return; }
+
+    const sanitize = (t: HTMLTableElement): HTMLTableElement => {
+      const c = t.cloneNode(true) as HTMLTableElement;
+      c.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
+      c.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
+      c.style.borderCollapse = 'collapse';
+      c.style.background = '#fff';
+      c.querySelectorAll('th, td').forEach(cell => {
+        const el = cell as HTMLElement;
+        el.style.position = 'static';
+        if (!el.style.border) el.style.border = '1px solid #e2e8f0';
+        el.style.padding = el.style.padding || '6px 8px';
+      });
+      return c;
+    };
+
+    const baseClone = sanitize(table);
+    const allBodyRows = Array.from(baseClone.querySelectorAll('tbody > tr'));
+    const theadHTML = baseClone.querySelector('thead')?.outerHTML || '';
+    const tfootHTML = baseClone.querySelector('tfoot')?.outerHTML || '';
+
+    const mount = document.createElement('div');
+    mount.setAttribute('dir', 'rtl');
+    mount.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
+    document.body.appendChild(mount);
+
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      // PDF page size: A4 landscape (842 × 595 pt). Use mm internally.
+      const PAGE_W_MM = 297, PAGE_H_MM = 210, MARGIN_MM = 8;
+      const usableW_mm = PAGE_W_MM - MARGIN_MM * 2;
+      const usableH_mm = PAGE_H_MM - MARGIN_MM * 2;
+
+      // First measure the full table to know its width
+      mount.appendChild(baseClone);
+      const fullRect = mount.getBoundingClientRect();
+      const tableWidth = fullRect.width;
+      const headerH = (baseClone.querySelector('thead') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
+      const footerH = (baseClone.querySelector('tfoot') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
+
+      // Sample row height
+      const sample = allBodyRows.slice(0, Math.min(20, allBodyRows.length));
+      let avgRowH = 24;
+      if (sample.length) {
+        const hs = sample.map(r => (r as HTMLElement).getBoundingClientRect().height);
+        avgRowH = Math.max(12, hs.reduce((a, b) => a + b, 0) / hs.length);
+      }
+      mount.removeChild(baseClone);
+
+      // Compute how many body rows fit on a page so the rendered tile, when
+      // scaled to fit page width, leaves enough vertical room for the header.
+      // pageHeightInPx (at original DOM scale) corresponds to usableH_mm.
+      const pxPerMM = tableWidth / usableW_mm; // 1 mm of PDF = this many px in DOM
+      const pageHeightPx = usableH_mm * pxPerMM;
+      const rowsPerPage = Math.max(10, Math.floor((pageHeightPx - headerH - footerH - 24) / avgRowH));
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
+      const RENDER_SCALE = 2; // canvas oversample for crispness
+
+      const totalRows = allBodyRows.length;
+      const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+      let pageNum = 0;
+
+      const renderTileToPage = async (tileTable: HTMLTableElement, isFirst: boolean) => {
+        mount.innerHTML = '';
+        mount.appendChild(tileTable);
+        const cv = await html2canvas(mount, {
+          backgroundColor: '#ffffff', scale: RENDER_SCALE, useCORS: true, logging: false, imageTimeout: 0,
+        });
+        const dataUrl = cv.toDataURL('image/jpeg', 0.92);
+        // Scale the image to fit page width while preserving aspect ratio.
+        const imgW_mm = usableW_mm;
+        const imgH_mm = (cv.height / cv.width) * imgW_mm;
+        const fitH_mm = Math.min(imgH_mm, usableH_mm);
+        const finalW_mm = (fitH_mm / imgH_mm) * imgW_mm;
+        if (!isFirst) pdf.addPage('a4', 'landscape');
+        // Center horizontally
+        const x = (PAGE_W_MM - finalW_mm) / 2;
+        pdf.addImage(dataUrl, 'JPEG', x, MARGIN_MM, finalW_mm, fitH_mm, undefined, 'FAST');
+      };
+
+      if (totalRows === 0) {
+        await renderTileToPage(baseClone, true);
+      } else {
+        for (let start = 0; start < totalRows; start += rowsPerPage) {
+          const end = Math.min(totalRows, start + rowsPerPage);
+          const chunk = allBodyRows.slice(start, end).map(r => (r as HTMLElement).outerHTML).join('');
+          const isLastChunk = end === totalRows;
+          const tileTable = document.createElement('table');
+          tileTable.style.cssText = 'border-collapse:collapse;background:#fff;width:' + Math.ceil(tableWidth) + 'px;';
+          tileTable.innerHTML = theadHTML + '<tbody>' + chunk + '</tbody>' + (isLastChunk ? tfootHTML : '');
+          const origColgroup = baseClone.querySelector('colgroup');
+          if (origColgroup) tileTable.insertBefore(origColgroup.cloneNode(true), tileTable.firstChild);
+          // eslint-disable-next-line no-await-in-loop
+          await renderTileToPage(tileTable, pageNum === 0);
+          pageNum++;
+        }
+      }
+
+      const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      pdf.save(fname);
+      alert(`✅ تم تنزيل ملف PDF (${totalPages} صفحة)\nالملف: ${fname}\nأرسله عبر واتساب كـ "مستند" (Document) للحفاظ على الدقة.`);
+    } catch (err) {
+      console.error(err);
+      alert('فشل إنشاء PDF: ' + (err as Error).message);
+    } finally {
+      if (mount.parentNode) document.body.removeChild(mount);
+    }
+  }, [activeFile]);
+
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
     if (!activeFile) return [];
@@ -1730,7 +1850,8 @@ table{border-collapse:collapse;width:100%}
                     {[
                       { label: '📊 Excel', onClick: exportTableToExcel },
                       { label: '📝 Word',  onClick: exportTableToWord  },
-                      { label: '🖼️ صورة (تنزيل PNG)', onClick: exportTableToPDF   },
+                      { label: '� PDF (للواتساب)', onClick: exportTableToPDFFile },
+                      { label: '�🖼️ صورة (تنزيل PNG)', onClick: exportTableToPDF   },
                     ].map(item => (
                       <button key={item.label}
                         onClick={() => { setExportMenuOpen(false); item.onClick(); }}
