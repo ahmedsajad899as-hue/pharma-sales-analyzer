@@ -742,23 +742,31 @@ async function executeDistributorSalesQuery(spec, userId, distributorContext) {
 
   // Pick latest upload by default (or honour digest's uploadId if provided)
   let uploadId = distributorContext?.uploadId || null;
-  if (!uploadId) {
-    const latest = await prisma.distributorSalesUpload.findFirst({
-      where: userId ? { userId } : {},
+  if (!uploadId && userId) {
+    const mine = await prisma.distributorSalesUpload.findFirst({
+      where: { userId },
       orderBy: { uploadedAt: 'desc' },
       select: { id: true },
     }).catch(() => null);
-    uploadId = latest?.id || null;
+    uploadId = mine?.id || null;
+  }
+  // Fallback: any upload globally (e.g., manager on dashboard whose user record
+  // didn't upload it directly)
+  if (!uploadId) {
+    const anyUp = await prisma.distributorSalesUpload.findFirst({
+      orderBy: { uploadedAt: 'desc' },
+      select: { id: true },
+    }).catch(() => null);
+    uploadId = anyUp?.id || null;
   }
   if (!uploadId) {
     return { found: false, message: 'لا يوجد ملف مبيعات موزعين مرفوع — ارفع ملفاً أولاً.' };
   }
 
-  // Fetch all records for the upload (typical files are < 10k rows)
-  const where = { uploadId };
-  if (userId) where.userId = userId;
+  // Fetch all records for the upload (scoped by uploadId only — file is shared
+  // for analysis purposes regardless of which user uploaded it)
   const records = await prisma.distributorSaleRecord.findMany({
-    where,
+    where: { uploadId },
     select: {
       itemName: true,
       distributorName: true,
