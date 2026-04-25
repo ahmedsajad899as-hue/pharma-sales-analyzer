@@ -842,27 +842,25 @@ table{border-collapse:collapse;width:100%}
       const blob: Blob | null = await new Promise(res => master.toBlob(b => res(b), 'image/png'));
       if (!blob) throw new Error('تعذّر إنشاء الصورة');
 
-      let copied = false;
+      // Always download the PNG file at full resolution — clipboard images
+      // get downsampled by some apps (Word/Outlook), which causes blur on zoom.
+      const a = document.createElement('a');
+      const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.png`;
+      a.href = URL.createObjectURL(blob);
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+
+      // Try to also copy to clipboard (best-effort) — silent if it fails.
       try {
         if (navigator.clipboard && (window as any).ClipboardItem) {
           await navigator.clipboard.write([new (window as any).ClipboardItem({ 'image/png': blob })]);
-          copied = true;
         }
-      } catch { /* fall through */ }
+      } catch { /* silent */ }
 
-      if (copied) {
-        alert(`✅ تم نسخ صورة الجدول (${master.width}×${master.height}) إلى الحافظة — الصقها مباشرة (Ctrl+V)`);
-      } else {
-        const a = document.createElement('a');
-        const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.png`;
-        a.href = URL.createObjectURL(blob);
-        a.download = fname;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
-        alert('تعذّر النسخ التلقائي — تم تحميل الصورة بدلاً من ذلك');
-      }
+      alert(`✅ تم تنزيل صورة الجدول (${master.width}×${master.height} بكسل)\nالملف: ${fname}\nافتحها بأي عارض صور للحصول على الدقة الكاملة.`);
     } catch (err) {
       console.error(err);
       alert('فشل تحويل الجدول إلى صورة: ' + (err as Error).message);
@@ -1732,7 +1730,7 @@ table{border-collapse:collapse;width:100%}
                     {[
                       { label: '📊 Excel', onClick: exportTableToExcel },
                       { label: '📝 Word',  onClick: exportTableToWord  },
-                      { label: '�️ صورة (نسخ)', onClick: exportTableToPDF   },
+                      { label: '🖼️ صورة (تنزيل PNG)', onClick: exportTableToPDF   },
                     ].map(item => (
                       <button key={item.label}
                         onClick={() => { setExportMenuOpen(false); item.onClick(); }}
