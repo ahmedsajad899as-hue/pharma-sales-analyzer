@@ -33,7 +33,7 @@ function fuzzyFind(list, key, query) {
 }
 
 // ── Gemini system prompt ──────────────────────────────────────
-function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext }) {
+function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext, repAnalysisContext }) {
   const now      = new Date();
   const curDay   = now.getDate();
   const curMonth = now.getMonth() + 1;
@@ -57,6 +57,12 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
   const distItemsText = dc && dc.items?.length        ? dc.items.slice(0, 200).join('، ')   : 'لا يوجد';
   const distNamesText = dc && dc.distributors?.length ? dc.distributors.join('، ')          : 'لا يوجد';
   const distTeamsText = dc && dc.teams?.length        ? dc.teams.join('، ')                 : 'لا يوجد';
+
+  // ── Rep-Analysis context (صفحة "تحليل ملفات المندوبين" — ملفات Sale الحقيقية) ──
+  const rac = repAnalysisContext || null;
+  const repAnalysisFilesText = rac && Array.isArray(rac.activeFileIds) && rac.activeFileIds.length
+    ? `${rac.activeFileIds.length} ملف نشط (IDs: ${rac.activeFileIds.join(', ')})`
+    : 'لا توجد ملفات نشطة على صفحة تحليل ملفات المندوبين';
 
   return `أنت مساعد ذكي للتحكم الكامل في تطبيق مبيعات صيدلانية. مهمتك: تحليل أمر المستخدم وإرجاع query spec دقيق.
 
@@ -100,9 +106,10 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 5. query_plan_stats        → نسبة تحقيق البلان الشهري (كم المطلوب وكم المنجز ونسبة التحقيق)
 6. query_stock             → عرض كميات الستوك من ملف بيانات المبيعات (Sales Data) المرفوع/المدمج: ستوك ايتم/شركة في منطقة/منطقتين/مذاخر معينة
 7. query_distributor_sales → تحليل مبيعات/إرجاعات/صافي من ملف "تحليل مبيعات الموزعين/المندوبين": مبيع ايتم في موزعين/فِرَق، مجموع/تفصيل، حسب الإيتم/الموزع/الفريق
-8. navigate                → الانتقال لصفحة
-9. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
-10. unknown                → لا يمكن فهم الطلب
+8. query_rep_sales         → تقرير مبيعات/إرجاعات من ملفات Sales المرفوعة في صفحة "تحليل ملفات المندوبين" (Reports)، مجموعة حسب المندوب التجاري/العلمي/المنطقة/الإيتم — يدعم كميات + قِيَم مالية
+9. navigate                → الانتقال لصفحة
+10. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
+11. unknown                → لا يمكن فهم الطلب
 
 ═══ بيانات الستوكات (Sales Data) المتاحة الآن ═══
 ملف نشط: ${sc ? (sc.fileName || 'غير معروف') : 'لا يوجد ملف مرفوع/نشط حالياً'}
@@ -140,6 +147,41 @@ teamQueries        : مصفوفة أسماء فِرَق أو null
 metric             : "all" | "sold" | "returns" | "net" (افتراضي "all")
 groupBy            : null | "item" | "distributor" | "team"
 limit              : افتراضي 30، زِد لـ100 إذا قال "كل"
+
+═══ بيانات صفحة "تحليل ملفات المندوبين" (Rep-Analysis / Reports) ═══
+${repAnalysisFilesText}
+هذه الملفات تخزن سجلات Sale حقيقية بكميات + قيم مالية (totalValue) + recordType:"sale"|"return"
+كل سجل مرتبط بـ: مندوب تجاري (medical rep) + منطقة + ايتم + تاريخ
+المندوب العلمي يرتبط بالمندوب التجاري (commercial join) — أي طلب بـ"مندوب علمي" نمرّره في scientificRepQueries.
+
+═══ متى تستخدم query_rep_sales ═══
+• "تقرير مبيع للمندوبين العلميين" → query_rep_sales + groupBy:"scientific_rep"
+• "تقرير مبيع المندوبين التجاريين" / "تقرير مبيع المندوبين" → query_rep_sales + groupBy:"rep"
+• "مبيع المندوب أحمد" / "كم باع المندوب X" → query_rep_sales + repQueries:["أحمد"]
+• "مبيع المندوب العلمي محمد باقر" / "تقرير المندوب العلمي X" → query_rep_sales + scientificRepQueries:["محمد باقر"]
+• "تقرير مبيع منطقة بغداد" / "مبيع الكرادة" → query_rep_sales + areaQueries:["بغداد"]
+• "تقرير مبيع ايتم X" / "تقرير الإيتم X" → query_rep_sales + itemQueries:["X"]
+• "ارجاعات المندوب X" / "مرتجعات X" → query_rep_sales + repQueries:["X"] + recordType:"return"
+• "صافي مبيع المندوب X" → query_rep_sales + repQueries:["X"] + metric:"net"
+• "حسب المندوب" → groupBy:"rep" ؛ "حسب المنطقة" → groupBy:"area" ؛ "حسب الايتم" → groupBy:"item" ؛ "حسب المندوب العلمي" → groupBy:"scientific_rep"
+• "كله / المجموع الكلي" → بدون groupBy (totals فقط)
+
+⚠️ ملاحظات لـ query_rep_sales:
+  - في صفحة rep-analysis (currentPage="rep-analysis"): فضِّل query_rep_sales على query_distributor_sales عند ذكر "مندوبين" أو "تقرير مبيع".
+  - الملفات هنا فيها أسعار → totalValue متوفر ("ك فلوس" / "قيمة" مدعومة).
+  - "مبيع" بدون كلمة "إرجاع" → recordType:"sale".
+  - "مرتجع" / "إرجاع" / "ريتيرن" → recordType:"return".
+  - "صافي" → metric:"net" (سيحسب: مبيع − إرجاع تلقائياً عبر ضم النوعين).
+
+═══ فلاتر query_rep_sales (داخل filters) ═══
+repQueries           : مصفوفة أسماء مندوبين تجاريين أو null
+scientificRepQueries : مصفوفة أسماء مندوبين علميين أو null
+itemQueries          : مصفوفة أسماء أيتمات أو null
+areaQueries          : مصفوفة أسماء مناطق أو null
+recordType           : "sale" | "return" | null (افتراضي "sale")
+metric               : "all" | "qty" | "value" | "net" (افتراضي "all")
+groupBy              : null | "rep" | "scientific_rep" | "area" | "item"
+limit                : افتراضي 30، زِد لـ100 إذا قال "كل"
 
 ═══ متى تستخدم query_stock ═══
 • "شكد ستوك ايتم X" / "كم متوفر من ايتم X" / "ستوك المادة X" → query_stock + itemQuery
@@ -403,7 +445,7 @@ null        → قائمة مباشرة
 
 ═══ صيغة الرد (JSON فقط) ═══
 {
-  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "query_distributor_sales" | "navigate" | "page_action" | "unknown",
+  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "query_distributor_sales" | "query_rep_sales" | "navigate" | "page_action" | "unknown",
   "navigatePage": null,
   "pageAction": null,
   "pageActionParam": null,
@@ -876,6 +918,253 @@ async function executeDistributorSalesQuery(spec, userId, distributorContext) {
       items:        itemSet ? [...itemSet] : null,
       distributors: distSet ? [...distSet] : null,
       teams:        teamSet ? [...teamSet] : null,
+    },
+  };
+}
+
+// ── Execute: Rep Sales Query (صفحة تحليل ملفات المندوبين) ─────
+// Aggregates Sale records, optionally filtered by commercial rep, scientific
+// rep, area, item, recordType. Supports grouping by rep / scientific_rep /
+// area / item.
+async function executeRepSalesQuery(spec, userId, repAnalysisContext) {
+  const { filters = {}, groupBy = null, limit = 30 } = spec;
+  const repQueries           = Array.isArray(filters.repQueries)           ? filters.repQueries.filter(Boolean)           : [];
+  const scientificRepQueries = Array.isArray(filters.scientificRepQueries) ? filters.scientificRepQueries.filter(Boolean) : [];
+  const itemQueries          = Array.isArray(filters.itemQueries)          ? filters.itemQueries.filter(Boolean)          : [];
+  const areaQueries          = Array.isArray(filters.areaQueries)          ? filters.areaQueries.filter(Boolean)          : [];
+  const recordType           = filters.recordType || null; // null = both
+  const metric               = filters.metric || 'all';    // all|qty|value|net
+
+  const fileIds = Array.isArray(repAnalysisContext?.activeFileIds) ? repAnalysisContext.activeFileIds : [];
+
+  // Build where clause for Sale
+  const where = {};
+  if (userId) where.userId = userId;
+  if (fileIds.length === 1) where.uploadedFileId = fileIds[0];
+  else if (fileIds.length > 1) where.uploadedFileId = { in: fileIds };
+  if (recordType === 'sale' || recordType === 'return') where.recordType = recordType;
+
+  // ─── Resolve scientific rep → commercial rep IDs via join ──
+  let resolvedSciRepNames = null;
+  if (scientificRepQueries.length) {
+    const allSciReps = await prisma.scientificRepresentative.findMany({
+      where: userId ? { userId } : {},
+      select: {
+        id: true, name: true,
+        commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
+      },
+    }).catch(() => []);
+    const matched = [];
+    for (const q of scientificRepQueries) {
+      const exact = allSciReps.find(r => norm(r.name) === norm(q));
+      if (exact) { matched.push(exact); continue; }
+      const partial = allSciReps.filter(r => norm(r.name).includes(norm(q)) || norm(q).includes(norm(r.name)));
+      partial.forEach(r => { if (!matched.includes(r)) matched.push(r); });
+    }
+    resolvedSciRepNames = matched.map(r => r.name);
+    const repIds = [...new Set(matched.flatMap(r => r.commercialReps.map(c => c.commercialRep?.id).filter(Boolean)))];
+    if (!repIds.length) {
+      return {
+        found: false,
+        type: 'rep_sales',
+        message: 'لم أجد مندوبين تجاريين مرتبطين بهذا المندوب العلمي.',
+        filters: { repQueries, scientificRepQueries, itemQueries, areaQueries, recordType, metric },
+        resolvedNames: { scientificReps: resolvedSciRepNames, reps: null, items: null, areas: null },
+      };
+    }
+    where.representativeId = { in: repIds };
+  }
+
+  // ─── Resolve commercial rep names → IDs ──
+  let resolvedRepNames = null;
+  if (repQueries.length) {
+    const allReps = await prisma.medicalRepresentative.findMany({
+      where: userId ? { userId } : {},
+      select: { id: true, name: true },
+    }).catch(() => []);
+    const matchedIds = new Set();
+    const matchedNames = new Set();
+    for (const q of repQueries) {
+      const exact = allReps.find(r => norm(r.name) === norm(q));
+      if (exact) { matchedIds.add(exact.id); matchedNames.add(exact.name); continue; }
+      const partial = allReps.filter(r => norm(r.name).includes(norm(q)) || norm(q).includes(norm(r.name)));
+      partial.forEach(r => { matchedIds.add(r.id); matchedNames.add(r.name); });
+    }
+    resolvedRepNames = [...matchedNames];
+    if (matchedIds.size === 0) {
+      return {
+        found: false,
+        type: 'rep_sales',
+        message: 'لم أجد المندوب التجاري المطلوب.',
+        filters: { repQueries, scientificRepQueries, itemQueries, areaQueries, recordType, metric },
+        resolvedNames: { scientificReps: resolvedSciRepNames, reps: resolvedRepNames, items: null, areas: null },
+      };
+    }
+    // Combine with existing representativeId filter (intersection if both set)
+    if (where.representativeId?.in) {
+      const intersect = where.representativeId.in.filter(id => matchedIds.has(id));
+      where.representativeId = { in: intersect.length ? intersect : [-1] };
+    } else {
+      where.representativeId = { in: [...matchedIds] };
+    }
+  }
+
+  // ─── Resolve area names → IDs ──
+  let resolvedAreaNames = null;
+  if (areaQueries.length) {
+    const allAreas = await prisma.area.findMany({
+      where: userId ? { userId } : {},
+      select: { id: true, name: true },
+    }).catch(() => []);
+    const matched = new Map();
+    for (const q of areaQueries) {
+      const exact = allAreas.find(a => norm(a.name) === norm(q));
+      if (exact) { matched.set(exact.id, exact.name); continue; }
+      allAreas.filter(a => norm(a.name).includes(norm(q)) || norm(q).includes(norm(a.name)))
+        .forEach(a => matched.set(a.id, a.name));
+    }
+    resolvedAreaNames = [...matched.values()];
+    if (matched.size === 0) {
+      return {
+        found: false, type: 'rep_sales', message: 'لم أجد المنطقة المطلوبة.',
+        filters: { repQueries, scientificRepQueries, itemQueries, areaQueries, recordType, metric },
+        resolvedNames: { scientificReps: resolvedSciRepNames, reps: resolvedRepNames, items: null, areas: resolvedAreaNames },
+      };
+    }
+    where.areaId = { in: [...matched.keys()] };
+  }
+
+  // ─── Resolve item names → IDs ──
+  let resolvedItemNames = null;
+  if (itemQueries.length) {
+    const allItems = await prisma.item.findMany({
+      where: userId ? { userId } : {},
+      select: { id: true, name: true },
+    }).catch(() => []);
+    const matched = new Map();
+    for (const q of itemQueries) {
+      const exact = allItems.find(i => norm(i.name) === norm(q));
+      if (exact) { matched.set(exact.id, exact.name); continue; }
+      allItems.filter(i => norm(i.name).includes(norm(q)) || norm(q).includes(norm(i.name)))
+        .forEach(i => matched.set(i.id, i.name));
+    }
+    resolvedItemNames = [...matched.values()];
+    if (matched.size === 0) {
+      return {
+        found: false, type: 'rep_sales', message: 'لم أجد الإيتم المطلوب.',
+        filters: { repQueries, scientificRepQueries, itemQueries, areaQueries, recordType, metric },
+        resolvedNames: { scientificReps: resolvedSciRepNames, reps: resolvedRepNames, items: resolvedItemNames, areas: resolvedAreaNames },
+      };
+    }
+    where.itemId = { in: [...matched.keys()] };
+  }
+
+  // ─── Fetch sales (cap to 50k for safety) ──
+  const sales = await prisma.sale.findMany({
+    where,
+    select: {
+      quantity: true, totalValue: true, recordType: true,
+      representativeId: true, areaId: true, itemId: true,
+      representative: { select: { name: true } },
+      area:           { select: { name: true } },
+      item:           { select: { name: true } },
+    },
+    take: 50000,
+  }).catch(() => []);
+
+  if (!sales.length) {
+    return {
+      found: false, type: 'rep_sales',
+      message: fileIds.length ? 'لا توجد سجلات مطابقة في الملفات النشطة.' : 'لا توجد ملفات نشطة — فعّل ملفاً من قائمة الملفات أولاً.',
+      filters: { repQueries, scientificRepQueries, itemQueries, areaQueries, recordType, metric },
+      resolvedNames: { scientificReps: resolvedSciRepNames, reps: resolvedRepNames, items: resolvedItemNames, areas: resolvedAreaNames },
+    };
+  }
+
+  // ─── If grouping by scientific_rep, fetch the commercial→scientific map ──
+  let commercialToSciRep = null;
+  if (groupBy === 'scientific_rep') {
+    const map = new Map();
+    const allSci = await prisma.scientificRepresentative.findMany({
+      where: userId ? { userId } : {},
+      select: {
+        name: true,
+        commercialReps: { select: { commercialRepId: true } },
+      },
+    }).catch(() => []);
+    for (const sr of allSci) {
+      for (const link of sr.commercialReps) {
+        const arr = map.get(link.commercialRepId) || [];
+        arr.push(sr.name);
+        map.set(link.commercialRepId, arr);
+      }
+    }
+    commercialToSciRep = map;
+  }
+
+  // ─── Aggregate ──
+  const aggOf = (rows) => {
+    let saleQty = 0, saleVal = 0, retQty = 0, retVal = 0;
+    for (const r of rows) {
+      if (r.recordType === 'return') {
+        retQty += r.quantity || 0;
+        retVal += r.totalValue || 0;
+      } else {
+        saleQty += r.quantity || 0;
+        saleVal += r.totalValue || 0;
+      }
+    }
+    return {
+      saleQty,
+      saleValue: Math.round(saleVal * 100) / 100,
+      returnQty: retQty,
+      returnValue: Math.round(retVal * 100) / 100,
+      netQty:   saleQty - retQty,
+      netValue: Math.round((saleVal - retVal) * 100) / 100,
+      records: rows.length,
+    };
+  };
+
+  const totals = aggOf(sales);
+
+  let groups = null;
+  if (groupBy === 'rep' || groupBy === 'area' || groupBy === 'item' || groupBy === 'scientific_rep') {
+    const buckets = new Map();
+    for (const r of sales) {
+      let keys = [];
+      if (groupBy === 'rep')             keys = [r.representative?.name || '—'];
+      else if (groupBy === 'area')       keys = [r.area?.name           || '—'];
+      else if (groupBy === 'item')       keys = [r.item?.name           || '—'];
+      else if (groupBy === 'scientific_rep') {
+        const arr = commercialToSciRep?.get(r.representativeId) || [];
+        keys = arr.length ? arr : ['(غير مرتبط بمندوب علمي)'];
+      }
+      for (const k of keys) {
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(r);
+      }
+    }
+    groups = [...buckets.entries()]
+      .map(([key, rows]) => ({ key, ...aggOf(rows) }))
+      .sort((a, b) => b.saleValue - a.saleValue || b.saleQty - a.saleQty)
+      .slice(0, Math.min(limit, 200));
+  }
+
+  return {
+    found: true,
+    type: 'rep_sales',
+    metric,
+    recordType: recordType || 'all',
+    groupBy: groupBy || null,
+    fileCount: fileIds.length,
+    totals,
+    groups,
+    filters: { repQueries, scientificRepQueries, itemQueries, areaQueries, recordType, metric },
+    resolvedNames: {
+      scientificReps: resolvedSciRepNames,
+      reps:           resolvedRepNames,
+      items:          resolvedItemNames,
+      areas:          resolvedAreaNames,
     },
   };
 }
@@ -1917,6 +2206,7 @@ export async function handleCommand(req, res) {
       planNames:   [...new Set(plansRaw.map(p => p.scientificRep?.name).filter(Boolean))],
       salesContext: context.salesContext || null,
       distributorContext: context.distributorContext || null,
+      repAnalysisContext: context.repAnalysisContext || null,
     });
 
     let geminiText;
@@ -1961,6 +2251,8 @@ export async function handleCommand(req, res) {
       queryResult = await executePlanStatsQuery(parsed, userId);
     } else if (parsed.action === 'query_distributor_sales') {
       queryResult = await executeDistributorSalesQuery(parsed, userId, context.distributorContext || null);
+    } else if (parsed.action === 'query_rep_sales') {
+      queryResult = await executeRepSalesQuery(parsed, userId, context.repAnalysisContext || null);
     }
     // query_stock is executed entirely on the frontend against window.__salesData,
     // so we only echo the parsed filters back. Frontend reads parsed.filters and runs the search.

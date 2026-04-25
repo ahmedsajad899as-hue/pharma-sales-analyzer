@@ -42,6 +42,14 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
     setActiveTab(id);
   };
 
+  // Expose digest for AI assistant — list of active sales-data files on this page
+  useEffect(() => {
+    (window as any).__repAnalysisDigest = {
+      activeFileIds: Array.isArray(activeFileIds) ? activeFileIds : [],
+    };
+    return () => { delete (window as any).__repAnalysisDigest; };
+  }, [activeFileIds]);
+
   const activeInfo = TABS.find(t => t.id === activeTab)!;
 
   const renderContent = () => {

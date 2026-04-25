@@ -54,7 +54,8 @@ interface QueryResult {
        | 'stats_summary'
        | 'plan_stats'
        | 'stock_list'
-       | 'distributor_sales';
+       | 'distributor_sales'
+       | 'rep_sales';
   visitType?: 'doctor' | 'pharmacy' | 'all';
   groupBy?: string;
   totalVisits?: number;
@@ -103,10 +104,12 @@ interface QueryResult {
   }[];
   stockColumns?: { region: string; warehouse: string }[];
   stockFilters?: { itemQuery?: string | null; companyQuery?: string | null; regionQueries?: string[] | null; warehouseQueries?: string[] | null };
-  // distributor sales aggregation
-  metric?: 'all' | 'sold' | 'returns' | 'net' | string;
-  totals?: { month3: number; month4: number; sold: number; returns: number; net: number; records: number };
-  resolvedNames?: { items: string[] | null; distributors: string[] | null; teams: string[] | null };
+  // distributor sales aggregation / rep sales aggregation (shared shape)
+  metric?: 'all' | 'sold' | 'returns' | 'net' | 'qty' | 'value' | string;
+  recordType?: 'sale' | 'return' | 'all' | string;
+  fileCount?: number;
+  totals?: any;          // varies by query type (distributor_sales vs rep_sales)
+  resolvedNames?: any;
 }
 
 interface AssistantResult {
@@ -312,11 +315,13 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       // prompt knows which items/companies/regions/warehouses are available.
       const digest = (window as any).__salesDataDigest || null;
       const distributorDigest = (window as any).__distributorSalesDigest || null;
+      const repAnalysisDigest = (window as any).__repAnalysisDigest || null;
       fd.append('context', JSON.stringify({
         currentPage: activePage,
         userRole: user?.role ?? 'user',
         salesContext: digest,
         distributorContext: distributorDigest,
+        repAnalysisContext: repAnalysisDigest,
       }));
       const r = await fetch(`${API}/api/ai-assistant/command`, {
         method: 'POST',
@@ -1605,6 +1610,117 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         {qr.resolvedNames.items?.length        ? `إيتم: ${qr.resolvedNames.items.slice(0, 3).join('، ')}${qr.resolvedNames.items.length > 3 ? '…' : ''}` : ''}
                         {qr.resolvedNames.distributors?.length ? ` · موزعون: ${qr.resolvedNames.distributors.slice(0, 3).join('، ')}${qr.resolvedNames.distributors.length > 3 ? '…' : ''}` : ''}
                         {qr.resolvedNames.teams?.length        ? ` · فِرَق: ${qr.resolvedNames.teams.slice(0, 3).join('، ')}` : ''}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── rep_sales (تقرير مبيعات من ملفات Sales/Reports) ──────
+              if (qr?.type === 'rep_sales') {
+                const fmtN = (n: number) => Number(n || 0).toLocaleString('en-US');
+                const fmtV = (n: number) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+                const t: any = qr.totals || {};
+                const groups: any[] = (qr.groups as any[]) || [];
+                const f: any = (qr as any).filters || {};
+                const filterChips: string[] = [];
+                if (Array.isArray(f.repQueries)           && f.repQueries.length)           filterChips.push(`المندوب: ${f.repQueries.join('، ')}`);
+                if (Array.isArray(f.scientificRepQueries) && f.scientificRepQueries.length) filterChips.push(`علمي: ${f.scientificRepQueries.join('، ')}`);
+                if (Array.isArray(f.itemQueries)          && f.itemQueries.length)          filterChips.push(`الإيتم: ${f.itemQueries.join('، ')}`);
+                if (Array.isArray(f.areaQueries)          && f.areaQueries.length)          filterChips.push(`المنطقة: ${f.areaQueries.join('، ')}`);
+                if (f.recordType === 'return') filterChips.push('النوع: مرتجع');
+
+                if (!qr.found) {
+                  return (
+                    <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>
+                      ❌ {qr.message || 'لا توجد سجلات مطابقة.'}
+                      {filterChips.length > 0 && (
+                        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {filterChips.map((c, i) => (
+                            <span key={i} style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{c}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const groupLabel = qr.groupBy === 'rep' ? 'المندوب التجاري'
+                                : qr.groupBy === 'scientific_rep' ? 'المندوب العلمي'
+                                : qr.groupBy === 'area' ? 'المنطقة'
+                                : qr.groupBy === 'item' ? 'الإيتم' : '';
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Header */}
+                    <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>📊 تقرير مبيعات</div>
+                      <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                        {t.records || 0} سجل · {qr.fileCount ? `${qr.fileCount} ملف نشط` : 'كل الملفات'}
+                      </div>
+                      {filterChips.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                          {filterChips.map((c, i) => (
+                            <span key={i} style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{c}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Totals cards (qty + value) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ background: '#f0fdf4', border: '1.5px solid #a7f3d0', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, marginBottom: 4 }}>📤 المبيع</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: '#064e3b' }}>{fmtN(t.saleQty)} وحدة</div>
+                        <div style={{ fontSize: 11, color: '#047857', fontWeight: 700 }}>{fmtV(t.saleValue)}</div>
+                      </div>
+                      <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700, marginBottom: 4 }}>↩️ المرتجع</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: '#7f1d1d' }}>{fmtN(t.returnQty)} وحدة</div>
+                        <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 700 }}>{fmtV(t.returnValue)}</div>
+                      </div>
+                    </div>
+                    <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700, marginBottom: 4 }}>✨ الصافي</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{fmtN(t.netQty)} وحدة · {fmtV(t.netValue)}</div>
+                    </div>
+
+                    {/* Groups table */}
+                    {groups.length > 0 && (
+                      <div style={{ overflow: 'auto', maxHeight: 360, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                          <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                            <tr>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'right', color: '#475569', fontWeight: 700 }}>{groupLabel}</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#065f46', fontWeight: 700 }}>مبيع (وحدة)</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#047857', fontWeight: 700 }}>قيمة المبيع</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#991b1b', fontWeight: 700 }}>مرتجع</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#1e3a8a', fontWeight: 700 }}>صافي</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groups.map((g: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{g.key}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: '#065f46' }}>{fmtN(g.saleQty)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 700, color: '#047857' }}>{fmtV(g.saleValue)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#991b1b' }}>{fmtN(g.returnQty)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 800, color: '#1e3a8a' }}>{fmtV(g.netValue)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Resolved names hint */}
+                    {qr.resolvedNames && (qr.resolvedNames.reps?.length || qr.resolvedNames.scientificReps?.length || qr.resolvedNames.items?.length || qr.resolvedNames.areas?.length) && (
+                      <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right' }}>
+                        تطابق ذكي:
+                        {qr.resolvedNames.scientificReps?.length ? ` علمي: ${qr.resolvedNames.scientificReps.slice(0, 3).join('، ')}` : ''}
+                        {qr.resolvedNames.reps?.length           ? ` · مندوبون: ${qr.resolvedNames.reps.slice(0, 3).join('، ')}` : ''}
+                        {qr.resolvedNames.items?.length          ? ` · إيتمات: ${qr.resolvedNames.items.slice(0, 3).join('، ')}` : ''}
+                        {qr.resolvedNames.areas?.length          ? ` · مناطق: ${qr.resolvedNames.areas.slice(0, 3).join('، ')}` : ''}
                       </div>
                     )}
                   </div>
