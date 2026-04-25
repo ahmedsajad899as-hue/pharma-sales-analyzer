@@ -1563,18 +1563,52 @@ async function executeQuery(spec, userId) {
 
 // ── API Key rotation (round-robin across up to 3 keys) ──────
 let _keyIndex = 0;
-function getNextApiKey() {
-  const keys = [
+function getAllApiKeys() {
+  return [
     process.env.GEMINI_API_KEY_1,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
     process.env.GEMINI_API_KEY,
     process.env.GOOGLE_API_KEY,
   ].filter(Boolean);
+}
+function getNextApiKey() {
+  const keys = getAllApiKeys();
   if (!keys.length) return '';
   const key = keys[_keyIndex % keys.length];
   _keyIndex = (_keyIndex + 1) % keys.length;
   return key;
+}
+// Models tried in order; each has its own quota pool, so falling back gives more headroom.
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
+
+// Try every (key × model) combination once before failing. Returns text on success.
+async function callGeminiSmart(parts) {
+  const keys = getAllApiKeys();
+  if (!keys.length) throw new Error('No Gemini API key configured');
+  let lastErr;
+  for (const modelName of GEMINI_MODELS) {
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[(_keyIndex + i) % keys.length];
+      try {
+        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(parts);
+        _keyIndex = (_keyIndex + i + 1) % keys.length; // advance for next call
+        return result.response.text();
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err?.message || '');
+        const is429 = msg.includes('429') || err?.status === 429 || msg.includes('quota');
+        console.error(`[ai-assistant] ${modelName} key#${i} ${is429 ? '429' : 'err'}:`, msg.slice(0, 200));
+        if (!is429) {
+          // non-quota error: try next key briefly, but don't waste time on whole loop for unrelated errors
+          continue;
+        }
+        // 429 → just try next key/model immediately, no sleep needed
+      }
+    }
+  }
+  throw lastErr || new Error('All Gemini keys/models exhausted');
 }
 
 // ── Main handler ─────────────────────────────────────────────
@@ -1624,24 +1658,7 @@ export async function handleCommand(req, res) {
         pharmNames, areaNames,
       });
 
-      async function callGeminiComm(parts, retries = 3, delayMs = 5000) {
-        let lastErr;
-        for (let attempt = 1; attempt <= retries; attempt++) {
-          const key = getNextApiKey();
-          const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.5-flash' });
-          try {
-            const result = await model.generateContent(parts);
-            return result.response.text();
-          } catch (err) {
-            lastErr = err;
-            console.error(`[ai-assistant] Gemini comm error attempt ${attempt}:`, err?.message || err);
-            const is429 = String(err?.message || '').includes('429') || err?.status === 429;
-            if (is429 && attempt < retries) await new Promise(r => setTimeout(r, delayMs));
-            else throw err;
-          }
-        }
-        throw lastErr;
-      }
+      const callGeminiComm = callGeminiSmart;
 
       let geminiText;
       if (hasAudio) {
@@ -1711,29 +1728,7 @@ export async function handleCommand(req, res) {
     });
 
     let geminiText;
-
-    // ── Retry helper: rotate API key on each attempt on 429 ──
-    async function callGemini(parts, retries = 3, delayMs = 5000) {
-      let lastErr;
-      for (let attempt = 1; attempt <= retries; attempt++) {
-        const key = getNextApiKey();
-        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.5-flash' });
-        try {
-          const result = await model.generateContent(parts);
-          return result.response.text();
-        } catch (err) {
-          lastErr = err;
-          console.error(`[ai-assistant] Gemini error attempt ${attempt}:`, err?.message || err);
-          const is429 = String(err?.message || '').includes('429') || err?.status === 429;
-          if (is429 && attempt < retries) {
-            await new Promise(r => setTimeout(r, delayMs));
-          } else {
-            throw err;
-          }
-        }
-      }
-      throw lastErr;
-    }
+    const callGemini = callGeminiSmart;
 
     if (hasAudio) {
       const audioData   = fs.readFileSync(req.file.path);
@@ -1797,7 +1792,9 @@ export async function handleCommand(req, res) {
     console.error('[ai-assistant] FINAL error:', err?.message || err, '| status:', err?.status);
     const msg = String(err?.message || '');
     const is429 = msg.includes('429') || msg.includes('Too Many Requests') || msg.includes('quota') || msg.includes('Quota');
-    const friendly = `Gemini Error: ${msg.slice(0, 400) || 'خطأ غير متوقع'}`;
+    const friendly = is429
+      ? '⚠️ تم استنفاد الحصة اليومية لمفاتيح Gemini. حاول مجدداً بعد ساعات (تتجدد عند منتصف الليل بتوقيت المحيط الهادئ) أو أضف مفتاحاً جديداً في متغيرات البيئة GEMINI_API_KEY_1/2/3.'
+      : `Gemini Error: ${msg.slice(0, 400) || 'خطأ غير متوقع'}`;
     return res.status(is429 ? 429 : 500).json({ success: false, error: friendly });
   }
 }
