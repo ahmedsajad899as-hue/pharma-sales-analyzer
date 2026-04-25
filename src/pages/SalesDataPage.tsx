@@ -401,18 +401,23 @@ function normalMergeKey(s: string): string {
 
 // ── buildMergedFile: combine multiple SalesFiles into one ─────────────────────
 function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile {
-  // Union of areaCols — key by FILE NAME + label so each file keeps its own identity
+  // Union of areaCols — preserve each column's ORIGINAL region (from parsing)
+  // so warehouses stay grouped under their actual region after merge, instead of
+  // being all reassigned to the source file's name.
+  // Key by ORIGINAL_REGION + label to dedupe across files that share the same region.
   const colMap = new Map<string, ColMeta>();
   for (const f of selectedFiles) {
     for (const ac of f.areaCols) {
-      const mapKey = `${f.name}||${ac.label}`;
+      const region = (ac.region && ac.region.trim()) ? ac.region.trim() : f.name;
+      const mapKey = `${region}||${ac.label}`;
       if (!colMap.has(mapKey)) {
-        colMap.set(mapKey, { key: `m_${colMap.size}`, label: ac.label, region: f.name, colIdx: -1 });
+        colMap.set(mapKey, { key: `m_${colMap.size}`, label: ac.label, region, colIdx: -1 });
       }
     }
   }
   const mergedAreaCols = [...colMap.values()];
-  const allRegions = selectedFiles.map(f => f.name);
+  // regions list = union of actual regions present in merged area columns
+  const allRegions = [...new Set(mergedAreaCols.map(c => c.region).filter(Boolean))];
 
   // Pass 1: build canonical name maps — shortest clean version wins
   const canonCompany = new Map<string, string>(); // normKey → display name
@@ -440,11 +445,18 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
     const cCol = detectCompanyCol(f);
     const iCol = detectItemNameCol(f);
     const pCol = detectPriceCol(f);
+    // Map each source areaCol key → merged areaCol key, using the SAME
+    // (region || file name) key the mergedAreaCols were built with.
     const acKeyToMerged = new Map<string, string>();
     for (const ac of f.areaCols) {
-      const m = colMap.get(`${f.name}||${ac.label}`);
+      const region = (ac.region && ac.region.trim()) ? ac.region.trim() : f.name;
+      const m = colMap.get(`${region}||${ac.label}`);
       if (m) acKeyToMerged.set(ac.key, m.key);
     }
+    // All distinct regions a row from this file COULD belong to
+    const fileRegions = [...new Set(f.areaCols.map(ac =>
+      (ac.region && ac.region.trim()) ? ac.region.trim() : f.name
+    ))];
     for (const row of f.rows) {
       const rawC = cCol ? String(row[cCol] ?? '').trim() : f.name;
       const rawI = iCol ? String(row[iCol] ?? '').trim() : '';
@@ -453,11 +465,12 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
       const item    = canonItem.get(normalMergeKey(rawI))    ?? stripMergeSuffix(rawI);
       const rowKey  = `${normalMergeKey(rawC)}||${normalMergeKey(rawI)}`;
       if (!rowMap.has(rowKey)) {
-        rowMap.set(rowKey, { 'الشركة': company, 'المادة': item, '_regions': f.name });
+        rowMap.set(rowKey, { 'الشركة': company, 'المادة': item, '_regions': fileRegions.join(',') });
       } else {
         const obj = rowMap.get(rowKey)!;
-        const seen = obj['_regions'].split(',');
-        if (!seen.includes(f.name)) obj['_regions'] = [...seen, f.name].join(',');
+        const seen = new Set(obj['_regions'].split(',').filter(Boolean));
+        for (const r of fileRegions) seen.add(r);
+        obj['_regions'] = [...seen].join(',');
       }
       // Accumulate numeric area column values
       const obj = rowMap.get(rowKey)!;
@@ -742,11 +755,23 @@ table{border-collapse:collapse;width:100%}
 
     try {
       const html2canvas = (await import('html2canvas')).default;
+      // Measure rendered size, then choose the highest scale that keeps
+      // the resulting canvas within browser limits (~16384 px per side).
+      // Larger scale = sharper image when zooming in.
+      const rect = wrap.getBoundingClientRect();
+      const MAX_DIM = 16000;
+      const MAX_AREA = 200_000_000; // ~200MP — keep memory sane
+      const maxByDim  = Math.min(MAX_DIM / Math.max(1, rect.width), MAX_DIM / Math.max(1, rect.height));
+      const maxByArea = Math.sqrt(MAX_AREA / Math.max(1, rect.width * rect.height));
+      const scale = Math.max(1, Math.min(4, maxByDim, maxByArea));
       const canvas = await html2canvas(wrap, {
         backgroundColor: '#ffffff',
-        scale: 2,
+        scale,
         useCORS: true,
         logging: false,
+        imageTimeout: 0,
+        windowWidth:  Math.ceil(rect.width),
+        windowHeight: Math.ceil(rect.height),
       });
 
       const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
@@ -1450,17 +1475,22 @@ table{border-collapse:collapse;width:100%}
             </div>
 
             {/* Warehouses — only when region selected */}
-            {regionFilter !== 'all' && (
+            {regionFilter !== 'all' && (() => {
+              const whInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
+              return (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏪 المخزن</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>
+                  🏪 المخزن <span style={{ color: '#94a3b8', fontWeight: 600 }}>({whInRegion.length})</span>
+                </div>
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={fp(warehouseKeys.size === 0, true)}>الكل</button>
-                  {activeFile.areaCols.filter(ac => ac.region === regionFilter).map(ac => (
+                  {whInRegion.map(ac => (
                     <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
                   ))}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* Companies */}
             {companyCol && companies.length > 0 && (
