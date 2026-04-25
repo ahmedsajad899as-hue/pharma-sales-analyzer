@@ -106,17 +106,24 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 
 ═══ متى تستخدم query_stock ═══
 • "شكد ستوك ايتم X" / "كم متوفر من ايتم X" / "ستوك المادة X" → query_stock + itemQuery
-• "ستوك ايتم X بمنطقة الكرادة" / "كم باقي من X في الحارثية" → query_stock + itemQuery + regionQueries:["..."]
+• "ستوك ايتم X بمنطقة الكرادة" / "ستوك ايتم X بمحافظة بغداد" / "كم باقي من X في الحارثية" → query_stock + itemQuery + regionQueries:["..."]
 • "ستوك ايتم X في مخزن الصيدلي" / "شكد X بمخزن المورد" → query_stock + itemQuery + warehouseQueries:["..."]
-• "ستوك ايتم X في كل المناطق" / "كل المخازن" → query_stock + itemQuery (بدون region/warehouse)
+• "ستوك ايتم X في كل المناطق" / "كل المحافظات" / "كل المخازن" → query_stock + itemQuery (بدون region/warehouse)
 • "ستوك شركة HUMANIS" / "اعرض ستوك شركة X" → query_stock + companyQuery
-• "ستوك شركة X في منطقة Y" → query_stock + companyQuery + regionQueries:["Y"]
-• "شنو نواقص منطقة X" / "شنو ناقص بمخزن Y" → query_stock + regionQueries أو warehouseQueries (بدون itemQuery لعرض الكل)
+• "ستوك شركة X في منطقة Y" / "ستوك شركة X بمحافظة Y" → query_stock + companyQuery + regionQueries:["Y"]
+• "شنو نواقص منطقة X" / "شنو ناقص بمحافظة X" / "شنو ناقص بمخزن Y" → query_stock + regionQueries أو warehouseQueries (بدون itemQuery لعرض الكل)
+
+⚠️ مرادفات مهمة:
+  - "محافظة" = "منطقة" (نفس الشيء): "محافظة بغداد"، "محافظة النجف"، "محافظة كربلاء"... كلها تُعامَل كـ regionQueries
+  - "ولاية" / "محافظه" / "منطقه" / "محافظة" / "منطقة" → كلها regionQueries
+  - "مذخر" / "مخزن" / "ستوك" (كاسم مكان) / "وكيل" → كلها warehouseQueries
+  - "ايتم" / "مادة" / "دواء" / "منتج" → itemQuery
+  - "شركة" / "كومباني" / "معمل" / "مصنع" → companyQuery
 
 ═══ فلاتر query_stock (داخل filters) ═══
 itemQuery        : اسم/جزء من اسم الإيتم أو null (يطابق المادة)
 companyQuery     : اسم الشركة أو null (يطابق عمود الشركة)
-regionQueries    : مصفوفة أسماء مناطق أو null — مثال: ["الكرادة","الحارثية"]
+regionQueries    : مصفوفة أسماء مناطق/محافظات أو null — مثال: ["الكرادة","الحارثية"] أو ["بغداد","النجف"]
 warehouseQueries : مصفوفة أسماء مذاخر/مخازن أو null — مثال: ["الصيدلي","المورد"]
 limit            : عدد النتائج (افتراضي 20، اقصى 100)
 
