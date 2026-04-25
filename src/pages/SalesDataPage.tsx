@@ -1885,6 +1885,7 @@ table{border-collapse:collapse;width:100%}
                       })
                     }
                   </tbody>
+                  {!shortageOnlyMode && (
                   <tfoot data-export="omit">
                     <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
                       <td style={{ ...tdS, color: '#475569', fontSize: 11, fontWeight: 700, position: 'sticky', bottom: 0, background: '#f1f5f9' }} colSpan={activeFile.fixedCols.length + 1}>
@@ -1896,6 +1897,7 @@ table{border-collapse:collapse;width:100%}
                       <td style={{ ...tdA, color: '#065f46', fontWeight: 800, position: 'sticky', bottom: 0, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0))}</td>
                     </tr>
                   </tfoot>
+                  )}
                 </table>
               </div>
 
