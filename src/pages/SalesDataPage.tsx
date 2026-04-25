@@ -982,8 +982,7 @@ table{border-collapse:collapse;width:100%}
       const pdfBlob = pdf.output('blob');
       const pdfFile = new File([pdfBlob], fname, { type: 'application/pdf' });
 
-      // Try Web Share API first — opens native share sheet (WhatsApp/Viber/Telegram/...)
-      // Available on mobile browsers and many desktop browsers.
+      // ── 1) Mobile / supported desktop: native share sheet (WhatsApp/Viber/...) ──
       const nav: any = navigator;
       const canShareFiles = typeof nav.canShare === 'function' && nav.canShare({ files: [pdfFile] });
       if (canShareFiles && typeof nav.share === 'function') {
@@ -993,25 +992,37 @@ table{border-collapse:collapse;width:100%}
             title: 'بيانات المبيعات',
             text: `تقرير المبيعات — ${activeFile?.name || ''} (${totalPages} صفحة)`,
           });
-          // Some browsers also need the file saved locally as backup
           return;
         } catch (shareErr: any) {
-          // User cancelled or share unsupported for files — fall through to download
-          if (shareErr?.name !== 'AbortError') {
-            console.warn('share failed, falling back to download:', shareErr);
-          } else {
-            return; // user cancelled — don't also force a download
-          }
+          if (shareErr?.name === 'AbortError') return; // user cancelled
+          // else fall through to desktop fallback
         }
       }
 
-      // Fallback: just download the file
+      // ── 2) Desktop fallback: download PDF + open WhatsApp Web for contact pick ──
       pdf.save(fname);
+
+      // Detect mobile to choose the right WhatsApp URL
+      const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
+      const waUrl = isMobile ? 'https://wa.me/' : 'https://web.whatsapp.com/';
+
+      // Small delay so the download starts before opening the new tab (avoids popup-blocker / focus-steal)
+      setTimeout(() => {
+        const win = window.open(waUrl, '_blank', 'noopener');
+        if (!win) {
+          alert(
+            `✅ تم تنزيل ملف PDF (${totalPages} صفحة): ${fname}\n\n` +
+            `⚠ المتصفح منع فتح واتساب تلقائياً.\n` +
+            `افتح web.whatsapp.com يدوياً، اختر جهة الاتصال، ثم اسحب الملف داخل المحادثة.`
+          );
+        }
+      }, 400);
+
       alert(
-        `✅ تم تنزيل ملف PDF (${totalPages} صفحة)\n` +
-        `الملف: ${fname}\n\n` +
-        `📱 لإرساله من الموبايل: افتح واتساب → 📎 → Document → اختر الملف.\n` +
-        `💻 من الويب: اسحب الملف داخل محادثة واتساب ويب.`
+        `✅ تم تنزيل ملف PDF (${totalPages} صفحة): ${fname}\n\n` +
+        `📲 سيتم فتح واتساب ويب الآن.\n` +
+        `1) اختر جهة الاتصال أو اكتب اسم المستلم.\n` +
+        `2) اسحب ملف PDF من شريط التنزيلات داخل المحادثة، أو اضغط 📎 → Document.`
       );
     } catch (err) {
       console.error(err);
