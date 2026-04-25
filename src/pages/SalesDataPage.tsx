@@ -733,302 +733,64 @@ table{border-collapse:collapse;width:100%}
     const table = container.querySelector('table');
     if (!table) { alert('لا يوجد جدول للتصدير'); return; }
 
-    // ── Helper: produce a sanitized table clone (no buttons, no sticky) ──
-    const sanitize = (t: HTMLTableElement): HTMLTableElement => {
-      const c = t.cloneNode(true) as HTMLTableElement;
-      c.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
-      c.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
-      c.style.borderCollapse = 'collapse';
-      c.style.background = '#fff';
-      c.querySelectorAll('th, td').forEach(cell => {
-        const el = cell as HTMLElement;
-        el.style.position = 'static';
-        if (!el.style.border) el.style.border = '1px solid #e2e8f0';
-        el.style.padding = el.style.padding || '6px 8px';
-      });
-      return c;
-    };
+    // Clone the table off-screen with sticky positioning reset, so the
+    // rendered image matches the visual layout exactly.
+    const clone = table.cloneNode(true) as HTMLTableElement;
+    clone.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
+    clone.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
+    clone.style.borderCollapse = 'collapse';
+    clone.style.background = '#fff';
+    clone.querySelectorAll('th, td').forEach(c => {
+      const el = c as HTMLElement;
+      el.style.position = 'static';
+      if (!el.style.border) el.style.border = '1px solid #e2e8f0';
+      el.style.padding = el.style.padding || '6px 8px';
+    });
 
-    const baseClone = sanitize(table);
-    const allBodyRows = Array.from(baseClone.querySelectorAll('tbody > tr'));
-    const theadHTML = baseClone.querySelector('thead')?.outerHTML || '';
-    const tfootHTML = baseClone.querySelector('tfoot')?.outerHTML || '';
-
-    // Off-screen mount for measurements + rendering
-    const mount = document.createElement('div');
-    mount.setAttribute('dir', 'rtl');
-    mount.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
-    document.body.appendChild(mount);
+    const wrap = document.createElement('div');
+    wrap.setAttribute('dir', 'rtl');
+    wrap.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
+    wrap.appendChild(clone);
+    document.body.appendChild(wrap);
 
     try {
       const html2canvas = (await import('html2canvas')).default;
-      const MAX_DIM = 16000;             // browser canvas hard limit ≈ 16384
-      const TARGET_SCALE = 3;            // sharpness when zooming in
-      const PAD = 24;                    // wrapper padding (12 each side)
+      const canvas = await html2canvas(wrap, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
 
-      // ── Render the FULL table once just to measure widths/header height ──
-      mount.appendChild(baseClone);
-      const fullRect = mount.getBoundingClientRect();
-      const headerHeight = (baseClone.querySelector('thead') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
-      const footerHeight = (baseClone.querySelector('tfoot') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
-      const tableWidth   = fullRect.width;
-
-      // Compute scale that keeps width within MAX_DIM
-      const widthScale = Math.min(TARGET_SCALE, MAX_DIM / Math.max(1, tableWidth));
-      const scale = Math.max(1, widthScale);
-
-      // Compute per-tile row capacity so each tile fits under MAX_DIM tall
-      const usableTileHeightPx = MAX_DIM / scale - headerHeight - footerHeight - PAD;
-      // Measure average row height
-      const sampleRows = allBodyRows.slice(0, Math.min(20, allBodyRows.length));
-      let avgRowH = 24;
-      if (sampleRows.length) {
-        const heights = sampleRows.map(r => (r as HTMLElement).getBoundingClientRect().height);
-        avgRowH = Math.max(12, heights.reduce((a, b) => a + b, 0) / heights.length);
-      }
-      const rowsPerTile = Math.max(20, Math.floor(usableTileHeightPx / avgRowH));
-      mount.removeChild(baseClone);
-
-      // ── Build & render tiles ──────────────────────────────────────────
-      const totalRows = allBodyRows.length;
-      const tileCanvases: HTMLCanvasElement[] = [];
-
-      if (totalRows === 0) {
-        // No body rows — render whole table as a single tile
-        mount.appendChild(baseClone);
-        const cv = await html2canvas(mount, {
-          backgroundColor: '#ffffff', scale, useCORS: true, logging: false, imageTimeout: 0,
-        });
-        tileCanvases.push(cv);
-        mount.removeChild(baseClone);
-      } else {
-        for (let start = 0; start < totalRows; start += rowsPerTile) {
-          const end = Math.min(totalRows, start + rowsPerTile);
-          const chunk = allBodyRows.slice(start, end).map(r => (r as HTMLElement).outerHTML).join('');
-          const isLast = end === totalRows;
-          const tileTable = document.createElement('table');
-          tileTable.style.cssText = 'border-collapse:collapse;background:#fff;width:' + Math.ceil(tableWidth) + 'px;';
-          tileTable.innerHTML = theadHTML + '<tbody>' + chunk + '</tbody>' + (isLast ? tfootHTML : '');
-          // Force same column widths as original by mirroring colgroup if present
-          const origColgroup = baseClone.querySelector('colgroup');
-          if (origColgroup) tileTable.insertBefore(origColgroup.cloneNode(true), tileTable.firstChild);
-
-          mount.innerHTML = '';
-          mount.appendChild(tileTable);
-          // eslint-disable-next-line no-await-in-loop
-          const cv = await html2canvas(mount, {
-            backgroundColor: '#ffffff', scale, useCORS: true, logging: false, imageTimeout: 0,
-          });
-          tileCanvases.push(cv);
-        }
-      }
-
-      // ── Composite tile canvases vertically into one master canvas ─────
-      const masterW = Math.max(...tileCanvases.map(c => c.width));
-      const masterH = tileCanvases.reduce((a, c) => a + c.height, 0);
-      const master = document.createElement('canvas');
-      master.width = masterW;
-      master.height = masterH;
-      const ctx = master.getContext('2d');
-      if (!ctx) throw new Error('تعذّر إنشاء سياق الرسم');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, masterW, masterH);
-      let y = 0;
-      for (const c of tileCanvases) {
-        ctx.drawImage(c, 0, y);
-        y += c.height;
-      }
-
-      const blob: Blob | null = await new Promise(res => master.toBlob(b => res(b), 'image/png'));
+      const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
       if (!blob) throw new Error('تعذّر إنشاء الصورة');
 
-      // Always download the PNG file at full resolution — clipboard images
-      // get downsampled by some apps (Word/Outlook), which causes blur on zoom.
-      const a = document.createElement('a');
-      const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.png`;
-      a.href = URL.createObjectURL(blob);
-      a.download = fname;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-
-      // Try to also copy to clipboard (best-effort) — silent if it fails.
+      let copied = false;
       try {
         if (navigator.clipboard && (window as any).ClipboardItem) {
           await navigator.clipboard.write([new (window as any).ClipboardItem({ 'image/png': blob })]);
+          copied = true;
         }
-      } catch { /* silent */ }
+      } catch { /* fall through */ }
 
-      alert(`✅ تم تنزيل صورة الجدول (${master.width}×${master.height} بكسل)\nالملف: ${fname}\nافتحها بأي عارض صور للحصول على الدقة الكاملة.`);
+      if (copied) {
+        alert('✅ تم نسخ صورة الجدول إلى الحافظة — الصقها مباشرة (Ctrl+V)');
+      } else {
+        const a = document.createElement('a');
+        const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.png`;
+        a.href = URL.createObjectURL(blob);
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        alert('تعذّر النسخ التلقائي — تم تحميل الصورة بدلاً من ذلك');
+      }
     } catch (err) {
       console.error(err);
       alert('فشل تحويل الجدول إلى صورة: ' + (err as Error).message);
     } finally {
-      if (mount.parentNode) document.body.removeChild(mount);
-    }
-  }, [activeFile]);
-
-  // ── Export the table as a multi-page PDF ────────────────────────────
-  // PDF preserves quality through WhatsApp/Telegram when sent as a Document
-  // (no compression), and is sharper than a single PNG at zoom-in.
-  const exportTableToPDFFile = useCallback(async () => {
-    const container = tableContainerRef.current;
-    if (!container) { alert('لا يوجد جدول للتصدير'); return; }
-    const table = container.querySelector('table');
-    if (!table) { alert('لا يوجد جدول للتصدير'); return; }
-
-    const sanitize = (t: HTMLTableElement): HTMLTableElement => {
-      const c = t.cloneNode(true) as HTMLTableElement;
-      c.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
-      c.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
-      c.style.borderCollapse = 'collapse';
-      c.style.background = '#fff';
-      c.querySelectorAll('th, td').forEach(cell => {
-        const el = cell as HTMLElement;
-        el.style.position = 'static';
-        if (!el.style.border) el.style.border = '1px solid #e2e8f0';
-        el.style.padding = el.style.padding || '6px 8px';
-      });
-      return c;
-    };
-
-    const baseClone = sanitize(table);
-    const allBodyRows = Array.from(baseClone.querySelectorAll('tbody > tr'));
-    const theadHTML = baseClone.querySelector('thead')?.outerHTML || '';
-    const tfootHTML = baseClone.querySelector('tfoot')?.outerHTML || '';
-
-    const mount = document.createElement('div');
-    mount.setAttribute('dir', 'rtl');
-    mount.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
-    document.body.appendChild(mount);
-
-    try {
-      const html2canvas = (await import('html2canvas')).default;
-      const { jsPDF } = await import('jspdf');
-
-      // PDF page size: A4 landscape (842 × 595 pt). Use mm internally.
-      const PAGE_W_MM = 297, PAGE_H_MM = 210, MARGIN_MM = 8;
-      const usableW_mm = PAGE_W_MM - MARGIN_MM * 2;
-      const usableH_mm = PAGE_H_MM - MARGIN_MM * 2;
-
-      // First measure the full table to know its width
-      mount.appendChild(baseClone);
-      const fullRect = mount.getBoundingClientRect();
-      const tableWidth = fullRect.width;
-      const headerH = (baseClone.querySelector('thead') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
-      const footerH = (baseClone.querySelector('tfoot') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
-
-      // Sample row height
-      const sample = allBodyRows.slice(0, Math.min(20, allBodyRows.length));
-      let avgRowH = 24;
-      if (sample.length) {
-        const hs = sample.map(r => (r as HTMLElement).getBoundingClientRect().height);
-        avgRowH = Math.max(12, hs.reduce((a, b) => a + b, 0) / hs.length);
-      }
-      mount.removeChild(baseClone);
-
-      // Compute how many body rows fit on a page so the rendered tile, when
-      // scaled to fit page width, leaves enough vertical room for the header.
-      // pageHeightInPx (at original DOM scale) corresponds to usableH_mm.
-      const pxPerMM = tableWidth / usableW_mm; // 1 mm of PDF = this many px in DOM
-      const pageHeightPx = usableH_mm * pxPerMM;
-      const rowsPerPage = Math.max(10, Math.floor((pageHeightPx - headerH - footerH - 24) / avgRowH));
-
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
-      const RENDER_SCALE = 2; // canvas oversample for crispness
-
-      const totalRows = allBodyRows.length;
-      const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
-      let pageNum = 0;
-
-      const renderTileToPage = async (tileTable: HTMLTableElement, isFirst: boolean) => {
-        mount.innerHTML = '';
-        mount.appendChild(tileTable);
-        const cv = await html2canvas(mount, {
-          backgroundColor: '#ffffff', scale: RENDER_SCALE, useCORS: true, logging: false, imageTimeout: 0,
-        });
-        const dataUrl = cv.toDataURL('image/jpeg', 0.92);
-        // Scale the image to fit page width while preserving aspect ratio.
-        const imgW_mm = usableW_mm;
-        const imgH_mm = (cv.height / cv.width) * imgW_mm;
-        const fitH_mm = Math.min(imgH_mm, usableH_mm);
-        const finalW_mm = (fitH_mm / imgH_mm) * imgW_mm;
-        if (!isFirst) pdf.addPage('a4', 'landscape');
-        // Center horizontally
-        const x = (PAGE_W_MM - finalW_mm) / 2;
-        pdf.addImage(dataUrl, 'JPEG', x, MARGIN_MM, finalW_mm, fitH_mm, undefined, 'FAST');
-      };
-
-      if (totalRows === 0) {
-        await renderTileToPage(baseClone, true);
-      } else {
-        for (let start = 0; start < totalRows; start += rowsPerPage) {
-          const end = Math.min(totalRows, start + rowsPerPage);
-          const chunk = allBodyRows.slice(start, end).map(r => (r as HTMLElement).outerHTML).join('');
-          const isLastChunk = end === totalRows;
-          const tileTable = document.createElement('table');
-          tileTable.style.cssText = 'border-collapse:collapse;background:#fff;width:' + Math.ceil(tableWidth) + 'px;';
-          tileTable.innerHTML = theadHTML + '<tbody>' + chunk + '</tbody>' + (isLastChunk ? tfootHTML : '');
-          const origColgroup = baseClone.querySelector('colgroup');
-          if (origColgroup) tileTable.insertBefore(origColgroup.cloneNode(true), tileTable.firstChild);
-          // eslint-disable-next-line no-await-in-loop
-          await renderTileToPage(tileTable, pageNum === 0);
-          pageNum++;
-        }
-      }
-
-      const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.pdf`;
-      const pdfBlob = pdf.output('blob');
-      const pdfFile = new File([pdfBlob], fname, { type: 'application/pdf' });
-
-      // ── 1) Mobile / supported desktop: native share sheet (WhatsApp/Viber/...) ──
-      const nav: any = navigator;
-      const canShareFiles = typeof nav.canShare === 'function' && nav.canShare({ files: [pdfFile] });
-      if (canShareFiles && typeof nav.share === 'function') {
-        try {
-          await nav.share({
-            files: [pdfFile],
-            title: 'بيانات المبيعات',
-            text: `تقرير المبيعات — ${activeFile?.name || ''} (${totalPages} صفحة)`,
-          });
-          return;
-        } catch (shareErr: any) {
-          if (shareErr?.name === 'AbortError') return; // user cancelled
-          // else fall through to desktop fallback
-        }
-      }
-
-      // ── 2) Desktop fallback: download PDF + open WhatsApp Web for contact pick ──
-      pdf.save(fname);
-
-      // Detect mobile to choose the right WhatsApp URL
-      const isMobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
-      const waUrl = isMobile ? 'https://wa.me/' : 'https://web.whatsapp.com/';
-
-      // Small delay so the download starts before opening the new tab (avoids popup-blocker / focus-steal)
-      setTimeout(() => {
-        const win = window.open(waUrl, '_blank', 'noopener');
-        if (!win) {
-          alert(
-            `✅ تم تنزيل ملف PDF (${totalPages} صفحة): ${fname}\n\n` +
-            `⚠ المتصفح منع فتح واتساب تلقائياً.\n` +
-            `افتح web.whatsapp.com يدوياً، اختر جهة الاتصال، ثم اسحب الملف داخل المحادثة.`
-          );
-        }
-      }, 400);
-
-      alert(
-        `✅ تم تنزيل ملف PDF (${totalPages} صفحة): ${fname}\n\n` +
-        `📲 سيتم فتح واتساب ويب الآن.\n` +
-        `1) اختر جهة الاتصال أو اكتب اسم المستلم.\n` +
-        `2) اسحب ملف PDF من شريط التنزيلات داخل المحادثة، أو اضغط 📎 → Document.`
-      );
-    } catch (err) {
-      console.error(err);
-      alert('فشل إنشاء PDF: ' + (err as Error).message);
-    } finally {
-      if (mount.parentNode) document.body.removeChild(mount);
+      document.body.removeChild(wrap);
     }
   }, [activeFile]);
 
@@ -1170,6 +932,41 @@ table{border-collapse:collapse;width:100%}
   const rowDisplay = useCallback((row: Record<string, string>, cols: ViewCol[]): number =>
     cols.reduce((s, col) => s + cellDisplay(row, col), 0)
   , [cellDisplay]);
+
+  // ── Expose active sales data on window so the AI Assistant can query it ──
+  // Stores the full active file plus a digest with column hints. Cleared on unmount.
+  useEffect(() => {
+    if (!activeFile) {
+      delete (window as any).__salesData;
+      delete (window as any).__salesDataDigest;
+      return;
+    }
+    const items = itemNameCol
+      ? [...new Set(activeFile.rows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean))]
+      : [];
+    const comps = companyCol
+      ? [...new Set(activeFile.rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))]
+      : [];
+    const regions = [...new Set(activeFile.areaCols.map(ac => ac.region))];
+    const warehouses = [...new Set(activeFile.areaCols.map(ac => ac.label))];
+    (window as any).__salesData = {
+      file: activeFile,
+      itemNameCol,
+      companyCol,
+      priceCol,
+    };
+    (window as any).__salesDataDigest = {
+      fileName: activeFile.name,
+      items,
+      companies: comps,
+      regions,
+      warehouses,
+    };
+    return () => {
+      delete (window as any).__salesData;
+      delete (window as any).__salesDataDigest;
+    };
+  }, [activeFile, itemNameCol, companyCol, priceCol]);
 
   // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
   // Tracks both region totals and individual warehouse columns.
@@ -1893,8 +1690,7 @@ table{border-collapse:collapse;width:100%}
                     {[
                       { label: '📊 Excel', onClick: exportTableToExcel },
                       { label: '📝 Word',  onClick: exportTableToWord  },
-                      { label: '� PDF (للواتساب)', onClick: exportTableToPDFFile },
-                      { label: '�🖼️ صورة (تنزيل PNG)', onClick: exportTableToPDF   },
+                      { label: '�️ صورة (نسخ)', onClick: exportTableToPDF   },
                     ].map(item => (
                       <button key={item.label}
                         onClick={() => { setExportMenuOpen(false); item.onClick(); }}

@@ -52,7 +52,8 @@ interface QueryResult {
        | 'returns_list'
        | 'survey_list' | 'survey_grouped'
        | 'stats_summary'
-       | 'plan_stats';
+       | 'plan_stats'
+       | 'stock_list';
   visitType?: 'doctor' | 'pharmacy' | 'all';
   groupBy?: string;
   totalVisits?: number;
@@ -91,6 +92,16 @@ interface QueryResult {
   byItem?: { name: string; targetDoctors: number; visitedDoctors: number; pct: number }[];
   filteredAreaName?: string | null;
   filteredItemName?: string | null;
+  // stock query (Sales Data file)
+  fileName?: string;
+  stockRows?: {
+    item: string;
+    company: string;
+    cells: { region: string; warehouse: string; qty: number }[];
+    total: number;
+  }[];
+  stockColumns?: { region: string; warehouse: string }[];
+  stockFilters?: { itemQuery?: string | null; companyQuery?: string | null; regionQueries?: string[] | null; warehouseQueries?: string[] | null };
 }
 
 interface AssistantResult {
@@ -126,6 +137,101 @@ const FEEDBACK_COLORS: Record<string, string> = {
 interface HistoryEntry {
   text: string;
   result: AssistantResult;
+}
+
+// ── Stock query (against Sales Data file exposed on window.__salesData) ──
+const stockNorm = (s: any) =>
+  String(s ?? '').trim().toLowerCase()
+    .replace(/[\u0623\u0625\u0622\u0627]/g, '\u0627')
+    .replace(/[\u0629\u0647]/g, '\u0647')
+    .replace(/[\u064a\u0649]/g, '\u064a')
+    .replace(/\s+/g, ' ');
+
+const stockMatchesAny = (haystack: string, queries: string[]) => {
+  if (!queries || queries.length === 0) return true;
+  const h = stockNorm(haystack);
+  if (!h) return false;
+  return queries.some(q => {
+    const n = stockNorm(q);
+    return n && (h === n || h.includes(n) || n.includes(h));
+  });
+};
+
+function runStockQuery(data: AssistantResult): QueryResult | null {
+  const sd = (window as any).__salesData as
+    | { file: any; itemNameCol: string; companyCol: string; priceCol: string }
+    | undefined;
+  if (!sd || !sd.file) {
+    return {
+      found: false,
+      message: 'لا يوجد ملف بيانات مبيعات نشط حالياً. افتح صفحة "ستوكات" واختر ملفاً ثم أعد المحاولة.',
+    };
+  }
+
+  const f = data as any;
+  const filters = f.filters || {};
+  const itemQuery       = filters.itemQuery || null;
+  const companyQuery    = filters.companyQuery || null;
+  const regionQueries   = Array.isArray(filters.regionQueries)    ? filters.regionQueries.filter(Boolean)    : [];
+  const warehouseQueries = Array.isArray(filters.warehouseQueries) ? filters.warehouseQueries.filter(Boolean) : [];
+  const limit           = Math.min(Math.max(parseInt(filters.limit, 10) || 20, 1), 100);
+
+  const file = sd.file;
+  const areaCols: { region: string; label: string; key: string }[] = file.areaCols || [];
+
+  // Filter columns by region/warehouse
+  let cols = areaCols;
+  if (regionQueries.length > 0) cols = cols.filter(ac => stockMatchesAny(ac.region, regionQueries));
+  if (warehouseQueries.length > 0) cols = cols.filter(ac => stockMatchesAny(ac.label, warehouseQueries));
+
+  if (cols.length === 0) {
+    return { found: false, message: 'لم يتم العثور على مناطق/مذاخر تطابق الطلب في ملف البيانات.' };
+  }
+
+  const toNum = (v: any) => {
+    const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/[^\d.\-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const rows: any[] = file.rows || [];
+  const itemCol = sd.itemNameCol;
+  const companyCol = sd.companyCol;
+
+  const out: QueryResult['stockRows'] = [];
+  for (const row of rows) {
+    const itemName = itemCol ? String(row[itemCol] ?? '').trim() : '';
+    const company  = companyCol ? String(row[companyCol] ?? '').trim() : '';
+    if (itemQuery && !stockMatchesAny(itemName, [itemQuery])) continue;
+    if (companyQuery && !stockMatchesAny(company, [companyQuery])) continue;
+    const cells = cols.map(ac => ({
+      region: ac.region,
+      warehouse: ac.label,
+      qty: toNum(row[ac.key]),
+    }));
+    const total = cells.reduce((s, c) => s + c.qty, 0);
+    if (total === 0 && (itemQuery || companyQuery)) {
+      // Still include zero-total row when user explicitly searched a specific item — so they can see "نفذ"
+      out.push({ item: itemName || '—', company, cells, total });
+    } else if (total > 0) {
+      out.push({ item: itemName || '—', company, cells, total });
+    }
+  }
+
+  out.sort((a, b) => b.total - a.total);
+  const limited = out.slice(0, limit);
+
+  if (limited.length === 0) {
+    return { found: false, message: 'لا توجد كميات ستوك تطابق البحث في الملف الحالي.' };
+  }
+
+  return {
+    found: true,
+    type: 'stock_list',
+    fileName: file.name,
+    stockRows: limited,
+    stockColumns: cols.map(c => ({ region: c.region, warehouse: c.label })),
+    stockFilters: { itemQuery, companyQuery, regionQueries, warehouseQueries },
+  };
 }
 
 export default function AIAssistant({ activePage, navigateTo }: Props) {
@@ -173,7 +279,14 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     setIsProcessing(true);
     setError('');
     try {
-      fd.append('context', JSON.stringify({ currentPage: activePage, userRole: user?.role ?? 'user' }));
+      // Attach a digest of the active Sales Data file (if any) so the backend
+      // prompt knows which items/companies/regions/warehouses are available.
+      const digest = (window as any).__salesDataDigest || null;
+      fd.append('context', JSON.stringify({
+        currentPage: activePage,
+        userRole: user?.role ?? 'user',
+        salesContext: digest,
+      }));
       const r = await fetch(`${API}/api/ai-assistant/command`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -182,6 +295,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       const json = await r.json();
       if (!json.success) throw new Error(json.error || 'خطأ غير معروف');
       const data: AssistantResult = json.data;
+
+      // ── Handle query_stock client-side against window.__salesData ──
+      if (data.action === 'query_stock') {
+        data.queryResult = runStockQuery(data) || data.queryResult || null;
+      }
+
       setResult(data);
       // Save to history — works for both text and voice
       // For voice: transcript is "🎤 رسالة صوتية", upgrade to responseText after we get the reply
@@ -580,6 +699,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         : h.result.action === 'query_unvisited_doctors' ? '⚠️ أطباء لم تتم زيارتهم'
                         : h.result.action === 'query_stats' ? '📈 إحصائيات'
                         : h.result.action === 'query_plan_stats' ? '📋 تقدم البلان'
+                        : h.result.action === 'query_stock' ? '📦 ستوك من ملف المبيعات'
                         : h.result.action === 'navigate' ? `🔀 انتقال: ${h.result.navigatePage}`
                         : h.result.action === 'page_action' ? `⚡ إجراء: ${h.result.pageAction}`
                         : '💡 رد'}
@@ -1271,6 +1391,70 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         )}
                       </>
                     )}
+                  </div>
+                );
+              }
+
+              // ── stock_list (Sales Data file query) ────────────────────
+              if (qr?.type === 'stock_list') {
+                const rows = qr.stockRows || [];
+                const cols = qr.stockColumns || [];
+                const f = qr.stockFilters || {};
+                const fmtN = (n: number) => n.toLocaleString('en-US');
+                const totalSum = rows.reduce((s, r) => s + r.total, 0);
+                const filterChips: string[] = [];
+                if (f.itemQuery)         filterChips.push(`المادة: ${f.itemQuery}`);
+                if (f.companyQuery)      filterChips.push(`الشركة: ${f.companyQuery}`);
+                if (f.regionQueries?.length)    filterChips.push(`المنطقة: ${f.regionQueries.join('، ')}`);
+                if (f.warehouseQueries?.length) filterChips.push(`المخزن: ${f.warehouseQueries.join('، ')}`);
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 12px', border: '1px solid #bfdbfe' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a' }}>📦 ستوك من ملف: {qr.fileName || 'بيانات المبيعات'}</div>
+                      <div style={{ fontSize: 11, color: '#1e40af', marginTop: 3 }}>
+                        {rows.length} ايتم · إجمالي الكمية: <strong>{fmtN(totalSum)}</strong> · {cols.length} مخزن
+                      </div>
+                      {filterChips.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                          {filterChips.map((c, i) => (
+                            <span key={i} style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 8, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{c}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ overflow: 'auto', maxHeight: 380, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                          <tr>
+                            <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'right', color: '#475569', fontWeight: 700, minWidth: 140 }}>المادة</th>
+                            <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'right', color: '#475569', fontWeight: 700 }}>الشركة</th>
+                            {cols.map((c, i) => (
+                              <th key={i} style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#475569', fontWeight: 700, minWidth: 70 }}>
+                                <div style={{ fontSize: 10, color: '#94a3b8' }}>{c.region}</div>
+                                <div>{c.warehouse}</div>
+                              </th>
+                            ))}
+                            <th style={{ padding: '6px 8px', borderBottom: '2px solid #cbd5e1', textAlign: 'center', color: '#065f46', fontWeight: 800, background: '#f0fdf4' }}>المجموع</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((r, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '6px 8px', fontWeight: 600, color: '#1e293b' }}>{r.item}</td>
+                              <td style={{ padding: '6px 8px', color: '#64748b', fontSize: 10 }}>{r.company || '—'}</td>
+                              {r.cells.map((c, j) => (
+                                <td key={j} style={{ padding: '6px 8px', textAlign: 'center', color: c.qty === 0 ? '#cbd5e1' : (c.qty < 5 ? '#dc2626' : '#1e293b'), fontWeight: c.qty > 0 ? 700 : 400 }}>
+                                  {c.qty === 0 ? '0' : fmtN(c.qty)}
+                                </td>
+                              ))}
+                              <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: 800, color: r.total > 0 ? '#065f46' : '#cbd5e1', background: '#f0fdf4' }}>
+                                {fmtN(r.total)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 );
               }

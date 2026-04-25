@@ -33,7 +33,7 @@ function fuzzyFind(list, key, query) {
 }
 
 // ── Gemini system prompt ──────────────────────────────────────
-function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames }) {
+function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext }) {
   const now      = new Date();
   const curDay   = now.getDate();
   const curMonth = now.getMonth() + 1;
@@ -44,6 +44,13 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
   const itemsText = itemNames.length  ? itemNames.join('، ')   : 'لا يوجد';
   const areasText = areaNames.length  ? areaNames.join('، ')   : 'لا يوجد';
   const plansText = planNames && planNames.length ? planNames.join('، ') : 'لا يوجد';
+
+  // ── Sales Data context (بيانات الستوكات المرفوعة) ──
+  const sc = salesContext || null;
+  const salesItemsText  = sc && sc.items?.length      ? sc.items.slice(0, 200).join('، ')      : 'لا يوجد';
+  const salesCompText   = sc && sc.companies?.length  ? sc.companies.join('، ')                 : 'لا يوجد';
+  const salesRegText    = sc && sc.regions?.length    ? sc.regions.join('، ')                   : 'لا يوجد';
+  const salesWhText     = sc && sc.warehouses?.length ? sc.warehouses.join('، ')                : 'لا يوجد';
 
   return `أنت مساعد ذكي للتحكم الكامل في تطبيق مبيعات صيدلانية. مهمتك: تحليل أمر المستخدم وإرجاع query spec دقيق.
 
@@ -85,9 +92,35 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 3. query_unvisited_doctors → أطباء لم تتم زيارتهم في فترة محددة أو منذ البداية
 4. query_stats             → إحصائيات وملخص سريع للزيارات (كم زيارة، أكثر ايتم، أكثر منطقة...)
 5. query_plan_stats        → نسبة تحقيق البلان الشهري (كم المطلوب وكم المنجز ونسبة التحقيق)
-6. navigate                → الانتقال لصفحة
-7. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
-8. unknown                 → لا يمكن فهم الطلب
+6. query_stock             → عرض كميات الستوك من ملف بيانات المبيعات (Sales Data) المرفوع/المدمج: ستوك ايتم/شركة في منطقة/منطقتين/مذاخر معينة
+7. navigate                → الانتقال لصفحة
+8. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
+9. unknown                 → لا يمكن فهم الطلب
+
+═══ بيانات الستوكات (Sales Data) المتاحة الآن ═══
+ملف نشط: ${sc ? (sc.fileName || 'غير معروف') : 'لا يوجد ملف مرفوع/نشط حالياً'}
+الأيتمات في الملف: ${salesItemsText}
+الشركات في الملف: ${salesCompText}
+المناطق في الملف: ${salesRegText}
+المذاخر في الملف: ${salesWhText}
+
+═══ متى تستخدم query_stock ═══
+• "شكد ستوك ايتم X" / "كم متوفر من ايتم X" / "ستوك المادة X" → query_stock + itemQuery
+• "ستوك ايتم X بمنطقة الكرادة" / "كم باقي من X في الحارثية" → query_stock + itemQuery + regionQueries:["..."]
+• "ستوك ايتم X في مخزن الصيدلي" / "شكد X بمخزن المورد" → query_stock + itemQuery + warehouseQueries:["..."]
+• "ستوك ايتم X في كل المناطق" / "كل المخازن" → query_stock + itemQuery (بدون region/warehouse)
+• "ستوك شركة HUMANIS" / "اعرض ستوك شركة X" → query_stock + companyQuery
+• "ستوك شركة X في منطقة Y" → query_stock + companyQuery + regionQueries:["Y"]
+• "شنو نواقص منطقة X" / "شنو ناقص بمخزن Y" → query_stock + regionQueries أو warehouseQueries (بدون itemQuery لعرض الكل)
+
+═══ فلاتر query_stock (داخل filters) ═══
+itemQuery        : اسم/جزء من اسم الإيتم أو null (يطابق المادة)
+companyQuery     : اسم الشركة أو null (يطابق عمود الشركة)
+regionQueries    : مصفوفة أسماء مناطق أو null — مثال: ["الكرادة","الحارثية"]
+warehouseQueries : مصفوفة أسماء مذاخر/مخازن أو null — مثال: ["الصيدلي","المورد"]
+limit            : عدد النتائج (افتراضي 20، اقصى 100)
+
+⚠️ مهم: استخدم الأسماء كما نطقها المستخدم. إذا قال "الصيدلي" استخدمها كما هي، لا تغيّرها. النظام الأمامي سيتولى المطابقة الذكية مع أسماء الملف.
 
 ═══ متى تستخدم query_unvisited_doctors ═══
 • "من لم يتم زيارته" / "أطباء ما تزاروا" / "الأطباء غير المزارين" → query_unvisited_doctors
@@ -315,7 +348,7 @@ null        → قائمة مباشرة
 
 ═══ صيغة الرد (JSON فقط) ═══
 {
-  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "navigate" | "page_action" | "unknown",
+  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "navigate" | "page_action" | "unknown",
   "navigatePage": null,
   "pageAction": null,
   "pageActionParam": null,
@@ -334,7 +367,11 @@ null        → قائمة مباشرة
     "month": null,
     "year": null,
     "dateRelative": null,
-    "isDoubleVisit": null
+    "isDoubleVisit": null,
+    "itemQuery": null,
+    "companyQuery": null,
+    "regionQueries": null,
+    "warehouseQueries": null
   },
   "groupBy": null,
   "sortBy": "date_desc",
@@ -1652,6 +1689,7 @@ export async function handleCommand(req, res) {
       itemNames:   itemsRaw.map(i => i.name),
       areaNames:   areasRaw.map(a => a.name),
       planNames:   [...new Set(plansRaw.map(p => p.scientificRep?.name).filter(Boolean))],
+      salesContext: context.salesContext || null,
     });
 
     let geminiText;
@@ -1717,6 +1755,8 @@ export async function handleCommand(req, res) {
     } else if (parsed.action === 'query_plan_stats') {
       queryResult = await executePlanStatsQuery(parsed, userId);
     }
+    // query_stock is executed entirely on the frontend against window.__salesData,
+    // so we only echo the parsed filters back. Frontend reads parsed.filters and runs the search.
 
     const validPages = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis'];
     const navigatePage = (parsed.action === 'navigate' && validPages.includes(parsed.navigatePage))
