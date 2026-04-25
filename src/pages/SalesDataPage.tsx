@@ -1857,13 +1857,14 @@ table{border-collapse:collapse;width:100%}
                               const focusA = focusCategoryA && cat === 'A';
                               const aGap  = focusA && v === 0;                  // empty A cell
                               const aLow  = focusA && v > 0 && T > 0 && v < T;  // low (non-zero) in A
-                              // Base color logic kept simple: red only for A-gaps; everything else neutral.
-                              const color = aGap
-                                ? '#dc2626'
-                                : (isAbove ? '#d1d5db'
-                                : (showZero ? '#dc2626'
-                                : (v > 0 ? (showValue ? '#92400e' : '#1e293b')
-                                : '#cbd5e1')));
+                              const isShortage = !isRT(col) && (v === 0 || (T > 0 && v < T && v > 0));
+                              // Base color logic: red for any shortage cell, light grey for above-threshold checkmark
+                              const color = isAbove
+                                ? '#d1d5db'
+                                : (isShortage || showZero
+                                  ? '#dc2626'
+                                  : (v > 0 ? (showValue ? '#92400e' : '#1e293b')
+                                  : '#cbd5e1'));
                               return (
                                 <td key={col.key} style={{
                                   ...tdA,
