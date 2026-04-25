@@ -733,48 +733,113 @@ table{border-collapse:collapse;width:100%}
     const table = container.querySelector('table');
     if (!table) { alert('لا يوجد جدول للتصدير'); return; }
 
-    // Clone the table off-screen with sticky positioning reset, so the
-    // rendered image matches the visual layout exactly.
-    const clone = table.cloneNode(true) as HTMLTableElement;
-    clone.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
-    clone.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
-    clone.style.borderCollapse = 'collapse';
-    clone.style.background = '#fff';
-    clone.querySelectorAll('th, td').forEach(c => {
-      const el = c as HTMLElement;
-      el.style.position = 'static';
-      if (!el.style.border) el.style.border = '1px solid #e2e8f0';
-      el.style.padding = el.style.padding || '6px 8px';
-    });
+    // ── Helper: produce a sanitized table clone (no buttons, no sticky) ──
+    const sanitize = (t: HTMLTableElement): HTMLTableElement => {
+      const c = t.cloneNode(true) as HTMLTableElement;
+      c.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
+      c.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
+      c.style.borderCollapse = 'collapse';
+      c.style.background = '#fff';
+      c.querySelectorAll('th, td').forEach(cell => {
+        const el = cell as HTMLElement;
+        el.style.position = 'static';
+        if (!el.style.border) el.style.border = '1px solid #e2e8f0';
+        el.style.padding = el.style.padding || '6px 8px';
+      });
+      return c;
+    };
 
-    const wrap = document.createElement('div');
-    wrap.setAttribute('dir', 'rtl');
-    wrap.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
-    wrap.appendChild(clone);
-    document.body.appendChild(wrap);
+    const baseClone = sanitize(table);
+    const allBodyRows = Array.from(baseClone.querySelectorAll('tbody > tr'));
+    const theadHTML = baseClone.querySelector('thead')?.outerHTML || '';
+    const tfootHTML = baseClone.querySelector('tfoot')?.outerHTML || '';
+
+    // Off-screen mount for measurements + rendering
+    const mount = document.createElement('div');
+    mount.setAttribute('dir', 'rtl');
+    mount.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
+    document.body.appendChild(mount);
 
     try {
       const html2canvas = (await import('html2canvas')).default;
-      // Measure rendered size, then choose the highest scale that keeps
-      // the resulting canvas within browser limits (~16384 px per side).
-      // Larger scale = sharper image when zooming in.
-      const rect = wrap.getBoundingClientRect();
-      const MAX_DIM = 16000;
-      const MAX_AREA = 200_000_000; // ~200MP — keep memory sane
-      const maxByDim  = Math.min(MAX_DIM / Math.max(1, rect.width), MAX_DIM / Math.max(1, rect.height));
-      const maxByArea = Math.sqrt(MAX_AREA / Math.max(1, rect.width * rect.height));
-      const scale = Math.max(1, Math.min(4, maxByDim, maxByArea));
-      const canvas = await html2canvas(wrap, {
-        backgroundColor: '#ffffff',
-        scale,
-        useCORS: true,
-        logging: false,
-        imageTimeout: 0,
-        windowWidth:  Math.ceil(rect.width),
-        windowHeight: Math.ceil(rect.height),
-      });
+      const MAX_DIM = 16000;             // browser canvas hard limit ≈ 16384
+      const TARGET_SCALE = 3;            // sharpness when zooming in
+      const PAD = 24;                    // wrapper padding (12 each side)
 
-      const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
+      // ── Render the FULL table once just to measure widths/header height ──
+      mount.appendChild(baseClone);
+      const fullRect = mount.getBoundingClientRect();
+      const headerHeight = (baseClone.querySelector('thead') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
+      const footerHeight = (baseClone.querySelector('tfoot') as HTMLElement | null)?.getBoundingClientRect().height ?? 0;
+      const tableWidth   = fullRect.width;
+
+      // Compute scale that keeps width within MAX_DIM
+      const widthScale = Math.min(TARGET_SCALE, MAX_DIM / Math.max(1, tableWidth));
+      const scale = Math.max(1, widthScale);
+
+      // Compute per-tile row capacity so each tile fits under MAX_DIM tall
+      const usableTileHeightPx = MAX_DIM / scale - headerHeight - footerHeight - PAD;
+      // Measure average row height
+      const sampleRows = allBodyRows.slice(0, Math.min(20, allBodyRows.length));
+      let avgRowH = 24;
+      if (sampleRows.length) {
+        const heights = sampleRows.map(r => (r as HTMLElement).getBoundingClientRect().height);
+        avgRowH = Math.max(12, heights.reduce((a, b) => a + b, 0) / heights.length);
+      }
+      const rowsPerTile = Math.max(20, Math.floor(usableTileHeightPx / avgRowH));
+      mount.removeChild(baseClone);
+
+      // ── Build & render tiles ──────────────────────────────────────────
+      const totalRows = allBodyRows.length;
+      const tileCanvases: HTMLCanvasElement[] = [];
+
+      if (totalRows === 0) {
+        // No body rows — render whole table as a single tile
+        mount.appendChild(baseClone);
+        const cv = await html2canvas(mount, {
+          backgroundColor: '#ffffff', scale, useCORS: true, logging: false, imageTimeout: 0,
+        });
+        tileCanvases.push(cv);
+        mount.removeChild(baseClone);
+      } else {
+        for (let start = 0; start < totalRows; start += rowsPerTile) {
+          const end = Math.min(totalRows, start + rowsPerTile);
+          const chunk = allBodyRows.slice(start, end).map(r => (r as HTMLElement).outerHTML).join('');
+          const isLast = end === totalRows;
+          const tileTable = document.createElement('table');
+          tileTable.style.cssText = 'border-collapse:collapse;background:#fff;width:' + Math.ceil(tableWidth) + 'px;';
+          tileTable.innerHTML = theadHTML + '<tbody>' + chunk + '</tbody>' + (isLast ? tfootHTML : '');
+          // Force same column widths as original by mirroring colgroup if present
+          const origColgroup = baseClone.querySelector('colgroup');
+          if (origColgroup) tileTable.insertBefore(origColgroup.cloneNode(true), tileTable.firstChild);
+
+          mount.innerHTML = '';
+          mount.appendChild(tileTable);
+          // eslint-disable-next-line no-await-in-loop
+          const cv = await html2canvas(mount, {
+            backgroundColor: '#ffffff', scale, useCORS: true, logging: false, imageTimeout: 0,
+          });
+          tileCanvases.push(cv);
+        }
+      }
+
+      // ── Composite tile canvases vertically into one master canvas ─────
+      const masterW = Math.max(...tileCanvases.map(c => c.width));
+      const masterH = tileCanvases.reduce((a, c) => a + c.height, 0);
+      const master = document.createElement('canvas');
+      master.width = masterW;
+      master.height = masterH;
+      const ctx = master.getContext('2d');
+      if (!ctx) throw new Error('تعذّر إنشاء سياق الرسم');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, masterW, masterH);
+      let y = 0;
+      for (const c of tileCanvases) {
+        ctx.drawImage(c, 0, y);
+        y += c.height;
+      }
+
+      const blob: Blob | null = await new Promise(res => master.toBlob(b => res(b), 'image/png'));
       if (!blob) throw new Error('تعذّر إنشاء الصورة');
 
       let copied = false;
@@ -786,7 +851,7 @@ table{border-collapse:collapse;width:100%}
       } catch { /* fall through */ }
 
       if (copied) {
-        alert('✅ تم نسخ صورة الجدول إلى الحافظة — الصقها مباشرة (Ctrl+V)');
+        alert(`✅ تم نسخ صورة الجدول (${master.width}×${master.height}) إلى الحافظة — الصقها مباشرة (Ctrl+V)`);
       } else {
         const a = document.createElement('a');
         const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.png`;
@@ -802,7 +867,7 @@ table{border-collapse:collapse;width:100%}
       console.error(err);
       alert('فشل تحويل الجدول إلى صورة: ' + (err as Error).message);
     } finally {
-      document.body.removeChild(wrap);
+      if (mount.parentNode) document.body.removeChild(mount);
     }
   }, [activeFile]);
 
