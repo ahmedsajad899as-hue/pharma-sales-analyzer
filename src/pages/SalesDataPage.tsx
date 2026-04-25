@@ -1768,7 +1768,7 @@ table{border-collapse:collapse;width:100%}
                         </th>
                         );
                       })}
-                      <th data-export="omit" style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>الشامل</th>
+                      <th data-export="omit" style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>
                     </tr>
                   </thead>
                   <tbody>
