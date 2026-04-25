@@ -979,8 +979,40 @@ table{border-collapse:collapse;width:100%}
       }
 
       const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const pdfBlob = pdf.output('blob');
+      const pdfFile = new File([pdfBlob], fname, { type: 'application/pdf' });
+
+      // Try Web Share API first — opens native share sheet (WhatsApp/Viber/Telegram/...)
+      // Available on mobile browsers and many desktop browsers.
+      const nav: any = navigator;
+      const canShareFiles = typeof nav.canShare === 'function' && nav.canShare({ files: [pdfFile] });
+      if (canShareFiles && typeof nav.share === 'function') {
+        try {
+          await nav.share({
+            files: [pdfFile],
+            title: 'بيانات المبيعات',
+            text: `تقرير المبيعات — ${activeFile?.name || ''} (${totalPages} صفحة)`,
+          });
+          // Some browsers also need the file saved locally as backup
+          return;
+        } catch (shareErr: any) {
+          // User cancelled or share unsupported for files — fall through to download
+          if (shareErr?.name !== 'AbortError') {
+            console.warn('share failed, falling back to download:', shareErr);
+          } else {
+            return; // user cancelled — don't also force a download
+          }
+        }
+      }
+
+      // Fallback: just download the file
       pdf.save(fname);
-      alert(`✅ تم تنزيل ملف PDF (${totalPages} صفحة)\nالملف: ${fname}\nأرسله عبر واتساب كـ "مستند" (Document) للحفاظ على الدقة.`);
+      alert(
+        `✅ تم تنزيل ملف PDF (${totalPages} صفحة)\n` +
+        `الملف: ${fname}\n\n` +
+        `📱 لإرساله من الموبايل: افتح واتساب → 📎 → Document → اختر الملف.\n` +
+        `💻 من الويب: اسحب الملف داخل محادثة واتساب ويب.`
+      );
     } catch (err) {
       console.error(err);
       alert('فشل إنشاء PDF: ' + (err as Error).message);
