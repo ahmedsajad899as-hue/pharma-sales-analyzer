@@ -1812,7 +1812,7 @@ table{border-collapse:collapse;width:100%}
                               const colors = { A: { bg: '#dcfce7', fg: '#16a34a', br: '#bbf7d0' }, B: { bg: '#fef9c3', fg: '#ca8a04', br: '#fde68a' }, C: { bg: '#fee2e2', fg: '#dc2626', br: '#fca5a5' } }[cat];
                               return (
                                 <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
-                                  style={{ position: 'absolute', top: 2, left: 3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: 3, fontSize: 8, fontWeight: 700, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}`, lineHeight: 1 }}>
+                                  style={{ position: 'absolute', top: 2, right: 3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: 3, fontSize: 8, fontWeight: 700, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}`, lineHeight: 1 }}>
                                   {cat}
                                 </span>
                               );
