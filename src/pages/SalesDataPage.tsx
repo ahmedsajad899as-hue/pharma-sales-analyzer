@@ -1822,7 +1822,7 @@ table{border-collapse:collapse;width:100%}
                         </th>
                         );
                       })}
-                      <th data-export="omit" style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>
+                      {!shortageOnlyMode && <th data-export="omit" style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1879,7 +1879,7 @@ table{border-collapse:collapse;width:100%}
                                 </td>
                               );
                             })}
-                            <td data-export="omit" style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>
+                            {!shortageOnlyMode && <td data-export="omit" style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>}
                           </tr>
                         );
                       })
