@@ -1723,6 +1723,7 @@ table{border-collapse:collapse;width:100%}
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 3 }}>
                       <th style={thS}>#</th>
                       {activeFile.fixedCols.map((c, i) => {
+                        if (shortageOnlyMode && c === priceCol) return null;
                         const isFilterable = c !== priceCol;
                         const activeVals = colFilters[c] ?? [];
                         const hasFilter = activeVals.length > 0;
@@ -1835,6 +1836,7 @@ table{border-collapse:collapse;width:100%}
                             onMouseLeave={e => (e.currentTarget.style.background = '')}>
                             <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
                             {activeFile.fixedCols.map((c, ci) => {
+                              if (shortageOnlyMode && c === priceCol) return null;
                               const val = row[c] ?? '';
                               const hi = itemQuery && val.toLowerCase().includes(itemQuery.toLowerCase());
                               const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
@@ -1858,7 +1860,7 @@ table{border-collapse:collapse;width:100%}
                               // Base color logic kept simple: red only for A-gaps; everything else neutral.
                               const color = aGap
                                 ? '#dc2626'
-                                : (isAbove ? '#16a34a'
+                                : (isAbove ? '#d1d5db'
                                 : (showZero ? '#dc2626'
                                 : (v > 0 ? (showValue ? '#92400e' : '#1e293b')
                                 : '#cbd5e1')));
