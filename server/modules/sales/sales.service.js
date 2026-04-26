@@ -49,7 +49,7 @@ const COLUMN_ALIASES = {
   ],
   item:       [
     'item', 'drug', 'product', 'medicine', 'brand', 'trade name', 'item name',
-    'product name', 'drug name',
+    'product name', 'drug name', 'description',
     'صنف', 'الصنف', 'مادة', 'دواء', 'منتج', 'المنتج', 'اسم المنتج',
     'اسم الدواء', 'اسم الصنف', 'الدواء', 'المادة', 'اسم العلاج', 'بند',
     'الايتم', 'ايتم', 'آيتم', 'الآيتم', 'اسم المادة', 'اسم الدواء', 'المستحضر',
@@ -63,6 +63,7 @@ const COLUMN_ALIASES = {
   totalValue: [
     'total value', 'totalvalue', 'value', 'total', 'amount',
     'sales value', 'net value', 'net amount', 'total sales', 'revenue',
+    'net sale', 'net sales', 'netsale', 'netsales',
     'قيمة المبيعات', 'إجمالي المبيعات', 'اجمالي المبيعات',
     'القيمة الإجمالية', 'قيمة الطلب', 'الإجمالي', 'إجمالي', 'اجمالي',
     'قيمة', 'القيمة', 'قيمه', 'القيمه',
@@ -200,7 +201,7 @@ export async function processUploadedFile(file, options = {}) {
     const sheetHeaders = Object.keys(rows[0]);
     const sheetColMap  = resolveColumns(sheetHeaders, columnMapping);
     console.log(`[upload] Sheet: "${sheetName}" | forceReturn=${forceReturn} | rows=${rows.length} | cols:`, sheetColMap);
-    for (const row of rows) allRawEntries.push({ raw: row, forceReturn, colMap: sheetColMap });
+    for (const row of rows) allRawEntries.push({ raw: { ...row, _sheetName: sheetName }, forceReturn, colMap: sheetColMap });
     totalRows += rows.length;
   }
 
@@ -253,7 +254,8 @@ export async function processUploadedFile(file, options = {}) {
 
     const parsed = {
       repName:    String(raw[rc.repName]    || '').trim() || 'غير محدد',
-      area:       String(raw[rc.area]       || '').trim() || 'غير محدد',
+      // Use sheet name as area when no area column is found in the row
+      area:       String(raw[rc.area]       || raw['_sheetName'] || '').trim() || 'غير محدد',
       item:       String(raw[rc.item]       || '').trim() || 'غير محدد',
       company:    (String(raw[rc.company]   || '').trim()) || undefined,
       quantity:   qty,
