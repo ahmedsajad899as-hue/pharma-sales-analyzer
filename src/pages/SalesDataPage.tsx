@@ -554,22 +554,23 @@ export default function SalesDataPage() {
   // ── Shortage Radar ─────────────────────────────────────────────
   const [showShortages, setShowShortages]         = useState(false);
   const [shortageOnlyMode, setShortageOnlyMode]   = useState(false);
+  const lsPrefix = `_u${userId ?? 'anon'}`;
   const [shortageThreshold, setShortageThreshold] = useState<number>(() => {
-    const v = parseInt(localStorage.getItem('sd_shortage_threshold') || '30', 10);
+    const v = parseInt(localStorage.getItem(`sd_shortage_threshold${lsPrefix}`) || '30', 10);
     return Number.isFinite(v) && v >= 0 ? v : 30;
   });
-  const [highlightLow, setHighlightLow] = useState<boolean>(() => localStorage.getItem('sd_highlight_low') === '1');
+  const [highlightLow, setHighlightLow] = useState<boolean>(() => localStorage.getItem(`sd_highlight_low${lsPrefix}`) === '1');
   const [shortageView, setShortageView] = useState<'by-region' | 'by-item' | 'by-warehouse' | 'by-company'>('by-region');
-  useEffect(() => { localStorage.setItem('sd_shortage_threshold', String(shortageThreshold)); }, [shortageThreshold]);
-  useEffect(() => { localStorage.setItem('sd_highlight_low', highlightLow ? '1' : '0'); }, [highlightLow]);
+  useEffect(() => { localStorage.setItem(`sd_shortage_threshold${lsPrefix}`, String(shortageThreshold)); }, [shortageThreshold]);
+  useEffect(() => { localStorage.setItem(`sd_highlight_low${lsPrefix}`, highlightLow ? '1' : '0'); }, [highlightLow]);
 
   // ── Warehouse Classification (A/B/C) ──────────────────────────
   type WarehouseCategory = 'A' | 'B' | 'C';
   type WarehouseClass = { region: string; warehouse: string; category: WarehouseCategory };
   const [warehouseClasses, setWarehouseClasses] = useState<WarehouseClass[]>(() => {
-    try { return JSON.parse(localStorage.getItem('sd_warehouse_classes') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(`sd_warehouse_classes${lsPrefix}`) || '[]'); } catch { return []; }
   });
-  useEffect(() => { localStorage.setItem('sd_warehouse_classes', JSON.stringify(warehouseClasses)); }, [warehouseClasses]);
+  useEffect(() => { localStorage.setItem(`sd_warehouse_classes${lsPrefix}`, JSON.stringify(warehouseClasses)); }, [warehouseClasses]);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyUploadMsg, setClassifyUploadMsg] = useState('');
   const classifyFileRef = useRef<HTMLInputElement>(null);
