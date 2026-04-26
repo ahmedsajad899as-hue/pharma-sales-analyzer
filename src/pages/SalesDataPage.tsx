@@ -1061,10 +1061,28 @@ table{border-collapse:collapse;width:100%}
   }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol, regionFilter]);
 
   // Unique values for the currently-open filter column
+  // Cross-filtered: applies all OTHER active filters so choices stay relevant
   const colUniqueVals = useMemo(() => {
     if (!activeFile || !openFilterCol) return [];
-    return [...new Set(activeFile.rows.map(r => String(r[openFilterCol] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [activeFile, openFilterCol]);
+    let rows = activeFile.rows;
+    // apply region filter
+    if (regionFilter !== 'all') {
+      const hasTags = rows.some(r => r['_regions'] || r['_sourceFile']);
+      if (hasTags) rows = rows.filter(row => {
+        if (row['_regions'])    return row['_regions'].split(',').includes(regionFilter);
+        if (row['_sourceFile']) return row['_sourceFile'] === regionFilter;
+        return true;
+      });
+    }
+    // apply company filter (single-select bar)
+    if (companyFilter !== 'all' && companyCol) rows = rows.filter(row => String(row[companyCol] ?? '').trim() === companyFilter);
+    // apply all colFilters EXCEPT the one being opened (cross-filter)
+    Object.entries(colFilters).forEach(([col, vals]) => {
+      if (col !== openFilterCol && vals.length > 0)
+        rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
+    });
+    return [...new Set(rows.map(r => String(r[openFilterCol] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [activeFile, openFilterCol, regionFilter, companyFilter, companyCol, colFilters]);
 
   // Reset column filters when switching files
   useEffect(() => { setColFilters({}); setOpenFilterCol(null); }, [activeId]);
