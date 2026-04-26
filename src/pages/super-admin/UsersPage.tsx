@@ -176,6 +176,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [itemSearch,         setItemSearch]         = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
+  const [featSection,        setFeatSection]        = useState<string>('gps');
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
@@ -620,198 +621,279 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
             </div>
           )}
-          {tab === 'features' && (
-            <div>
-              <p style={{ fontSize: 13, color: '#64748b', marginTop: 0, marginBottom: 20 }}>
-                تحكم في صلاحيات هذا المستخدم بحسب دوره. أي بند مُعطَّل لن يظهر له عند تسجيل دخوله.
-              </p>
+          {tab === 'features' && (() => {
+            // ── helpers ──────────────────────────────────────────────────────
+            const getNodeStatus = (node: FeatureNode): 'always' | 'on' | 'partial' | 'off' => {
+              const allKeys: string[] = [];
+              if (node.key) allKeys.push(node.key);
+              for (const c of node.children ?? []) { if (c.key) allKeys.push(c.key); }
+              if (allKeys.length === 0) return 'always';
+              const disabled = allKeys.filter(k => draftDisabledFeats.includes(k)).length;
+              if (disabled === 0) return 'on';
+              if (disabled === allKeys.length) return 'off';
+              return 'partial';
+            };
 
-              {/* ── GPS Constraint Card ───────────────────────────────── */}
-              <div style={{
-                borderRadius: 14, border: `2px solid ${draftRequireGps ? '#f97316' : '#e2e8f0'}`,
-                background: draftRequireGps ? '#fff7ed' : '#f8fafc',
-                padding: '14px 18px', marginBottom: 20,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 28 }}>📍</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>إلزام تفعيل الموقع الجغرافي</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                      {draftRequireGps
-                        ? '🔴 مفعّل — المستخدم لا يستطيع إرسال أي تقرير بدون GPS'
-                        : '🟢 معطّل — يُظهر تحذير الموقع لكن يسمح بالإرسال بدونه'}
-                    </div>
-                  </div>
-                </div>
-                {/* Toggle */}
-                <label style={{ position: 'relative', display: 'inline-block', width: 52, height: 28, cursor: 'pointer', flexShrink: 0 }}>
-                  <input type="checkbox" checked={draftRequireGps}
-                    onChange={e => setDraftRequireGps(e.target.checked)}
+            const MiniToggle = ({ fKey, size = 'md' }: { fKey: string; size?: 'sm' | 'md' | 'lg' }) => {
+              const off = draftDisabledFeats.includes(fKey);
+              const dims = size === 'lg' ? { w: 56, h: 30, ball: 22 } : size === 'sm' ? { w: 38, h: 22, ball: 16 } : { w: 46, h: 26, ball: 20 };
+              return (
+                <label style={{ position: 'relative', display: 'inline-block', width: dims.w, height: dims.h, cursor: 'pointer', flexShrink: 0 }}>
+                  <input type="checkbox" checked={!off}
+                    onChange={e => {
+                      if (e.target.checked) setDraftDisabledFeats(p => p.filter(k => k !== fKey));
+                      else setDraftDisabledFeats(p => [...p, fKey]);
+                    }}
                     style={{ opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ position: 'absolute', inset: 0, background: draftRequireGps ? '#f97316' : '#e2e8f0', borderRadius: 28, transition: 'background 0.2s' }} />
-                  <span style={{ position: 'absolute', top: 4, left: draftRequireGps ? 28 : 4, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                  <span style={{ position: 'absolute', inset: 0, background: off ? '#e2e8f0' : '#22c55e', borderRadius: dims.h, transition: 'background 0.2s' }} />
+                  <span style={{ position: 'absolute', top: (dims.h - dims.ball) / 2, left: off ? (dims.h - dims.ball) / 2 : dims.w - dims.ball - (dims.h - dims.ball) / 2, width: dims.ball, height: dims.ball, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
                 </label>
-              </div>
+              );
+            };
 
-              {/* ── Doctor Search Filter Card ─────────────────────── */}
-              <div style={{
-                borderRadius: 14, border: '2px solid #6366f1',
-                background: '#eef2ff',
-                padding: '14px 18px', marginBottom: 20,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                  <span style={{ fontSize: 28 }}>🔍</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>فلتر بحث الأطباء عند تسجيل الزيارة</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>تحديد أي أطباء تظهر في البحث لهذا المستخدم</div>
+            const visibleNodes = FEATURE_TREE.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role));
+            const activeNode   = visibleNodes.find(n => (n.key || n.label) === featSection) ?? null;
+
+            const SidebarBtn = ({ id, icon, label, dot }: { id: string; icon: string; label: string; dot?: { color: string } | null }) => (
+              <button
+                onClick={() => setFeatSection(id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '10px 12px', border: 'none', cursor: 'pointer', direction: 'rtl',
+                  borderRadius: 8, marginBottom: 2,
+                  background: featSection === id ? 'rgba(99,102,241,0.18)' : 'transparent',
+                  color: featSection === id ? '#c7d2fe' : '#94a3b8',
+                  borderRight: `3px solid ${featSection === id ? '#6366f1' : 'transparent'}`,
+                  transition: 'all 0.12s',
+                }}
+              >
+                <span style={{ fontSize: 17, flexShrink: 0 }}>{icon}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, flex: 1, textAlign: 'right', lineHeight: 1.3 }}>{label}</span>
+                {dot
+                  ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
+                  : <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>
+                }
+              </button>
+            );
+
+            const DOT_COLOR: Record<string, string> = { on: '#22c55e', partial: '#f59e0b', off: '#ef4444' };
+
+            return (
+              <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0', minHeight: 520 }}>
+
+                {/* ════ LEFT SIDEBAR ════ */}
+                <div style={{ width: 210, background: '#0f172a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                  {/* Brand header */}
+                  <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', letterSpacing: 1.2, textTransform: 'uppercase' }}>صلاحيات المستخدم</div>
+                    <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>{detail.displayName || detail.username}</div>
+                  </div>
+
+                  {/* Settings section */}
+                  <div style={{ padding: '10px 8px 4px' }}>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', padding: '0 4px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>الإعدادات</div>
+                    <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
+                    <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 12px' }} />
+
+                  {/* Features section */}
+                  <div style={{ padding: '6px 8px', flex: 1, overflowY: 'auto' }}>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', padding: '0 4px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>الميزات</div>
+                    {visibleNodes.map(node => {
+                      const st = getNodeStatus(node);
+                      return (
+                        <SidebarBtn
+                          key={node.key || node.label}
+                          id={node.key || node.label}
+                          icon={node.icon}
+                          label={node.label}
+                          dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {/* Save button */}
+                  <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                    <button onClick={saveFeatures} disabled={saving}
+                      style={{ width: '100%', padding: '9px', borderRadius: 8, border: 'none', cursor: saving ? 'wait' : 'pointer', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 12 }}>
+                      {saving ? '...' : '💾 حفظ التغييرات'}
+                    </button>
                   </div>
                 </div>
 
-                {/* Filter by Area */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fff', borderRadius: 10, marginBottom: 8, border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>📍</span>
+                {/* ════ RIGHT CONTENT ════ */}
+                <div style={{ flex: 1, overflowY: 'auto', background: '#f8fafc', padding: '22px 24px' }}>
+
+                  {/* ── GPS ── */}
+                  {featSection === 'gps' && (
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فلتر حسب المناطق</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>عرض فقط أطباء المناطق المعيّنة للمستخدم</div>
-                    </div>
-                  </div>
-                  <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
-                    <input type="checkbox" checked={draftDoctorFilter.byArea}
-                      onChange={e => setDraftDoctorFilter(p => ({ ...p, byArea: e.target.checked }))}
-                      style={{ opacity: 0, width: 0, height: 0 }} />
-                    <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.byArea ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
-                    <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.byArea ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
-                  </label>
-                </div>
-
-                {/* Plan Mode */}
-                <div style={{ padding: '10px 12px', background: '#fff', borderRadius: 10, marginBottom: 8, border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 18 }}>📅</span>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فلتر البلان الشهري</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>تحديد علاقة نتائج البحث بالبلان الشهري</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 26 }}>
-                    {[
-                      { value: 'plan_only', label: 'فقط أطباء البلان', desc: 'يظهر فقط الأطباء الموجودين في البلان الشهري الحالي' },
-                      { value: 'plan_and_all', label: 'أطباء البلان + الباقي', desc: 'أطباء البلان أولاً ثم جميع الأطباء (الافتراضي)' },
-                      { value: 'all', label: 'جميع الأطباء', desc: 'عرض كل الأطباء بدون تمييز بلان' },
-                    ].map(opt => (
-                      <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: '6px 8px', borderRadius: 8, background: draftDoctorFilter.planMode === opt.value ? '#eef2ff' : 'transparent', border: draftDoctorFilter.planMode === opt.value ? '1px solid #c7d2fe' : '1px solid transparent' }}>
-                        <input type="radio" name="planMode" value={opt.value}
-                          checked={draftDoctorFilter.planMode === opt.value}
-                          onChange={() => setDraftDoctorFilter(p => ({ ...p, planMode: opt.value }))}
-                          style={{ marginTop: 2, accentColor: '#6366f1' }} />
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: 12, color: '#1e293b' }}>{opt.label}</div>
-                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{opt.desc}</div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Survey Filter */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>🏥</span>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فقط أطباء السيرفي</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>عرض فقط الأطباء المسجلين في الماستر سيرفي</div>
-                    </div>
-                  </div>
-                  <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
-                    <input type="checkbox" checked={draftDoctorFilter.surveyOnly}
-                      onChange={e => setDraftDoctorFilter(p => ({ ...p, surveyOnly: e.target.checked }))}
-                      style={{ opacity: 0, width: 0, height: 0 }} />
-                    <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.surveyOnly ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
-                    <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.surveyOnly ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
-                  </label>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {FEATURE_TREE.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role)).map(node => {
-                  const parentOff = node.key ? draftDisabledFeats.includes(node.key) : false;
-                  const kids = (node.children ?? []).filter(c => !c.onlyRoles || c.onlyRoles.includes(detail.role));
-
-                  const MiniToggle = ({ fKey, small }: { fKey: string; small?: boolean }) => {
-                    const off = draftDisabledFeats.includes(fKey);
-                    const w = small ? 40 : 48; const h = small ? 22 : 26; const ball = small ? 16 : 20;
-                    return (
-                      <label style={{ position: 'relative', display: 'inline-block', width: w, height: h, cursor: 'pointer', flexShrink: 0 }}>
-                        <input type="checkbox" checked={!off}
-                          onChange={e => {
-                            if (e.target.checked) setDraftDisabledFeats(p => p.filter(k => k !== fKey));
-                            else setDraftDisabledFeats(p => [...p, fKey]);
-                          }}
-                          style={{ opacity: 0, width: 0, height: 0 }} />
-                        <span style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: off ? '#e2e8f0' : '#22c55e', borderRadius: h, transition: 'background 0.2s' }} />
-                        <span style={{ position: 'absolute', top: 3, left: off ? 3 : w - ball - 3, width: ball, height: ball, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
-                      </label>
-                    );
-                  };
-
-                  return (
-                    <div key={node.key || node.label} style={{
-                      borderRadius: 12, overflow: 'hidden',
-                      border: `1.5px solid ${node.key ? (parentOff ? '#fecaca' : '#bbf7d0') : '#e2e8f0'}`,
-                    }}>
-                      {/* ── header row ── */}
-                      <div style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '13px 16px',
-                        background: node.key ? (parentOff ? '#fff7f7' : '#f0fdf4') : '#f8fafc',
-                        borderBottom: kids.length > 0 ? '1px solid #e2e8f0' : 'none',
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 22 }}>{node.icon}</span>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{node.label}</div>
-                            {node.desc && <div style={{ fontSize: 12, color: '#64748b' }}>{node.desc}</div>}
-                          </div>
-                        </div>
-                        {node.key
-                          ? <MiniToggle fKey={node.key} />
-                          : <span style={{ fontSize: 11, color: '#64748b', background: '#e2e8f0', borderRadius: 20, padding: '2px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>دائماً متاح</span>
-                        }
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>📍 إلزام الموقع الجغرافي</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>تحديد ما إذا كان المستخدم ملزماً بتفعيل GPS عند إرسال التقارير</div>
                       </div>
-                      {/* ── children rows ── */}
-                      {kids.map((child, idx) => {
-                        const childOff = child.key ? draftDisabledFeats.includes(child.key) : false;
-                        return (
-                          <div key={child.key || child.label} style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            padding: '10px 16px 10px 40px',
-                            background: childOff ? '#fef9f9' : '#fafffe',
-                            borderBottom: idx < kids.length - 1 ? '1px solid #f1f5f9' : 'none',
-                            opacity: parentOff ? 0.45 : 1, transition: 'opacity 0.2s',
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 13, color: '#cbd5e1', userSelect: 'none' }}>└─</span>
-                              <span style={{ fontSize: 18 }}>{child.icon}</span>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{child.label}</div>
-                                {child.desc && <div style={{ fontSize: 11, color: '#94a3b8' }}>{child.desc}</div>}
-                              </div>
+                      <div style={{
+                        borderRadius: 14, border: `2px solid ${draftRequireGps ? '#f97316' : '#e2e8f0'}`,
+                        background: draftRequireGps ? '#fff7ed' : '#fff',
+                        padding: '18px 20px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: draftRequireGps ? '#fed7aa' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>📍</div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>إلزام تفعيل الموقع الجغرافي</div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                              {draftRequireGps ? '🔴 مفعّل — لا يستطيع الإرسال بدون GPS' : '🟢 معطّل — يُظهر تحذير لكن يسمح بالإرسال'}
                             </div>
-                            {child.key && <MiniToggle fKey={child.key} small />}
                           </div>
-                        );
-                      })}
+                        </div>
+                        <label style={{ position: 'relative', display: 'inline-block', width: 56, height: 30, cursor: 'pointer', flexShrink: 0 }}>
+                          <input type="checkbox" checked={draftRequireGps} onChange={e => setDraftRequireGps(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                          <span style={{ position: 'absolute', inset: 0, background: draftRequireGps ? '#f97316' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
+                          <span style={{ position: 'absolute', top: 5, left: draftRequireGps ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                        </label>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-              <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={saveFeatures} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ المميزات'}</button>
-              </div>
-            </div>
-          )}
+                  )}
+
+                  {/* ── Doctor Filter ── */}
+                  {featSection === 'doctor_filter' && (
+                    <div>
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>🔍 فلتر بحث الأطباء</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>تحديد أي أطباء تظهر في البحث لهذا المستخدم عند تسجيل الزيارة</div>
+                      </div>
+
+                      <div style={{ borderRadius: 14, border: '2px solid #6366f1', background: '#eef2ff', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {/* Filter by Area */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 20 }}>📍</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فلتر حسب المناطق</div>
+                              <div style={{ fontSize: 11, color: '#94a3b8' }}>عرض فقط أطباء المناطق المعيّنة للمستخدم</div>
+                            </div>
+                          </div>
+                          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+                            <input type="checkbox" checked={draftDoctorFilter.byArea} onChange={e => setDraftDoctorFilter(p => ({ ...p, byArea: e.target.checked }))} style={{ opacity: 0, width: 0, height: 0 }} />
+                            <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.byArea ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
+                            <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.byArea ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                          </label>
+                        </div>
+
+                        {/* Plan Mode */}
+                        <div style={{ padding: '12px 14px', background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                            <span style={{ fontSize: 20 }}>📅</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فلتر البلان الشهري</div>
+                              <div style={{ fontSize: 11, color: '#94a3b8' }}>تحديد علاقة نتائج البحث بالبلان الشهري</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 28 }}>
+                            {[
+                              { value: 'plan_only',    label: 'فقط أطباء البلان',        desc: 'يظهر فقط الأطباء الموجودين في البلان الشهري الحالي' },
+                              { value: 'plan_and_all', label: 'أطباء البلان + الباقي',   desc: 'أطباء البلان أولاً ثم جميع الأطباء (الافتراضي)' },
+                              { value: 'all',          label: 'جميع الأطباء',            desc: 'عرض كل الأطباء بدون تمييز بلان' },
+                            ].map(opt => (
+                              <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: '6px 8px', borderRadius: 8, background: draftDoctorFilter.planMode === opt.value ? '#eef2ff' : 'transparent', border: draftDoctorFilter.planMode === opt.value ? '1px solid #c7d2fe' : '1px solid transparent' }}>
+                                <input type="radio" name="planMode" value={opt.value} checked={draftDoctorFilter.planMode === opt.value} onChange={() => setDraftDoctorFilter(p => ({ ...p, planMode: opt.value }))} style={{ marginTop: 2, accentColor: '#6366f1' }} />
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: 12, color: '#1e293b' }}>{opt.label}</div>
+                                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{opt.desc}</div>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Survey Filter */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 20 }}>🏥</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>فقط أطباء السيرفي</div>
+                              <div style={{ fontSize: 11, color: '#94a3b8' }}>عرض فقط الأطباء المسجلين في الماستر سيرفي</div>
+                            </div>
+                          </div>
+                          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+                            <input type="checkbox" checked={draftDoctorFilter.surveyOnly} onChange={e => setDraftDoctorFilter(p => ({ ...p, surveyOnly: e.target.checked }))} style={{ opacity: 0, width: 0, height: 0 }} />
+                            <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.surveyOnly ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
+                            <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.surveyOnly ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Feature Node ── */}
+                  {activeNode && (() => {
+                    const kids = (activeNode.children ?? []).filter(c => !c.onlyRoles || c.onlyRoles.includes(detail.role));
+                    const parentOff = activeNode.key ? draftDisabledFeats.includes(activeNode.key) : false;
+                    return (
+                      <div>
+                        {/* Node header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 22 }}>
+                          <div style={{ width: 58, height: 58, borderRadius: 16, background: parentOff ? '#fee2e2' : '#f0fdf4', border: `2px solid ${parentOff ? '#fca5a5' : '#bbf7d0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, flexShrink: 0 }}>
+                            {activeNode.icon}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>{activeNode.label}</div>
+                            {activeNode.desc && <div style={{ fontSize: 12, color: '#64748b' }}>{activeNode.desc}</div>}
+                            {parentOff && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: 600 }}>⛔ هذه الصفحة / الميزة معطّلة بالكامل</div>}
+                          </div>
+                          {activeNode.key
+                            ? <MiniToggle fKey={activeNode.key} size="lg" />
+                            : <span style={{ background: '#e2e8f0', color: '#475569', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700 }}>دائماً متاح</span>
+                          }
+                        </div>
+
+                        {/* Children */}
+                        {kids.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, paddingRight: 4 }}>الميزات الفرعية</div>
+                            {kids.map(child => {
+                              const childOff = child.key ? draftDisabledFeats.includes(child.key) : false;
+                              return (
+                                <div key={child.key || child.label} style={{
+                                  display: 'flex', alignItems: 'center', gap: 14,
+                                  padding: '12px 16px',
+                                  background: childOff ? '#fff5f5' : '#fff',
+                                  border: `1.5px solid ${childOff ? '#fca5a5' : '#e2e8f0'}`,
+                                  borderRadius: 12,
+                                  opacity: parentOff ? 0.45 : 1,
+                                  transition: 'all 0.15s',
+                                }}>
+                                  <div style={{ width: 40, height: 40, borderRadius: 11, background: childOff ? '#fee2e2' : '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                                    {child.icon}
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{child.label}</div>
+                                    {child.desc && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{child.desc}</div>}
+                                  </div>
+                                  {child.key && <MiniToggle fKey={child.key} size="sm" />}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {kids.length === 0 && (
+                          <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '48px 0', background: '#fff', borderRadius: 12, border: '1.5px solid #e2e8f0' }}>
+                            لا توجد ميزات فرعية — يمكن تفعيل / تعطيل هذه الميزة من الزر أعلاه
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                </div>{/* end content */}
+              </div>{/* end two-col */}
+            );
+          })()}
         </div>
 
         {form && (
