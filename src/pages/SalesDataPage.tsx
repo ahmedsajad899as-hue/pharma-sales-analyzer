@@ -554,23 +554,31 @@ export default function SalesDataPage() {
   // ── Shortage Radar ─────────────────────────────────────────────
   const [showShortages, setShowShortages]         = useState(false);
   const [shortageOnlyMode, setShortageOnlyMode]   = useState(false);
-  const lsPrefix = `_u${userId ?? 'anon'}`;
-  const [shortageThreshold, setShortageThreshold] = useState<number>(() => {
-    const v = parseInt(localStorage.getItem(`sd_shortage_threshold${lsPrefix}`) || '30', 10);
-    return Number.isFinite(v) && v >= 0 ? v : 30;
-  });
-  const [highlightLow, setHighlightLow] = useState<boolean>(() => localStorage.getItem(`sd_highlight_low${lsPrefix}`) === '1');
+  // lsPrefix is only meaningful once userId is known (auth is async — userId is null on first render)
+  const lsPrefix = userId ? `_u${userId}` : null;
+  const [shortageThreshold, setShortageThreshold] = useState<number>(30);
+  const [highlightLow, setHighlightLow] = useState<boolean>(false);
   const [shortageView, setShortageView] = useState<'by-region' | 'by-item' | 'by-warehouse' | 'by-company'>('by-region');
-  useEffect(() => { localStorage.setItem(`sd_shortage_threshold${lsPrefix}`, String(shortageThreshold)); }, [shortageThreshold]);
-  useEffect(() => { localStorage.setItem(`sd_highlight_low${lsPrefix}`, highlightLow ? '1' : '0'); }, [highlightLow]);
 
   // ── Warehouse Classification (A/B/C) ──────────────────────────
   type WarehouseCategory = 'A' | 'B' | 'C';
   type WarehouseClass = { region: string; warehouse: string; category: WarehouseCategory };
-  const [warehouseClasses, setWarehouseClasses] = useState<WarehouseClass[]>(() => {
-    try { return JSON.parse(localStorage.getItem(`sd_warehouse_classes${lsPrefix}`) || '[]'); } catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem(`sd_warehouse_classes${lsPrefix}`, JSON.stringify(warehouseClasses)); }, [warehouseClasses]);
+  const [warehouseClasses, setWarehouseClasses] = useState<WarehouseClass[]>([]);
+
+  // Load per-user settings from localStorage once userId is known
+  useEffect(() => {
+    if (!lsPrefix) return;
+    const v = parseInt(localStorage.getItem(`sd_shortage_threshold${lsPrefix}`) || '30', 10);
+    setShortageThreshold(Number.isFinite(v) && v >= 0 ? v : 30);
+    setHighlightLow(localStorage.getItem(`sd_highlight_low${lsPrefix}`) === '1');
+    try { setWarehouseClasses(JSON.parse(localStorage.getItem(`sd_warehouse_classes${lsPrefix}`) || '[]')); }
+    catch { setWarehouseClasses([]); }
+  }, [lsPrefix]);
+
+  // Save per-user settings — guard against saving before userId is known
+  useEffect(() => { if (lsPrefix) localStorage.setItem(`sd_shortage_threshold${lsPrefix}`, String(shortageThreshold)); }, [shortageThreshold]);
+  useEffect(() => { if (lsPrefix) localStorage.setItem(`sd_highlight_low${lsPrefix}`, highlightLow ? '1' : '0'); }, [highlightLow]);
+  useEffect(() => { if (lsPrefix) localStorage.setItem(`sd_warehouse_classes${lsPrefix}`, JSON.stringify(warehouseClasses)); }, [warehouseClasses]);
   const [showClassifyModal, setShowClassifyModal] = useState(false);
   const [classifyUploadMsg, setClassifyUploadMsg] = useState('');
   const classifyFileRef = useRef<HTMLInputElement>(null);
