@@ -890,8 +890,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     );
                   })()}
 
-                </div>{/* end content */}
-              </div>{/* end two-col */}
+                </div>
+              </div>
             );
           })()}
         </div>
