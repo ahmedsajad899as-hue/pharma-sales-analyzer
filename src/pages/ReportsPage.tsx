@@ -1643,8 +1643,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const addTag = (name: string, type: 'item' | 'area', keepOpen: boolean) => {
                 if (alreadySelected.has(type + name)) return;
                 setOverallSelectedTags(prev => [...prev, { name, type }]);
-                setOverallSearch('');
-                if (!keepOpen) setOverallSuggOpen(false);
+                if (!keepOpen) {
+                  setOverallSearch('');
+                  setOverallSuggOpen(false);
+                }
+                // keepOpen=true → don't clear search, don't close dropdown
               };
 
               // Build inline suggestion list from overallSearch
