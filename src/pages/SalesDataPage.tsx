@@ -1743,7 +1743,7 @@ table{border-collapse:collapse;width:100%}
               <div ref={tableContainerRef} style={{ overflow: 'auto', height: 'calc(100vh - 60px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 3 }}>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                       <th style={thS}>#</th>
                       {activeFile.fixedCols.map((c, i) => {
                         if (shortageOnlyMode && c === priceCol) return null;
