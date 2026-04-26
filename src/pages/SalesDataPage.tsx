@@ -233,6 +233,127 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
   }
 }
 
+// ── Accounting number helper: handles "(9.00)" → -9  ─────────────────────────
+function toNumAcc(v: unknown): number {
+  const s = String(v ?? '').trim().replace(/,/g, '');
+  if (/^\([\d.]+\)$/.test(s)) return -parseFloat(s.slice(1, -1));
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+// ── Distributor Sales Parser ──────────────────────────────────────────────────
+// Format:  multiple sheets = governorates/cities
+//          row 0 = headers: [company-code | Description | الكمية | الكمية المجانية | Total Qty | Net Sale]
+//          "section header" rows = rep name or area name — col A is EMPTY
+//          data rows = col A has company name, col B has item, cols C-F are numbers
+function parseDistributorSales(buffer: ArrayBuffer, filename: string): SalesFile | 'NO' | string {
+  try {
+    const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+    if (wb.SheetNames.length < 2) return 'NO';
+
+    // Detect format from first sheet
+    const firstRaw = XLSX.utils.sheet_to_json<unknown[]>(
+      wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }
+    );
+    if (firstRaw.length < 3) return 'NO';
+
+    // Find the header row: must have a "description/item" col AND a qty/net-sale col
+    let hRowIdx = -1;
+    let companyColIdx = 0;
+    let itemColIdx    = -1;
+    let totalQtyColIdx = -1;
+    let netSaleColIdx  = -1;
+
+    for (let ri = 0; ri < Math.min(5, firstRaw.length); ri++) {
+      const row = (firstRaw[ri] as unknown[]).map(v => String(v ?? '').trim().toLowerCase());
+      const hasDesc = row.some(v =>
+        v === 'description' || v.includes('المادة') || v.includes('الايتم') || v === 'item'
+      );
+      const hasQty  = row.some(v => v === 'الكمية' || v === 'qty' || v === 'quantity');
+      const hasNet  = row.some(v => v.includes('net') || v.includes('صافي') || v.includes('مبيع'));
+      if (hasDesc && (hasQty || hasNet)) {
+        hRowIdx = ri;
+        row.forEach((v, ci) => {
+          if (ci === 0) companyColIdx = ci;
+          if (v === 'description' || v.includes('المادة') || v.includes('الايتم') || v === 'item') itemColIdx = ci;
+          if (v === 'total qty' || (v.includes('total') && v.includes('qty')) || v === 'مجموع الكمية') totalQtyColIdx = ci;
+          if (v === 'الكمية' || v === 'qty') { if (totalQtyColIdx < 0) totalQtyColIdx = ci; }
+          if (v.includes('net') || v.includes('صافي') || v.includes('مبيع')) netSaleColIdx = ci;
+        });
+        break;
+      }
+    }
+
+    if (hRowIdx < 0 || itemColIdx < 0) return 'NO';
+    // Must have at least one value column
+    if (totalQtyColIdx < 0 && netSaleColIdx < 0) return 'NO';
+    // Use Net Sale when available (it's the financial metric), fall back to Total Qty
+    const valueColIdx = netSaleColIdx >= 0 ? netSaleColIdx : totalQtyColIdx;
+
+    // Parse each sheet as a city
+    const rowMap = new Map<string, Record<string, string>>();
+    const areaCols: ColMeta[] = [];
+
+    for (const sheetName of wb.SheetNames) {
+      const raw = XLSX.utils.sheet_to_json<unknown[]>(
+        wb.Sheets[sheetName], { header: 1, defval: '' }
+      );
+      if (raw.length < 2) continue;
+
+      // Re-detect header row per sheet (usually same index, but be safe)
+      let shHRowIdx = hRowIdx;
+      for (let ri = 0; ri < Math.min(5, raw.length); ri++) {
+        const row = (raw[ri] as unknown[]).map(v => String(v ?? '').trim().toLowerCase());
+        if (row.some(v => v === 'description' || v.includes('المادة') || v.includes('الايتم'))
+          && row.some(v => v === 'الكمية' || v.includes('net') || v === 'qty')) {
+          shHRowIdx = ri; break;
+        }
+      }
+
+      const cityKey = `dist_${areaCols.length}`;
+      areaCols.push({ key: cityKey, label: sheetName, region: sheetName, colIdx: -1 });
+
+      for (let ri = shHRowIdx + 1; ri < raw.length; ri++) {
+        const arr = raw[ri] as unknown[];
+        const company = String(arr[companyColIdx] ?? '').trim();
+        // Rows with empty col A are rep/area section headers → skip
+        if (!company) continue;
+        const item = String(arr[itemColIdx] ?? '').trim();
+        if (!item) continue;
+        // Skip repeated header rows
+        if (company.toLowerCase().includes('description') || company.toLowerCase() === 'الكمية') continue;
+
+        const value = toNumAcc(arr[valueColIdx]);
+
+        const rowKey = `${normalMergeKey(company)}||${normalMergeKey(item)}`;
+        if (!rowMap.has(rowKey)) {
+          rowMap.set(rowKey, {
+            'الشركة': stripMergeSuffix(company),
+            'المادة': item,
+          });
+        }
+        const obj = rowMap.get(rowKey)!;
+        obj[cityKey] = String(toNumAcc(obj[cityKey] ?? '') + value);
+      }
+    }
+
+    if (rowMap.size === 0) return 'لم يتم العثور على بيانات في الملف';
+
+    return {
+      id: uid(),
+      name: filename.replace(/\.[^.]+$/, ''),
+      uploadedAt: new Date().toISOString(),
+      fixedCols: ['الشركة', 'المادة'],
+      areaCols,
+      rows: [...rowMap.values()],
+      regions: wb.SheetNames,
+    };
+  } catch (err) {
+    console.error(err);
+    return 'فشل قراءة الملف';
+  }
+}
+
 // ── Multi-sheet Stock File Parser ────────────────────────────────────────────
 // Format: file = one region, sheets = companies, row0 = title, row1 = headers
 //         (المادة in col A, warehouse names in cols B+, skip مذخر+number cols)
@@ -1118,8 +1239,9 @@ table{border-collapse:collapse;width:100%}
       const reader = new FileReader();
       reader.onload = async e => {
         const buf = e.target!.result as ArrayBuffer;
-        const multiResult = parseMultiSheetStock(buf, file.name);
-        const result = multiResult === 'NO' ? parseExcel(buf, file.name) : multiResult;
+        const r1 = parseDistributorSales(buf, file.name);
+        const r2 = r1 === 'NO' ? parseMultiSheetStock(buf, file.name) : r1;
+        const result = r2 === 'NO' ? parseExcel(buf, file.name) : r2;
         if (typeof result === 'string') {
           resolve({ ok: false, err: `${file.name}: ${result}` });
           return;
