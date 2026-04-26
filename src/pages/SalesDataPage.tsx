@@ -511,7 +511,7 @@ function buildMergedFile(selectedFiles: SalesFile[], names: string[]): SalesFile
 
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function SalesDataPage() {
-  const { user } = useAuth();
+  const { user, hasFeature } = useAuth();
   const userId = user?.id ?? null;
   const [files, setFiles]           = useState<SalesFile[]>([]);
   const [activeId, setActiveId]     = useState<string>('');
@@ -1245,10 +1245,12 @@ table{border-collapse:collapse;width:100%}
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1e293b' }}>📊 بيانات المبيعات</h1>
           <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>تحليل ملفات Excel مع البحث المتعدد — مناطق · مخازن · ايتمات</p>
         </div>
+        {hasFeature('sales_data_upload') && (
         <button onClick={openFilePicker} disabled={importing}
           style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
           ＋ استيراد Excel
         </button>
+        )}
       </div>
 
       {/* Hidden file input — supports multi-file selection */}
@@ -1298,14 +1300,16 @@ table{border-collapse:collapse;width:100%}
                       border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none', borderRight: 'none',
                       background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#7c3aed' }}>🔄</button>
                 )}
+                {hasFeature('sales_data_delete') && (
                 <button onClick={() => deleteFile(f.id)} title="حذف"
                   style={{ padding: '5px 9px', borderRadius: '0 20px 20px 0', fontSize: 11, cursor: 'pointer',
                     border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderRight: 'none',
                     background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#ef4444' }}>×</button>
+                )}
               </div>
             ))}
             {/* Merge toggle button — only when 2+ files */}
-            {files.length >= 2 && (
+            {files.length >= 2 && hasFeature('sales_data_merge') && (
               <button
                 onClick={() => { setShowMergePanel(v => !v); setMergeChecked(new Set()); setShowAddToMerge(false); }}
                 style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
@@ -1415,10 +1419,12 @@ table{border-collapse:collapse;width:100%}
           <div style={{ fontSize: 56, marginBottom: 16 }}>📊</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>لا توجد بيانات بعد</div>
           <div style={{ fontSize: 13, marginBottom: 20 }}>ارفع ملف Excel يحتوي على بيانات المبيعات</div>
+          {hasFeature('sales_data_upload') && (
           <button onClick={openFilePicker} disabled={importing}
             style={{ padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
             ＋ استيراد ملف Excel
           </button>
+          )}
           <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>يمكنك اختيار أكثر من ملف في نفس الوقت</div>
         </div>
       )}
@@ -1607,9 +1613,10 @@ table{border-collapse:collapse;width:100%}
 
           {/* Tab switcher + value toggle */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-            {([['table', '📋 الجدول'], ['analysis', '📈 التحليل']] as [string, string][]).map(([id, lbl]) => (
-              <button key={id} onClick={() => setTab(id as 'table' | 'analysis')} style={fp(tab === id)}>{lbl}</button>
+            {(['table', 'analysis'] as const).filter(id => id === 'table' || hasFeature('sales_data_analysis')).map(id => (
+              <button key={id} onClick={() => setTab(id as 'table' | 'analysis')} style={fp(tab === id)}>{id === 'table' ? '📋 الجدول' : '📈 التحليل'}</button>
             ))}
+            {hasFeature('sales_data_value') && (
             <button
               onClick={() => { setTab('table'); setShowValue(v => !v); }}
               title={showValue ? 'إخفاء القيمة المالية والعودة للكميات' : 'عرض القيمة المالية (الكمية × السعر)'}
@@ -1621,7 +1628,9 @@ table{border-collapse:collapse;width:100%}
                 boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
                 transition: 'all 0.15s',
               }}>💰 قيمة مالية{showValue ? ' ✓' : ''}</button>
+            )}
             {/* Shortage Radar button */}
+            {hasFeature('sales_data_shortage') && (
             <button
               onClick={() => setShowShortages(true)}
               title={`رادار النقص · الحد الحالي ${shortageThreshold} قطعة`}
@@ -1643,7 +1652,9 @@ table{border-collapse:collapse;width:100%}
                 }}>{shortages.totalCount}</span>
               )}
             </button>
+            )}
             {/* Warehouse Classification button */}
+            {hasFeature('sales_data_classify') && (
             <button
               onClick={() => setShowClassifyModal(true)}
               title="تصنيف المذاخر (A/B/C)"
@@ -1665,7 +1676,9 @@ table{border-collapse:collapse;width:100%}
                 }}>{warehouseClasses.length}</span>
               )}
             </button>
+            )}
             {/* Export styled table */}
+            {hasFeature('sales_data_export') && (
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setExportMenuOpen(o => !o)}
@@ -1703,6 +1716,7 @@ table{border-collapse:collapse;width:100%}
                 </>
               )}
             </div>
+            )}
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (
@@ -2116,10 +2130,12 @@ table{border-collapse:collapse;width:100%}
             <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <input ref={classifyFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleClassifyUpload(f); if (classifyFileRef.current) classifyFileRef.current.value = ''; }} />
+              {hasFeature('sales_data_classify') && (
               <button onClick={() => classifyFileRef.current?.click()}
                 style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #6366f1', background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 📥 رفع ملف Excel
               </button>
+              )}
               <button onClick={downloadClassifyTemplate}
                 style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 ⬇ تحميل نموذج

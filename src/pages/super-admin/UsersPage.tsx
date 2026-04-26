@@ -86,7 +86,22 @@ const FEATURE_TREE: FeatureNode[] = [
   { key: 'master_survey', label: 'سيرفي اوردين', icon: '🗂️', desc: 'صفحة سيرفي اوردين — الاطلاع على قوائم الأطباء والصيدليات المركزية' },
   // ── 8. تحليل مبيعات الموزعين
   { key: 'distributor_sales', label: 'تحليل مبيعات الموزعين', icon: '📦', desc: 'رفع وتحليل ملفات Excel بتنسيق امازون / فريق — شهر3 / شهر4 / اعادة الفوترة' },
-  // ── 9. قائمة المستخدمين
+  // ── 9. بيانات المبيعات (Sales Data — ستوك المخازن)
+  {
+    key: 'sales_data', label: 'بيانات المبيعات', icon: '📊',
+    desc: 'صفحة تحليل ستوكات المخازن — رفع ملفات Excel وعرض الجداول والتحليل',
+    children: [
+      { key: 'sales_data_upload',    label: 'رفع ملف / استيراد',           icon: '📥', desc: 'زر استيراد ملف Excel جديد وإضافته للقائمة'            },
+      { key: 'sales_data_delete',    label: 'حذف الملف',                    icon: '🗑️', desc: 'حذف الملف من القائمة والخادم'                          },
+      { key: 'sales_data_merge',     label: 'دمج الملفات',                  icon: '🔗', desc: 'دمج ملفين أو أكثر في ملف موحد'                         },
+      { key: 'sales_data_export',    label: 'تصدير (Excel / Word / صورة)', icon: '⬇️', desc: 'قائمة تصدير الجدول بصيغ Excel وWord والصورة'          },
+      { key: 'sales_data_shortage',  label: 'رادار النقص',                  icon: '🔴', desc: 'عرض الأصناف الناقصة أو المنعدمة في المخازن'            },
+      { key: 'sales_data_classify',  label: 'تصنيف المذاخر (A/B/C)',       icon: '🏷️', desc: 'رفع ملف تصنيف المذاخر وتفعيل ألوان A/B/C على الجدول'  },
+      { key: 'sales_data_value',     label: 'عرض القيمة المالية',           icon: '💰', desc: 'زر تبديل عرض الكميات ↔ القيم المالية'                 },
+      { key: 'sales_data_analysis',  label: 'تبويب التحليل',               icon: '📈', desc: 'تبويب التحليل البياني حسب المنطقة والمخزن'             },
+    ],
+  },
+  // ── 10. قائمة المستخدمين
   { key: 'users_list', label: 'قائمة المستخدمين',        icon: '👥', desc: 'صفحة عرض وإدارة قائمة المستخدمين'   },
   // ── 8. قائمة الطلبات (السيرفي)
   { key: 'wish_list',  label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'خاصية عرض قائمة الأطباء المستهدفين' },
