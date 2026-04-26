@@ -1639,22 +1639,74 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const browseAreas = mq ? [] : allSuggAreas.filter(n => !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const }));
               const displayResults = mq ? modalResults : [...browseAreas, ...browseItems].slice(0, 10);
 
+              // ── helpers ──
+              const addTag = (name: string, type: 'item' | 'area', keepOpen: boolean) => {
+                if (alreadySelected.has(type + name)) return;
+                setOverallSelectedTags(prev => [...prev, { name, type }]);
+                setOverallSearch('');
+                if (!keepOpen) setOverallSuggOpen(false);
+              };
+
+              // Build inline suggestion list from overallSearch
+              const sq = normaliseS(overallSearch);
+              const suggItems: { name: string; type: 'item' | 'area' }[] = !overallSearch.trim() ? [] : [
+                ...allSuggAreas.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const })),
+                ...allSuggItems.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('item' + n)).slice(0, 8).map(n => ({ name: n, type: 'item' as const })),
+              ].slice(0, 10);
+
               return (
                 <div style={{ margin: '12px 0 6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {/* Direct inline search — no modal */}
-                    <div style={{ flex: 1, maxWidth: 340, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 10, border: `1.5px solid ${overallSearch ? '#6366f1' : '#e2e8f0'}`, background: overallSearch ? '#f5f3ff' : '#f8fafc', boxShadow: overallSearch ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none' }}>
-                      <span style={{ fontSize: 14 }}>🔍</span>
-                      <input
-                        value={overallSearch}
-                        onChange={e => setOverallSearch(e.target.value)}
-                        placeholder="بحث عن مادة أو منطقة..."
-                        style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: '#1e293b', direction: 'rtl' }}
-                      />
-                      {overallSearch && (
-                        <button onClick={() => setOverallSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                    {/* Search input with suggestions */}
+                    <div style={{ flex: 1, maxWidth: 340, position: 'relative' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: overallSuggOpen && suggItems.length > 0 ? '10px 10px 0 0' : 10, border: `1.5px solid ${overallSearch ? '#6366f1' : '#e2e8f0'}`, background: overallSearch ? '#f5f3ff' : '#f8fafc', boxShadow: overallSearch ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none', transition: 'border-radius 0.1s' }}>
+                        <span style={{ fontSize: 14 }}>🔍</span>
+                        <input
+                          value={overallSearch}
+                          onChange={e => { setOverallSearch(e.target.value); setOverallSuggOpen(true); }}
+                          onFocus={() => setOverallSuggOpen(true)}
+                          onBlur={() => setTimeout(() => setOverallSuggOpen(false), 160)}
+                          placeholder="بحث عن مادة أو منطقة..."
+                          style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: '#1e293b', direction: 'rtl' }}
+                        />
+                        {overallSearch && (
+                          <button onMouseDown={e => { e.preventDefault(); setOverallSearch(''); setOverallSuggOpen(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                        )}
+                      </div>
+
+                      {/* ── Suggestions dropdown ── */}
+                      {overallSuggOpen && suggItems.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, background: '#fff', border: '1.5px solid #6366f1', borderTop: 'none', borderRadius: '0 0 10px 10px', boxShadow: '0 8px 24px rgba(99,102,241,0.12)', zIndex: 200, overflow: 'hidden' }}>
+                          {suggItems.map((s, i) => (
+                            <div key={i} style={{ display: 'flex', borderBottom: i < suggItems.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                              {/* Right half — main text — click: select + CLOSE */}
+                              <div
+                                onMouseDown={e => { e.preventDefault(); addTag(s.name, s.type, false); }}
+                                style={{ flex: 1, padding: '9px 12px', cursor: 'pointer', fontSize: 13, color: '#1e293b', direction: 'rtl', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none', transition: 'background 0.12s' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#f5f3ff')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                              >
+                                <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, background: s.type === 'area' ? '#fef9c3' : '#e0e7ff', color: s.type === 'area' ? '#854d0e' : '#3730a3', fontWeight: 700, flexShrink: 0 }}>
+                                  {s.type === 'area' ? '📍' : '💊'}
+                                </span>
+                                {s.name}
+                              </div>
+                              {/* Left half — "+" button — click: select + KEEP OPEN */}
+                              <div
+                                onMouseDown={e => { e.preventDefault(); addTag(s.name, s.type, true); }}
+                                title="إضافة واختيار آخر"
+                                style={{ width: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRight: '1px solid #e0e7ff', color: '#6366f1', fontSize: 18, fontWeight: 700, flexShrink: 0, userSelect: 'none', transition: 'background 0.12s' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#e0e7ff')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                              >
+                                +
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
+
                     <button
                       onClick={handleOverallPreview}
                       title="معاينة وتصدير التحليلات إلى Excel"
@@ -1662,6 +1714,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       📊 تصدير
                     </button>
                   </div>
+
+                  {/* Selected tags */}
+                  {overallSelectedTags.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {overallSelectedTags.map((tag, i) => (
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: tag.type === 'area' ? '#fef9c3' : '#e0e7ff', color: tag.type === 'area' ? '#854d0e' : '#3730a3', border: `1px solid ${tag.type === 'area' ? '#fde68a' : '#c7d2fe'}` }}>
+                          {tag.type === 'area' ? '📍' : '💊'} {tag.name}
+                          <button onMouseDown={e => { e.preventDefault(); setOverallSelectedTags(prev => prev.filter((_, j) => j !== i)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tag.type === 'area' ? '#b45309' : '#4338ca', fontSize: 14, padding: 0, lineHeight: 1, marginRight: 2 }}>×</button>
+                        </span>
+                      ))}
+                      <button onMouseDown={e => { e.preventDefault(); setOverallSelectedTags([]); }} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, cursor: 'pointer', fontSize: 11, color: '#94a3b8', padding: '3px 8px' }}>مسح الكل</button>
+                    </div>
+                  )}
                 </div>
               );
             })()}
