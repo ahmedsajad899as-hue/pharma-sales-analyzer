@@ -1740,7 +1740,7 @@ table{border-collapse:collapse;width:100%}
                 )}
               </div>
 
-              <div ref={tableContainerRef} style={{ overflow: 'auto', height: 'calc(100vh - 60px)', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
+              <div ref={tableContainerRef} style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
