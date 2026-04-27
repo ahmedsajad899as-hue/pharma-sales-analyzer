@@ -1209,27 +1209,7 @@ table{border-collapse:collapse;width:100%}
   // Reset column filters when switching files
   useEffect(() => { setColFilters({}); setOpenFilterCol(null); setOpenItemFilter(false); }, [activeId]);
 
-  // Close col-filter dropdown on outside click
-  useEffect(() => {
-    if (!openFilterCol) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-col-filter]')) setOpenFilterCol(null);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [openFilterCol]);
-
-  // Close item filter dropdown on outside click
-  useEffect(() => {
-    if (!openItemFilter) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-item-filter]')) setOpenItemFilter(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [openItemFilter]);
+  // Backdrops handle outside-click closing (see JSX below)
 
   const totalPages = 1;
   // Sort: by total desc when showValue active, else by company → item name
@@ -1399,6 +1379,19 @@ table{border-collapse:collapse;width:100%}
 
   return (
     <div style={{ padding: '16px 14px 80px', maxWidth: 1300, margin: '0 auto', direction: 'rtl' }}>
+      {/* Backdrops — close dropdowns on outside click */}
+      {openFilterCol !== null && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 190 }}
+          onMouseDown={() => setOpenFilterCol(null)}
+        />
+      )}
+      {openItemFilter && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 190 }}
+          onMouseDown={() => setOpenItemFilter(false)}
+        />
+      )}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
