@@ -1683,8 +1683,8 @@ table{border-collapse:collapse;width:100%}
               </div>
             )}
 
-            {/* Items — collapsible, shown after company selected or when no company col */}
-            {activeFile && itemNameCol && ((!companyCol || companies.length === 0) || companyFilter !== 'all') && (() => {
+            {/* Items — always shown when file has items */}
+            {activeFile && itemNameCol && (() => {
               let sourceRows = activeFile.rows;
               if (regionFilter !== 'all') {
                 const hasTags = sourceRows.some(r => r['_regions'] || r['_sourceFile']);
