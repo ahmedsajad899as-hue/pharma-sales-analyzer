@@ -670,7 +670,7 @@ export default function SalesDataPage() {
   const [mergeChecked, setMergeChecked]     = useState<Set<string>>(new Set());
   const [showAddToMerge, setShowAddToMerge] = useState(false);
   const [addChecked, setAddChecked]         = useState<Set<string>>(new Set());
-  const [showItemPills, setShowItemPills]   = useState(false);
+  const [openItemFilter, setOpenItemFilter] = useState(false);
 
   // ── Shortage Radar ─────────────────────────────────────────────
   const [showShortages, setShowShortages]         = useState(false);
@@ -772,6 +772,7 @@ export default function SalesDataPage() {
     [showShortages,           () => setShowShortages(false)],
     [showImport,              () => { setShowImport(false); setImportErr(''); }],
     [openFilterCol !== null,  () => setOpenFilterCol(null)],
+    [openItemFilter,           () => setOpenItemFilter(false)],
     [showClassifyModal,       () => setShowClassifyModal(false)],
   ]);
   const PAGE_SIZE = 50;
@@ -1206,7 +1207,7 @@ table{border-collapse:collapse;width:100%}
   }, [activeFile, openFilterCol, regionFilter, companyFilter, companyCol, colFilters]);
 
   // Reset column filters when switching files
-  useEffect(() => { setColFilters({}); setOpenFilterCol(null); }, [activeId]);
+  useEffect(() => { setColFilters({}); setOpenFilterCol(null); setOpenItemFilter(false); }, [activeId]);
 
   // Close col-filter dropdown on outside click
   useEffect(() => {
@@ -1218,6 +1219,17 @@ table{border-collapse:collapse;width:100%}
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [openFilterCol]);
+
+  // Close item filter dropdown on outside click
+  useEffect(() => {
+    if (!openItemFilter) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-item-filter]')) setOpenItemFilter(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openItemFilter]);
 
   const totalPages = 1;
   // Sort: by total desc when showValue active, else by company → item name
@@ -1628,7 +1640,7 @@ table{border-collapse:collapse;width:100%}
                 <span style={{ fontSize: 15 }}>🔍</span>
                 <input
                   value={itemQuery}
-                  onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); setShowItemPills(true); }}
+                  onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); }}
                   placeholder="ابحث عن ايتم..."
                   style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
                 />
@@ -1683,7 +1695,7 @@ table{border-collapse:collapse;width:100%}
               </div>
             )}
 
-            {/* Items — always shown when file has items */}
+            {/* Items — dropdown multi-select */}
             {activeFile && itemNameCol && (() => {
               let sourceRows = activeFile.rows;
               if (regionFilter !== 'all') {
@@ -1701,59 +1713,100 @@ table{border-collapse:collapse;width:100%}
               )].sort((a, b) => a.localeCompare(b, 'ar'));
               const q = itemQuery.trim().toLowerCase();
               const visibleItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
-              const hasActive = selectedItems.length > 0 || !!itemQuery;
+              const hasActive = selectedItems.length > 0;
+              const allSelected = selectedItems.length === 0;
               return (
-                <div style={{ marginBottom: 4 }}>
-                  {/* Header row with toggle arrow */}
-                  <div
-                    onClick={() => setShowItemPills(v => !v)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none', marginBottom: showItemPills ? 8 : 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: hasActive ? '#6366f1' : '#64748b' }}>💊 الايتمات</div>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 18, height: 18, borderRadius: '50%',
-                        background: showItemPills ? '#ede9fe' : '#f1f5f9',
-                        border: `1.5px solid ${showItemPills ? '#8b5cf6' : '#cbd5e1'}`,
-                        color: showItemPills ? '#7c3aed' : '#64748b',
-                        fontSize: 9, fontWeight: 900,
-                        transform: showItemPills ? 'rotate(180deg)' : 'rotate(0deg)',
-                        transition: 'transform 0.2s, background 0.15s'
-                      }}>▼</span>
-                    </div>
+                <div style={{ marginBottom: 4, position: 'relative' }} data-item-filter="1">
+                  {/* Trigger button */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      onClick={() => setOpenItemFilter(v => !v)}
+                      data-item-filter="1"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
+                        borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        border: `1.5px solid ${openItemFilter ? '#8b5cf6' : hasActive ? '#a5b4fc' : '#e2e8f0'}`,
+                        background: openItemFilter ? '#ede9fe' : hasActive ? '#eef2ff' : '#f8fafc',
+                        color: openItemFilter ? '#7c3aed' : hasActive ? '#4338ca' : '#64748b',
+                        boxShadow: openItemFilter ? '0 0 0 3px rgba(139,92,246,0.12)' : 'none',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <span>💊 الايتمات</span>
+                      {hasActive
+                        ? <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{selectedItems.length}</span>
+                        : <span style={{ color: openItemFilter ? '#7c3aed' : '#94a3b8', fontSize: 10 }}>▼</span>
+                      }
+                    </button>
                     {hasActive && (
-                      <span style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>
-                        {selectedItems.length > 0 ? `(${selectedItems.length} محدد)` : '(بحث نشط)'}
-                      </span>
-                    )}
-                    {selectedItems.length > 1 && (
                       <button
-                        onClick={e => { e.stopPropagation(); setSelectedItems([]); setPage(1); }}
-                        style={{ fontSize: 11, color: '#94a3b8', background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 10px', cursor: 'pointer', marginRight: 'auto' }}
-                      >مسح الكل</button>
+                        onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }}
+                        style={{ fontSize: 11, color: '#ef4444', background: 'none', border: '1px solid #fca5a5', borderRadius: 20, padding: '2px 10px', cursor: 'pointer' }}
+                      >مسح ✕</button>
+                    )}
+                    {hasActive && (
+                      <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>✓ {filteredRows.length} صف</span>
                     )}
                   </div>
 
-                  {/* Expanded: pills only */}
-                  {showItemPills && (
-                    <>
-                      {/* pills */}
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} style={fp(selectedItems.length === 0 && !itemQuery)}>الكل</button>
-                        {visibleItems.map(name => (
-                          <button key={name}
-                            onClick={() => { setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]); setItemQuery(''); setPage(1); }}
-                            style={fp(selectedItems.includes(name))}
-                          >{name}</button>
-                        ))}
-                        {q && visibleItems.length === 0 && (
-                          <span style={{ fontSize: 12, color: '#94a3b8' }}>لا نتائج لـ "{itemQuery}"</span>
+                  {/* Dropdown panel */}
+                  {openItemFilter && (
+                    <div
+                      data-item-filter="1"
+                      style={{
+                        position: 'absolute', top: '100%', right: 0, zIndex: 200,
+                        background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 240,
+                        display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden',
+                        marginTop: 4,
+                      }}
+                    >
+                      {/* Search */}
+                      <div style={{ padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
+                        <input
+                          autoFocus
+                          value={itemQuery}
+                          onChange={e => { setItemQuery(e.target.value); setPage(1); }}
+                          placeholder="بحث في الايتمات..."
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      {/* Select all */}
+                      <div style={{ padding: '5px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', fontWeight: allSelected ? 700 : 400, color: allSelected ? '#4338ca' : '#475569' }}>
+                          <input type="checkbox" checked={allSelected} onChange={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} />
+                          الكل
+                        </label>
+                        {hasActive && (
+                          <button onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginRight: 'auto' }}>
+                            مسح الكل ✕
+                          </button>
                         )}
                       </div>
-                      {selectedItems.length > 0 && (
-                        <div style={{ fontSize: 11, color: '#10b981', marginTop: 6, fontWeight: 600 }}>✓ {filteredRows.length} صف مطابق ({selectedItems.length} ايتم)</div>
-                      )}
-                    </>
+                      {/* Items list */}
+                      <div style={{ overflowY: 'auto', maxHeight: 220 }}>
+                        {visibleItems.length === 0
+                          ? <div style={{ padding: '12px 14px', color: '#94a3b8', fontSize: 12 }}>لا توجد نتائج</div>
+                          : visibleItems.map(name => {
+                            const checked = selectedItems.includes(name);
+                            return (
+                              <label key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', cursor: 'pointer', background: checked ? '#eef2ff' : undefined, fontSize: 12 }}>
+                                <input type="checkbox" checked={checked} onChange={() => {
+                                  setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
+                                  setPage(1);
+                                }} />
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                              </label>
+                            );
+                          })
+                        }
+                      </div>
+                      {/* Apply button */}
+                      <div style={{ padding: '6px 10px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+                        <button onClick={() => setOpenItemFilter(false)} style={{ padding: '4px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>تطبيق</button>
+                      </div>
+                    </div>
                   )}
                 </div>
               );
@@ -2644,7 +2697,7 @@ table{border-collapse:collapse;width:100%}
                     const names = [...shortages.out, ...shortages.critical, ...shortages.low].map(e => e.name).filter(Boolean);
                     setSelectedItems([...new Set(names)]);
                     setItemQuery('');
-                    setShowItemPills(true);
+                    setOpenItemFilter(false);
                     setShowShortages(false);
                     setTab('table');
                     setShortageOnlyMode(true);
