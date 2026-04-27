@@ -1209,7 +1209,31 @@ table{border-collapse:collapse;width:100%}
   // Reset column filters when switching files
   useEffect(() => { setColFilters({}); setOpenFilterCol(null); setOpenItemFilter(false); }, [activeId]);
 
-  // Backdrops handle outside-click closing (see JSX below)
+  // Close col-filter dropdown on outside click
+  useEffect(() => {
+    if (!openFilterCol) return;
+    const handler = (e: MouseEvent) => {
+      const inside = e.composedPath().some(
+        el => el instanceof Element && el.hasAttribute('data-col-filter')
+      );
+      if (!inside) setOpenFilterCol(null);
+    };
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [openFilterCol]);
+
+  // Close item filter dropdown on outside click
+  useEffect(() => {
+    if (!openItemFilter) return;
+    const handler = (e: MouseEvent) => {
+      const inside = e.composedPath().some(
+        el => el instanceof Element && el.hasAttribute('data-item-filter')
+      );
+      if (!inside) setOpenItemFilter(false);
+    };
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [openItemFilter]);
 
   const totalPages = 1;
   // Sort: by total desc when showValue active, else by company → item name
@@ -1379,19 +1403,6 @@ table{border-collapse:collapse;width:100%}
 
   return (
     <div style={{ padding: '16px 14px 80px', maxWidth: 1300, margin: '0 auto', direction: 'rtl' }}>
-      {/* Backdrops — close dropdowns on outside click */}
-      {openFilterCol !== null && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 190 }}
-          onMouseDown={() => setOpenFilterCol(null)}
-        />
-      )}
-      {openItemFilter && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 190 }}
-          onMouseDown={() => setOpenItemFilter(false)}
-        />
-      )}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
@@ -1746,7 +1757,6 @@ table{border-collapse:collapse;width:100%}
                   {openItemFilter && (
                     <div
                       data-item-filter="1"
-                      onMouseDown={e => e.stopPropagation()}
                       style={{
                         position: 'absolute', top: '100%', right: 0, zIndex: 200,
                         background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
@@ -1955,7 +1965,7 @@ table{border-collapse:collapse;width:100%}
                             </div>
                             {/* Filter Dropdown */}
                             {isFilterable && openFilterCol === c && (
-                              <div data-col-filter={c} onMouseDown={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
+                              <div data-col-filter={c} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
                                 {/* Search */}
                                 <div style={{ padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
                                   <input
