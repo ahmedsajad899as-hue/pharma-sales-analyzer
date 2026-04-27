@@ -1753,6 +1753,7 @@ table{border-collapse:collapse;width:100%}
                   {openItemFilter && (
                     <div
                       data-item-filter="1"
+                      onMouseDown={e => e.stopPropagation()}
                       style={{
                         position: 'absolute', top: '100%', right: 0, zIndex: 200,
                         background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
@@ -1961,7 +1962,7 @@ table{border-collapse:collapse;width:100%}
                             </div>
                             {/* Filter Dropdown */}
                             {isFilterable && openFilterCol === c && (
-                              <div data-col-filter={c} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
+                              <div data-col-filter={c} onMouseDown={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
                                 {/* Search */}
                                 <div style={{ padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
                                   <input
