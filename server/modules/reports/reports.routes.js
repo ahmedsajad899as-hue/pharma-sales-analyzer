@@ -36,6 +36,23 @@ router.get('/overall', async (req, res) => {
         ? { uploadedFileId: parsedFileIds[0] }
         : { uploadedFileId: { in: parsedFileIds } };
 
+    console.log('[overall] userId:', userId, '| fileIds:', parsedFileIds, '| recordType:', recordType);
+
+    // Quick count without any date filter — to see if records exist at all
+    const rawCount = await prisma.sale.count({
+      where: { ...fileFilter, ...(recordType ? { recordType } : {}) },
+    });
+    const ownedCount = await prisma.sale.count({
+      where: { ...fileFilter, ...userOwnershipFilter, ...(recordType ? { recordType } : {}) },
+    });
+    console.log('[overall] rawCount (no userId filter):', rawCount, '| ownedCount (with userId filter):', ownedCount);
+
+    const fileFilter = parsedFileIds.length === 0
+      ? {}
+      : parsedFileIds.length === 1
+        ? { uploadedFileId: parsedFileIds[0] }
+        : { uploadedFileId: { in: parsedFileIds } };
+
     // If no date filter provided, auto-detect the real date range from the file
     let effectiveStartDate = startDate ? new Date(startDate) : null;
     // For endDate, extend to end-of-day to include all records on that day regardless of
