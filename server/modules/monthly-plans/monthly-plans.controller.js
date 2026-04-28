@@ -612,6 +612,48 @@ export async function suggest(req, res, next) {
       }
     }
 
+    // ── Debug counts (to diagnose why fewer doctors than expected are returned) ──
+    const [
+      dbg_totalInArea,
+      dbg_activeInArea,
+      dbg_activeCorrectUser,
+    ] = await Promise.all([
+      // 1. Total doctors in those areas (no userId / isActive filter)
+      prisma.doctor.count({
+        where: {
+          ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
+        },
+      }),
+      // 2. Active doctors in those areas (no userId filter)
+      prisma.doctor.count({
+        where: {
+          isActive: true,
+          ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
+        },
+      }),
+      // 3. Active doctors in those areas WITH correct userId
+      prisma.doctor.count({
+        where: {
+          ...doctorUserFilter,
+          isActive: true,
+          ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
+        },
+      }),
+    ]);
+
+    console.log('[suggest:debug]', {
+      target,
+      needed,
+      effectiveAreaIds,
+      doctorUserId,
+      userId,
+      dbg_totalInArea,
+      dbg_activeInArea,
+      dbg_activeCorrectUser,
+      keepDoctors: keepDoctors.length,
+      newDoctors: newDoctors.length,
+    });
+
     res.json({
       keepDoctors,
       newDoctors: [...priorityDoctors, ...newDoctors],
@@ -623,6 +665,16 @@ export async function suggest(req, res, next) {
         replace: replacedCount,
         new:     priorityDoctors.length + newDoctors.length,
         total:   keepDoctors.length + priorityDoctors.length + newDoctors.length,
+      },
+      _debug: {
+        target,
+        needed,
+        effectiveAreaCount: effectiveAreaIds.length,
+        dbg_totalInArea,
+        dbg_activeInArea,
+        dbg_activeCorrectUser,
+        doctorUserId,
+        planCreatorUserId: userId,
       },
     });
   } catch (e) { next(e); }
