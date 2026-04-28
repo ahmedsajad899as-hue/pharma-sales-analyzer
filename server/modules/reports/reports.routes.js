@@ -171,6 +171,47 @@ router.get('/overall', async (req, res) => {
     const byItem     = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
+
+    // ── Fallback company enrichment via UserCompanyAssignment ──────────────
+    // Items uploaded as "temp" items have no companyId/scientificCompanyId in DB.
+    // Match them by normalized name against the user's ScientificCompany catalogs.
+    if (userId && companyMap.size === 0) {
+      const normForMatch = (s) => String(s)
+        .toLowerCase().trim()
+        .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
+        .replace(/\u0629/g, '\u0647')
+        .replace(/\u0640/g, '')
+        .replace(/[\u064B-\u065F]/g, '')
+        .replace(/\s+/g, ' ');
+
+      const userAssignments = await prisma.userCompanyAssignment.findMany({
+        where: { userId },
+        select: { company: { select: { name: true, items: { select: { name: true } } } } },
+      });
+
+      const nameToCompany = new Map();
+      for (const a of userAssignments) {
+        for (const item of (a.company?.items ?? [])) {
+          nameToCompany.set(normForMatch(item.name), a.company.name);
+        }
+      }
+
+      if (nameToCompany.size > 0) {
+        for (const data of itemMap.values()) {
+          if (!data.companyName) {
+            const co = nameToCompany.get(normForMatch(data.itemName));
+            if (co) {
+              data.companyName = co;
+              if (!companyMap.has(co)) companyMap.set(co, { companyName: co, totalQuantity: 0, totalValue: 0 });
+              const cr = companyMap.get(co);
+              cr.totalQuantity += data.totalQuantity;
+              cr.totalValue    += data.totalValue;
+            }
+          }
+        }
+      }
+    }
+
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
     res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
