@@ -1819,7 +1819,7 @@ export default function MonthlyPlansPage() {
                     </button>
                     {showToolsMenu && (
                       <div style={{
-                        position: 'absolute', top: '110%', right: 0, zIndex: 300,
+                        position: 'absolute', top: '110%', left: 0, zIndex: 300,
                         background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
                         padding: 6, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                         direction: 'rtl',
