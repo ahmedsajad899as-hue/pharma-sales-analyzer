@@ -172,9 +172,11 @@ router.get('/overall', async (req, res) => {
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
 
-    // ── Fallback company enrichment via UserCompanyAssignment ──────────────
+    // ── Fallback company enrichment via name-matching ─────────────────────
     // Items uploaded as "temp" items have no companyId/scientificCompanyId in DB.
-    // Match them by normalized name against the user's ScientificCompany catalogs.
+    // Try to match them by name against:
+    //   1. User's Company (مدير شركة) → Company.items
+    //   2. User's ScientificCompany (مندوب علمي) → UserCompanyAssignment
     if (userId && companyMap.size === 0) {
       const normForMatch = (s) => String(s)
         .toLowerCase().trim()
@@ -184,15 +186,29 @@ router.get('/overall', async (req, res) => {
         .replace(/[\u064B-\u065F]/g, '')
         .replace(/\s+/g, ' ');
 
-      const userAssignments = await prisma.userCompanyAssignment.findMany({
-        where: { userId },
-        select: { company: { select: { name: true, items: { select: { name: true } } } } },
-      });
-
       const nameToCompany = new Map();
-      for (const a of userAssignments) {
-        for (const item of (a.company?.items ?? [])) {
-          nameToCompany.set(normForMatch(item.name), a.company.name);
+
+      // 1. Company (commercial/company-manager users)
+      const ownedCompanies = await prisma.company.findMany({
+        where: { userId },
+        select: { name: true, items: { select: { name: true } } },
+      });
+      for (const co of ownedCompanies) {
+        for (const item of (co.items ?? [])) {
+          nameToCompany.set(normForMatch(item.name), co.name);
+        }
+      }
+
+      // 2. ScientificCompany (scientific rep users)
+      if (nameToCompany.size === 0) {
+        const userAssignments = await prisma.userCompanyAssignment.findMany({
+          where: { userId },
+          select: { company: { select: { name: true, items: { select: { name: true } } } } },
+        });
+        for (const a of userAssignments) {
+          for (const item of (a.company?.items ?? [])) {
+            nameToCompany.set(normForMatch(item.name), a.company.name);
+          }
         }
       }
 
