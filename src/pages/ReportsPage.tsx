@@ -470,6 +470,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [showOverallModal, setShowOverallModal] = useState(false);
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company'>('area');
+  const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
@@ -744,7 +745,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const currStatNet    = fileCurrencyMode === 'USD' ? `صافي القيمة ($)` : t.reports.statNetVal;
 
   /* ─── Net breakdown table ─── */
-  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value' | 'both') => {
+  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value' | 'both', excludedKeys?: Set<string>, onToggleKey?: (key: string) => void) => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
     const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
@@ -755,6 +756,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
       return s.totalQty !== 0 || s.totalValue !== 0 || r.totalQty !== 0 || r.totalValue !== 0;
     });
+    // Active keys (not excluded) — used for totals
+    const activeKeys = excludedKeys ? allKeys.filter(k => !excludedKeys.has(k)) : allKeys;
     // forceMode overrides hideQtyCols
     const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : !hideQtyCols;
     const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : hideQtyCols;
@@ -807,10 +810,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const row = salesMap[key] ?? retMap[key];
               const netQty = s.totalQty - r.totalQty;
               const netVal = s.totalValue - r.totalValue;
+              const isExcluded = excludedKeys?.has(key) ?? false;
               return (
-                <tr key={key} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ ...tdMobile, color: '#94a3b8' }}>{i + 1}</td>
-                  <td style={tdNameMobile}><strong>{row.name}</strong></td>
+                <tr key={key} style={{ borderBottom: '1px solid #f1f5f9', opacity: isExcluded ? 0.35 : 1, transition: 'opacity 0.2s' }}>
+                  <td style={{ ...tdMobile, color: isExcluded ? '#ef4444' : '#94a3b8', cursor: onToggleKey ? 'pointer' : 'default', userSelect: 'none', fontWeight: isExcluded ? 700 : 400 }}
+                    onClick={() => onToggleKey?.(key)}
+                    title={isExcluded ? 'انقر لإعادة التضمين' : 'انقر للاستبعاد من الحساب'}>
+                    {isExcluded ? '✕' : i + 1}
+                  </td>
+                  <td style={{ ...tdNameMobile, textDecoration: isExcluded ? 'line-through' : 'none', color: isExcluded ? '#94a3b8' : undefined }}><strong>{row.name}</strong></td>
                   {hasRep && <td style={tdRepMobile}>{row.repName ?? '—'}</td>}
                   {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(s.totalQty)}</td>}
                   {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(s.totalValue)}</td>}
@@ -823,13 +831,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             })}
             {allKeys.length === 0 && <tr><td colSpan={colSpanEmpty} className="empty-row">{t.reports.noDataTable}</td></tr>}
             {allKeys.length > 0 && (() => {
-              const totSalesQty = sales.reduce((s, r) => s + r.totalQty, 0);
-              const totSalesVal = sales.reduce((s, r) => s + r.totalValue, 0);
-              const totRetQty   = returns.reduce((s, r) => s + r.totalQty, 0);
-              const totRetVal   = returns.reduce((s, r) => s + r.totalValue, 0);
+              const activeSales   = sales.filter(r => activeKeys.includes(rowKey(r)));
+              const activeReturns = returns.filter(r => activeKeys.includes(rowKey(r)));
+              const totSalesQty = activeSales.reduce((s, r) => s + r.totalQty, 0);
+              const totSalesVal = activeSales.reduce((s, r) => s + r.totalValue, 0);
+              const totRetQty   = activeReturns.reduce((s, r) => s + r.totalQty, 0);
+              const totRetVal   = activeReturns.reduce((s, r) => s + r.totalValue, 0);
+              const excludedCount = excludedKeys ? allKeys.filter(k => excludedKeys.has(k)).length : 0;
               return (
                 <tr style={{ background: effShowVal ? '#fffbeb' : '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
-                  <td style={tdMobile}></td><td style={{ ...tdMobile, textAlign: 'right' }}>{t.reports.totalLabel}</td>
+                  <td style={tdMobile}></td>
+                  <td style={{ ...tdMobile, textAlign: 'right' }}>
+                    {t.reports.totalLabel}
+                    {excludedCount > 0 && <span style={{ fontSize: 10, fontWeight: 400, color: '#ef4444', marginRight: 4 }}>({excludedCount} مستبعد)</span>}
+                  </td>
                   {hasRep && <td></td>}
                   {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>}
                   {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(totSalesVal)}</td>}
@@ -1795,6 +1810,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
                 <button className={`tab ${overallTab === 'company' ? 'tab--active' : ''}`} onClick={() => setOverallTab('company')}>🏢 الشركة</button>
               </div>
+              {overallExcluded.size > 0 && (
+                <button onClick={() => setOverallExcluded(new Set())} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>
+                  ↩ إعادة الكل ({overallExcluded.size})
+                </button>
+              )}
               {/* View mode toggle: qty ↔ value */}
               <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
                 style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
@@ -1802,9 +1822,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </button>
             </div>
 
-            {overallTab === 'area'    && renderNetTable(salesAreasFiltered,   retAreasFiltered,   t.reports.colArea, false, overallViewMode)}
-            {overallTab === 'item'    && renderNetTable(salesItemsFiltered,   retItemsFiltered,   t.reports.colItem, false, overallViewMode)}
-            {overallTab === 'company' && renderNetTable(salesCompanyFiltered, retCompanyFiltered, 'الشركة',          false, overallViewMode)}
+            {overallTab === 'area'    && renderNetTable(salesAreasFiltered,   retAreasFiltered,   t.reports.colArea, false, overallViewMode, overallExcluded, (k) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }))}
+            {overallTab === 'item'    && renderNetTable(salesItemsFiltered,   retItemsFiltered,   t.reports.colItem, false, overallViewMode, overallExcluded, (k) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }))}
+            {overallTab === 'company' && renderNetTable(salesCompanyFiltered, retCompanyFiltered, 'الشركة',          false, overallViewMode, overallExcluded, (k) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }))}
           </>
         );
       })()}
