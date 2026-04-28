@@ -1493,193 +1493,96 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
 
-        // Multi-tag helpers (used in tag mode)
-        const buildAreasFromTagItems = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r => tagItemNorms.some(ni => normalise(r.itemName).includes(ni)));
+        // ─── Unified tag filtering ────────────────────────────────────────────
+        // Filters byAreaItem rows where ALL active tag types match simultaneously (AND logic).
+        const filterTaggedRows = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): AreaItemRow[] => {
+          const companyItemNames = tagCompanyNorms.length > 0
+            ? new Set(byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn))).map(r => r.name))
+            : null;
+          return byAreaItem.filter(r => {
+            if (tagAreaNorms.length > 0 && !tagAreaNorms.some(na => normalise(r.areaName).includes(na))) return false;
+            if (tagItemNorms.length > 0 && !tagItemNorms.some(ni => normalise(r.itemName).includes(ni))) return false;
+            if (companyItemNames && !companyItemNames.has(r.itemName)) return false;
+            return true;
+          });
+        };
+        const aggAreas = (rows: AreaItemRow[]): BreakdownRow[] => {
           const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
+          for (const r of rows) {
             if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
             const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
-        const buildItemsFromTagAreas = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r => tagAreaNorms.some(na => normalise(r.areaName).includes(na)));
+        const aggItems = (rows: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
+          const itemInfoMap = new Map(byItem.map(r => [r.name, r]));
           const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
-            if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
+          for (const r of rows) {
+            if (!map.has(r.itemName)) {
+              const info = itemInfoMap.get(r.itemName);
+              map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0, companyName: info?.companyName });
+            }
             const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
-        // Both item+area tags → intersection from byAreaItem
-        const buildAreasFromBoth = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r =>
-            tagAreaNorms.some(na => normalise(r.areaName).includes(na)) &&
-            tagItemNorms.some(ni => normalise(r.itemName).includes(ni))
-          );
+        const aggCompanies = (rows: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
+          const itemInfoMap = new Map(byItem.map(r => [r.name, r]));
           const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
-            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          for (const r of rows) {
+            const co = itemInfoMap.get(r.itemName)?.companyName; if (!co) continue;
+            if (!map.has(co)) map.set(co, { name: co, totalQty: 0, totalValue: 0 });
+            const row = map.get(co)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
-        const buildItemsFromBoth = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r =>
-            tagAreaNorms.some(na => normalise(r.areaName).includes(na)) &&
-            tagItemNorms.some(ni => normalise(r.itemName).includes(ni))
-          );
-          const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
-            if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
-          }
-          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        // Single-text helpers (text mode only)
+        const buildItemsFromArea = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r => normalise(r.areaName).includes(q));
+          return aggItems(filtered, overallSales.byItem);
+        };
+        const buildAreasFromItem = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
+          const filtered = byAreaItem.filter(r => normalise(r.itemName).includes(q));
+          return aggAreas(filtered);
         };
 
-        // Company tag helpers
-        const getCompanyItemNames = (byItem: BreakdownRow[]) =>
-          new Set(byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn))).map(r => r.name));
-        const buildAreasFromCompany = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
-          const companyItems = getCompanyItemNames(byItem);
-          // also include areas for explicitly-tagged items
-          const filtered = byAreaItem.filter(r =>
-            companyItems.has(r.itemName) ||
-            (tagItemNorms.length > 0 && tagItemNorms.some(ni => normalise(r.itemName).includes(ni)))
-          );
-          const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
-            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
-          }
-          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-        const buildItemsFromCompany = (byItem: BreakdownRow[]): BreakdownRow[] => {
-          const fromCompanies = byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn)));
-          // also include explicitly-tagged items even if they don't belong to those companies
-          const fromItems = tagItemNorms.length > 0
-            ? byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)) && !fromCompanies.some(c => c.name === r.name))
-            : [];
-          return [...fromCompanies, ...fromItems].sort((a, b) => b.totalValue - a.totalValue);
-        };
-
-        // Company tag helpers for area/item filter modes
-        const buildCompaniesFromTagAreas = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r => tagAreaNorms.some(na => normalise(r.areaName).includes(na)));
-          const itemMap = new Map<string, { qty: number; val: number }>();
-          for (const r of filtered) {
-            if (!itemMap.has(r.itemName)) itemMap.set(r.itemName, { qty: 0, val: 0 });
-            const e = itemMap.get(r.itemName)!; e.qty += r.totalQty; e.val += r.totalValue;
-          }
-          const companyMap = new Map<string, BreakdownRow>();
-          for (const item of byItem) {
-            const co = item.companyName; if (!co) continue;
-            const totals = itemMap.get(item.name); if (!totals) continue;
-            if (!companyMap.has(co)) companyMap.set(co, { name: co, totalQty: 0, totalValue: 0 });
-            const row = companyMap.get(co)!; row.totalQty += totals.qty; row.totalValue += totals.val;
-          }
-          return [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-        const buildCompaniesFromTagItems = (byItem: BreakdownRow[]): BreakdownRow[] => {
-          const filtered = byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)));
-          const companyMap = new Map<string, BreakdownRow>();
-          for (const item of filtered) {
-            const co = item.companyName; if (!co) continue;
-            if (!companyMap.has(co)) companyMap.set(co, { name: co, totalQty: 0, totalValue: 0 });
-            const row = companyMap.get(co)!; row.totalQty += item.totalQty; row.totalValue += item.totalValue;
-          }
-          return [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-        const buildCompaniesFromBoth = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r =>
-            tagAreaNorms.some(na => normalise(r.areaName).includes(na)) &&
-            tagItemNorms.some(ni => normalise(r.itemName).includes(ni))
-          );
-          const itemMap = new Map<string, { qty: number; val: number }>();
-          for (const r of filtered) {
-            if (!itemMap.has(r.itemName)) itemMap.set(r.itemName, { qty: 0, val: 0 });
-            const e = itemMap.get(r.itemName)!; e.qty += r.totalQty; e.val += r.totalValue;
-          }
-          const companyMap = new Map<string, BreakdownRow>();
-          for (const item of byItem) {
-            const co = item.companyName; if (!co) continue;
-            const totals = itemMap.get(item.name); if (!totals) continue;
-            if (!companyMap.has(co)) companyMap.set(co, { name: co, totalQty: 0, totalValue: 0 });
-            const row = companyMap.get(co)!; row.totalQty += totals.qty; row.totalValue += totals.val;
-          }
-          return [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-
-        const bothTags = hasTags && tagItemNorms.length > 0 && tagAreaNorms.length > 0;
+        // Compute filtered rows once for each dataset
+        const salesTaggedRows = hasTags ? filterTaggedRows(overallSales.byAreaItem, overallSales.byItem) : [];
+        const retTaggedRows   = hasTags ? filterTaggedRows(overallReturns?.byAreaItem ?? [], overallReturns?.byItem ?? []) : [];
 
         // Area tab filtering
-        const salesAreasFiltered = (hasTags && tagCompanyNorms.length > 0)
-          ? buildAreasFromCompany(overallSales.byAreaItem, overallSales.byItem)
-          : bothTags
-          ? buildAreasFromBoth(overallSales.byAreaItem)
-          : hasTags && tagItemNorms.length > 0
-            ? buildAreasFromTagItems(overallSales.byAreaItem)
-            : hasTags && tagAreaNorms.length > 0
-              ? overallSales.byArea.filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
-              : (overallTab === 'area' && itemMatch && !areaMatch)
-                ? buildAreasFromItem(overallSales.byAreaItem)
-                : filterRowsByText(overallSales.byArea);
-        const retAreasFiltered = (hasTags && tagCompanyNorms.length > 0)
-          ? buildAreasFromCompany(overallReturns?.byAreaItem ?? [], overallReturns?.byItem ?? [])
-          : bothTags
-          ? buildAreasFromBoth(overallReturns?.byAreaItem ?? [])
-          : hasTags && tagItemNorms.length > 0
-            ? buildAreasFromTagItems(overallReturns?.byAreaItem ?? [])
-            : hasTags && tagAreaNorms.length > 0
-              ? (overallReturns?.byArea ?? []).filter(r => tagAreaNorms.some(na => normalise(r.name).includes(na)))
-              : (overallTab === 'area' && itemMatch && !areaMatch)
-                ? buildAreasFromItem(overallReturns?.byAreaItem ?? [])
-                : filterRowsByText(overallReturns?.byArea ?? []);
+        const salesAreasFiltered = hasTags
+          ? aggAreas(salesTaggedRows)
+          : (overallTab === 'area' && itemMatch && !areaMatch)
+            ? buildAreasFromItem(overallSales.byAreaItem)
+            : (overallTab === 'area' && companyMatch && !areaMatch)
+              ? overallSales.byArea
+              : filterRowsByText(overallSales.byArea);
+        const retAreasFiltered = hasTags
+          ? aggAreas(retTaggedRows)
+          : (overallTab === 'area' && itemMatch && !areaMatch)
+            ? buildAreasFromItem(overallReturns?.byAreaItem ?? [])
+            : filterRowsByText(overallReturns?.byArea ?? []);
 
         // Item tab filtering
-        const salesItemsFiltered = (hasTags && tagCompanyNorms.length > 0)
-          ? buildItemsFromCompany(overallSales.byItem)
-          : bothTags
-          ? buildItemsFromBoth(overallSales.byAreaItem)
-          : hasTags && tagAreaNorms.length > 0
-            ? buildItemsFromTagAreas(overallSales.byAreaItem)
-            : hasTags && tagItemNorms.length > 0
-              ? overallSales.byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
-              : (overallTab === 'item' && areaMatch && !itemMatch)
-                ? buildItemsFromArea(overallSales.byAreaItem)
-                : filterRowsByText(overallSales.byItem);
-        const retItemsFiltered = (hasTags && tagCompanyNorms.length > 0)
-          ? buildItemsFromCompany(overallReturns?.byItem ?? [])
-          : bothTags
-          ? buildItemsFromBoth(overallReturns?.byAreaItem ?? [])
-          : hasTags && tagAreaNorms.length > 0
-            ? buildItemsFromTagAreas(overallReturns?.byAreaItem ?? [])
-            : hasTags && tagItemNorms.length > 0
-              ? (overallReturns?.byItem ?? []).filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)))
-              : (overallTab === 'item' && areaMatch && !itemMatch)
-                ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
-                : filterRowsByText(overallReturns?.byItem ?? []);
+        const salesItemsFiltered = hasTags
+          ? aggItems(salesTaggedRows, overallSales.byItem)
+          : (overallTab === 'item' && areaMatch && !itemMatch)
+            ? buildItemsFromArea(overallSales.byAreaItem)
+            : filterRowsByText(overallSales.byItem);
+        const retItemsFiltered = hasTags
+          ? aggItems(retTaggedRows, overallReturns?.byItem ?? [])
+          : (overallTab === 'item' && areaMatch && !itemMatch)
+            ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
+            : filterRowsByText(overallReturns?.byItem ?? []);
 
         // Company tab filtering
-        const salesCompanyFiltered = (hasTags && tagCompanyNorms.length > 0)
-          ? overallSales.byCompany.filter(r => tagCompanyNorms.some(cn => normalise(r.name).includes(cn)))
-          : bothTags
-          ? buildCompaniesFromBoth(overallSales.byAreaItem, overallSales.byItem)
-          : hasTags && tagAreaNorms.length > 0
-            ? buildCompaniesFromTagAreas(overallSales.byAreaItem, overallSales.byItem)
-            : hasTags && tagItemNorms.length > 0
-              ? buildCompaniesFromTagItems(overallSales.byItem)
-              : filterRowsByText(overallSales.byCompany);
-        const retCompanyFiltered = (hasTags && tagCompanyNorms.length > 0)
-          ? (overallReturns?.byCompany ?? []).filter(r => tagCompanyNorms.some(cn => normalise(r.name).includes(cn)))
-          : bothTags
-          ? buildCompaniesFromBoth(overallReturns?.byAreaItem ?? [], overallReturns?.byItem ?? [])
-          : hasTags && tagAreaNorms.length > 0
-            ? buildCompaniesFromTagAreas(overallReturns?.byAreaItem ?? [], overallReturns?.byItem ?? [])
-            : hasTags && tagItemNorms.length > 0
-              ? buildCompaniesFromTagItems(overallReturns?.byItem ?? [])
-              : filterRowsByText(overallReturns?.byCompany ?? []);
+        const salesCompanyFiltered = hasTags
+          ? aggCompanies(salesTaggedRows, overallSales.byItem)
+          : filterRowsByText(overallSales.byCompany);
+        const retCompanyFiltered = hasTags
+          ? aggCompanies(retTaggedRows, overallReturns?.byItem ?? [])
+          : filterRowsByText(overallReturns?.byCompany ?? []);
 
         // ─── Cross-tab exclusion propagation ──────────────────────────────────
         // Classify each excluded key by which tab it came from
