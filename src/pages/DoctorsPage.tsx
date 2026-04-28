@@ -283,6 +283,7 @@ export default function DoctorsPage() {
   const [archiveSearch, setArchiveSearch]         = useState('');
   const [archiveAreaFilter, setArchiveAreaFilter] = useState('all');
   const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
+  const [archiveSubPopup, setArchiveSubPopup]     = useState<null | 'visited' | 'writing' | 'items'>(null);
   // Add from survey modal
   const [showAddModal, setShowAddModal]           = useState(false);
   const [surveyDoctors, setSurveyDoctors]         = useState<{ id: number; name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null }[]>([]);
@@ -318,6 +319,7 @@ export default function DoctorsPage() {
     [expandedPharma.size > 0,      () => setExpandedPharma(new Set())],
     [pharmExpandedAreas.size > 0,  () => setPharmExpandedAreas(new Set())],
     [showAddModal,                 () => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }],
+    [archiveSubPopup !== null,      () => setArchiveSubPopup(null)],
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
 
@@ -620,6 +622,24 @@ export default function DoctorsPage() {
     try {
       await fetch(`${API}/api/doctor-archive/${surveyDoctorId}`, { method: 'DELETE', headers: H() });
       loadSurveyDoctors(); // refresh survey list so removed doctor reappears
+    } catch (e) { console.error(e); loadArchive(); }
+  };
+
+  const removeAreaFromArchive = async (areaName: string, doctorIds: number[]) => {
+    if (!confirm(`حذف منطقة "${areaName}" (${doctorIds.length} طبيب) من الأرشيف؟`)) return;
+    setArchiveAreas(prev => {
+      const next = prev.filter(a => a.name !== areaName);
+      const allDocs = next.flatMap(a => a.doctors);
+      setArchiveTotal(allDocs.length);
+      setArchiveTotalVisited(allDocs.filter(d => d.isVisited).length);
+      setArchiveTotalWriting(allDocs.filter(d => d.isWriting).length);
+      return next;
+    });
+    try {
+      await Promise.all(doctorIds.map(id =>
+        fetch(`${API}/api/doctor-archive/${id}`, { method: 'DELETE', headers: H() })
+      ));
+      loadSurveyDoctors();
     } catch (e) { console.error(e); loadArchive(); }
   };
 
@@ -2331,18 +2351,43 @@ export default function DoctorsPage() {
         return (
           <div>
             {/* Stats row */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-              {[
-                { label: 'إجمالي الأطباء', value: archiveTotal,        icon: '👥', bg: '#f0f4ff', color: '#4338ca' },
-                { label: 'تمت زيارتهم',   value: archiveTotalVisited, icon: '✅', bg: '#f0fdf4', color: '#16a34a' },
-                { label: 'يكتبوله',        value: archiveTotalWriting, icon: '✏️', bg: '#fdf4ff', color: '#9333ea' },
-              ].map(s => (
-                <div key={s.label} style={{ flex: '1 1 120px', background: s.bg, borderRadius: 12, padding: '12px 16px', direction: 'rtl' }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.icon} {s.value}</div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{s.label}</div>
+            {(() => {
+              const allDocsFlat = archiveAreas.flatMap(a => a.doctors);
+              const allUniqueItems = [...new Set(allDocsFlat.filter(d => d.isWriting).flatMap(d => d.writingItems))];
+              return (
+                <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                  {/* Total */}
+                  <div style={{ flex: '1 1 100px', background: '#f0f4ff', borderRadius: 12, padding: '12px 16px', direction: 'rtl' }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#4338ca' }}>👥 {archiveTotal}</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>إجمالي الأطباء</div>
+                  </div>
+                  {/* Visited — clickable */}
+                  <div onClick={() => archiveTotalVisited > 0 && setArchiveSubPopup('visited')}
+                    style={{ flex: '1 1 100px', background: '#f0fdf4', borderRadius: 12, padding: '12px 16px', direction: 'rtl', cursor: archiveTotalVisited > 0 ? 'pointer' : 'default', border: '1.5px solid transparent', transition: 'border-color .15s' }}
+                    onMouseEnter={e => { if (archiveTotalVisited > 0) (e.currentTarget as HTMLDivElement).style.borderColor = '#16a34a'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'; }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>✅ {archiveTotalVisited}</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>تمت زيارتهم {archiveTotalVisited > 0 && <span style={{ fontSize: 10, color: '#16a34a' }}>← عرض</span>}</div>
+                  </div>
+                  {/* Writing — clickable */}
+                  <div onClick={() => archiveTotalWriting > 0 && setArchiveSubPopup('writing')}
+                    style={{ flex: '1 1 100px', background: '#fdf4ff', borderRadius: 12, padding: '12px 16px', direction: 'rtl', cursor: archiveTotalWriting > 0 ? 'pointer' : 'default', border: '1.5px solid transparent', transition: 'border-color .15s' }}
+                    onMouseEnter={e => { if (archiveTotalWriting > 0) (e.currentTarget as HTMLDivElement).style.borderColor = '#9333ea'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'; }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#9333ea' }}>✏️ {archiveTotalWriting}</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>يكتبوله {archiveTotalWriting > 0 && <span style={{ fontSize: 10, color: '#9333ea' }}>← عرض</span>}</div>
+                  </div>
+                  {/* Items — clickable */}
+                  <div onClick={() => allUniqueItems.length > 0 && setArchiveSubPopup('items')}
+                    style={{ flex: '1 1 100px', background: '#fff7ed', borderRadius: 12, padding: '12px 16px', direction: 'rtl', cursor: allUniqueItems.length > 0 ? 'pointer' : 'default', border: '1.5px solid transparent', transition: 'border-color .15s' }}
+                    onMouseEnter={e => { if (allUniqueItems.length > 0) (e.currentTarget as HTMLDivElement).style.borderColor = '#ea580c'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'; }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#ea580c' }}>💊 {allUniqueItems.length}</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>الإيتمات {allUniqueItems.length > 0 && <span style={{ fontSize: 10, color: '#ea580c' }}>← عرض</span>}</div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })()}
 
             {/* Search + filter bar */}
             <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2387,6 +2432,13 @@ export default function DoctorsPage() {
                         <span style={{ fontSize: 12, color: '#94a3b8' }}>{area.doctors.length} طبيب</span>
                         {visitedCount > 0 && <span style={{ fontSize: 11, background: '#dcfce7', color: '#16a34a', borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>✅ {visitedCount}</span>}
                         {writingCount > 0 && <span style={{ fontSize: 11, background: '#f3e8ff', color: '#9333ea', borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>✏️ {writingCount}</span>}
+                        {/* Delete area button */}
+                        <button
+                          onClick={e => { e.stopPropagation(); removeAreaFromArchive(area.name, area.doctors.map(d => d.surveyDoctorId)); }}
+                          title="حذف المنطقة كاملة من الأرشيف"
+                          style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '3px 7px', fontSize: 13, cursor: 'pointer', color: '#dc2626', flexShrink: 0, lineHeight: 1 }}>
+                          🗑
+                        </button>
                         <span style={{ color: '#94a3b8', fontSize: 13 }}>{isExpanded ? '▲' : '▼'}</span>
                       </div>
 
@@ -2497,6 +2549,98 @@ export default function DoctorsPage() {
                 })}
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* ── Archive Sub-Popups (visited / writing / items) ─── */}
+      {archiveSubPopup !== null && (() => {
+        const allDocsFlat = archiveAreas.flatMap(a => a.doctors);
+        let title = '';
+        let body: React.ReactNode = null;
+
+        if (archiveSubPopup === 'visited') {
+          title = '✅ الأطباء الذين تمت زيارتهم';
+          const visitedDocs = allDocsFlat.filter(d => d.isVisited);
+          body = visitedDocs.length === 0
+            ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا يوجد</div>
+            : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {visitedDocs.map(d => (
+                  <div key={d.surveyDoctorId} style={{ padding: '9px 14px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', direction: 'rtl' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>{d.name}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
+                      {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
+                      {d.areaName  && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {d.areaName}</span>}
+                      {d.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {d.pharmacyName}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>;
+        } else if (archiveSubPopup === 'writing') {
+          title = '✏️ الأطباء الذين يكتبوله';
+          const writingDocs = allDocsFlat.filter(d => d.isWriting);
+          body = writingDocs.length === 0
+            ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا يوجد</div>
+            : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {writingDocs.map(d => (
+                  <div key={d.surveyDoctorId} style={{ padding: '9px 14px', borderRadius: 10, background: '#fdf4ff', border: '1px solid #e9d5ff', direction: 'rtl' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#7e22ce' }}>{d.name}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
+                      {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
+                      {d.areaName  && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {d.areaName}</span>}
+                      {d.writingItems.length > 0 && (
+                        <span style={{ fontSize: 11, color: '#9333ea' }}>
+                          💊 {d.writingItems.join(' · ')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>;
+        } else if (archiveSubPopup === 'items') {
+          title = '💊 الإيتمات — من يكتب كل إيتم';
+          const writingDocs = allDocsFlat.filter(d => d.isWriting && d.writingItems.length > 0);
+          // Build map: item → doctors
+          const itemMap = new Map<string, typeof writingDocs>();
+          writingDocs.forEach(d => {
+            d.writingItems.forEach(item => {
+              if (!itemMap.has(item)) itemMap.set(item, []);
+              itemMap.get(item)!.push(d);
+            });
+          });
+          const sortedItems = [...itemMap.entries()].sort((a, b) => b[1].length - a[1].length);
+          body = sortedItems.length === 0
+            ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا توجد إيتمات مسجلة</div>
+            : <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {sortedItems.map(([item, docs]) => (
+                  <div key={item} style={{ borderRadius: 10, border: '1px solid #fed7aa', background: '#fff7ed', overflow: 'hidden' }}>
+                    <div style={{ padding: '8px 14px', background: '#ffedd5', direction: 'rtl', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#c2410c', flex: 1 }}>💊 {item}</span>
+                      <span style={{ fontSize: 11, background: '#fed7aa', color: '#9a3412', borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>{docs.length} طبيب</span>
+                    </div>
+                    <div style={{ padding: '8px 14px', direction: 'rtl', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {docs.map(d => (
+                        <div key={d.surveyDoctorId} style={{ fontSize: 12, color: '#1e293b', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600 }}>{d.name}</span>
+                          {d.areaName && <span style={{ color: '#6366f1' }}>📍 {d.areaName}</span>}
+                          {d.specialty && <span style={{ color: '#64748b' }}>· {d.specialty}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>;
+        }
+
+        return (
+          <div style={overlayStyle} onClick={() => setArchiveSubPopup(null)}>
+            <div style={{ ...modalStyle, maxWidth: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, direction: 'rtl' }}>{title}</h2>
+                <button onClick={() => setArchiveSubPopup(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b' }}>✕</button>
+              </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>{body}</div>
+            </div>
           </div>
         );
       })()}
