@@ -111,7 +111,7 @@ router.get('/overall', async (req, res) => {
         totalValue: true,
         saleDate:   true,
         area: { select: { id: true, name: true } },
-        item: { select: { id: true, name: true, company: { select: { id: true, name: true } } } },
+        item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
       },
     });
 
@@ -139,7 +139,7 @@ router.get('/overall', async (req, res) => {
 
       if (s.item) {
         const key = s.item.id;
-        const companyName = s.item.company?.name ?? null;
+        const companyName = s.item.company?.name ?? s.item.scientificCompany?.name ?? null;
         if (!itemMap.has(key)) itemMap.set(key, { itemName: s.item.name, companyName, totalQuantity: 0, totalValue: 0 });
         const r = itemMap.get(key);
         r.totalQuantity += qty;
