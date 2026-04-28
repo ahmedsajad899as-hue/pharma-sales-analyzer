@@ -114,12 +114,13 @@ export default function DoctorsPage() {
   const showDoctorsList     = hasFeature('doctors_list_tab');
   const showMyVisits        = hasFeature('my_visits_tab');
   const showPharmacies      = hasFeature('pharmacies_tab');
+  const showArchiveTab      = hasFeature('archive_tab');
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
   // ── Tab ──────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits'>(() => {
+  const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'>(() => {
     const saved = localStorage.getItem('doctors_active_tab');
-    return (saved && ['list','visits','pharmacies','myvisits'].includes(saved)) ? saved as any : 'visits';
+    return (saved && ['list','visits','pharmacies','myvisits','archive'].includes(saved)) ? saved as any : 'visits';
   });
   useEffect(() => { localStorage.setItem('doctors_active_tab', activeTab); }, [activeTab]);
 
@@ -130,13 +131,14 @@ export default function DoctorsPage() {
       list:        showDoctorsList,
       myvisits:    isCommercialRep && showMyVisits,
       pharmacies:  isCommercialRep && showPharmacies,
+      archive:     showArchiveTab,
     };
     if (!allowed[activeTab]) {
-      const fallback = (['visits', 'list', 'myvisits', 'pharmacies'] as const).find(t => allowed[t]);
+      const fallback = (['visits', 'list', 'archive', 'myvisits', 'pharmacies'] as const).find(t => allowed[t]);
       if (fallback) setActiveTab(fallback);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showVisitAnalysis, showDoctorsList, showMyVisits, showPharmacies]);
+  }, [showVisitAnalysis, showDoctorsList, showMyVisits, showPharmacies, showArchiveTab]);
 
   // ── Doctors list ─────────────────────────────────────────────
   const [doctors, setDoctors]   = useState<Doctor[]>([]);
@@ -266,6 +268,35 @@ export default function DoctorsPage() {
   const writingCardRef = useRef<HTMLDivElement>(null);
   const visitedCardRef = useRef<HTMLDivElement>(null);
 
+  // ── Archive tab state ────────────────────────────────────────
+  interface ArchiveDoctor {
+    entryId: number; surveyDoctorId: number;
+    name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null;
+    isVisited: boolean; isWriting: boolean; writingItems: string[]; notes: string | null;
+  }
+  interface ArchiveArea { name: string; doctors: ArchiveDoctor[]; }
+  const [archiveAreas, setArchiveAreas]           = useState<ArchiveArea[]>([]);
+  const [archiveLoading, setArchiveLoading]       = useState(false);
+  const [archiveTotal, setArchiveTotal]           = useState(0);
+  const [archiveTotalVisited, setArchiveTotalVisited] = useState(0);
+  const [archiveTotalWriting, setArchiveTotalWriting] = useState(0);
+  const [archiveSearch, setArchiveSearch]         = useState('');
+  const [archiveAreaFilter, setArchiveAreaFilter] = useState('all');
+  const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
+  // Add from survey modal
+  const [showAddModal, setShowAddModal]           = useState(false);
+  const [surveyDoctors, setSurveyDoctors]         = useState<{ id: number; name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null }[]>([]);
+  const [surveyDocLoading, setSurveyDocLoading]   = useState(false);
+  const [surveyDocSearch, setSurveyDocSearch]     = useState('');
+  const [surveyDocAreaFilter, setSurveyDocAreaFilter] = useState('all');
+  const [addingIds, setAddingIds]                 = useState<Set<number>>(new Set());
+  // Inline item input per doctor
+  const [itemInputId, setItemInputId]             = useState<number | null>(null);
+  const [itemInputVal, setItemInputVal]           = useState('');
+  // Inline notes edit
+  const [notesEditId, setNotesEditId]             = useState<number | null>(null);
+  const [notesEditVal, setNotesEditVal]           = useState('');
+
   // Back button: close open modals/panels in priority order
   useBackHandler([
     [modal !== null,               () => setModal(null)],
@@ -284,6 +315,8 @@ export default function DoctorsPage() {
     [expandedVisits.size > 0,      () => setExpandedVisits(new Set())],
     [expandedPharma.size > 0,      () => setExpandedPharma(new Set())],
     [pharmExpandedAreas.size > 0,  () => setPharmExpandedAreas(new Set())],
+    [showAddModal,                 () => setShowAddModal(false)],
+    [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
 
   const toggleWish = (id: number, name?: string) => {
@@ -496,6 +529,84 @@ export default function DoctorsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, isCommercialRep]);
 
+  // ── Archive loaders ──────────────────────────────────────────
+  const loadArchive = useCallback(async () => {
+    setArchiveLoading(true);
+    try {
+      const r = await fetch(`${API}/api/doctor-archive`, { headers: H() });
+      const j = await r.json();
+      if (j.success) {
+        setArchiveAreas(j.areas ?? []);
+        setArchiveTotal(j.total ?? 0);
+        setArchiveTotalVisited(j.totalVisited ?? 0);
+        setArchiveTotalWriting(j.totalWriting ?? 0);
+      }
+    } catch (e) { console.error(e); }
+    finally { setArchiveLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const loadSurveyDoctors = useCallback(async () => {
+    setSurveyDocLoading(true);
+    try {
+      const r = await fetch(`${API}/api/doctor-archive/survey-doctors`, { headers: H() });
+      const j = await r.json();
+      setSurveyDoctors(j.success ? (j.doctors ?? []) : []);
+    } catch (e) { console.error(e); }
+    finally { setSurveyDocLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const addToArchive = async (surveyDoctorId: number) => {
+    setAddingIds(prev => new Set(prev).add(surveyDoctorId));
+    try {
+      const r = await fetch(`${API}/api/doctor-archive/${surveyDoctorId}`, { method: 'POST', headers: H() });
+      const j = await r.json();
+      if (j.success) {
+        setSurveyDoctors(prev => prev.filter(d => d.id !== surveyDoctorId));
+        loadArchive();
+      }
+    } catch (e) { console.error(e); }
+    finally { setAddingIds(prev => { const s = new Set(prev); s.delete(surveyDoctorId); return s; }); }
+  };
+
+  const patchArchive = async (surveyDoctorId: number, patch: Record<string, unknown>) => {
+    // Optimistic update on archiveAreas
+    setArchiveAreas(prev => prev.map(area => ({
+      ...area,
+      doctors: area.doctors.map(d => d.surveyDoctorId === surveyDoctorId ? { ...d, ...patch } : d),
+    })));
+    // Recalculate stats optimistically
+    setArchiveAreas(areas => {
+      const allDocs = areas.flatMap(a => a.doctors);
+      setArchiveTotalVisited(allDocs.filter(d => d.isVisited).length);
+      setArchiveTotalWriting(allDocs.filter(d => d.isWriting).length);
+      return areas;
+    });
+    try {
+      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}`, {
+        method: 'PATCH', headers: H(), body: JSON.stringify(patch),
+      });
+    } catch (e) { console.error(e); loadArchive(); }
+  };
+
+  const removeFromArchive = async (surveyDoctorId: number) => {
+    if (!confirm('إزالة هذا الطبيب من الأرشيف؟')) return;
+    setArchiveAreas(prev => {
+      const next = prev.map(area => ({ ...area, doctors: area.doctors.filter(d => d.surveyDoctorId !== surveyDoctorId) }))
+        .filter(area => area.doctors.length > 0);
+      const allDocs = next.flatMap(a => a.doctors);
+      setArchiveTotal(allDocs.length);
+      setArchiveTotalVisited(allDocs.filter(d => d.isVisited).length);
+      setArchiveTotalWriting(allDocs.filter(d => d.isWriting).length);
+      return next;
+    });
+    try {
+      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}`, { method: 'DELETE', headers: H() });
+      loadSurveyDoctors(); // refresh survey list so removed doctor reappears
+    } catch (e) { console.error(e); loadArchive(); }
+  };
+
   const openAddPharm = () => {
     setPharmEditTarget(null);
     setPharmFName(''); setPharmFOwner(''); setPharmFPhone(''); setPharmFAddress(''); setPharmFAreaName('');
@@ -555,6 +666,16 @@ export default function DoctorsPage() {
   useEffect(() => {
     if (activeTab === 'pharmacies' && !surveyPharmLoaded) loadSurveyPharmacies();
   }, [activeTab, surveyPharmLoaded, loadSurveyPharmacies]);
+
+  // Load archive when tab opens
+  useEffect(() => {
+    if (activeTab === 'archive') { loadArchive(); }
+  }, [activeTab, loadArchive]);
+
+  // Load survey doctors when add modal opens
+  useEffect(() => {
+    if (showAddModal) { loadSurveyDoctors(); }
+  }, [showAddModal, loadSurveyDoctors]);
   useEffect(() => {
     if (!showCoveragePopup) return;
     const handler = (e: MouseEvent) => {
@@ -729,19 +850,26 @@ export default function DoctorsPage() {
             {surveyPharmLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
         )}
+        {activeTab === 'archive' && showArchiveTab && (
+          <button onClick={() => setShowAddModal(true)}
+            style={{ ...btnStyle('#8b5cf6') }}>
+            ＋ إضافة من السيرفي
+          </button>
+        )}
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0, overflowX: 'auto' }}>
         {([
           ...(showVisitAnalysis                    ? [['visits',      '📍 تحليل الزيارات']]      : []),
           ...(showDoctorsList                       ? [['list',        '📋 قائمة الأطباء']]        : []),
+          ...(showArchiveTab                        ? [['archive',     '📚 أرشيف السيرفي']]        : []),
           ...(isCommercialRep && showMyVisits       ? [['myvisits',    '📝 زياراتي']]              : []),
           ...(isCommercialRep && showPharmacies     ? [['pharmacies',  '🏪 قائمة الصيدليات']]     : []),
-        ] as ['list' | 'visits' | 'pharmacies' | 'myvisits', string][]).map(([tab, label]) => (
+        ] as ['list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive', string][]).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
-            padding: '8px 18px', fontSize: 14, fontWeight: 600,
+            padding: '8px 18px', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap',
             color: activeTab === tab ? '#6366f1' : '#64748b',
             borderBottom: activeTab === tab ? '2px solid #6366f1' : '2px solid transparent',
             marginBottom: -2, transition: 'all 0.15s',
@@ -2162,6 +2290,262 @@ export default function DoctorsPage() {
           <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0', fontSize: 14 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🚀</div>
             قريباً — سيتم إضافة سجل الزيارات الميدانية
+          </div>
+        </div>
+      )}
+
+      {/* ── ARCHIVE TAB (أرشيف السيرفي) ────────────────── */}
+      {activeTab === 'archive' && showArchiveTab && (() => {
+        const normQ = (s: string) => s.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+        const q = normQ(archiveSearch);
+        const filteredAreas = archiveAreas
+          .map(area => ({
+            ...area,
+            doctors: area.doctors.filter(d => {
+              const matchArea = archiveAreaFilter === 'all' || normQ(area.name) === normQ(archiveAreaFilter);
+              if (!matchArea) return false;
+              if (!q) return true;
+              return normQ(d.name).includes(q) || normQ(d.specialty ?? '').includes(q) || normQ(d.pharmacyName ?? '').includes(q);
+            }),
+          }))
+          .filter(area => (archiveAreaFilter === 'all' || normQ(area.name) === normQ(archiveAreaFilter)) && area.doctors.length > 0);
+
+        const uniqueAreas = [...new Set(archiveAreas.map(a => a.name))];
+
+        return (
+          <div>
+            {/* Stats row */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+              {[
+                { label: 'إجمالي الأطباء', value: archiveTotal,        icon: '👥', bg: '#f0f4ff', color: '#4338ca' },
+                { label: 'تمت زيارتهم',   value: archiveTotalVisited, icon: '✅', bg: '#f0fdf4', color: '#16a34a' },
+                { label: 'يكتبوله',        value: archiveTotalWriting, icon: '✏️', bg: '#fdf4ff', color: '#9333ea' },
+              ].map(s => (
+                <div key={s.label} style={{ flex: '1 1 120px', background: s.bg, borderRadius: 12, padding: '12px 16px', direction: 'rtl' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.icon} {s.value}</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Search + filter bar */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)}
+                placeholder="🔍 بحث باسم الطبيب أو التخصص..."
+                style={{ flex: '1 1 200px', padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none' }} />
+              <select value={archiveAreaFilter} onChange={e => setArchiveAreaFilter(e.target.value)}
+                style={{ padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', background: '#fff', outline: 'none', maxWidth: 180 }}>
+                <option value="all">📍 كل المناطق</option>
+                {uniqueAreas.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              <button onClick={loadArchive} disabled={archiveLoading}
+                style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#e0e7ff', color: '#4338ca', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: archiveLoading ? 0.7 : 1 }}>
+                {archiveLoading ? '⏳' : '↻'} تحديث
+              </button>
+            </div>
+
+            {archiveLoading ? (
+              <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>جاري التحميل...</div>
+            ) : filteredAreas.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', direction: 'rtl' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>الأرشيف فارغ</div>
+                <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>أضف أطباء من السيرفي لتتبّعهم هنا بشكل مستقل عن الكولات</div>
+                <button onClick={() => setShowAddModal(true)}
+                  style={{ padding: '10px 24px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                  ＋ إضافة من السيرفي
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {filteredAreas.map(area => {
+                  const isExpanded = archiveExpandedAreas.has(area.name);
+                  const visitedCount = area.doctors.filter(d => d.isVisited).length;
+                  const writingCount = area.doctors.filter(d => d.isWriting).length;
+                  return (
+                    <div key={area.name} style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                      {/* Area header */}
+                      <div onClick={() => setArchiveExpandedAreas(prev => { const s = new Set(prev); s.has(area.name) ? s.delete(area.name) : s.add(area.name); return s; })}
+                        style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: isExpanded ? '#f8fafc' : '#fff', direction: 'rtl' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', flex: 1 }}>📍 {area.name}</span>
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{area.doctors.length} طبيب</span>
+                        {visitedCount > 0 && <span style={{ fontSize: 11, background: '#dcfce7', color: '#16a34a', borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>✅ {visitedCount}</span>}
+                        {writingCount > 0 && <span style={{ fontSize: 11, background: '#f3e8ff', color: '#9333ea', borderRadius: 20, padding: '2px 8px', fontWeight: 700 }}>✏️ {writingCount}</span>}
+                        <span style={{ color: '#94a3b8', fontSize: 13 }}>{isExpanded ? '▲' : '▼'}</span>
+                      </div>
+
+                      {/* Doctor list */}
+                      {isExpanded && (
+                        <div style={{ borderTop: '1px solid #f1f5f9' }}>
+                          {area.doctors.map(doc => (
+                            <div key={doc.surveyDoctorId} style={{ padding: '12px 18px', borderBottom: '1px solid #f8fafc', direction: 'rtl' }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                {/* Info */}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{doc.name}</div>
+                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {doc.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {doc.specialty}</span>}
+                                    {doc.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {doc.pharmacyName}</span>}
+                                    {doc.className && <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '1px 6px' }}>{doc.className}</span>}
+                                  </div>
+
+                                  {/* Toggles row */}
+                                  <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    {/* Visited toggle */}
+                                    <button onClick={() => patchArchive(doc.surveyDoctorId, { isVisited: !doc.isVisited })}
+                                      style={{ padding: '4px 10px', borderRadius: 20, border: `1.5px solid ${doc.isVisited ? '#16a34a' : '#cbd5e1'}`,
+                                        background: doc.isVisited ? '#dcfce7' : '#f8fafc', color: doc.isVisited ? '#16a34a' : '#64748b',
+                                        fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      {doc.isVisited ? '✅' : '☐'} زايرته
+                                    </button>
+
+                                    {/* Writing toggle */}
+                                    <button onClick={() => patchArchive(doc.surveyDoctorId, { isWriting: !doc.isWriting })}
+                                      style={{ padding: '4px 10px', borderRadius: 20, border: `1.5px solid ${doc.isWriting ? '#9333ea' : '#cbd5e1'}`,
+                                        background: doc.isWriting ? '#f3e8ff' : '#f8fafc', color: doc.isWriting ? '#9333ea' : '#64748b',
+                                        fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      {doc.isWriting ? '✏️' : '☐'} يكتب
+                                    </button>
+                                  </div>
+
+                                  {/* Writing items */}
+                                  {doc.isWriting && (
+                                    <div style={{ marginTop: 8 }}>
+                                      <div style={{ fontSize: 11, color: '#9333ea', fontWeight: 700, marginBottom: 4 }}>الإيتمات التي يكتبها:</div>
+                                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {doc.writingItems.map((item, i) => (
+                                          <span key={i} style={{ background: '#f3e8ff', color: '#9333ea', borderRadius: 20, padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            {item}
+                                            <button onClick={() => patchArchive(doc.surveyDoctorId, { writingItems: doc.writingItems.filter((_, idx) => idx !== i) })}
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9333ea', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                                          </span>
+                                        ))}
+                                        {itemInputId === doc.surveyDoctorId ? (
+                                          <input autoFocus value={itemInputVal} onChange={e => setItemInputVal(e.target.value)}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter' && itemInputVal.trim()) {
+                                                patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] });
+                                                setItemInputVal(''); setItemInputId(null);
+                                              } else if (e.key === 'Escape') { setItemInputVal(''); setItemInputId(null); }
+                                            }}
+                                            onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
+                                            style={{ padding: '2px 8px', borderRadius: 20, border: '1.5px solid #9333ea', fontSize: 12, outline: 'none', width: 100 }}
+                                            placeholder="إيتم..." />
+                                        ) : (
+                                          <button onClick={() => setItemInputId(doc.surveyDoctorId)}
+                                            style={{ background: 'none', border: '1.5px dashed #d8b4fe', borderRadius: 20, padding: '2px 8px', fontSize: 12, color: '#9333ea', cursor: 'pointer' }}>
+                                            ＋ إضافة
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Notes */}
+                                  {notesEditId === doc.surveyDoctorId ? (
+                                    <div style={{ marginTop: 8 }}>
+                                      <input autoFocus value={notesEditVal} onChange={e => setNotesEditVal(e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') { patchArchive(doc.surveyDoctorId, { notes: notesEditVal || null }); setNotesEditId(null); }
+                                          else if (e.key === 'Escape') setNotesEditId(null);
+                                        }}
+                                        onBlur={() => { patchArchive(doc.surveyDoctorId, { notes: notesEditVal || null }); setNotesEditId(null); }}
+                                        style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', direction: 'rtl' }}
+                                        placeholder="ملاحظات..." />
+                                    </div>
+                                  ) : doc.notes ? (
+                                    <div onClick={() => { setNotesEditId(doc.surveyDoctorId); setNotesEditVal(doc.notes ?? ''); }}
+                                      style={{ marginTop: 6, fontSize: 12, color: '#475569', background: '#f8fafc', padding: '4px 10px', borderRadius: 8, cursor: 'pointer', display: 'inline-block' }}>
+                                      📝 {doc.notes}
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => { setNotesEditId(doc.surveyDoctorId); setNotesEditVal(''); }}
+                                      style={{ marginTop: 6, background: 'none', border: 'none', fontSize: 11, color: '#94a3b8', cursor: 'pointer', padding: 0 }}>
+                                      + ملاحظة
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Remove button */}
+                                <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة من الأرشيف"
+                                  style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '4px 8px', fontSize: 13, cursor: 'pointer', color: '#dc2626', flexShrink: 0 }}>
+                                  🗑
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Add from Survey Modal ──────────────────────────── */}
+      {showAddModal && (
+        <div style={overlayStyle} onClick={() => setShowAddModal(false)}>
+          <div style={{ ...modalStyle, maxWidth: 560, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📚 إضافة أطباء من السيرفي</h2>
+              <button onClick={() => setShowAddModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b' }}>✕</button>
+            </div>
+
+            {/* Search + area */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <input value={surveyDocSearch} onChange={e => setSurveyDocSearch(e.target.value)}
+                placeholder="🔍 بحث..."
+                style={{ flex: '1 1 160px', padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none' }} />
+              <select value={surveyDocAreaFilter} onChange={e => setSurveyDocAreaFilter(e.target.value)}
+                style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', background: '#fff', outline: 'none', maxWidth: 160 }}>
+                <option value="all">كل المناطق</option>
+                {[...new Set(surveyDoctors.map(d => d.areaName).filter(Boolean))].sort().map(a => (
+                  <option key={a!} value={a!}>{a}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* List */}
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {surveyDocLoading ? (
+                <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>جاري التحميل...</div>
+              ) : (() => {
+                const normQ2 = (s: string) => s.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+                const sq = normQ2(surveyDocSearch);
+                const filtered2 = surveyDoctors.filter(d => {
+                  const matchArea = surveyDocAreaFilter === 'all' || normQ2(d.areaName ?? '') === normQ2(surveyDocAreaFilter);
+                  if (!matchArea) return false;
+                  if (!sq) return true;
+                  return normQ2(d.name).includes(sq) || normQ2(d.specialty ?? '').includes(sq) || normQ2(d.areaName ?? '').includes(sq) || normQ2(d.pharmacyName ?? '').includes(sq);
+                });
+                if (filtered2.length === 0) return (
+                  <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا توجد أطباء متاحون للإضافة</div>
+                );
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {filtered2.map(d => (
+                      <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: '1px solid #f1f5f9', direction: 'rtl', background: '#fafafa' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{d.name}</div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
+                            {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
+                            {d.areaName  && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {d.areaName}</span>}
+                            {d.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {d.pharmacyName}</span>}
+                          </div>
+                        </div>
+                        <button onClick={() => addToArchive(d.id)} disabled={addingIds.has(d.id)}
+                          style={{ padding: '5px 12px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: addingIds.has(d.id) ? 0.6 : 1, flexShrink: 0 }}>
+                          {addingIds.has(d.id) ? '...' : '＋'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}

@@ -59,6 +59,7 @@ const FEATURE_TREE: FeatureNode[] = [
     children: [
       { key: 'visit_analysis_tab', label: 'تحليل الزيارات',           icon: '📍', desc: 'تبويب تحليل أداء الزيارات اليومية'               },
       { key: 'doctors_list_tab',   label: 'قائمة الأطباء',             icon: '📋', desc: 'تبويب عرض وإدارة قائمة الأطباء'                 },
+      { key: 'archive_tab',        label: 'أرشيف السيرفي',             icon: '📚', desc: 'تبويب أرشيف يدوي مستقل لتتبع أطباء السيرفي'    },
       { key: 'my_visits_tab',      label: 'زياراتي',                  icon: '📝', desc: 'تبويب زيارات المندوب التجاري', onlyRoles: COMMERCIAL_ROLES },
       { key: 'pharmacies_tab',     label: 'قائمة الصيدليات',           icon: '🏪', desc: 'تبويب قائمة الصيدليات',        onlyRoles: COMMERCIAL_ROLES },
       { key: 'doctor_fields',      label: 'الحقول التفصيلية للطبيب',  icon: '🩺', desc: 'التخصص والمنطقة والصيدلية والملاحظات'          },
