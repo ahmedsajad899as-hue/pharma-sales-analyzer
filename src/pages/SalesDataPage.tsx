@@ -1127,6 +1127,23 @@ table{border-collapse:collapse;width:100%}
     };
   }, [activeFile, itemNameCol, companyCol, priceCol]);
 
+  // ── Red cell count: total shortage/zero warehouse cells in current filtered table ──
+  const redCellCount = useMemo(() => {
+    if (!activeFile) return 0;
+    const T = Math.max(0, shortageThreshold || 0);
+    const relevantCols = regionFilter === 'all'
+      ? activeFile.areaCols
+      : activeFile.areaCols.filter(ac => ac.region === regionFilter);
+    let count = 0;
+    for (const row of filteredRows) {
+      for (const col of relevantCols) {
+        const v = toNum(row[col.key] ?? '');
+        if (v === 0 || (T > 0 && v > 0 && v < T)) count++;
+      }
+    }
+    return count;
+  }, [activeFile, filteredRows, shortageThreshold, regionFilter]);
+
   // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
   // Tracks both region totals and individual warehouse columns.
   const shortages = useMemo(() => {
@@ -1887,7 +1904,7 @@ table{border-collapse:collapse;width:100%}
                   minWidth: 20, padding: '0 6px', height: 18,
                   borderRadius: 10, fontSize: 10, fontWeight: 700,
                   background: '#dc2626', color: '#fff',
-                }}>{shortages.totalCount}</span>
+                }}>{redCellCount}</span>
               )}
             </button>
             )}
