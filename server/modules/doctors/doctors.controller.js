@@ -704,6 +704,18 @@ export async function create(req, res, next) {
             },
           });
           masterSurveyDoctorId = created.id;
+          // Log this as a new entry added externally (not via SA panel)
+          await prisma.masterSurveyEditLog.create({
+            data: {
+              surveyId: activeSurvey.id,
+              entryType: 'doctor',
+              entryId: created.id,
+              action: 'create_external',
+              oldData: null,
+              newData: JSON.stringify({ name: created.name, specialty: created.specialty, pharmacyName: created.pharmacyName, areaName: created.areaName }),
+              editedById: req.user?.id ?? null,
+            },
+          });
         }
       }
     } catch (_) { /* sync failure should not block doctor creation */ }

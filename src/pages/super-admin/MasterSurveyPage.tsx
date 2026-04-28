@@ -126,8 +126,8 @@ function downloadTemplate(type: 'doctors' | 'pharmacies') {
 }
 
 // ── Small helpers ─────────────────────────────────────────────
-const actionColor: Record<string,string> = { create: '#10b981', update: '#f59e0b', delete: '#ef4444' };
-const actionLabel: Record<string,string> = { create: 'أضاف', update: 'عدّل', delete: 'حذف' };
+const actionColor: Record<string,string> = { create: '#10b981', update: '#f59e0b', delete: '#ef4444', create_external: '#6366f1' };
+const actionLabel: Record<string,string> = { create: 'أضاف', update: 'عدّل', delete: 'حذف', create_external: 'أضاف خارجياً' };
 
 function Badge({ text, color }: { text: string; color: string }) {
   return (
