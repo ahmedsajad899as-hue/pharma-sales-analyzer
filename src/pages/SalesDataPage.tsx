@@ -287,12 +287,20 @@ function parseDistributorSales(buffer: ArrayBuffer, filename: string): SalesFile
     if (hRowIdx < 0 || itemColIdx < 0) return 'NO';
     // Must have at least one value column
     if (totalQtyColIdx < 0 && netSaleColIdx < 0) return 'NO';
-    // Use Net Sale when available (it's the financial metric), fall back to Total Qty
-    const valueColIdx = netSaleColIdx >= 0 ? netSaleColIdx : totalQtyColIdx;
+    // When BOTH qty and net-sale columns exist: store qty in area cols so the
+    // table shows actual quantities; derive unit price = net/qty so showValue=ON
+    // correctly shows financial values.
+    // When only net-sale exists: store net-sale directly (no qty available).
+    const hasBothCols = totalQtyColIdx >= 0 && netSaleColIdx >= 0;
+    const qtyColIdx   = hasBothCols ? totalQtyColIdx : -1;
+    const valueColIdx = hasBothCols ? totalQtyColIdx : (netSaleColIdx >= 0 ? netSaleColIdx : totalQtyColIdx);
 
     // Parse each sheet as a city
-    const rowMap = new Map<string, Record<string, string>>();
+    const rowMap   = new Map<string, Record<string, string>>();
     const areaCols: ColMeta[] = [];
+    // Accumulators for price derivation (only used when hasBothCols)
+    const qtyAccum: Record<string, number> = {};
+    const netAccum: Record<string, number> = {};
 
     for (const sheetName of wb.SheetNames) {
       const raw = XLSX.utils.sheet_to_json<unknown[]>(
@@ -323,7 +331,8 @@ function parseDistributorSales(buffer: ArrayBuffer, filename: string): SalesFile
         // Skip repeated header rows
         if (company.toLowerCase().includes('description') || company.toLowerCase() === 'الكمية') continue;
 
-        const value = toNumAcc(arr[valueColIdx]);
+        const value   = toNumAcc(arr[valueColIdx]);
+        const netVal  = hasBothCols ? toNumAcc(arr[netSaleColIdx]) : 0;
 
         const rowKey = `${normalMergeKey(company)}||${normalMergeKey(item)}`;
         if (!rowMap.has(rowKey)) {
@@ -334,16 +343,33 @@ function parseDistributorSales(buffer: ArrayBuffer, filename: string): SalesFile
         }
         const obj = rowMap.get(rowKey)!;
         obj[cityKey] = String(toNumAcc(obj[cityKey] ?? '') + value);
+
+        if (hasBothCols) {
+          qtyAccum[rowKey] = (qtyAccum[rowKey] ?? 0) + value;
+          netAccum[rowKey] = (netAccum[rowKey] ?? 0) + netVal;
+        }
+      }
+    }
+
+    // Derive unit price from net_sale / total_qty so showValue works correctly
+    if (hasBothCols) {
+      for (const [rk, obj] of rowMap) {
+        const totalQty = qtyAccum[rk] ?? 0;
+        const totalNet = netAccum[rk] ?? 0;
+        if (totalQty > 0 && totalNet > 0) {
+          obj['السعر'] = String(totalNet / totalQty);
+        }
       }
     }
 
     if (rowMap.size === 0) return 'لم يتم العثور على بيانات في الملف';
 
+    const fixedCols = hasBothCols ? ['الشركة', 'المادة', 'السعر'] : ['الشركة', 'المادة'];
     return {
       id: uid(),
       name: filename.replace(/\.[^.]+$/, ''),
       uploadedAt: new Date().toISOString(),
-      fixedCols: ['الشركة', 'المادة'],
+      fixedCols,
       areaCols,
       rows: [...rowMap.values()],
       regions: wb.SheetNames,
