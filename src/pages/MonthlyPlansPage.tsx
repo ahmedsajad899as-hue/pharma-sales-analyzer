@@ -176,6 +176,9 @@ export default function MonthlyPlansPage() {
   const [sFocusAreaText, setSFocusAreaText]   = useState('');
   const [sFocusAreaDD, setSFocusAreaDD]       = useState(false);
   const [sUseWishList, setSUseWishList]       = useState<boolean>(_ss.useWishList ?? false);
+  const [sPrioritizeMissed, setSPrioritizeMissed] = useState<boolean>(_ss.prioritizeMissed ?? true);
+  const [sMaxRepetitions, setSMaxRepetitions]     = useState<number>(_ss.maxRepetitions ?? 0);
+  const [sNotVisitedMonths, setSNotVisitedMonths] = useState<number>(_ss.notVisitedMonths ?? 0);
 
   // Area quota distribution
   const [sAreaQuotasEnabled, setSAreaQuotasEnabled] = useState<boolean>(false);
@@ -191,10 +194,13 @@ export default function MonthlyPlansPage() {
       userNote: sUserNote, lookbackList: sLookbackList, newRatio: sNewRatio,
       focusItemIds: sFocusItemIds, focusSpecialties: sFocusSpecialties,
       focusAreaIds: sFocusAreaIds, useWishList: sUseWishList,
+      prioritizeMissed: sPrioritizeMissed, maxRepetitions: sMaxRepetitions,
+      notVisitedMonths: sNotVisitedMonths,
     }));
   }, [sTargetDoctors, sTargetVisits, sKeepFeedback, sRestrictAreas, sSortBy,
       sUseNoteAnalysis, sUserNote, sLookbackList, sNewRatio,
-      sFocusItemIds, sFocusSpecialties, sFocusAreaIds, sUseWishList]);
+      sFocusItemIds, sFocusSpecialties, sFocusAreaIds, sUseWishList,
+      sPrioritizeMissed, sMaxRepetitions, sNotVisitedMonths]);
 
   const [sWishDropdownOpen, setSWishDropdownOpen] = useState(false);
   const [sWishExcluded, setSWishExcluded]     = useState<Set<number>>(new Set());
@@ -679,6 +685,9 @@ export default function MonthlyPlansPage() {
         ...(sUserNote.trim() && { userNote:        sUserNote.trim() }),
         ...(wishedDoctorIds  && { wishedDoctorIds }),
         ...(sAreaQuotasEnabled && sRepAreas.length > 0 && { areaQuotas: JSON.stringify(sAreaQuotas) }),
+        prioritizeMissed:   String(sPrioritizeMissed),
+        maxRepetitions:     String(sMaxRepetitions),
+        notVisitedMonths:   String(sNotVisitedMonths),
       });
       const r = await fetch(`${API}/api/monthly-plans/suggest?${p}`, { headers: H() });
       const j: SuggestResult = await r.json();
@@ -2361,6 +2370,76 @@ export default function MonthlyPlansPage() {
                       );
                     })()}
 
+                    {/* ── Feature 2: Prioritize missed doctors ── */}
+                    <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📌 أولوية الأطباء المهملين</p>
+                        <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                          الأطباء الذين كانوا في بلان الشهر الماضي ولم تُسجَّل لهم أي زيارة يظهرون أولاً في الاقتراح
+                        </p>
+                      </div>
+                      <div onClick={() => setSPrioritizeMissed(v => !v)}
+                        style={{
+                          width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
+                          background: sPrioritizeMissed ? '#f59e0b' : '#e2e8f0', position: 'relative',
+                        }}>
+                        <div style={{
+                          position: 'absolute', top: 3, transition: 'left 0.2s',
+                          left: sPrioritizeMissed ? 23 : 3,
+                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                        }} />
+                      </div>
+                    </label>
+
+                    {/* ── Feature 3: Max consecutive repetitions ── */}
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <div>
+                          <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🔄 استبعاد الأطباء المتكررين بلا نتيجة</p>
+                          <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                            استبعاد الطبيب إذا ظهر في X بلانات متتالية بدون فيدباك إيجابي
+                          </p>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>بعد</span>
+                        <input
+                          type="number" min={0} max={12} value={sMaxRepetitions}
+                          onChange={e => setSMaxRepetitions(Math.max(0, parseInt(e.target.value) || 0))}
+                          style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700, color: sMaxRepetitions > 0 ? '#dc2626' : '#94a3b8', background: sMaxRepetitions > 0 ? '#fef2f2' : '#f8fafc', outline: 'none' }}
+                          onFocus={e => (e.target.style.borderColor = '#ef4444')}
+                          onBlur={e  => (e.target.style.borderColor = '#cbd5e1')}
+                        />
+                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+                          {sMaxRepetitions === 0 ? 'بلان — (معطّل)' : `بلان متتالي بلا نتيجة → يُستبعد`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* ── Feature 5: Not visited since X months ── */}
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ marginBottom: 4 }}>
+                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🕐 فقط الأطباء غير المزارين منذ مدة</p>
+                        <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                          استبعاد الأطباء الذين تمت زيارتهم خلال آخر N شهر (للتركيز على المهملين)
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>منذ أقل من</span>
+                        <input
+                          type="number" min={0} max={24} value={sNotVisitedMonths}
+                          onChange={e => setSNotVisitedMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                          style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700, color: sNotVisitedMonths > 0 ? '#0369a1' : '#94a3b8', background: sNotVisitedMonths > 0 ? '#f0f9ff' : '#f8fafc', outline: 'none' }}
+                          onFocus={e => (e.target.style.borderColor = '#0ea5e9')}
+                          onBlur={e  => (e.target.style.borderColor = '#cbd5e1')}
+                        />
+                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+                          {sNotVisitedMonths === 0 ? 'شهر — (معطّل)' : `شهر → يُستبعد من الاقتراح`}
+                        </span>
+                      </div>
+                    </div>
+
                     {/* ── Area quota distribution ── */}
                     {sRepAreas.length > 0 && (
                       <div style={{ marginBottom: 14, border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
@@ -2842,9 +2921,28 @@ export default function MonthlyPlansPage() {
               const chosen   = allDocs.filter(d =>  selectedDoctors.has(d.id));
               return (
                 <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12, padding: 16, marginBottom: 20 }}>
-                  <h3 style={{ margin: '0 0 10px', fontSize: 16, color: '#166534' }}>
-                    ✨ الاقتراح الذكي — {suggest.summary.total} طبيب
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, color: '#166534' }}>
+                      ✨ الاقتراح الذكي — {suggest.summary.total} طبيب
+                    </h3>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {(suggest.summary as any).missed > 0 && (
+                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#fef9c3', color: '#92400e', border: '1px solid #fde047' }}>
+                          📌 {(suggest.summary as any).missed} مهمل
+                        </span>
+                      )}
+                      {suggest.summary.keep - ((suggest.summary as any).missed ?? 0) > 0 && (
+                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#dcfce7', color: '#166534', border: '1px solid #86efac' }}>
+                          ✅ {suggest.summary.keep - ((suggest.summary as any).missed ?? 0)} محتفظ بهم
+                        </span>
+                      )}
+                      {suggest.summary.new > 0 && (
+                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
+                          ➕ {suggest.summary.new} جديد
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                   {/* AI Note summary */}
                   {suggest.aiNote && (
@@ -2897,10 +2995,13 @@ export default function MonthlyPlansPage() {
                       </div>
                       <div className="mp-suggest-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, maxHeight: 240, overflowY: 'auto', marginBottom: 12 }}>
                         {pending.map(doc => {
-                          const meta = FEEDBACK_LABELS[doc._reason] ?? FEEDBACK_LABELS.pending;
+                          const isMissed = doc._reason === 'missed';
+                          const meta = isMissed
+                            ? { label: '📌 مهمل', color: '#92400e', bg: '#fef9c3' }
+                            : FEEDBACK_LABELS[doc._reason] ?? FEEDBACK_LABELS.pending;
                           return (
                             <div key={doc.id} onClick={() => setSelectedDoctors(prev => { const s = new Set(prev); s.add(doc.id); return s; })}
-                              style={{ border: `2px solid ${doc.fromWishList ? '#fde047' : '#e2e8f0'}`, borderRadius: 8, padding: 10, background: doc.fromWishList ? '#fffbeb' : '#fff', cursor: 'pointer',
+                              style={{ border: `2px solid ${doc.fromWishList ? '#fde047' : isMissed ? '#fde047' : '#e2e8f0'}`, borderRadius: 8, padding: 10, background: doc.fromWishList ? '#fffbeb' : isMissed ? '#fffde7' : '#fff', cursor: 'pointer',
                                 transition: 'all 0.15s', display: 'flex', flexDirection: 'column', gap: 4 }}>
                               <p style={{ margin: 0, fontWeight: 700, fontSize: 13 }}>{doc.name}</p>
                               <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>{doc.specialty ?? ''}{doc.area?.name ? ` · ${doc.area.name}` : ''}</p>

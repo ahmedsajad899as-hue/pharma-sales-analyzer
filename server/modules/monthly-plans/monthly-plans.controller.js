@@ -176,6 +176,9 @@ export async function suggest(req, res, next) {
       focusAreaId = '',      // override area filter for new doctors
       wishedDoctorIds = '',  // comma-separated doctor IDs from rep wishlist (قائمة الطلبات)
       areaQuotas = '',       // JSON string e.g. '{"1":10,"4":5}' — per-area doctor quotas
+      prioritizeMissed = 'true',  // boost doctors planned last month but never visited
+      maxRepetitions = '0',       // 0 = disabled; N = exclude doctor if in N+ consecutive plans without positive result
+      notVisitedMonths = '0',     // 0 = disabled; N = only suggest doctors not visited in last N months
     } = req.query;
 
     // ── NO-REP plan mode: use planId + planAreas ──────────────
@@ -321,21 +324,97 @@ export async function suggest(req, res, next) {
 
     const areaIdSet = new Set(areaIds);
 
-    // Merge entries from all lookback plans (newest first → most recent feedback wins)
-    const seenDoctorInPrev = new Map(); // doctorId → { doctor, visits[] }
-    for (const plan of prevPlans) {
-      for (const entry of plan.entries) {
-        if (!seenDoctorInPrev.has(entry.doctor.id)) {
-          seenDoctorInPrev.set(entry.doctor.id, { doctor: entry.doctor, visits: entry.visits });
+    // ── Parse new feature params ───────────────────────────────
+    const doPrioritizeMissed = String(prioritizeMissed) !== 'false';
+    const maxRep             = Math.max(0, parseInt(maxRepetitions) || 0);
+    const notVisitedMo       = Math.max(0, parseInt(notVisitedMonths) || 0);
+
+    // ── Feature 5: Build set of doctor IDs visited recently ───
+    // If notVisitedMonths > 0, exclude any doctor who had a visit in the last N months
+    const recentlyVisitedIds = new Set();
+    if (notVisitedMo > 0) {
+      const cutoffDate = new Date();
+      cutoffDate.setMonth(cutoffDate.getMonth() - notVisitedMo);
+      const recentVisits = await prisma.doctorVisit.findMany({
+        where: {
+          visitDate: { gte: cutoffDate },
+          // Scope to the same doctor pool (via plan entries of same userId)
+          entry: {
+            plan: { userId },
+          },
+        },
+        select: { entry: { select: { doctorId: true } } },
+        distinct: ['entryId'],
+      });
+      recentVisits.forEach(v => { if (v.entry?.doctorId) recentlyVisitedIds.add(v.entry.doctorId); });
+    }
+
+    // ── Feature 3: Build set of doctor IDs to exclude due to max repetitions ──
+    // A doctor is excluded if they appeared in maxRep+ consecutive lookback plans
+    // without a positive (keep) feedback in any of them.
+    const excludedByRepetition = new Set();
+    if (maxRep > 0 && prevPlans.length >= maxRep) {
+      // Sort plans newest → oldest
+      const sortedPlans = [...prevPlans].sort((a, b) =>
+        b.year !== a.year ? b.year - a.year : b.month - a.month
+      );
+
+      // Check each doctor across the sorted plans
+      const doctorConsecutiveCount = new Map(); // doctorId → consecutive non-positive count
+      const doctorSeen = new Set();
+
+      // Walk from newest plan backwards — count consecutive non-positive appearances
+      for (const plan of sortedPlans) {
+        for (const entry of plan.entries) {
+          const dId = entry.doctor.id;
+          if (doctorSeen.has(dId)) continue; // already settled
+          const lastFeedback = entry.visits?.[0]?.feedback ?? 'pending';
+          const isPositive = KEEP_FEEDBACK.includes(lastFeedback);
+          if (isPositive) {
+            doctorSeen.add(dId); // positive feedback — reset, don't exclude
+          } else {
+            const count = (doctorConsecutiveCount.get(dId) ?? 0) + 1;
+            doctorConsecutiveCount.set(dId, count);
+            if (count >= maxRep) {
+              excludedByRepetition.add(dId);
+              doctorSeen.add(dId);
+            }
+          }
         }
       }
     }
 
-    for (const { doctor, visits } of seenDoctorInPrev.values()) {
+    // Merge entries from all lookback plans (newest first → most recent feedback wins)
+    const seenDoctorInPrev = new Map(); // doctorId → { doctor, visits[], wasInPlan, hadVisit }
+    for (const plan of prevPlans) {
+      for (const entry of plan.entries) {
+        if (!seenDoctorInPrev.has(entry.doctor.id)) {
+          seenDoctorInPrev.set(entry.doctor.id, {
+            doctor: entry.doctor,
+            visits: entry.visits,
+            wasInPlan: true,
+            hadVisit: entry.visits.length > 0,
+          });
+        }
+      }
+    }
+
+    // ── Feature 2: Identify "missed" doctors (in plan but no visit) ──
+    const missedDoctors = []; // will be added to keepDoctors with high priority
+
+    for (const { doctor, visits, hadVisit } of seenDoctorInPrev.values()) {
       if (usedDoctorIds.has(doctor.id)) continue;
-      // If area restriction is active, skip doctors not in the rep's assigned areas
-      // Note: doctors with areaId=null (no area set) are excluded when restriction is on
+      if (excludedByRepetition.has(doctor.id)) continue; // Feature 3: skip over-repeated
+      if (notVisitedMo > 0 && recentlyVisitedIds.has(doctor.id)) continue; // Feature 5: skip recently visited
       if (useAreaRestriction && areaIds.length > 0 && !areaIdSet.has(doctor.areaId)) continue;
+
+      // Feature 2: Doctor was in plan but never visited — add to missed (high priority)
+      if (doPrioritizeMissed && !hadVisit) {
+        missedDoctors.push({ doctor, reason: 'missed' });
+        usedDoctorIds.add(doctor.id);
+        continue;
+      }
+
       const lastFeedback = visits[0]?.feedback ?? 'pending';
       if (KEEP_FEEDBACK.includes(lastFeedback)) {
         keepDoctors.push({ doctor, reason: lastFeedback });
@@ -348,6 +427,9 @@ export async function suggest(req, res, next) {
         } else { replacedCount++; }
       } else { replacedCount++; }
     }
+
+    // Prepend missed doctors to keepDoctors so they appear first
+    keepDoctors = [...missedDoctors, ...keepDoctors];
 
     // ── Process userNote with Gemini AI ──────────────────────
     let priorityDoctors = [];
@@ -572,11 +654,12 @@ export async function suggest(req, res, next) {
           if (newNeeded === 0) continue;
 
           const fetchCount = sortBy === 'random' ? Math.min(newNeeded * 4, 500) : newNeeded;
+          const excludedIds = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
           let areaDocs = await prisma.doctor.findMany({
             where: {
               ...doctorUserFilter,
               isActive: true,
-              id: { notIn: [...usedDoctorIds] },
+              id: { notIn: [...excludedIds] },
               areaId: aId,
               ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
               ...itemFilter,
@@ -613,11 +696,12 @@ export async function suggest(req, res, next) {
             if (remaining <= 0) break;
             const toFetch = Math.min(remaining, extraPerArea);
             const fetchCount = sortBy === 'random' ? Math.min(toFetch * 4, 500) : toFetch;
+            const extraExcludedIds = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
             let extraDocs = await prisma.doctor.findMany({
               where: {
                 ...doctorUserFilter,
                 isActive: true,
-                id: { notIn: [...usedDoctorIds] },
+                id: { notIn: [...extraExcludedIds] },
                 areaId: aId,
                 ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
                 ...itemFilter,
@@ -639,11 +723,12 @@ export async function suggest(req, res, next) {
     } else if (needed > 0) {
       // ── Bulk fetch (original logic) ──────────────────────────
       const fetchCount = sortBy === 'random' ? Math.min(needed * 4, 500) : needed;
+      const bulkExcludedIds = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
       newDoctors = await prisma.doctor.findMany({
         where: {
           ...doctorUserFilter,
           isActive: true,
-          id: { notIn: [...usedDoctorIds] },
+          id: { notIn: [...bulkExcludedIds] },
           ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
           ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
           ...itemFilter,
@@ -710,6 +795,7 @@ export async function suggest(req, res, next) {
         : null,
       summary: {
         keep:    keepDoctors.length,
+        missed:  missedDoctors.length,
         replace: replacedCount,
         new:     priorityDoctors.length + newDoctors.length,
         total:   keepDoctors.length + priorityDoctors.length + newDoctors.length,
