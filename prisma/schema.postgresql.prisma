@@ -85,6 +85,7 @@ model User {
 
   // Activity Log
   activityLogs             ActivityLog[]
+  doctorArchiveEntries DoctorArchiveEntry[]
 
   // Filter Presets
   filterPresets            FilterPreset[]
@@ -1056,6 +1057,7 @@ model MasterSurveyDoctor {
   survey       MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   lastEditedBy User?        @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
   importedDoctors Doctor[]
+  archiveEntries  DoctorArchiveEntry[]
 
   @@index([surveyId])
   @@map("master_survey_doctors")
@@ -1247,4 +1249,24 @@ model SalesDataFile {
 
   @@index([userId])
   @@map("sales_data_files")
+}
+
+// ─── Doctor Archive Entry (أرشيف السيرفي — يدوي لكل مستخدم) ─
+model DoctorArchiveEntry {
+  id                   Int      @id @default(autoincrement())
+  userId               Int
+  masterSurveyDoctorId Int
+  isVisited            Boolean  @default(false)
+  isWriting            Boolean  @default(false)
+  writingItems         String?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  masterSurveyDoctor MasterSurveyDoctor @relation(fields: [masterSurveyDoctorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, masterSurveyDoctorId])
+  @@index([userId])
+  @@map("doctor_archive_entries")
 }
