@@ -1432,12 +1432,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       {/* ─── Overall / Comprehensive Analysis ─── */}
       {mode === 'overall' && overallSales && (() => {
-        const salesQ  = overallSales.totalQuantity;
-        const salesV  = overallSales.totalValue;
-        const retQ    = overallReturns?.totalQuantity ?? 0;
-        const retV    = overallReturns?.totalValue    ?? 0;
-        const netQ    = salesQ - retQ;
-        const netV    = salesV - retV;
 
         const handleOverallPreview = () => {
           const sheets = buildOverallPreviewSheets(
@@ -1652,6 +1646,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const finalSalesCompany = crossCompanies(salesCompanyFiltered, overallSales.byAreaItem, salesItemsFiltered);
         const finalRetCompany   = crossCompanies(retCompanyFiltered,   overallReturns?.byAreaItem ?? [], retItemsFiltered);
         const toggleExcluded = (k: string) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
+        // ─── KPI totals: use filtered items tab (most stable aggregation) ────
+        const isFiltered = hasTags || (normalise(overallSearch).length > 0);
+        const activeSalesRows = finalSalesItems;
+        const activeRetRows   = finalRetItems;
+        const salesQ = isFiltered ? activeSalesRows.reduce((s, r) => s + r.totalQty, 0)   : overallSales.totalQuantity;
+        const salesV = isFiltered ? activeSalesRows.reduce((s, r) => s + r.totalValue, 0) : overallSales.totalValue;
+        const retQ   = isFiltered ? activeRetRows.reduce((s, r) => s + r.totalQty, 0)     : (overallReturns?.totalQuantity ?? 0);
+        const retV   = isFiltered ? activeRetRows.reduce((s, r) => s + r.totalValue, 0)   : (overallReturns?.totalValue    ?? 0);
+        const netQ   = salesQ - retQ;
+        const netV   = salesV - retV;
 
         return (
           <>
