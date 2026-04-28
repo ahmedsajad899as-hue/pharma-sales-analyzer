@@ -169,6 +169,14 @@ export async function deleteDoctor(req, res, next) {
     if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     await prisma.masterSurveyDoctor.delete({ where: { id: docId } });
     await logEntry(surveyId, 'doctor', docId, 'delete', old, null, null);
+
+    // Cascade: soft-delete all Doctor records imported from this survey doctor
+    // (preserves visit history; removes them from active lists and analysis)
+    await prisma.doctor.updateMany({
+      where: { masterSurveyDoctorId: docId },
+      data:  { isActive: false },
+    });
+
     res.json({ success: true });
   } catch (e) { next(e); }
 }
