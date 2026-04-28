@@ -194,6 +194,48 @@ export async function updateArchiveEntry(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── POST /api/doctor-archive/custom-doctor ───────────────────
+// Create a brand-new doctor (not from survey) and add to archive.
+export async function addCustomDoctor(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const { name, specialty, areaName, pharmacyName, className } = req.body;
+    if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
+
+    // Find first visible survey for this user to host the doctor
+    const survey = await prisma.masterSurvey.findFirst({
+      where: {
+        isActive: true,
+        hiddenUsers:   { none: { userId } },
+        ...(req.user.officeId ? { hiddenOffices: { none: { officeId: req.user.officeId } } } : {}),
+      },
+      orderBy: { id: 'asc' },
+    });
+    if (!survey) return res.status(400).json({ success: false, error: 'لا توجد قائمة سيرفي متاحة لإضافة الطبيب' });
+
+    // Create the doctor inside the survey
+    const doctor = await prisma.masterSurveyDoctor.create({
+      data: {
+        surveyId:     survey.id,
+        name:         name.trim(),
+        specialty:    specialty?.trim()    || null,
+        areaName:     areaName?.trim()     || null,
+        pharmacyName: pharmacyName?.trim() || null,
+        className:    className?.trim()    || null,
+        lastEditedById: userId,
+        lastEditedAt:   new Date(),
+      },
+    });
+
+    // Archive the new doctor for this user
+    const entry = await prisma.doctorArchiveEntry.create({
+      data: { userId, masterSurveyDoctorId: doctor.id },
+    });
+
+    res.json({ success: true, entry, doctor });
+  } catch (e) { next(e); }
+}
+
 // ── DELETE /api/doctor-archive/:surveyDoctorId ───────────────
 // Remove a doctor from the current user's archive.
 export async function removeFromArchive(req, res, next) {

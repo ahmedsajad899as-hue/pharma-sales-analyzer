@@ -308,6 +308,15 @@ export default function DoctorsPage() {
   // Inline notes edit
   const [notesEditId, setNotesEditId]             = useState<number | null>(null);
   const [notesEditVal, setNotesEditVal]           = useState('');
+  // Custom new doctor form
+  const [showNewDocForm, setShowNewDocForm]       = useState(false);
+  const [newDocName, setNewDocName]               = useState('');
+  const [newDocSpecialty, setNewDocSpecialty]     = useState('');
+  const [newDocArea, setNewDocArea]               = useState('');
+  const [newDocPharmacy, setNewDocPharmacy]       = useState('');
+  const [newDocClass, setNewDocClass]             = useState('');
+  const [newDocSaving, setNewDocSaving]           = useState(false);
+  const [newDocErr, setNewDocErr]                 = useState('');
 
   // Back button: close open modals/panels in priority order
   useBackHandler([
@@ -330,6 +339,7 @@ export default function DoctorsPage() {
     [showAddModal,                 () => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }],
     [showArchiveWishPanel,         () => setShowArchiveWishPanel(false)],
     [archiveSubPopup !== null,      () => setArchiveSubPopup(null)],
+    [showNewDocForm,               () => { setShowNewDocForm(false); setNewDocErr(''); }],
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
 
@@ -582,6 +592,29 @@ export default function DoctorsPage() {
       }
     } catch (e) { console.error(e); }
     finally { setAddingIds(prev => { const s = new Set(prev); s.delete(surveyDoctorId); return s; }); }
+  };
+
+  const submitCustomDoctor = async () => {
+    if (!newDocName.trim()) { setNewDocErr('الاسم مطلوب'); return; }
+    setNewDocSaving(true); setNewDocErr('');
+    try {
+      const r = await fetch(`${API}/api/doctor-archive/custom-doctor`, {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({
+          name:         newDocName.trim(),
+          specialty:    newDocSpecialty.trim() || null,
+          areaName:     newDocArea.trim()      || null,
+          pharmacyName: newDocPharmacy.trim()  || null,
+          className:    newDocClass.trim()     || null,
+        }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error ?? 'فشل الحفظ');
+      setShowNewDocForm(false);
+      setNewDocName(''); setNewDocSpecialty(''); setNewDocArea(''); setNewDocPharmacy(''); setNewDocClass(''); setNewDocErr('');
+      loadArchive();
+    } catch (e: any) { setNewDocErr(e.message); }
+    finally { setNewDocSaving(false); }
   };
 
   const addAllToArchive = async (ids: number[]) => {
@@ -917,10 +950,16 @@ export default function DoctorsPage() {
           </button>
         )}
         {activeTab === 'archive' && showArchiveTab && (
-          <button onClick={() => setShowAddModal(true)}
-            style={{ ...btnStyle('#8b5cf6') }}>
-            ＋ إضافة من السيرفي
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setShowAddModal(true)}
+              style={{ ...btnStyle('#8b5cf6') }}>
+              ＋ من السيرفي
+            </button>
+            <button onClick={() => setShowNewDocForm(true)}
+              style={{ ...btnStyle('#475569') }}>
+              ＋ طبيب جديد
+            </button>
+          </div>
         )}
       </div>
 
@@ -2827,6 +2866,93 @@ export default function DoctorsPage() {
                 <button onClick={() => setArchiveSubPopup(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b' }}>✕</button>
               </div>
               <div style={{ overflowY: 'auto', flex: 1 }}>{body}</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── New Custom Doctor Modal ────────────────────────── */}
+      {showNewDocForm && (() => {
+        const areaOptions = [...new Set(archiveAreas.map(a => a.name))].sort();
+        return (
+          <div style={overlayStyle} onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }}>
+            <div style={{ ...modalStyle, maxWidth: 400 }} onClick={e => e.stopPropagation()} dir="rtl">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>طبيب جديد</span>
+                <button onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Name */}
+                <div>
+                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الاسم *</label>
+                  <input autoFocus value={newDocName} onChange={e => setNewDocName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && submitCustomDoctor()}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${newDocErr && !newDocName.trim() ? '#f87171' : '#e2e8f0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                    placeholder="اسم الطبيب" />
+                </div>
+
+                {/* Specialty */}
+                <div>
+                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>التخصص</label>
+                  <input value={newDocSpecialty} onChange={e => setNewDocSpecialty(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                    placeholder="مثال: قلب، عيون..." />
+                </div>
+
+                {/* Area — dropdown from existing areas + free text */}
+                <div>
+                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>المنطقة</label>
+                  {areaOptions.length > 0 ? (
+                    <select value={newDocArea} onChange={e => setNewDocArea(e.target.value)}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', background: '#fafafa', color: newDocArea ? '#1e293b' : '#94a3b8' }}>
+                      <option value="">— اختر منطقة —</option>
+                      {areaOptions.map(a => <option key={a} value={a}>{a}</option>)}
+                      <option value="__custom__">أخرى (أكتب يدوياً)</option>
+                    </select>
+                  ) : (
+                    <input value={newDocArea} onChange={e => setNewDocArea(e.target.value)}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                      placeholder="اسم المنطقة" />
+                  )}
+                  {newDocArea === '__custom__' && (
+                    <input autoFocus value="" onChange={e => setNewDocArea(e.target.value)}
+                      style={{ width: '100%', marginTop: 6, padding: '7px 10px', borderRadius: 7, border: '1px solid #94a3b8', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                      placeholder="اكتب اسم المنطقة..." />
+                  )}
+                </div>
+
+                {/* Pharmacy */}
+                <div>
+                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الصيدلية</label>
+                  <input value={newDocPharmacy} onChange={e => setNewDocPharmacy(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                    placeholder="اسم الصيدلية" />
+                </div>
+
+                {/* Class */}
+                <div>
+                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>التصنيف</label>
+                  <input value={newDocClass} onChange={e => setNewDocClass(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                    placeholder="مثال: A, B, C" />
+                </div>
+              </div>
+
+              {newDocErr && (
+                <div style={{ marginTop: 10, fontSize: 12, color: '#ef4444', background: '#fef2f2', borderRadius: 6, padding: '6px 10px' }}>{newDocErr}</div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button onClick={submitCustomDoctor} disabled={newDocSaving}
+                  style={{ flex: 1, padding: '9px 0', background: '#1e293b', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: newDocSaving ? 0.7 : 1 }}>
+                  {newDocSaving ? 'جاري الحفظ...' : 'حفظ'}
+                </button>
+                <button onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }}
+                  style={{ padding: '9px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         );
