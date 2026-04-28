@@ -1641,9 +1641,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // Areas: exclude contributions from excluded items AND excluded areas AND company-implied items
         const crossAreas = (rows: BreakdownRow[], bai: AreaItemRow[]): BreakdownRow[] => {
           if (allExcItemNames.size === 0 && excAreaNames.size === 0) return rows;
-          const allowed = new Set(rows.map(r => r.name));
+          const allowed = new Set(visibleRows.map(r => r.name));
           const map = new Map<string, BreakdownRow>();
-          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const r of visibleRows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
           for (const r of bai) {
             if (!allowed.has(r.areaName)) continue;
             if (allExcItemNames.has(r.itemName)) continue;  // item excluded
@@ -1654,26 +1654,31 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
 
-        // Items: exclude contributions from excluded areas AND excluded items AND company-implied items
+        // Items: exclude contributions from excluded areas AND hide excluded items (incl. company-implied)
         const crossItems = (rows: BreakdownRow[], bai: AreaItemRow[]): BreakdownRow[] => {
           if (excAreaNames.size === 0 && allExcItemNames.size === 0) return rows;
-          const allowed = new Set(rows.map(r => r.name));
+          // Remove items that are explicitly or implicitly (via company) excluded
+          const visibleRows = allExcItemNames.size > 0 ? rows.filter(r => !allExcItemNames.has(r.name)) : rows;
+          if (excAreaNames.size === 0) return visibleRows;
+          // Rebuild totals subtracting excluded area contributions
+          const allowed = new Set(visibleRows.map(r => r.name));
           const map = new Map<string, BreakdownRow>();
-          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const r of visibleRows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
           for (const r of bai) {
             if (!allowed.has(r.itemName)) continue;
-            if (excAreaNames.has(r.areaName)) continue;     // area excluded
-            if (allExcItemNames.has(r.itemName)) continue;  // item excluded (keep row but zero)
+            if (excAreaNames.has(r.areaName)) continue;
             const row = map.get(r.itemName)!;
             row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
 
-        // Companies: exclude contributions from excluded items, excluded areas, and excluded companies
+        // Companies: exclude contributions from excluded items, excluded areas, and hide excluded companies
         const crossCompanies = (rows: BreakdownRow[], bai: AreaItemRow[], allItems: BreakdownRow[]): BreakdownRow[] => {
           if (allExcItemNames.size === 0 && excAreaNames.size === 0 && excCompanyNames.size === 0) return rows;
-          const allowed = new Set(rows.map(r => r.name));
+          // Remove excluded companies from the list entirely
+          const visibleRows = excCompanyNames.size > 0 ? rows.filter(r => !excCompanyNames.has(r.name)) : rows;
+          if (allExcItemNames.size === 0 && excAreaNames.size === 0) return visibleRows;
           const map = new Map<string, BreakdownRow>();
           for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
           // Build per-item totals excluding areas
