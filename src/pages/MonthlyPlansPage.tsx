@@ -298,6 +298,13 @@ export default function MonthlyPlansPage() {
   const [searchSuggestOpen, setSearchSuggestOpen] = useState(false);
   const [visitFilter, setVisitFilter] = useState<'all' | 'done' | 'not_done' | 'voice_added'>('all');
 
+  // Add doctor manually
+  const [addDoctorOpen, setAddDoctorOpen]       = useState(false);
+  const [addDoctorQuery, setAddDoctorQuery]     = useState('');
+  const [addDoctorResults, setAddDoctorResults] = useState<Doctor[]>([]);
+  const [addDoctorLoading, setAddDoctorLoading] = useState(false);
+  const [addDoctorAdding, setAddDoctorAdding]   = useState<number | null>(null); // doctorId being added
+
   // Voice input
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceReminderVisible, setVoiceReminderVisible] = useState(false);
@@ -744,6 +751,43 @@ export default function MonthlyPlansPage() {
     if (!confirm('إزالة هذا الطبيب من البلان؟')) return;
     await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${entryId}`, { method: 'DELETE', headers: H() });
     await reloadPlan(activePlan.id);
+  };
+
+  // Add doctor manually by ID (from search)
+  const addDoctorManually = async (doc: Doctor) => {
+    if (!activePlan) return;
+    if (activePlan.entries.some(e => e.doctorId === doc.id)) return; // already in plan
+    setAddDoctorAdding(doc.id);
+    try {
+      const entryRes = await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries`, {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({ doctorId: doc.id, targetVisits: sTargetVisits }),
+      });
+      if (entryRes.ok && doc.targetItem) {
+        const entry = await entryRes.json();
+        await fetch(`${API}/api/monthly-plans/${activePlan.id}/entries/${entry.id}/items`, {
+          method: 'POST', headers: H(),
+          body: JSON.stringify({ itemId: doc.targetItem.id }),
+        });
+      }
+      await reloadPlan(activePlan.id);
+      setAddDoctorQuery('');
+      setAddDoctorResults([]);
+    } catch (e: any) { alert(e.message); }
+    finally { setAddDoctorAdding(null); }
+  };
+
+  // Search doctors for manual add
+  const searchDoctorsForAdd = async (q: string) => {
+    if (!q.trim() || q.trim().length < 1) { setAddDoctorResults([]); return; }
+    setAddDoctorLoading(true);
+    try {
+      const r = await fetch(`${API}/api/doctors?q=${encodeURIComponent(q.trim())}&isActive=true`, { headers: H() });
+      const data = await r.json();
+      const docs: Doctor[] = (Array.isArray(data) ? data : data.doctors ?? data.data ?? []).slice(0, 10);
+      setAddDoctorResults(docs);
+    } catch { setAddDoctorResults([]); }
+    finally { setAddDoctorLoading(false); }
   };
 
   // Bulk remove entries
@@ -3113,6 +3157,134 @@ export default function MonthlyPlansPage() {
                   <span style={{ fontSize: 12, opacity: 0.7 }}> من {activePlan.entries.reduce((s,e)=>s+e.targetVisits,0)}</span>
                 </p>
               </div>
+            </div>
+
+            {/* ── Add Doctor Manually ── */}
+            <div style={{ marginBottom: 12 }}>
+              {!addDoctorOpen ? (
+                <button
+                  onClick={() => { setAddDoctorOpen(true); }}
+                  style={{
+                    width: '100%', padding: '9px 16px', border: '2px dashed #86efac',
+                    borderRadius: 10, background: '#f0fdf4', color: '#166534',
+                    fontSize: 13, fontWeight: 700, cursor: 'pointer', direction: 'rtl',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#dcfce7'; e.currentTarget.style.borderColor = '#4ade80'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#86efac'; }}>
+                  ➕ إضافة طبيب للبلان
+                </button>
+              ) : (
+                <div style={{ border: '2px solid #22c55e', borderRadius: 12, background: '#f0fdf4', overflow: 'visible', position: 'relative' }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #bbf7d0' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>➕ إضافة طبيب</span>
+                    <button onClick={() => { setAddDoctorOpen(false); setAddDoctorQuery(''); setAddDoctorResults([]); }}
+                      style={{ background: 'none', border: 'none', fontSize: 18, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
+                  </div>
+                  {/* Search input */}
+                  <div style={{ padding: '8px 12px 10px', position: 'relative' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <span style={{ position: 'absolute', right: 10, fontSize: 15, color: '#22c55e', pointerEvents: 'none' }}>🔍</span>
+                      <input
+                        autoFocus
+                        type="text"
+                        value={addDoctorQuery}
+                        onChange={e => { setAddDoctorQuery(e.target.value); searchDoctorsForAdd(e.target.value); }}
+                        placeholder="اكتب اسم الطبيب للبحث..."
+                        style={{
+                          width: '100%', padding: '9px 36px 9px 12px', border: '1.5px solid #86efac',
+                          borderRadius: 8, fontSize: 13, direction: 'rtl', boxSizing: 'border-box',
+                          outline: 'none', background: '#fff', color: '#1e293b',
+                        }}
+                        onFocus={e => (e.target.style.borderColor = '#22c55e')}
+                        onBlur={e => (e.target.style.borderColor = '#86efac')}
+                      />
+                      {addDoctorLoading && (
+                        <span style={{ position: 'absolute', left: 10, fontSize: 13, color: '#64748b' }}>...</span>
+                      )}
+                    </div>
+
+                    {/* Results dropdown */}
+                    {addDoctorResults.length > 0 && (
+                      <div style={{
+                        position: 'absolute', right: 12, left: 12, top: '100%',
+                        zIndex: 500, background: '#fff',
+                        border: '1.5px solid #22c55e', borderTop: 'none',
+                        borderRadius: '0 0 10px 10px',
+                        boxShadow: '0 8px 24px rgba(34,197,94,0.15)', overflow: 'hidden',
+                        maxHeight: 320, overflowY: 'auto',
+                      }}>
+                        {addDoctorResults.map(doc => {
+                          const alreadyIn = activePlan.entries.some(e => e.doctorId === doc.id);
+                          const isAdding  = addDoctorAdding === doc.id;
+                          return (
+                            <div
+                              key={doc.id}
+                              onClick={() => !alreadyIn && !isAdding && addDoctorManually(doc)}
+                              style={{
+                                padding: '10px 14px', direction: 'rtl', cursor: alreadyIn ? 'default' : 'pointer',
+                                background: alreadyIn ? '#f8fafc' : '#fff',
+                                borderBottom: '1px solid #f0fdf4',
+                                opacity: alreadyIn ? 0.6 : 1,
+                                transition: 'background 0.12s',
+                              }}
+                              onMouseEnter={e => { if (!alreadyIn) e.currentTarget.style.background = '#f0fdf4'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = alreadyIn ? '#f8fafc' : '#fff'; }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                <div style={{ flex: 1 }}>
+                                  <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                                    👨‍⚕️ {doc.name}
+                                  </p>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                    {doc.specialty && (
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#ede9fe', color: '#6d28d9', fontWeight: 600 }}>
+                                        🔬 {doc.specialty}
+                                      </span>
+                                    )}
+                                    {doc.area?.name && (
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#dbeafe', color: '#1e40af', fontWeight: 600 }}>
+                                        📍 {doc.area.name}
+                                      </span>
+                                    )}
+                                    {(doc as any).pharmacyName && (
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#fef9c3', color: '#92400e', fontWeight: 600 }}>
+                                        🏪 {(doc as any).pharmacyName}
+                                      </span>
+                                    )}
+                                    {doc.targetItem && (
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#f0fdf4', color: '#166534', fontWeight: 600 }}>
+                                        💊 {doc.targetItem.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div style={{ flexShrink: 0, marginTop: 2 }}>
+                                  {alreadyIn ? (
+                                    <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 700 }}>✅ في البلان</span>
+                                  ) : isAdding ? (
+                                    <span style={{ fontSize: 11, color: '#64748b' }}>جاري...</span>
+                                  ) : (
+                                    <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 8, background: '#22c55e', color: '#fff', fontWeight: 700 }}>+ إضافة</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* No results hint */}
+                    {!addDoctorLoading && addDoctorQuery.trim().length >= 2 && addDoctorResults.length === 0 && (
+                      <p style={{ margin: '6px 0 0', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                        لا توجد نتائج لـ "{addDoctorQuery}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Search bar */}
