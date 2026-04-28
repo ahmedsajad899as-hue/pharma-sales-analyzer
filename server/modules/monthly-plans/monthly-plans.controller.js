@@ -557,10 +557,15 @@ export async function suggest(req, res, next) {
           diff -= step;
         }
 
+        // ── Pass 1: fetch from each area up to its scaled quota ──
+        // Track shortfall per area so we can redistribute later
+        const areaShortfall = []; // areas that couldn't fill their quota
+        const areaSurplus   = []; // area IDs that may have more doctors available
+
         for (const { id: aId, quota: scaledQuota } of scaled) {
           if (scaledQuota <= 0) continue;
 
-          // Deduct doctors already kept from this area
+          // Deduct doctors already kept/priority from this area
           const keptFromArea = keepDoctors.filter(k => k.doctor.areaId === aId).length
             + priorityDoctors.filter(d => d.areaId === aId).length;
           const newNeeded = Math.max(0, scaledQuota - keptFromArea);
@@ -586,6 +591,49 @@ export async function suggest(req, res, next) {
           if (sortBy === 'random') areaDocs = areaDocs.sort(() => Math.random() - 0.5).slice(0, newNeeded);
           areaDocs.forEach(d => usedDoctorIds.add(d.id));
           newDoctors.push(...areaDocs);
+
+          const fetched = areaDocs.length;
+          if (fetched < newNeeded) {
+            // This area couldn't fill its quota — record shortfall
+            areaShortfall.push({ aId, shortfall: newNeeded - fetched });
+          } else {
+            // This area filled its quota — may have extra to give
+            areaSurplus.push(aId);
+          }
+        }
+
+        // ── Pass 2: redistribute shortfall from areas that have surplus ──
+        const totalShortfall = areaShortfall.reduce((s, x) => s + x.shortfall, 0);
+        if (totalShortfall > 0 && areaSurplus.length > 0) {
+          // Fetch extra doctors from surplus areas (round-robin style)
+          const extraPerArea = Math.ceil(totalShortfall / areaSurplus.length);
+          let remaining = totalShortfall;
+
+          for (const aId of areaSurplus) {
+            if (remaining <= 0) break;
+            const toFetch = Math.min(remaining, extraPerArea);
+            const fetchCount = sortBy === 'random' ? Math.min(toFetch * 4, 500) : toFetch;
+            let extraDocs = await prisma.doctor.findMany({
+              where: {
+                ...doctorUserFilter,
+                isActive: true,
+                id: { notIn: [...usedDoctorIds] },
+                areaId: aId,
+                ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+                ...itemFilter,
+              },
+              include: {
+                area:       { select: { id: true, name: true } },
+                targetItem: { select: { id: true, name: true } },
+              },
+              take: fetchCount,
+              orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+            });
+            if (sortBy === 'random') extraDocs = extraDocs.sort(() => Math.random() - 0.5).slice(0, toFetch);
+            extraDocs.forEach(d => usedDoctorIds.add(d.id));
+            newDoctors.push(...extraDocs);
+            remaining -= extraDocs.length;
+          }
         }
       }
     } else if (needed > 0) {
