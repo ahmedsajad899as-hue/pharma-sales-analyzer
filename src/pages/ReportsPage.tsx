@@ -1474,9 +1474,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             ? new Set(byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn))).map(r => r.name))
             : null;
           return byAreaItem.filter(r => {
+            // Areas: restrict rows to selected areas (AND with item/company filter)
             if (tagAreaNorms.length > 0 && !tagAreaNorms.some(na => normalise(r.areaName).includes(na))) return false;
-            if (tagItemNorms.length > 0 && !tagItemNorms.some(ni => normalise(r.itemName).includes(ni))) return false;
-            if (companyItemNames && !companyItemNames.has(r.itemName)) return false;
+            // Items & companies: OR logic — row passes if itemName matches any item tag OR belongs to any selected company
+            const hasItemOrCompany = tagItemNorms.length > 0 || companyItemNames !== null;
+            if (hasItemOrCompany) {
+              const matchesItem    = tagItemNorms.length > 0 && tagItemNorms.some(ni => normalise(r.itemName).includes(ni));
+              const matchesCompany = companyItemNames !== null && companyItemNames.has(r.itemName);
+              if (!matchesItem && !matchesCompany) return false;
+            }
             return true;
           });
         };
