@@ -166,10 +166,10 @@ export default function MonthlyPlansPage() {
   const [sUserNote, setSUserNote]           = useState<string>(_ss.userNote ?? '');
   const [sLookbackList, setSLookbackList]   = useState<string[]>(_ss.lookbackList ?? []);
   const [sNewRatio, setSNewRatio]           = useState<number>(_ss.newRatio ?? 0);
-  const [sFocusItemIds, setSFocusItemIds]     = useState<{id: string; name: string}[]>(_ss.focusItemIds ?? []);
+  const [sFocusItemIds, setSFocusItemIds]     = useState<{id: string; name: string; pct: number}[]>(_ss.focusItemIds ?? []);
   const [sFocusItemText, setSFocusItemText]   = useState('');
   const [sFocusItemDD, setSFocusItemDD]       = useState(false);
-  const [sFocusSpecialties, setSFocusSpecialties] = useState<string[]>(_ss.focusSpecialties ?? []);
+  const [sFocusSpecialties, setSFocusSpecialties] = useState<{name: string; pct: number}[]>((_ss.focusSpecialties ?? []).map((x: any) => typeof x === 'string' ? { name: x, pct: 60 } : x));
   const [sFocusSpecText, setSFocusSpecText]   = useState('');
   const [sFocusSpecDD, setSFocusSpecDD]       = useState(false);
   const [sFocusAreaIds, setSFocusAreaIds]     = useState<{id: string; name: string}[]>(_ss.focusAreaIds ?? []);
@@ -686,8 +686,8 @@ export default function MonthlyPlansPage() {
         newRatio:         String(sNewRatio),
         ...(hasRep && { scientificRepId: String(activePlan.scientificRepId) }),
         ...(!hasRep && { planId: String(activePlan.id) }),
-        ...(sFocusItemIds.length > 0     && { focusItemId:     sFocusItemIds.map(x => x.id).join(',') }),
-        ...(sFocusSpecialties.length > 0 && { focusSpecialty:  sFocusSpecialties.join(',') }),
+        ...(sFocusItemIds.length > 0     && { focusItemId:     JSON.stringify(sFocusItemIds.map(x => ({ id: x.id, pct: x.pct }))) }),
+        ...(sFocusSpecialties.length > 0 && { focusSpecialty:  JSON.stringify(sFocusSpecialties.map(x => ({ name: x.name, pct: x.pct }))) }),
         ...(sFocusAreaIds.length > 0     && { focusAreaId:     sFocusAreaIds.map(x => x.id).join(',') }),
         ...(sUserNote.trim() && { userNote:        sUserNote.trim() }),
         ...(wishedDoctorIds  && { wishedDoctorIds }),
@@ -2440,7 +2440,7 @@ export default function MonthlyPlansPage() {
                           plans.flatMap(p => p.entries.map(e => e.doctor.specialty)).filter((s): s is string => Boolean(s))
                         )].sort();
                         const filteredSpecs = allSpecialties.filter(s =>
-                          !sFocusSpecialties.includes(s) &&
+                          !sFocusSpecialties.find(x => x.name === s) &&
                           (!sFocusSpecText || s.toLowerCase().includes(sFocusSpecText.toLowerCase()))
                         );
                         const ddBase: React.CSSProperties = {
@@ -2456,7 +2456,8 @@ export default function MonthlyPlansPage() {
                         const inputStyle2: React.CSSProperties = { ...settingInputStyle, borderRadius: 7, marginTop: 4 };
                         return (
                           <div style={{ marginBottom: 4 }}>
-                            <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🎯 تركيز على</p>
+                            <p style={{ margin: '0 0 2px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🎯 تركيز على</p>
+                          <p style={{ margin: '0 0 10px', fontSize: 11, color: '#94a3b8', lineHeight: 1.4 }}>حدد النسبة المئوية لكل فئة — الباقي يُكمَّل من الطاقم العام (مثال: 60% كسور + 40% عشوائي)</p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                               {/* Focus items */}
                               <div>
@@ -2464,9 +2465,16 @@ export default function MonthlyPlansPage() {
                                 {sFocusItemIds.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                                     {sFocusItemIds.map(x => (
-                                      <span key={x.id} style={chipStyle('#7c3aed', '#ede9fe')}
-                                        onClick={() => setSFocusItemIds(prev => prev.filter(p => p.id !== x.id))}>
-                                        {x.name} ×
+                                      <span key={x.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#ede9fe', color: '#7c3aed', border: '1.5px solid #c4b5fd', overflow: 'hidden', flexShrink: 0 }}>
+                                        <span style={{ padding: '3px 5px 3px 9px' }}>{x.name}</span>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(124,58,237,0.12)', borderRight: '1px solid #c4b5fd', borderLeft: '1px solid #c4b5fd' }}>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setSFocusItemIds(prev => prev.map(p => p.id === x.id ? { ...p, pct: Math.max(10, p.pct - 10) } : p)); }}
+                                            style={{ width: 16, minHeight: 22, border: 'none', background: 'transparent', cursor: 'pointer', color: '#7c3aed', fontSize: 13, fontWeight: 700, padding: '0 1px', lineHeight: 1 }}>−</button>
+                                          <span style={{ fontSize: 11, fontWeight: 800, color: '#6d28d9', padding: '0 2px', minWidth: 30, textAlign: 'center' }}>{x.pct}%</span>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setSFocusItemIds(prev => prev.map(p => p.id === x.id ? { ...p, pct: Math.min(100, p.pct + 10) } : p)); }}
+                                            style={{ width: 16, minHeight: 22, border: 'none', background: 'transparent', cursor: 'pointer', color: '#7c3aed', fontSize: 13, fontWeight: 700, padding: '0 1px', lineHeight: 1 }}>+</button>
+                                        </span>
+                                        <span onClick={() => setSFocusItemIds(prev => prev.filter(p => p.id !== x.id))} style={{ padding: '3px 7px 3px 4px', cursor: 'pointer', opacity: 0.5, fontSize: 13 }}>×</span>
                                       </span>
                                     ))}
                                   </div>
@@ -2482,7 +2490,7 @@ export default function MonthlyPlansPage() {
                                     <div style={ddBase}>
                                       {filteredItems.slice(0, 40).map(it => (
                                         <div key={it.id}
-                                          onMouseDown={() => { setSFocusItemIds(prev => [...prev, { id: String(it.id), name: it.name }]); setSFocusItemText(''); setSFocusItemDD(false); }}
+                                          onMouseDown={() => { setSFocusItemIds(prev => [...prev, { id: String(it.id), name: it.name, pct: 60 }]); setSFocusItemText(''); setSFocusItemDD(false); }}
                                           style={ddItem}>{it.name}</div>
                                       ))}
                                     </div>
@@ -2526,9 +2534,16 @@ export default function MonthlyPlansPage() {
                                 {sFocusSpecialties.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                                     {sFocusSpecialties.map(s => (
-                                      <span key={s} style={chipStyle('#166534', '#dcfce7')}
-                                        onClick={() => setSFocusSpecialties(prev => prev.filter(p => p !== s))}>
-                                        {s} ×
+                                      <span key={s.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#dcfce7', color: '#166534', border: '1.5px solid #86efac', overflow: 'hidden', flexShrink: 0 }}>
+                                        <span style={{ padding: '3px 5px 3px 9px' }}>{s.name}</span>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(22,101,52,0.1)', borderRight: '1px solid #86efac', borderLeft: '1px solid #86efac' }}>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setSFocusSpecialties(prev => prev.map(p => p.name === s.name ? { ...p, pct: Math.max(10, p.pct - 10) } : p)); }}
+                                            style={{ width: 16, minHeight: 22, border: 'none', background: 'transparent', cursor: 'pointer', color: '#166534', fontSize: 13, fontWeight: 700, padding: '0 1px', lineHeight: 1 }}>−</button>
+                                          <span style={{ fontSize: 11, fontWeight: 800, color: '#14532d', padding: '0 2px', minWidth: 30, textAlign: 'center' }}>{s.pct}%</span>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setSFocusSpecialties(prev => prev.map(p => p.name === s.name ? { ...p, pct: Math.min(100, p.pct + 10) } : p)); }}
+                                            style={{ width: 16, minHeight: 22, border: 'none', background: 'transparent', cursor: 'pointer', color: '#166534', fontSize: 13, fontWeight: 700, padding: '0 1px', lineHeight: 1 }}>+</button>
+                                        </span>
+                                        <span onClick={() => setSFocusSpecialties(prev => prev.filter(p => p.name !== s.name))} style={{ padding: '3px 7px 3px 4px', cursor: 'pointer', opacity: 0.5, fontSize: 13 }}>×</span>
                                       </span>
                                     ))}
                                   </div>
@@ -2542,13 +2557,13 @@ export default function MonthlyPlansPage() {
                                     style={inputStyle2} />
                                   {sFocusSpecDD && (filteredSpecs.length > 0 || sFocusSpecText.trim()) && (
                                     <div style={ddBase}>
-                                      {sFocusSpecText.trim() && !filteredSpecs.includes(sFocusSpecText.trim()) && !sFocusSpecialties.includes(sFocusSpecText.trim()) && (
-                                        <div onMouseDown={() => { setSFocusSpecialties(prev => [...prev, sFocusSpecText.trim()]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
+                                      {sFocusSpecText.trim() && !sFocusSpecialties.find(x => x.name === sFocusSpecText.trim()) && (
+                                        <div onMouseDown={() => { setSFocusSpecialties(prev => [...prev, { name: sFocusSpecText.trim(), pct: 60 }]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
                                           style={{ ...ddItem, color: '#166534', fontWeight: 600 }}>➕ "{sFocusSpecText.trim()}"</div>
                                       )}
                                       {filteredSpecs.slice(0, 40).map(s => (
                                         <div key={s}
-                                          onMouseDown={() => { setSFocusSpecialties(prev => [...prev, s]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
+                                          onMouseDown={() => { setSFocusSpecialties(prev => [...prev, { name: s, pct: 60 }]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
                                           style={ddItem}>{s}</div>
                                       ))}
                                     </div>

@@ -587,17 +587,39 @@ export async function suggest(req, res, next) {
         ? Math.max(0, forcedNewCount - priorityDoctors.length)
         : Math.max(0, target - keepDoctors.length - priorityDoctors.length);
 
-    // specialty & item filters (both may be comma-separated for multi-select)
-    const focusSpecialtyList = String(focusSpecialty).trim()
-      ? String(focusSpecialty).split(',').map(s => s.trim()).filter(Boolean)
-      : null;
-    const specialtyFilter = focusSpecialtyList?.length
-      ? focusSpecialtyList
+    // specialty & item focus: parse JSON [{name/id, pct}] or fall back to old comma format
+    const parseFocusSpec = (raw) => {
+      const s = String(raw ?? '').trim();
+      if (!s) return [];
+      try {
+        const j = JSON.parse(s);
+        if (Array.isArray(j) && j.length > 0)
+          return j.map(x => ({ name: String(x.name || x), pct: Math.max(10, Math.min(100, parseInt(x.pct) || 60)) }));
+      } catch {}
+      const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+      return parts.map(name => ({ name, pct: Math.round(100 / parts.length) }));
+    };
+    const parseFocusItem = (raw) => {
+      const s = String(raw ?? '').trim();
+      if (!s) return [];
+      try {
+        const j = JSON.parse(s);
+        if (Array.isArray(j) && j.length > 0)
+          return j.map(x => ({ id: parseInt(x.id || x), pct: Math.max(10, Math.min(100, parseInt(x.pct) || 60)) }))
+                  .filter(x => !isNaN(x.id) && x.id > 0);
+      } catch {}
+      const parts = s.split(',').map(x => parseInt(x.trim())).filter(n => Number.isInteger(n) && n > 0);
+      return parts.map(id => ({ id, pct: Math.round(100 / parts.length) }));
+    };
+    const focusSpecEntries = parseFocusSpec(focusSpecialty);
+    const focusItemEntries = parseFocusItem(focusItemId);
+    // For area-quota path: derive hard-filter arrays (all entries combined)
+    const specialtyFilter = focusSpecEntries.length
+      ? focusSpecEntries.map(x => x.name)
       : (aiParsed?.specialties?.length ? aiParsed.specialties : null);
-    const focusItemIds = String(focusItemId).trim()
-      ? String(focusItemId).split(',').map(s => parseInt(s.trim())).filter(n => Number.isInteger(n) && n > 0)
-      : [];
-    const itemFilter = focusItemIds.length > 0 ? { targetItemId: { in: focusItemIds } } : {};
+    const itemFilter = focusItemEntries.length
+      ? { targetItemId: { in: focusItemEntries.map(x => x.id) } }
+      : {};
 
     // إذا كان منشئ البلان (userId) مختلفاً عن userId المندوب (doctorUserId)،
     // نبحث في قاعدة بيانات الطرفين معاً (المندوب + المدير) بنفس فلتر المناطق.
@@ -718,27 +740,86 @@ export async function suggest(req, res, next) {
         }
       }
     } else if (needed > 0) {
-      // ── Bulk fetch (original logic) ──────────────────────────
-      const fetchCount = sortBy === 'random' ? Math.min(needed * 4, 500) : needed;
-      const bulkExcludedIds = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
-      newDoctors = await prisma.doctor.findMany({
-        where: {
-          ...doctorUserFilter,
-          isActive: true,
-          id: { notIn: [...bulkExcludedIds] },
-          ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
-          ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
-          ...itemFilter,
-        },
-        include: {
-          area:       { select: { id: true, name: true } },
-          targetItem: { select: { id: true, name: true } },
-        },
-        take: fetchCount,
-        orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
-      });
-      if (sortBy === 'random') {
-        newDoctors = newDoctors.sort(() => Math.random() - 0.5).slice(0, needed);
+      // ── Bulk fetch: weighted focus OR original hard-filter ────────────────
+      const docIncludes = {
+        area:       { select: { id: true, name: true } },
+        targetItem: { select: { id: true, name: true } },
+      };
+      const baseWhere = {
+        ...doctorUserFilter,
+        isActive: true,
+        ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
+      };
+
+      if (focusSpecEntries.length > 0 || focusItemEntries.length > 0) {
+        // ── Weighted focus: Phase 1 — proportional slice per focus entry ──
+        const focusedDocs = [];
+
+        for (const sf of focusSpecEntries) {
+          const alloc = Math.round(needed * sf.pct / 100);
+          if (alloc <= 0) continue;
+          const excl = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
+          const fc = sortBy === 'random' ? Math.min(alloc * 4, 500) : alloc;
+          let docs = await prisma.doctor.findMany({
+            where: { ...baseWhere, id: { notIn: [...excl] }, specialty: sf.name },
+            include: docIncludes,
+            take: fc,
+            orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+          });
+          if (sortBy === 'random') docs = docs.sort(() => Math.random() - 0.5).slice(0, alloc);
+          docs.forEach(d => usedDoctorIds.add(d.id));
+          focusedDocs.push(...docs);
+        }
+
+        for (const fi of focusItemEntries) {
+          const alloc = Math.round(needed * fi.pct / 100);
+          if (alloc <= 0) continue;
+          const excl = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
+          const fc = sortBy === 'random' ? Math.min(alloc * 4, 500) : alloc;
+          let docs = await prisma.doctor.findMany({
+            where: { ...baseWhere, id: { notIn: [...excl] }, targetItemId: fi.id },
+            include: docIncludes,
+            take: fc,
+            orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+          });
+          if (sortBy === 'random') docs = docs.sort(() => Math.random() - 0.5).slice(0, alloc);
+          docs.forEach(d => usedDoctorIds.add(d.id));
+          focusedDocs.push(...docs);
+        }
+
+        // Phase 2 — Fill remainder from general pool (no focus filter)
+        const remaining = Math.max(0, needed - focusedDocs.length);
+        if (remaining > 0) {
+          const excl = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
+          const fc = sortBy === 'random' ? Math.min(remaining * 4, 500) : remaining;
+          let generalDocs = await prisma.doctor.findMany({
+            where: { ...baseWhere, id: { notIn: [...excl] } },
+            include: docIncludes,
+            take: fc,
+            orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+          });
+          if (sortBy === 'random') generalDocs = generalDocs.sort(() => Math.random() - 0.5).slice(0, remaining);
+          generalDocs.forEach(d => usedDoctorIds.add(d.id));
+          focusedDocs.push(...generalDocs);
+        }
+
+        newDoctors = focusedDocs.slice(0, needed);
+      } else {
+        // ── Original hard-filter bulk fetch (no user focus set) ──
+        const fc = sortBy === 'random' ? Math.min(needed * 4, 500) : needed;
+        const excl = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
+        newDoctors = await prisma.doctor.findMany({
+          where: {
+            ...baseWhere,
+            id: { notIn: [...excl] },
+            ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+            ...itemFilter,
+          },
+          include: docIncludes,
+          take: fc,
+          orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+        });
+        if (sortBy === 'random') newDoctors = newDoctors.sort(() => Math.random() - 0.5).slice(0, needed);
       }
     }
 
