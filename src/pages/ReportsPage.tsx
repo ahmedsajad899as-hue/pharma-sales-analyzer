@@ -1679,8 +1679,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           // Remove excluded companies from the list entirely
           const visibleRows = excCompanyNames.size > 0 ? rows.filter(r => !excCompanyNames.has(r.name)) : rows;
           if (allExcItemNames.size === 0 && excAreaNames.size === 0) return visibleRows;
+          const allowed = new Set(visibleRows.map(r => r.name));
           const map = new Map<string, BreakdownRow>();
-          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const r of visibleRows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
           // Build per-item totals excluding areas
           const itemTotals = new Map<string, { qty: number; val: number; company: string }>();
           for (const item of allItems) {
