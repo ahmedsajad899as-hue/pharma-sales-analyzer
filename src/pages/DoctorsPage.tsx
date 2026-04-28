@@ -280,6 +280,12 @@ export default function DoctorsPage() {
   const [archiveTotal, setArchiveTotal]           = useState(0);
   const [archiveTotalVisited, setArchiveTotalVisited] = useState(0);
   const [archiveTotalWriting, setArchiveTotalWriting] = useState(0);
+  const archiveStarKey = `archiveStarred_${user?.id ?? 'guest'}`;
+  const [archiveStarred, setArchiveStarred]       = useState<Set<number>>(() => {
+    try { return new Set<number>(JSON.parse(localStorage.getItem(`archiveStarred_${user?.id ?? 'guest'}`) || '[]')); }
+    catch { return new Set<number>(); }
+  });
+  const [showArchiveWishPanel, setShowArchiveWishPanel] = useState(false);
   const [archiveSearch, setArchiveSearch]         = useState('');
   const [archiveAreaFilter, setArchiveAreaFilter] = useState('all');
   const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
@@ -319,6 +325,7 @@ export default function DoctorsPage() {
     [expandedPharma.size > 0,      () => setExpandedPharma(new Set())],
     [pharmExpandedAreas.size > 0,  () => setPharmExpandedAreas(new Set())],
     [showAddModal,                 () => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }],
+    [showArchiveWishPanel,         () => setShowArchiveWishPanel(false)],
     [archiveSubPopup !== null,      () => setArchiveSubPopup(null)],
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
@@ -641,6 +648,15 @@ export default function DoctorsPage() {
       ));
       loadSurveyDoctors();
     } catch (e) { console.error(e); loadArchive(); }
+  };
+
+  const toggleArchiveStar = (surveyDoctorId: number) => {
+    setArchiveStarred(prev => {
+      const next = new Set(prev);
+      next.has(surveyDoctorId) ? next.delete(surveyDoctorId) : next.add(surveyDoctorId);
+      localStorage.setItem(archiveStarKey, JSON.stringify([...next]));
+      return next;
+    });
   };
 
   const openAddPharm = () => {
@@ -2341,10 +2357,16 @@ export default function DoctorsPage() {
               const matchArea = archiveAreaFilter === 'all' || normQ(area.name) === normQ(archiveAreaFilter);
               if (!matchArea) return false;
               if (!q) return true;
-              return normQ(d.name).includes(q) || normQ(d.specialty ?? '').includes(q) || normQ(d.pharmacyName ?? '').includes(q);
+              return normQ(d.name).includes(q) || normQ(d.specialty ?? '').includes(q) || normQ(d.pharmacyName ?? '').includes(q) || normQ(d.areaName ?? '').includes(q);
             }),
           }))
           .filter(area => (archiveAreaFilter === 'all' || normQ(area.name) === normQ(archiveAreaFilter)) && area.doctors.length > 0);
+
+        // Auto-expand areas that have matching doctors when searching
+        const autoExpandedAreas: Set<string> = q
+          ? new Set(filteredAreas.map(a => a.name))
+          : archiveExpandedAreas;
+        const effectiveExpanded = q ? autoExpandedAreas : archiveExpandedAreas;
 
         const uniqueAreas = [...new Set(archiveAreas.map(a => a.name))];
 
@@ -2392,18 +2414,63 @@ export default function DoctorsPage() {
             {/* Search + filter bar */}
             <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
               <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)}
-                placeholder="🔍 بحث باسم الطبيب أو التخصص..."
+                placeholder="🔍 بحث باسم الطبيب أو التخصص أو المنطقة..."
                 style={{ flex: '1 1 200px', padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none' }} />
               <select value={archiveAreaFilter} onChange={e => setArchiveAreaFilter(e.target.value)}
                 style={{ padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', background: '#fff', outline: 'none', maxWidth: 180 }}>
                 <option value="all">📍 كل المناطق</option>
                 {uniqueAreas.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
+              {archiveStarred.size > 0 && (
+                <button onClick={() => setShowArchiveWishPanel(v => !v)}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${showArchiveWishPanel ? '#f59e0b' : '#e2e8f0'}`,
+                    background: showArchiveWishPanel ? '#fffbeb' : '#f8fafc', color: '#b45309', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  ⭐ للبلان ({archiveStarred.size})
+                </button>
+              )}
               <button onClick={loadArchive} disabled={archiveLoading}
                 style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#e0e7ff', color: '#4338ca', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: archiveLoading ? 0.7 : 1 }}>
                 {archiveLoading ? '⏳' : '↻'} تحديث
               </button>
             </div>
+
+            {/* Starred panel */}
+            {showArchiveWishPanel && archiveStarred.size > 0 && (() => {
+              const allDocsFlat = archiveAreas.flatMap(a => a.doctors);
+              const starredDocs = allDocsFlat.filter(d => archiveStarred.has(d.surveyDoctorId));
+              return (
+                <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 14, padding: '14px 18px', marginBottom: 18, direction: 'rtl' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>⭐</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: '#b45309' }}>أطباء مطلوبون في البلان</span>
+                      <span style={{ background: '#f59e0b', color: '#fff', borderRadius: 99, fontSize: 11, fontWeight: 700, padding: '1px 8px' }}>{starredDocs.length}</span>
+                    </div>
+                    <button onClick={() => {
+                      setArchiveStarred(new Set());
+                      localStorage.removeItem(archiveStarKey);
+                    }} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 7, padding: '3px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>
+                      مسح الكل
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                    {starredDocs.map((d, idx) => (
+                      <div key={d.surveyDoctorId} style={{ background: '#fff', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #fcd34d', position: 'relative' }}>
+                        <button onClick={() => toggleArchiveStar(d.surveyDoctorId)} style={{ position: 'absolute', top: 6, left: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8', lineHeight: 1, padding: 2 }}>×</button>
+                        <span style={{ position: 'absolute', top: 6, right: 8, background: '#fef3c7', color: '#b45309', borderRadius: 99, fontSize: 10, fontWeight: 700, padding: '1px 6px' }}>{idx + 1}</span>
+                        <div style={{ marginTop: 14, fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{d.name}</div>
+                        {d.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{d.specialty}</div>}
+                        {d.areaName && <div style={{ fontSize: 11, color: '#6366f1', marginTop: 1 }}>📍 {d.areaName}</div>}
+                        {d.isVisited && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 3 }}>✅ تمت زيارته</div>}
+                        {d.isWriting && d.writingItems.length > 0 && (
+                          <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2 }}>✏️ {d.writingItems.join(' · ')}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {archiveLoading ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>جاري التحميل...</div>
@@ -2420,7 +2487,7 @@ export default function DoctorsPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {filteredAreas.map(area => {
-                  const isExpanded = archiveExpandedAreas.has(area.name);
+                  const isExpanded = effectiveExpanded.has(area.name);
                   const visitedCount = area.doctors.filter(d => d.isVisited).length;
                   const writingCount = area.doctors.filter(d => d.isWriting).length;
                   return (
@@ -2534,11 +2601,21 @@ export default function DoctorsPage() {
                                   )}
                                 </div>
 
-                                {/* Remove button */}
-                                <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة من الأرشيف"
-                                  style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '4px 8px', fontSize: 13, cursor: 'pointer', color: '#dc2626', flexShrink: 0 }}>
-                                  🗑
-                                </button>
+                                {/* Star + Remove buttons */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                                  <button onClick={() => toggleArchiveStar(doc.surveyDoctorId)} title={archiveStarred.has(doc.surveyDoctorId) ? 'إزالة من البلان' : 'أضف للبلان'}
+                                    style={{ background: archiveStarred.has(doc.surveyDoctorId) ? '#fffbeb' : 'transparent',
+                                      border: `1.5px solid ${archiveStarred.has(doc.surveyDoctorId) ? '#f59e0b' : '#cbd5e1'}`,
+                                      borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      opacity: archiveStarred.has(doc.surveyDoctorId) ? 1 : 0.4, transition: 'all .15s' }}>
+                                    ⭐
+                                  </button>
+                                  <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة من الأرشيف"
+                                    style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '4px 8px', fontSize: 13, cursor: 'pointer', color: '#dc2626' }}>
+                                    🗑
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           ))}
