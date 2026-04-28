@@ -859,6 +859,17 @@ export default function DoctorsPage() {
     [doctors]
   );
 
+  // Suggestions for archive item inputs = system items + all previously entered archive items
+  const archiveItemSuggestions = useMemo(() => {
+    const names = new Set<string>();
+    items.forEach(it => names.add(it.name));
+    archiveAreas.forEach(area => area.doctors.forEach(doc => {
+      doc.visitItems?.forEach(n => { if (n) names.add(n); });
+      doc.writingItems?.forEach(n => { if (n) names.add(n); });
+    }));
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [items, archiveAreas]);
+
   const toggleArea = (key: string) => setExpandedAreas(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -2559,16 +2570,34 @@ export default function DoctorsPage() {
                                           </span>
                                         ))}
                                         {visitItemInputId === doc.surveyDoctorId ? (
-                                          <input autoFocus value={visitItemInputVal} onChange={e => setVisitItemInputVal(e.target.value)}
-                                            onKeyDown={e => {
-                                              if (e.key === 'Enter' && visitItemInputVal.trim()) {
-                                                patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] });
-                                                setVisitItemInputVal(''); setVisitItemInputId(null);
-                                              } else if (e.key === 'Escape') { setVisitItemInputVal(''); setVisitItemInputId(null); }
-                                            }}
-                                            onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
-                                            style={{ padding: '2px 8px', borderRadius: 20, border: '1.5px solid #16a34a', fontSize: 12, outline: 'none', width: 100 }}
-                                            placeholder="إيتم..." />
+                                          <div style={{ position: 'relative' }}>
+                                            <input autoFocus value={visitItemInputVal} onChange={e => setVisitItemInputVal(e.target.value)}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter' && visitItemInputVal.trim()) {
+                                                  patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] });
+                                                  setVisitItemInputVal(''); setVisitItemInputId(null);
+                                                } else if (e.key === 'Escape') { setVisitItemInputVal(''); setVisitItemInputId(null); }
+                                              }}
+                                              onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
+                                              style={{ padding: '2px 8px', borderRadius: 20, border: '1.5px solid #16a34a', fontSize: 12, outline: 'none', width: 100 }}
+                                              placeholder="إيتم..." />
+                                            {(() => {
+                                              const q = visitItemInputVal.trim().toLowerCase();
+                                              const sugs = q ? archiveItemSuggestions.filter(s => s.toLowerCase().includes(q) && !doc.visitItems.includes(s)) : [];
+                                              return sugs.length > 0 ? (
+                                                <div style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: '1px solid #86efac', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 200, minWidth: 150, maxHeight: 160, overflowY: 'auto', marginTop: 2, direction: 'rtl' }}>
+                                                  {sugs.slice(0, 8).map(s => (
+                                                    <button key={s} onMouseDown={() => { patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, s] }); setVisitItemInputVal(''); setVisitItemInputId(null); }}
+                                                      onMouseEnter={e => (e.currentTarget.style.background = '#f0fdf4')}
+                                                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                                      style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '6px 12px', textAlign: 'right', cursor: 'pointer', fontSize: 12, color: '#166534' }}>
+                                                      {s}
+                                                    </button>
+                                                  ))}
+                                                </div>
+                                              ) : null;
+                                            })()}
+                                          </div>
                                         ) : (
                                           <button onClick={() => setVisitItemInputId(doc.surveyDoctorId)}
                                             style={{ background: 'none', border: '1.5px dashed #86efac', borderRadius: 20, padding: '2px 8px', fontSize: 12, color: '#16a34a', cursor: 'pointer' }}>
@@ -2592,16 +2621,34 @@ export default function DoctorsPage() {
                                           </span>
                                         ))}
                                         {itemInputId === doc.surveyDoctorId ? (
-                                          <input autoFocus value={itemInputVal} onChange={e => setItemInputVal(e.target.value)}
-                                            onKeyDown={e => {
-                                              if (e.key === 'Enter' && itemInputVal.trim()) {
-                                                patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] });
-                                                setItemInputVal(''); setItemInputId(null);
-                                              } else if (e.key === 'Escape') { setItemInputVal(''); setItemInputId(null); }
-                                            }}
-                                            onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
-                                            style={{ padding: '2px 8px', borderRadius: 20, border: '1.5px solid #9333ea', fontSize: 12, outline: 'none', width: 100 }}
-                                            placeholder="إيتم..." />
+                                          <div style={{ position: 'relative' }}>
+                                            <input autoFocus value={itemInputVal} onChange={e => setItemInputVal(e.target.value)}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter' && itemInputVal.trim()) {
+                                                  patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] });
+                                                  setItemInputVal(''); setItemInputId(null);
+                                                } else if (e.key === 'Escape') { setItemInputVal(''); setItemInputId(null); }
+                                              }}
+                                              onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
+                                              style={{ padding: '2px 8px', borderRadius: 20, border: '1.5px solid #9333ea', fontSize: 12, outline: 'none', width: 100 }}
+                                              placeholder="إيتم..." />
+                                            {(() => {
+                                              const q = itemInputVal.trim().toLowerCase();
+                                              const sugs = q ? archiveItemSuggestions.filter(s => s.toLowerCase().includes(q) && !doc.writingItems.includes(s)) : [];
+                                              return sugs.length > 0 ? (
+                                                <div style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: '1px solid #d8b4fe', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 200, minWidth: 150, maxHeight: 160, overflowY: 'auto', marginTop: 2, direction: 'rtl' }}>
+                                                  {sugs.slice(0, 8).map(s => (
+                                                    <button key={s} onMouseDown={() => { patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, s] }); setItemInputVal(''); setItemInputId(null); }}
+                                                      onMouseEnter={e => (e.currentTarget.style.background = '#faf5ff')}
+                                                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                                                      style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '6px 12px', textAlign: 'right', cursor: 'pointer', fontSize: 12, color: '#7e22ce' }}>
+                                                      {s}
+                                                    </button>
+                                                  ))}
+                                                </div>
+                                              ) : null;
+                                            })()}
+                                          </div>
                                         ) : (
                                           <button onClick={() => setItemInputId(doc.surveyDoctorId)}
                                             style={{ background: 'none', border: '1.5px dashed #d8b4fe', borderRadius: 20, padding: '2px 8px', fontSize: 12, color: '#9333ea', cursor: 'pointer' }}>
