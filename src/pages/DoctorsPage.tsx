@@ -2639,41 +2639,75 @@ export default function DoctorsPage() {
         if (archiveSubPopup === 'visited') {
           title = '✅ الأطباء الذين تمت زيارتهم';
           const visitedDocs = allDocsFlat.filter(d => d.isVisited);
-          body = visitedDocs.length === 0
-            ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا يوجد</div>
-            : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {visitedDocs.map(d => (
-                  <div key={d.surveyDoctorId} style={{ padding: '9px 14px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', direction: 'rtl' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>{d.name}</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
-                      {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
-                      {d.areaName  && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {d.areaName}</span>}
-                      {d.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {d.pharmacyName}</span>}
+          if (visitedDocs.length === 0) {
+            body = <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا يوجد</div>;
+          } else {
+            const areaMap = new Map<string, typeof visitedDocs>();
+            visitedDocs.forEach(d => {
+              const a = d.areaName ?? 'غير محددة';
+              if (!areaMap.has(a)) areaMap.set(a, []);
+              areaMap.get(a)!.push(d);
+            });
+            body = (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {[...areaMap.entries()].map(([areaName, docs]) => (
+                  <div key={areaName}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', background: '#eef2ff', borderRadius: 8, padding: '5px 12px', marginBottom: 6, direction: 'rtl' }}>
+                      📍 {areaName} <span style={{ fontWeight: 400, color: '#818cf8' }}>({docs.length})</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {docs.map(d => (
+                        <div key={d.surveyDoctorId} style={{ padding: '8px 14px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', direction: 'rtl' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>{d.name}</div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
+                            {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
+                            {d.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {d.pharmacyName}</span>}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
-              </div>;
+              </div>
+            );
+          }
         } else if (archiveSubPopup === 'writing') {
           title = '✏️ الأطباء الذين يكتبوله';
           const writingDocs = allDocsFlat.filter(d => d.isWriting);
-          body = writingDocs.length === 0
-            ? <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا يوجد</div>
-            : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {writingDocs.map(d => (
-                  <div key={d.surveyDoctorId} style={{ padding: '9px 14px', borderRadius: 10, background: '#fdf4ff', border: '1px solid #e9d5ff', direction: 'rtl' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#7e22ce' }}>{d.name}</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
-                      {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
-                      {d.areaName  && <span style={{ fontSize: 11, color: '#6366f1' }}>📍 {d.areaName}</span>}
-                      {d.writingItems.length > 0 && (
-                        <span style={{ fontSize: 11, color: '#9333ea' }}>
-                          💊 {d.writingItems.join(' · ')}
-                        </span>
-                      )}
+          if (writingDocs.length === 0) {
+            body = <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا يوجد</div>;
+          } else {
+            const areaMap = new Map<string, typeof writingDocs>();
+            writingDocs.forEach(d => {
+              const a = d.areaName ?? 'غير محددة';
+              if (!areaMap.has(a)) areaMap.set(a, []);
+              areaMap.get(a)!.push(d);
+            });
+            body = (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {[...areaMap.entries()].map(([areaName, docs]) => (
+                  <div key={areaName}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', background: '#eef2ff', borderRadius: 8, padding: '5px 12px', marginBottom: 6, direction: 'rtl' }}>
+                      📍 {areaName} <span style={{ fontWeight: 400, color: '#818cf8' }}>({docs.length})</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {docs.map(d => (
+                        <div key={d.surveyDoctorId} style={{ padding: '8px 14px', borderRadius: 10, background: '#fdf4ff', border: '1px solid #e9d5ff', direction: 'rtl' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#7e22ce' }}>{d.name}</div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
+                            {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
+                            {d.writingItems.length > 0 && (
+                              <span style={{ fontSize: 11, color: '#9333ea' }}>💊 {d.writingItems.join(' · ')}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
-              </div>;
+              </div>
+            );
+          }
         } else if (archiveSubPopup === 'items') {
           title = '💊 الإيتمات — من يكتب كل إيتم';
           const writingDocs = allDocsFlat.filter(d => d.isWriting && d.writingItems.length > 0);
