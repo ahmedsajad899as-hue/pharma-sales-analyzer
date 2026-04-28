@@ -1245,6 +1245,7 @@ model DoctorArchiveEntry {
   masterSurveyDoctorId Int
   isVisited            Boolean  @default(false)  // تأشير: زايرته
   isWriting            Boolean  @default(false)  // تأشير: يكتبوله
+  visitItems           String?  // JSON array of items promoted during visit
   writingItems         String?  // JSON array of item name strings
   notes                String?
   createdAt            DateTime @default(now())

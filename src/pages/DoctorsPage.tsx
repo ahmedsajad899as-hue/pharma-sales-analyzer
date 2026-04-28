@@ -272,7 +272,7 @@ export default function DoctorsPage() {
   interface ArchiveDoctor {
     entryId: number; surveyDoctorId: number;
     name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null;
-    isVisited: boolean; isWriting: boolean; writingItems: string[]; notes: string | null;
+    isVisited: boolean; isWriting: boolean; visitItems: string[]; writingItems: string[]; notes: string | null;
   }
   interface ArchiveArea { name: string; doctors: ArchiveDoctor[]; }
   const [archiveAreas, setArchiveAreas]           = useState<ArchiveArea[]>([]);
@@ -302,6 +302,9 @@ export default function DoctorsPage() {
   // Inline item input per doctor
   const [itemInputId, setItemInputId]             = useState<number | null>(null);
   const [itemInputVal, setItemInputVal]           = useState('');
+  // Inline visit item input per doctor
+  const [visitItemInputId, setVisitItemInputId]   = useState<number | null>(null);
+  const [visitItemInputVal, setVisitItemInputVal] = useState('');
   // Inline notes edit
   const [notesEditId, setNotesEditId]             = useState<number | null>(null);
   const [notesEditVal, setNotesEditVal]           = useState('');
@@ -2461,7 +2464,7 @@ export default function DoctorsPage() {
                         <div style={{ marginTop: 14, fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{d.name}</div>
                         {d.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{d.specialty}</div>}
                         {d.areaName && <div style={{ fontSize: 11, color: '#6366f1', marginTop: 1 }}>📍 {d.areaName}</div>}
-                        {d.isVisited && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 3 }}>✅ تمت زيارته</div>}
+                        {d.isVisited && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 3 }}>✅ تمت الزيارة{d.visitItems?.length > 0 ? ` · ${d.visitItems.join(' · ')}` : ''}</div>}
                         {d.isWriting && d.writingItems.length > 0 && (
                           <div style={{ fontSize: 11, color: '#9333ea', marginTop: 2 }}>✏️ {d.writingItems.join(' · ')}</div>
                         )}
@@ -2531,7 +2534,7 @@ export default function DoctorsPage() {
                                       style={{ padding: '4px 10px', borderRadius: 20, border: `1.5px solid ${doc.isVisited ? '#16a34a' : '#cbd5e1'}`,
                                         background: doc.isVisited ? '#dcfce7' : '#f8fafc', color: doc.isVisited ? '#16a34a' : '#64748b',
                                         fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      {doc.isVisited ? '✅' : '☐'} زايرته
+                                      {doc.isVisited ? '✅' : '☐'} تمت الزيارة
                                     </button>
 
                                     {/* Writing toggle */}
@@ -2542,6 +2545,39 @@ export default function DoctorsPage() {
                                       {doc.isWriting ? '✏️' : '☐'} يكتب
                                     </button>
                                   </div>
+
+                                  {/* Visit items (shown when visited) */}
+                                  {doc.isVisited && (
+                                    <div style={{ marginTop: 8 }}>
+                                      <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, marginBottom: 4 }}>الإيتمات التي تم ترويجها:</div>
+                                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {doc.visitItems.map((item, i) => (
+                                          <span key={i} style={{ background: '#dcfce7', color: '#16a34a', borderRadius: 20, padding: '2px 8px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            {item}
+                                            <button onClick={() => patchArchive(doc.surveyDoctorId, { visitItems: doc.visitItems.filter((_, idx) => idx !== i) })}
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                                          </span>
+                                        ))}
+                                        {visitItemInputId === doc.surveyDoctorId ? (
+                                          <input autoFocus value={visitItemInputVal} onChange={e => setVisitItemInputVal(e.target.value)}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter' && visitItemInputVal.trim()) {
+                                                patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] });
+                                                setVisitItemInputVal(''); setVisitItemInputId(null);
+                                              } else if (e.key === 'Escape') { setVisitItemInputVal(''); setVisitItemInputId(null); }
+                                            }}
+                                            onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
+                                            style={{ padding: '2px 8px', borderRadius: 20, border: '1.5px solid #16a34a', fontSize: 12, outline: 'none', width: 100 }}
+                                            placeholder="إيتم..." />
+                                        ) : (
+                                          <button onClick={() => setVisitItemInputId(doc.surveyDoctorId)}
+                                            style={{ background: 'none', border: '1.5px dashed #86efac', borderRadius: 20, padding: '2px 8px', fontSize: 12, color: '#16a34a', cursor: 'pointer' }}>
+                                            ＋ إضافة
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
 
                                   {/* Writing items */}
                                   {doc.isWriting && (
@@ -2663,6 +2699,13 @@ export default function DoctorsPage() {
                             {d.specialty && <span style={{ fontSize: 11, color: '#64748b' }}>🩺 {d.specialty}</span>}
                             {d.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {d.pharmacyName}</span>}
                           </div>
+                          {d.visitItems.length > 0 && (
+                            <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {d.visitItems.map((item, i) => (
+                                <span key={i} style={{ background: '#bbf7d0', color: '#166534', borderRadius: 20, padding: '1px 8px', fontSize: 11 }}>💊 {item}</span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

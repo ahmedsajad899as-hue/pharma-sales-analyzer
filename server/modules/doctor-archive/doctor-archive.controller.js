@@ -56,6 +56,7 @@ export async function getArchive(req, res, next) {
         className:           doc?.className ?? null,
         isVisited:           e.isVisited,
         isWriting:           e.isWriting,
+        visitItems:          e.visitItems  ? JSON.parse(e.visitItems)  : [],
         writingItems:        e.writingItems ? JSON.parse(e.writingItems) : [],
         notes:               e.notes ?? null,
       });
@@ -174,6 +175,10 @@ export async function updateArchiveEntry(req, res, next) {
     const data = {};
     if (req.body.isVisited   !== undefined) data.isVisited   = Boolean(req.body.isVisited);
     if (req.body.isWriting   !== undefined) data.isWriting   = Boolean(req.body.isWriting);
+    if (req.body.visitItems !== undefined) {
+      const items = Array.isArray(req.body.visitItems) ? req.body.visitItems : [];
+      data.visitItems = JSON.stringify(items.map(String).filter(Boolean));
+    }
     if (req.body.writingItems !== undefined) {
       const items = Array.isArray(req.body.writingItems) ? req.body.writingItems : [];
       data.writingItems = JSON.stringify(items.map(String).filter(Boolean));
