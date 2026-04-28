@@ -288,8 +288,10 @@ export default function DoctorsPage() {
   const [surveyDoctors, setSurveyDoctors]         = useState<{ id: number; name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null }[]>([]);
   const [surveyDocLoading, setSurveyDocLoading]   = useState(false);
   const [surveyDocSearch, setSurveyDocSearch]     = useState('');
-  const [surveyDocAreaFilter, setSurveyDocAreaFilter] = useState('all');
+  const [surveyDocSelectedAreas, setSurveyDocSelectedAreas] = useState<Set<string>>(new Set()); // empty = all
+  const [showAreaDropdown, setShowAreaDropdown]   = useState(false);
   const [addingIds, setAddingIds]                 = useState<Set<number>>(new Set());
+  const [importingAll, setImportingAll]           = useState(false);
   // Inline item input per doctor
   const [itemInputId, setItemInputId]             = useState<number | null>(null);
   const [itemInputVal, setItemInputVal]           = useState('');
@@ -315,7 +317,7 @@ export default function DoctorsPage() {
     [expandedVisits.size > 0,      () => setExpandedVisits(new Set())],
     [expandedPharma.size > 0,      () => setExpandedPharma(new Set())],
     [pharmExpandedAreas.size > 0,  () => setPharmExpandedAreas(new Set())],
-    [showAddModal,                 () => setShowAddModal(false)],
+    [showAddModal,                 () => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }],
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
 
@@ -568,6 +570,20 @@ export default function DoctorsPage() {
       }
     } catch (e) { console.error(e); }
     finally { setAddingIds(prev => { const s = new Set(prev); s.delete(surveyDoctorId); return s; }); }
+  };
+
+  const addAllToArchive = async (ids: number[]) => {
+    if (ids.length === 0 || importingAll) return;
+    setImportingAll(true);
+    setAddingIds(new Set(ids));
+    try {
+      await Promise.all(ids.map(id =>
+        fetch(`${API}/api/doctor-archive/${id}`, { method: 'POST', headers: H() }).then(r => r.json())
+      ));
+      setSurveyDoctors(prev => prev.filter(d => !ids.includes(d.id)));
+      loadArchive();
+    } catch (e) { console.error(e); }
+    finally { setAddingIds(new Set()); setImportingAll(false); }
   };
 
   const patchArchive = async (surveyDoctorId: number, patch: Record<string, unknown>) => {
@@ -2487,36 +2503,70 @@ export default function DoctorsPage() {
 
       {/* ── Add from Survey Modal ──────────────────────────── */}
       {showAddModal && (
-        <div style={overlayStyle} onClick={() => setShowAddModal(false)}>
+        <div style={overlayStyle} onClick={() => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }}>
           <div style={{ ...modalStyle, maxWidth: 560, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📚 إضافة أطباء من السيرفي</h2>
-              <button onClick={() => setShowAddModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b' }}>✕</button>
+              <button onClick={() => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b' }}>✕</button>
             </div>
 
-            {/* Search + area */}
+            {/* Search + area multi-select */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
               <input value={surveyDocSearch} onChange={e => setSurveyDocSearch(e.target.value)}
                 placeholder="🔍 بحث..."
                 style={{ flex: '1 1 160px', padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none' }} />
-              <select value={surveyDocAreaFilter} onChange={e => setSurveyDocAreaFilter(e.target.value)}
-                style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', background: '#fff', outline: 'none', maxWidth: 160 }}>
-                <option value="all">كل المناطق</option>
-                {[...new Set(surveyDoctors.map(d => d.areaName).filter(Boolean))].sort().map(a => (
-                  <option key={a!} value={a!}>{a}</option>
-                ))}
-              </select>
+              {/* Area multi-select dropdown */}
+              {(() => {
+                const allAreas = [...new Set(surveyDoctors.map(d => d.areaName).filter(Boolean) as string[])].sort();
+                const selectedCount = surveyDocSelectedAreas.size;
+                const label = selectedCount === 0 ? 'كل المناطق' : `${selectedCount} منطقة`;
+                return (
+                  <div style={{ position: 'relative' }}>
+                    <button onClick={() => setShowAreaDropdown(v => !v)}
+                      style={{ padding: '7px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, direction: 'rtl', background: selectedCount > 0 ? '#ede9fe' : '#fff', color: selectedCount > 0 ? '#7c3aed' : '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                      📍 {label} <span style={{ fontSize: 10 }}>▼</span>
+                    </button>
+                    {showAreaDropdown && (
+                      <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 999, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', minWidth: 200, maxHeight: 260, overflowY: 'auto', padding: '6px 0' }}>
+                        {/* Select all / clear */}
+                        <div style={{ display: 'flex', gap: 6, padding: '6px 12px 8px', borderBottom: '1px solid #f1f5f9' }}>
+                          <button onClick={() => setSurveyDocSelectedAreas(new Set())}
+                            style={{ flex: 1, padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', color: '#475569' }}>
+                            الكل
+                          </button>
+                          <button onClick={() => setSurveyDocSelectedAreas(new Set(allAreas))}
+                            style={{ flex: 1, padding: '4px 8px', fontSize: 11, borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', color: '#475569' }}>
+                            تحديد الكل
+                          </button>
+                        </div>
+                        {allAreas.map(a => (
+                          <label key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', cursor: 'pointer', fontSize: 13, color: '#1e293b', direction: 'rtl' }}>
+                            <input type="checkbox" checked={surveyDocSelectedAreas.has(a)}
+                              onChange={() => setSurveyDocSelectedAreas(prev => {
+                                const next = new Set(prev);
+                                next.has(a) ? next.delete(a) : next.add(a);
+                                return next;
+                              })}
+                              style={{ accentColor: '#8b5cf6', width: 14, height: 14 }} />
+                            {a}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* List */}
-            <div style={{ overflowY: 'auto', flex: 1 }}>
+            <div style={{ overflowY: 'auto', flex: 1 }} onClick={() => setShowAreaDropdown(false)}>
               {surveyDocLoading ? (
                 <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>جاري التحميل...</div>
               ) : (() => {
                 const normQ2 = (s: string) => s.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
                 const sq = normQ2(surveyDocSearch);
                 const filtered2 = surveyDoctors.filter(d => {
-                  const matchArea = surveyDocAreaFilter === 'all' || normQ2(d.areaName ?? '') === normQ2(surveyDocAreaFilter);
+                  const matchArea = surveyDocSelectedAreas.size === 0 || surveyDocSelectedAreas.has(d.areaName ?? '');
                   if (!matchArea) return false;
                   if (!sq) return true;
                   return normQ2(d.name).includes(sq) || normQ2(d.specialty ?? '').includes(sq) || normQ2(d.areaName ?? '').includes(sq) || normQ2(d.pharmacyName ?? '').includes(sq);
@@ -2524,8 +2574,17 @@ export default function DoctorsPage() {
                 if (filtered2.length === 0) return (
                   <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>لا توجد أطباء متاحون للإضافة</div>
                 );
+                const filteredIds = filtered2.map(d => d.id);
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {/* Import all bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 2 }}>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>{filtered2.length} طبيب</span>
+                      <button onClick={() => addAllToArchive(filteredIds)} disabled={importingAll}
+                        style={{ padding: '5px 14px', background: importingAll ? '#a78bfa' : '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: importingAll ? 'not-allowed' : 'pointer', opacity: importingAll ? 0.7 : 1 }}>
+                        {importingAll ? '⏳ جاري الاستيراد...' : '⬇️ استيراد الكل'}
+                      </button>
+                    </div>
                     {filtered2.map(d => (
                       <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: '1px solid #f1f5f9', direction: 'rtl', background: '#fafafa' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
