@@ -534,8 +534,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         })));
         // Always select the newest active file when activeFileIds changes
         // (user can manually pick a different file afterwards)
+        // Also clear stale dates so backend auto-detects the new file's date range
         if (activeFiles.length > 0) {
           setOverallFileId(String(activeFiles[0].id));
+          setFromDate('');
+          setToDate('');
         }
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
@@ -1317,7 +1320,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           ) : (
             /* Overall mode: file selector */
             <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 340 }} value={overallFileId}
-              onChange={e => { setOverallFileId(e.target.value); setOverallSales(null); setOverallReturns(null); }}>
+              onChange={e => { setOverallFileId(e.target.value); setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate(''); }}>
               <option value="">-- اختر ملف للتحليل --</option>
               {availableFiles.map(f => (
                 <option key={f.id} value={f.id}>
