@@ -1624,6 +1624,61 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           ? (overallReturns?.byCompany ?? []).filter(r => tagCompanyNorms.some(cn => normalise(r.name).includes(cn)))
           : filterRowsByText(overallReturns?.byCompany ?? []);
 
+        // ─── Cross-tab exclusion propagation ──────────────────────────────────
+        // Identify what type each excluded key belongs to
+        const excItemNames    = overallExcluded.size > 0 ? new Set([...overallExcluded].filter(k => overallSales.byItem.some(r => r.name === k)))    : new Set<string>();
+        const excAreaNames    = overallExcluded.size > 0 ? new Set([...overallExcluded].filter(k => overallSales.byArea.some(r => r.name === k)))    : new Set<string>();
+
+        // When items excluded → rebuild area totals subtracting excluded items' contributions
+        const crossAreas = (rows: BreakdownRow[], bai: AreaItemRow[]): BreakdownRow[] => {
+          if (excItemNames.size === 0) return rows;
+          const allowed = new Set(rows.map(r => r.name));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const r of bai) {
+            if (!allowed.has(r.areaName) || excItemNames.has(r.itemName)) continue;
+            const row = map.get(r.areaName)!;
+            row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+        // When areas excluded → rebuild item totals subtracting excluded areas' contributions
+        const crossItems = (rows: BreakdownRow[], bai: AreaItemRow[]): BreakdownRow[] => {
+          if (excAreaNames.size === 0) return rows;
+          const allowed = new Set(rows.map(r => r.name));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const r of bai) {
+            if (!allowed.has(r.itemName) || excAreaNames.has(r.areaName)) continue;
+            const row = map.get(r.itemName)!;
+            row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+        // When items excluded → rebuild company totals from per-item data
+        const crossCompanies = (rows: BreakdownRow[], itemRows: BreakdownRow[]): BreakdownRow[] => {
+          if (excItemNames.size === 0) return rows;
+          const allowed = new Set(rows.map(r => r.name));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const item of itemRows) {
+            if (excItemNames.has(item.name)) continue;
+            const co = item.companyName;
+            if (!co || !allowed.has(co)) continue;
+            const row = map.get(co)!;
+            row.totalQty += item.totalQty; row.totalValue += item.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+
+        const finalSalesAreas   = crossAreas(salesAreasFiltered, overallSales.byAreaItem);
+        const finalRetAreas     = crossAreas(retAreasFiltered, overallReturns?.byAreaItem ?? []);
+        const finalSalesItems   = crossItems(salesItemsFiltered, overallSales.byAreaItem);
+        const finalRetItems     = crossItems(retItemsFiltered, overallReturns?.byAreaItem ?? []);
+        const finalSalesCompany = crossCompanies(salesCompanyFiltered, salesItemsFiltered);
+        const finalRetCompany   = crossCompanies(retCompanyFiltered, retItemsFiltered);
+        const toggleExcluded = (k: string) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
         return (
           <>
             {/* Summary cards — mobile-optimised layout */}
@@ -1822,9 +1877,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </button>
             </div>
 
-            {overallTab === 'area'    && renderNetTable(salesAreasFiltered,   retAreasFiltered,   t.reports.colArea, false, overallViewMode, overallExcluded, (k) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }))}
-            {overallTab === 'item'    && renderNetTable(salesItemsFiltered,   retItemsFiltered,   t.reports.colItem, false, overallViewMode, overallExcluded, (k) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }))}
-            {overallTab === 'company' && renderNetTable(salesCompanyFiltered, retCompanyFiltered, 'الشركة',          false, overallViewMode, overallExcluded, (k) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }))}
+            {overallTab === 'area'    && renderNetTable(finalSalesAreas,   finalRetAreas,   t.reports.colArea, false, overallViewMode, overallExcluded, toggleExcluded)}
+            {overallTab === 'item'    && renderNetTable(finalSalesItems,   finalRetItems,   t.reports.colItem, false, overallViewMode, overallExcluded, toggleExcluded)}
+            {overallTab === 'company' && renderNetTable(finalSalesCompany, finalRetCompany, 'الشركة',          false, overallViewMode, overallExcluded, toggleExcluded)}
           </>
         );
       })()}
