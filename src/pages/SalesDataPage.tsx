@@ -1005,7 +1005,20 @@ table{border-collapse:collapse;width:100%}
         return true;
       });
     }
-    if (selectedItems.length > 0) {
+    if (selectedCompanies.size > 0 && companyCol) {
+      const companyRows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
+      if (selectedItems.length > 0) {
+        // Show items from selected companies AND any explicitly selected items from other companies
+        const selectedSet = new Set(selectedItems);
+        rows = rows.filter(row => {
+          const inCompany = selectedCompanies.has(String(row[companyCol] ?? '').trim());
+          const inItems   = activeFile.fixedCols.some(c => selectedSet.has(String(row[c] ?? '').trim()));
+          return inCompany || inItems;
+        });
+      } else {
+        rows = companyRows;
+      }
+    } else if (selectedItems.length > 0) {
       rows = rows.filter(row =>
         selectedItems.some(sel => activeFile.fixedCols.some(c => String(row[c] ?? '').trim() === sel))
       );
@@ -1013,7 +1026,6 @@ table{border-collapse:collapse;width:100%}
       const q = itemQuery.trim().toLowerCase();
       if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
     }
-    if (selectedCompanies.size > 0 && companyCol) rows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
     Object.entries(colFilters).forEach(([col, vals]) => {
       if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
@@ -1372,7 +1384,7 @@ table{border-collapse:collapse;width:100%}
   const selectRegion = (r: string) => { setRegionFilter(r); setWarehouseKeys(new Set()); setPage(1); };
   const toggleCompany = (c: string) => {
     setSelectedCompanies(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
-    setSelectedItems([]); setItemQuery(''); setPage(1);
+    setPage(1);
   };
   const clearCompanies = () => { setSelectedCompanies(new Set()); setSelectedItems([]); setItemQuery(''); setPage(1); };
   const toggleWH = (key: string) => {
