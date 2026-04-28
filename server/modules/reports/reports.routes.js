@@ -111,14 +111,15 @@ router.get('/overall', async (req, res) => {
         totalValue: true,
         saleDate:   true,
         area: { select: { id: true, name: true } },
-        item: { select: { id: true, name: true } },
+        item: { select: { id: true, name: true, company: { select: { id: true, name: true } } } },
       },
     });
 
-    // Aggregate in-memory by item, by area, and by area+item
+    // Aggregate in-memory by item, by area, by area+item, and by company
     const itemMap     = new Map();
     const areaMap     = new Map();
     const areaItemMap = new Map(); // key: "areaName::itemName"
+    const companyMap  = new Map(); // key: companyName
     let totalQuantity = 0;
     let totalValue    = 0;
     let minDate = null;
@@ -138,10 +139,18 @@ router.get('/overall', async (req, res) => {
 
       if (s.item) {
         const key = s.item.id;
-        if (!itemMap.has(key)) itemMap.set(key, { itemName: s.item.name, totalQuantity: 0, totalValue: 0 });
+        const companyName = s.item.company?.name ?? null;
+        if (!itemMap.has(key)) itemMap.set(key, { itemName: s.item.name, companyName, totalQuantity: 0, totalValue: 0 });
         const r = itemMap.get(key);
         r.totalQuantity += qty;
         r.totalValue    += val;
+        // company aggregation
+        if (companyName) {
+          if (!companyMap.has(companyName)) companyMap.set(companyName, { companyName, totalQuantity: 0, totalValue: 0 });
+          const cr = companyMap.get(companyName);
+          cr.totalQuantity += qty;
+          cr.totalValue    += val;
+        }
       }
       if (s.area) {
         const key = s.area.id;
@@ -162,8 +171,9 @@ router.get('/overall', async (req, res) => {
     const byItem     = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
+    const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, minDate, maxDate, recordCount: sales.length, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

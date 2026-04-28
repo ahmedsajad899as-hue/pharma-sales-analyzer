@@ -399,7 +399,7 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
 }
 
 interface Rep { id: number; name: string; }
-interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; }
+interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
   totalQty: number;
@@ -422,7 +422,7 @@ interface SciReport {
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; }
 
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
@@ -466,10 +466,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallReturns, setOverallReturns] = useState<OverallReport | null>(null);
   const [overallSearch, setOverallSearch]   = useState('');
   const [overallSuggOpen, setOverallSuggOpen] = useState(false);
-  const [overallSelectedTags, setOverallSelectedTags] = useState<{name: string; type: 'item'|'area'}[]>([]);
+  const [overallSelectedTags, setOverallSelectedTags] = useState<{name: string; type: 'item'|'area'|'company'}[]>([]);
   const [showOverallModal, setShowOverallModal] = useState(false);
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
-  const [overallTab, setOverallTab]         = useState<'area' | 'item'>('area');
+  const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company'>('area');
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
   const [overallFileId, setOverallFileId]   = useState<string>('');
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
@@ -672,9 +672,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const parseOverall = (d: any): OverallReport => ({
         totalQuantity: d.totalQuantity ?? 0,
         totalValue:    d.totalValue    ?? 0,
-        byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0, companyName: r.companyName ?? undefined })),
         byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byAreaItem: (d.byAreaItem ?? []).map((r: any) => ({ areaName: r.areaName ?? '', itemName: r.itemName ?? '', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byCompany: (d.byCompany ?? []).map((r: any) => ({ name: r.companyName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
@@ -1440,8 +1441,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           .toLowerCase();
 
         const hasTags = overallSelectedTags.length > 0;
-        const tagItemNorms = overallSelectedTags.filter(t => t.type === 'item').map(t => normalise(t.name));
-        const tagAreaNorms = overallSelectedTags.filter(t => t.type === 'area').map(t => normalise(t.name));
+        const tagItemNorms    = overallSelectedTags.filter(t => t.type === 'item').map(t => normalise(t.name));
+        const tagAreaNorms    = overallSelectedTags.filter(t => t.type === 'area').map(t => normalise(t.name));
+        const tagCompanyNorms = overallSelectedTags.filter(t => t.type === 'company').map(t => normalise(t.name));
 
         // Text query — only active when no tags selected
         const q = hasTags ? '' : normalise(overallSearch);
@@ -1451,6 +1453,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const allAreas = [...overallSales.byArea, ...(overallReturns?.byArea ?? [])];
         const areaMatch = !hasTags && q ? allAreas.some(a => normalise(a.name).includes(q)) : false;
         const itemMatch = !hasTags && q ? [...overallSales.byItem, ...(overallReturns?.byItem ?? [])].some(i => normalise(i.name).includes(q)) : false;
+        const companyMatch = !hasTags && q ? overallSales.byCompany.some(c => normalise(c.name).includes(q)) : false;
 
         // Single-text helpers (used in text mode)
         const buildItemsFromArea = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
@@ -1517,10 +1520,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
 
+        // Company tag helpers
+        const getCompanyItemNames = (byItem: BreakdownRow[]) =>
+          new Set(byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn))).map(r => r.name));
+        const buildAreasFromCompany = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
+          const companyItems = getCompanyItemNames(byItem);
+          const filtered = byAreaItem.filter(r => companyItems.has(r.itemName));
+          const map = new Map<string, BreakdownRow>();
+          for (const r of filtered) {
+            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
+            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
+          }
+          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
+        };
+        const buildItemsFromCompany = (byItem: BreakdownRow[]): BreakdownRow[] =>
+          byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn)));
+
         const bothTags = hasTags && tagItemNorms.length > 0 && tagAreaNorms.length > 0;
 
         // Area tab filtering
-        const salesAreasFiltered = bothTags
+        const salesAreasFiltered = (hasTags && tagCompanyNorms.length > 0)
+          ? buildAreasFromCompany(overallSales.byAreaItem, overallSales.byItem)
+          : bothTags
           ? buildAreasFromBoth(overallSales.byAreaItem)
           : hasTags && tagItemNorms.length > 0
             ? buildAreasFromTagItems(overallSales.byAreaItem)
@@ -1529,7 +1550,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               : (overallTab === 'area' && itemMatch && !areaMatch)
                 ? buildAreasFromItem(overallSales.byAreaItem)
                 : filterRowsByText(overallSales.byArea);
-        const retAreasFiltered = bothTags
+        const retAreasFiltered = (hasTags && tagCompanyNorms.length > 0)
+          ? buildAreasFromCompany(overallReturns?.byAreaItem ?? [], overallReturns?.byItem ?? [])
+          : bothTags
           ? buildAreasFromBoth(overallReturns?.byAreaItem ?? [])
           : hasTags && tagItemNorms.length > 0
             ? buildAreasFromTagItems(overallReturns?.byAreaItem ?? [])
@@ -1540,7 +1563,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 : filterRowsByText(overallReturns?.byArea ?? []);
 
         // Item tab filtering
-        const salesItemsFiltered = bothTags
+        const salesItemsFiltered = (hasTags && tagCompanyNorms.length > 0)
+          ? buildItemsFromCompany(overallSales.byItem)
+          : bothTags
           ? buildItemsFromBoth(overallSales.byAreaItem)
           : hasTags && tagAreaNorms.length > 0
             ? buildItemsFromTagAreas(overallSales.byAreaItem)
@@ -1549,7 +1574,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               : (overallTab === 'item' && areaMatch && !itemMatch)
                 ? buildItemsFromArea(overallSales.byAreaItem)
                 : filterRowsByText(overallSales.byItem);
-        const retItemsFiltered = bothTags
+        const retItemsFiltered = (hasTags && tagCompanyNorms.length > 0)
+          ? buildItemsFromCompany(overallReturns?.byItem ?? [])
+          : bothTags
           ? buildItemsFromBoth(overallReturns?.byAreaItem ?? [])
           : hasTags && tagAreaNorms.length > 0
             ? buildItemsFromTagAreas(overallReturns?.byAreaItem ?? [])
@@ -1558,6 +1585,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               : (overallTab === 'item' && areaMatch && !itemMatch)
                 ? buildItemsFromArea(overallReturns?.byAreaItem ?? [])
                 : filterRowsByText(overallReturns?.byItem ?? []);
+
+        // Company tab filtering
+        const salesCompanyFiltered = (hasTags && tagCompanyNorms.length > 0)
+          ? overallSales.byCompany.filter(r => tagCompanyNorms.some(cn => normalise(r.name).includes(cn)))
+          : companyMatch && overallTab === 'company' && !hasTags
+            ? filterRowsByText(overallSales.byCompany)
+            : filterRowsByText(overallSales.byCompany);
+        const retCompanyFiltered = (hasTags && tagCompanyNorms.length > 0)
+          ? (overallReturns?.byCompany ?? []).filter(r => tagCompanyNorms.some(cn => normalise(r.name).includes(cn)))
+          : filterRowsByText(overallReturns?.byCompany ?? []);
 
         return (
           <>
@@ -1624,20 +1661,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {(() => {
               const allSuggItems = [...new Set([...overallSales.byItem, ...(overallReturns?.byItem ?? [])].map(i => i.name))];
               const allSuggAreas = [...new Set([...overallSales.byArea, ...(overallReturns?.byArea ?? [])].map(a => a.name))];
+              const allSuggCompanies = [...new Set(overallSales.byCompany.map(c => c.name))];
               const normaliseS = (s: string) => s.trim().replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627').replace(/\u0629/g, '\u0647').replace(/\u0640/g, '').replace(/[\u064B-\u065F]/g, '').replace(/\s+/g, ' ').toLowerCase();
               const alreadySelected = new Set(overallSelectedTags.map(t => t.type + t.name));
 
               // Results for modal
               const mq = normaliseS(modalOverallQuery);
-              const modalResults: { name: string; type: 'item' | 'area' }[] = !mq ? [] : [
-                ...allSuggItems.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('item' + n)).slice(0, 8).map(n => ({ name: n, type: 'item' as const })),
-                ...allSuggAreas.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const })),
+              const modalResults: { name: string; type: 'item' | 'area' | 'company' }[] = !mq ? [] : [
+                ...allSuggCompanies.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('company' + n)).slice(0, 3).map(n => ({ name: n, type: 'company' as const })),
+                ...allSuggItems.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('item' + n)).slice(0, 6).map(n => ({ name: n, type: 'item' as const })),
+                ...allSuggAreas.filter(n => normaliseS(n).includes(mq) && !alreadySelected.has('area' + n)).slice(0, 5).map(n => ({ name: n, type: 'area' as const })),
               ].slice(0, 10);
 
               // All items/areas for empty-query browsing
               const browseItems = mq ? [] : allSuggItems.filter(n => !alreadySelected.has('item' + n)).slice(0, 6).map(n => ({ name: n, type: 'item' as const }));
-              const browseAreas = mq ? [] : allSuggAreas.filter(n => !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const }));
-              const displayResults = mq ? modalResults : [...browseAreas, ...browseItems].slice(0, 10);
+              const browseAreas = mq ? [] : allSuggAreas.filter(n => !alreadySelected.has('area' + n)).slice(0, 4).map(n => ({ name: n, type: 'area' as const }));
+              const browseCompanies = mq ? [] : allSuggCompanies.filter(n => !alreadySelected.has('company' + n)).slice(0, 4).map(n => ({ name: n, type: 'company' as const }));
+              const displayResults = mq ? modalResults : [...browseCompanies, ...browseAreas, ...browseItems].slice(0, 10);
 
               // ── helpers ──
               const addTag = (name: string, type: 'item' | 'area', keepOpen: boolean) => {
@@ -1652,9 +1692,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
               // Build inline suggestion list from overallSearch
               const sq = normaliseS(overallSearch);
-              const suggItems: { name: string; type: 'item' | 'area' }[] = !overallSearch.trim() ? [] : [
-                ...allSuggAreas.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('area' + n)).slice(0, 6).map(n => ({ name: n, type: 'area' as const })),
-                ...allSuggItems.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('item' + n)).slice(0, 8).map(n => ({ name: n, type: 'item' as const })),
+              const suggItems: { name: string; type: 'item' | 'area' | 'company' }[] = !overallSearch.trim() ? [] : [
+                ...allSuggCompanies.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('company' + n)).slice(0, 3).map(n => ({ name: n, type: 'company' as const })),
+                ...allSuggAreas.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('area' + n)).slice(0, 5).map(n => ({ name: n, type: 'area' as const })),
+                ...allSuggItems.filter(n => normaliseS(n).includes(sq) && !alreadySelected.has('item' + n)).slice(0, 6).map(n => ({ name: n, type: 'item' as const })),
               ].slice(0, 10);
 
               return (
@@ -1689,8 +1730,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                                 onMouseEnter={e => (e.currentTarget.style.background = '#f5f3ff')}
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               >
-                                <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, background: s.type === 'area' ? '#fef9c3' : '#e0e7ff', color: s.type === 'area' ? '#854d0e' : '#3730a3', fontWeight: 700, flexShrink: 0 }}>
-                                  {s.type === 'area' ? '📍' : '💊'}
+                                <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, background: s.type === 'area' ? '#fef9c3' : s.type === 'company' ? '#fce7f3' : '#e0e7ff', color: s.type === 'area' ? '#854d0e' : s.type === 'company' ? '#9d174d' : '#3730a3', fontWeight: 700, flexShrink: 0 }}>
+                                  {s.type === 'area' ? '📍' : s.type === 'company' ? '🏢' : '💊'}
                                 </span>
                                 {s.name}
                               </div>
@@ -1722,9 +1763,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {overallSelectedTags.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                       {overallSelectedTags.map((tag, i) => (
-                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: tag.type === 'area' ? '#fef9c3' : '#e0e7ff', color: tag.type === 'area' ? '#854d0e' : '#3730a3', border: `1px solid ${tag.type === 'area' ? '#fde68a' : '#c7d2fe'}` }}>
-                          {tag.type === 'area' ? '📍' : '💊'} {tag.name}
-                          <button onMouseDown={e => { e.preventDefault(); setOverallSelectedTags(prev => prev.filter((_, j) => j !== i)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tag.type === 'area' ? '#b45309' : '#4338ca', fontSize: 14, padding: 0, lineHeight: 1, marginRight: 2 }}>×</button>
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: tag.type === 'area' ? '#fef9c3' : tag.type === 'company' ? '#fce7f3' : '#e0e7ff', color: tag.type === 'area' ? '#854d0e' : tag.type === 'company' ? '#9d174d' : '#3730a3', border: `1px solid ${tag.type === 'area' ? '#fde68a' : tag.type === 'company' ? '#fbcfe8' : '#c7d2fe'}` }}>
+                          {tag.type === 'area' ? '📍' : tag.type === 'company' ? '🏢' : '💊'} {tag.name}
+                          <button onMouseDown={e => { e.preventDefault(); setOverallSelectedTags(prev => prev.filter((_, j) => j !== i)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tag.type === 'area' ? '#b45309' : tag.type === 'company' ? '#be185d' : '#4338ca', fontSize: 14, padding: 0, lineHeight: 1, marginRight: 2 }}>×</button>
                         </span>
                       ))}
                       <button onMouseDown={e => { e.preventDefault(); setOverallSelectedTags([]); }} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 20, cursor: 'pointer', fontSize: 11, color: '#94a3b8', padding: '3px 8px' }}>مسح الكل</button>
@@ -1734,11 +1775,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               );
             })()}
 
-            {/* Sub-tabs: area / item */}
+            {/* Sub-tabs: area / item / company */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div className="tabs" style={{ margin: 0 }}>
                 <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
                 <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
+                <button className={`tab ${overallTab === 'company' ? 'tab--active' : ''}`} onClick={() => setOverallTab('company')}>🏢 الشركة</button>
               </div>
               {/* View mode toggle: qty ↔ value */}
               <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
@@ -1747,8 +1789,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </button>
             </div>
 
-            {overallTab === 'area' && renderNetTable(salesAreasFiltered, retAreasFiltered, t.reports.colArea, false, overallViewMode)}
-            {overallTab === 'item' && renderNetTable(salesItemsFiltered, retItemsFiltered, t.reports.colItem, false, overallViewMode)}
+            {overallTab === 'area'    && renderNetTable(salesAreasFiltered,   retAreasFiltered,   t.reports.colArea, false, overallViewMode)}
+            {overallTab === 'item'    && renderNetTable(salesItemsFiltered,   retItemsFiltered,   t.reports.colItem, false, overallViewMode)}
+            {overallTab === 'company' && renderNetTable(salesCompanyFiltered, retCompanyFiltered, 'الشركة',          false, overallViewMode)}
           </>
         );
       })()}
