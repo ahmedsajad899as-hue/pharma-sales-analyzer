@@ -338,15 +338,12 @@ export async function suggest(req, res, next) {
       const recentVisits = await prisma.doctorVisit.findMany({
         where: {
           visitDate: { gte: cutoffDate },
-          // Scope to the same doctor pool (via plan entries of same userId)
-          entry: {
-            plan: { userId },
-          },
+          userId,
         },
-        select: { entry: { select: { doctorId: true } } },
-        distinct: ['entryId'],
+        select: { doctorId: true },
+        distinct: ['doctorId'],
       });
-      recentVisits.forEach(v => { if (v.entry?.doctorId) recentlyVisitedIds.add(v.entry.doctorId); });
+      recentVisits.forEach(v => recentlyVisitedIds.add(v.doctorId));
     }
 
     // ── Feature 3: Build set of doctor IDs to exclude due to max repetitions ──
