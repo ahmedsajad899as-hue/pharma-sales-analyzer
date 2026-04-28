@@ -1131,8 +1131,14 @@ table{border-collapse:collapse;width:100%}
   const redCellCount = useMemo(() => {
     if (!activeFile) return 0;
     const T = Math.max(0, shortageThreshold || 0);
-    // Use displayCols so warehouseKeys selection is respected
-    const cols = displayCols.filter(c => !isRT(c));
+    // When 'all' regions: use raw areaCols; when specific region+warehouses: use displayCols (individual cols)
+    let cols: ColMeta[];
+    if (regionFilter === 'all') {
+      cols = activeFile.areaCols;
+    } else {
+      const colsInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
+      cols = warehouseKeys.size > 0 ? colsInRegion.filter(ac => warehouseKeys.has(ac.key)) : colsInRegion;
+    }
     let count = 0;
     for (const row of filteredRows) {
       for (const col of cols) {
@@ -1141,7 +1147,7 @@ table{border-collapse:collapse;width:100%}
       }
     }
     return count;
-  }, [activeFile, filteredRows, shortageThreshold, displayCols]);
+  }, [activeFile, filteredRows, shortageThreshold, regionFilter, warehouseKeys]);
 
   // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
   // Tracks both region totals and individual warehouse columns.
