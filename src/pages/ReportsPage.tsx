@@ -1528,7 +1528,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           new Set(byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn))).map(r => r.name));
         const buildAreasFromCompany = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
           const companyItems = getCompanyItemNames(byItem);
-          const filtered = byAreaItem.filter(r => companyItems.has(r.itemName));
+          // also include areas for explicitly-tagged items
+          const filtered = byAreaItem.filter(r =>
+            companyItems.has(r.itemName) ||
+            (tagItemNorms.length > 0 && tagItemNorms.some(ni => normalise(r.itemName).includes(ni)))
+          );
           const map = new Map<string, BreakdownRow>();
           for (const r of filtered) {
             if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
@@ -1536,8 +1540,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           }
           return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
         };
-        const buildItemsFromCompany = (byItem: BreakdownRow[]): BreakdownRow[] =>
-          byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn)));
+        const buildItemsFromCompany = (byItem: BreakdownRow[]): BreakdownRow[] => {
+          const fromCompanies = byItem.filter(r => r.companyName && tagCompanyNorms.some(cn => normalise(r.companyName!).includes(cn)));
+          // also include explicitly-tagged items even if they don't belong to those companies
+          const fromItems = tagItemNorms.length > 0
+            ? byItem.filter(r => tagItemNorms.some(ni => normalise(r.name).includes(ni)) && !fromCompanies.some(c => c.name === r.name))
+            : [];
+          return [...fromCompanies, ...fromItems].sort((a, b) => b.totalValue - a.totalValue);
+        };
 
         const bothTags = hasTags && tagItemNorms.length > 0 && tagAreaNorms.length > 0;
 
