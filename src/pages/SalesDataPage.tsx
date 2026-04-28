@@ -683,7 +683,7 @@ export default function SalesDataPage() {
 
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemQuery, setItemQuery]         = useState('');
-  const [companyFilter, setCompanyFilter] = useState('all');
+  const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set());
   const [regionFilter, setRegionFilter]   = useState('all');
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
   const [page, setPage]           = useState(1);
@@ -1013,12 +1013,12 @@ table{border-collapse:collapse;width:100%}
       const q = itemQuery.trim().toLowerCase();
       if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
     }
-    if (companyFilter !== 'all' && companyCol) rows = rows.filter(row => String(row[companyCol] ?? '').trim() === companyFilter);
+    if (selectedCompanies.size > 0 && companyCol) rows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
     Object.entries(colFilters).forEach(([col, vals]) => {
       if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return rows;
-  }, [activeFile, selectedItems, itemQuery, companyFilter, companyCol, colFilters, regionFilter]);
+  }, [activeFile, selectedItems, itemQuery, selectedCompanies, companyCol, colFilters, regionFilter]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
@@ -1222,15 +1222,15 @@ table{border-collapse:collapse;width:100%}
         return true;
       });
     }
-    // apply company filter (single-select bar)
-    if (companyFilter !== 'all' && companyCol) rows = rows.filter(row => String(row[companyCol] ?? '').trim() === companyFilter);
+    // apply company filter (multi-select)
+    if (selectedCompanies.size > 0 && companyCol) rows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
     // apply all colFilters EXCEPT the one being opened (cross-filter)
     Object.entries(colFilters).forEach(([col, vals]) => {
       if (col !== openFilterCol && vals.length > 0)
         rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return [...new Set(rows.map(r => String(r[openFilterCol] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [activeFile, openFilterCol, regionFilter, companyFilter, companyCol, colFilters]);
+  }, [activeFile, openFilterCol, regionFilter, selectedCompanies, companyCol, colFilters]);
 
   // Reset column filters when switching files
   useEffect(() => { setColFilters({}); setOpenFilterCol(null); setOpenItemFilter(false); }, [activeId]);
@@ -1315,7 +1315,7 @@ table{border-collapse:collapse;width:100%}
     if (savedFiles.length > 0) {
       setFiles(prev => [...prev, ...savedFiles]);
       setActiveId(savedFiles[0].id);
-      setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
+      setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
       setShowImport(false);
     }
     if (errors.length > 0) setImportErr(errors.join('\n'));
@@ -1370,14 +1370,18 @@ table{border-collapse:collapse;width:100%}
   };
 
   const selectRegion = (r: string) => { setRegionFilter(r); setWarehouseKeys(new Set()); setPage(1); };
-  const selectCompany = (c: string) => { setCompanyFilter(c); setSelectedItems([]); setItemQuery(''); setPage(1); };
+  const toggleCompany = (c: string) => {
+    setSelectedCompanies(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
+    setSelectedItems([]); setItemQuery(''); setPage(1);
+  };
+  const clearCompanies = () => { setSelectedCompanies(new Set()); setSelectedItems([]); setItemQuery(''); setPage(1); };
   const toggleWH = (key: string) => {
     setWarehouseKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
     setPage(1);
   };
 
   const resetFilters = () => {
-    selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setColFilters({}); setPage(1);
+    selectRegion('all'); setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setColFilters({}); setPage(1);
   };
 
   const doMerge = async () => {
@@ -1476,7 +1480,7 @@ table{border-collapse:collapse;width:100%}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {files.map(f => (
               <div key={f.id} style={{ display: 'flex' }}>
-                <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setCompanyFilter('all'); setPage(1); }}
+                <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setPage(1); }}
                   style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none',
                     background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: activeId === f.id ? '#4338ca' : '#64748b',
@@ -1717,9 +1721,9 @@ table{border-collapse:collapse;width:100%}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركات</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => selectCompany('all')} style={fp(companyFilter === 'all')}>الكل</button>
+                  <button onClick={clearCompanies} style={fp(selectedCompanies.size === 0)}>الكل</button>
                   {companies.map(c => (
-                    <button key={c} onClick={() => selectCompany(c)} style={fp(companyFilter === c)}>{c}</button>
+                    <button key={c} onClick={() => toggleCompany(c)} style={fp(selectedCompanies.has(c))}>{c}</button>
                   ))}
                 </div>
               </div>
@@ -1736,8 +1740,8 @@ table{border-collapse:collapse;width:100%}
                   return true;
                 });
               }
-              if (companyCol && companyFilter !== 'all')
-                sourceRows = sourceRows.filter(r => String(r[companyCol] ?? '').trim() === companyFilter);
+              if (companyCol && selectedCompanies.size > 0)
+                sourceRows = sourceRows.filter(r => selectedCompanies.has(String(r[companyCol] ?? '').trim()));
               const allItems = [...new Set(
                 sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
               )].sort((a, b) => a.localeCompare(b, 'ar'));
