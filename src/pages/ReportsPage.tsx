@@ -1641,9 +1641,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // Areas: exclude contributions from excluded items AND excluded areas AND company-implied items
         const crossAreas = (rows: BreakdownRow[], bai: AreaItemRow[]): BreakdownRow[] => {
           if (allExcItemNames.size === 0 && excAreaNames.size === 0) return rows;
-          const allowed = new Set(visibleRows.map(r => r.name));
+          const allowed = new Set(rows.map(r => r.name));
           const map = new Map<string, BreakdownRow>();
-          for (const r of visibleRows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
+          for (const r of rows) map.set(r.name, { ...r, totalQty: 0, totalValue: 0 });
           for (const r of bai) {
             if (!allowed.has(r.areaName)) continue;
             if (allExcItemNames.has(r.itemName)) continue;  // item excluded
