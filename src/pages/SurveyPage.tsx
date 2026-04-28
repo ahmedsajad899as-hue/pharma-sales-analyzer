@@ -152,10 +152,6 @@ export default function SurveyPage() {
 
   const importAllDoctors = async () => {
     if (!selectedSurvey) return;
-    if (isCompanyManager && !selectedRepId && reps.length > 0) {
-      showToast('❌ الرجاء اختيار مندوب قبل الاستيراد');
-      return;
-    }
     setImportingAll(true);
     try {
       const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/import-all${repParam}`, { method: 'POST', headers: H() });
@@ -168,10 +164,6 @@ export default function SurveyPage() {
 
   const importDoctor = async (docId: number) => {
     if (!selectedSurvey) return;
-    if (isCompanyManager && !selectedRepId && reps.length > 0) {
-      showToast('❌ الرجاء اختيار مندوب قبل الاستيراد');
-      return;
-    }
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import${repParam}`, { method: 'POST', headers: H() });
     const d = await r.json();
     showToast(d.success ? `✅ ${d.message || 'أُضيف الطبيب لقائمة أطبائك'}` : `❌ ${d.error ?? 'خطأ'}`);
@@ -369,7 +361,7 @@ export default function SurveyPage() {
               color: '#1e293b', cursor: 'pointer', direction: 'rtl',
             }}
           >
-            <option value="">— اختر مندوباً —</option>
+            <option value="">— لحسابي (مدير الشركة) —</option>
             {reps.map(r => (
               <option key={r.linkedRepId} value={r.linkedRepId}>{r.name}</option>
             ))}
