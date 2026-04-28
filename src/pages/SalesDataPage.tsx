@@ -1005,23 +1005,13 @@ table{border-collapse:collapse;width:100%}
         return true;
       });
     }
-    if (selectedCompanies.size > 0 && companyCol) {
-      const companyRows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
-      if (selectedItems.length > 0) {
-        // Show items from selected companies AND any explicitly selected items from other companies
-        const selectedSet = new Set(selectedItems);
-        rows = rows.filter(row => {
-          const inCompany = selectedCompanies.has(String(row[companyCol] ?? '').trim());
-          const inItems   = activeFile.fixedCols.some(c => selectedSet.has(String(row[c] ?? '').trim()));
-          return inCompany || inItems;
-        });
-      } else {
-        rows = companyRows;
-      }
-    } else if (selectedItems.length > 0) {
-      rows = rows.filter(row =>
-        selectedItems.some(sel => activeFile.fixedCols.some(c => String(row[c] ?? '').trim() === sel))
-      );
+    if (selectedItems.length > 0) {
+      // Items filter always wins — show exactly selected items (may span multiple companies)
+      const selectedSet = new Set(selectedItems);
+      rows = rows.filter(row => activeFile.fixedCols.some(c => selectedSet.has(String(row[c] ?? '').trim())));
+    } else if (selectedCompanies.size > 0 && companyCol) {
+      // No items selected — show all items from selected companies
+      rows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
     } else {
       const q = itemQuery.trim().toLowerCase();
       if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
