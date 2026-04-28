@@ -104,12 +104,43 @@ router.get('/overall', async (req, res) => {
       ...(recordType ? { recordType } : {}),
     };
 
+    // Column names that represent "product/item code" in uploaded files —
+    // these often contain the company name (e.g. "HUMANISTurkeyN/A")
+    const COMPANY_CODE_KEYS = [
+      'رقم المادة', 'رقم الماده', 'رقم مادة', 'رقم الماد', 'كود المادة',
+      'product code', 'item code', 'material code', 'material no', 'item no',
+      'code', 'كود', 'رقم',
+    ];
+
+    const extractCompanyFromRaw = (rawData) => {
+      if (!rawData) return null;
+      try {
+        const raw = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+        for (const key of COMPANY_CODE_KEYS) {
+          if (raw[key] && String(raw[key]).trim()) return String(raw[key]).trim();
+        }
+        // Also scan all keys for one whose value looks like a company code
+        // (contains only Latin letters + no spaces, like "HUMANISTurkeyN/A")
+        for (const [k, v] of Object.entries(raw)) {
+          const val = String(v || '').trim();
+          if (val && /^[A-Za-z0-9/\-_]+$/.test(val) && val.length > 3 && val.length < 40) {
+            const keyLower = k.toLowerCase();
+            if (keyLower.includes('رقم') || keyLower.includes('code') || keyLower.includes('كود') || keyLower.includes('no.') || keyLower.includes('number')) {
+              return val;
+            }
+          }
+        }
+      } catch { /* ignore */ }
+      return null;
+    };
+
     const sales = await prisma.sale.findMany({
       where,
       select: {
         quantity:   true,
         totalValue: true,
         saleDate:   true,
+        rawData:    true,
         area: { select: { id: true, name: true } },
         item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
       },
@@ -139,8 +170,10 @@ router.get('/overall', async (req, res) => {
 
       if (s.item) {
         const key = s.item.id;
-        const companyName = s.item.company?.name ?? s.item.scientificCompany?.name ?? null;
+        // Priority: DB company relation → scientificCompany relation → rawData column
+        const companyName = s.item.company?.name ?? s.item.scientificCompany?.name ?? extractCompanyFromRaw(s.rawData) ?? null;
         if (!itemMap.has(key)) itemMap.set(key, { itemName: s.item.name, companyName, totalQuantity: 0, totalValue: 0 });
+        else if (!itemMap.get(key).companyName && companyName) itemMap.get(key).companyName = companyName;
         const r = itemMap.get(key);
         r.totalQuantity += qty;
         r.totalValue    += val;
@@ -171,63 +204,6 @@ router.get('/overall', async (req, res) => {
     const byItem     = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
-
-    // ── Fallback company enrichment via name-matching ─────────────────────
-    // Items uploaded as "temp" items have no companyId/scientificCompanyId in DB.
-    // Try to match them by name against:
-    //   1. User's Company (مدير شركة) → Company.items
-    //   2. User's ScientificCompany (مندوب علمي) → UserCompanyAssignment
-    if (userId && companyMap.size === 0) {
-      const normForMatch = (s) => String(s)
-        .toLowerCase().trim()
-        .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
-        .replace(/\u0629/g, '\u0647')
-        .replace(/\u0640/g, '')
-        .replace(/[\u064B-\u065F]/g, '')
-        .replace(/\s+/g, ' ');
-
-      const nameToCompany = new Map();
-
-      // 1. Company (commercial/company-manager users)
-      const ownedCompanies = await prisma.company.findMany({
-        where: { userId },
-        select: { name: true, items: { select: { name: true } } },
-      });
-      for (const co of ownedCompanies) {
-        for (const item of (co.items ?? [])) {
-          nameToCompany.set(normForMatch(item.name), co.name);
-        }
-      }
-
-      // 2. ScientificCompany (scientific rep users)
-      if (nameToCompany.size === 0) {
-        const userAssignments = await prisma.userCompanyAssignment.findMany({
-          where: { userId },
-          select: { company: { select: { name: true, items: { select: { name: true } } } } },
-        });
-        for (const a of userAssignments) {
-          for (const item of (a.company?.items ?? [])) {
-            nameToCompany.set(normForMatch(item.name), a.company.name);
-          }
-        }
-      }
-
-      if (nameToCompany.size > 0) {
-        for (const data of itemMap.values()) {
-          if (!data.companyName) {
-            const co = nameToCompany.get(normForMatch(data.itemName));
-            if (co) {
-              data.companyName = co;
-              if (!companyMap.has(co)) companyMap.set(co, { companyName: co, totalQuantity: 0, totalValue: 0 });
-              const cr = companyMap.get(co);
-              cr.totalQuantity += data.totalQuantity;
-              cr.totalValue    += data.totalValue;
-            }
-          }
-        }
-      }
-    }
-
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
     res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
