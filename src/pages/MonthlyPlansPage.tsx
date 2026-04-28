@@ -1930,662 +1930,665 @@ export default function MonthlyPlansPage() {
                         style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>×</button>
                     </div>
 
-                    {/* Target doctors */}
-                    <label style={settingLabelStyle}>
-                      👨‍⚕️ عدد الأطباء المستهدف
-                      <input type="number" min={1} max={200} value={sTargetDoctors}
-                        onChange={e => setSTargetDoctors(+e.target.value)}
-                        style={{ ...settingInputStyle, width: 80, textAlign: 'center' }} />
-                    </label>
-
-                    {/* Target visits per doctor */}
-                    <label style={settingLabelStyle}>
-                      📞 عدد الزيارات لكل طبيب
-                      <input type="number" min={1} max={20} value={sTargetVisits}
-                        onChange={e => setSTargetVisits(+e.target.value)}
-                        style={{ ...settingInputStyle, width: 80, textAlign: 'center' }} />
-                    </label>
-
-                    {/* Keep feedback */}
-                    <div style={{ marginBottom: 14 }}>
-                      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>✅ فيدباك يُبقى عليه (من الشهر السابق)</p>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {([
-                          { k: 'writing',      label: 'يكتب',        color: '#166534', bg: '#dcfce7' },
-                          { k: 'stocked',      label: 'نزل الايتم',  color: '#1e40af', bg: '#dbeafe' },
-                          { k: 'interested',   label: 'مهتم',        color: '#7c3aed', bg: '#ede9fe' },
-                          { k: 'not_interested',label:'غير مهتم',   color: '#991b1b', bg: '#fee2e2' },
-                          { k: 'unavailable',  label: 'غير متوفر',   color: '#92400e', bg: '#fef3c7' },
-                          { k: 'pending',      label: 'معلق',        color: '#475569', bg: '#f1f5f9' },
-                        ] as const).map(f => {
-                          const on = sKeepFeedback.includes(f.k);
-                          return (
-                            <span key={f.k} onClick={() => setSKeepFeedback(prev =>
-                              on ? prev.filter(x => x !== f.k) : [...prev, f.k]
-                            )} style={{
-                              padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-                              cursor: 'pointer', userSelect: 'none',
-                              background: on ? f.bg : '#f8fafc',
-                              color: on ? f.color : '#94a3b8',
-                              border: `2px solid ${on ? f.color : '#e2e8f0'}`,
-                            }}>{f.label}</span>
-                          );
-                        })}
+                    {/* ══════════════════════════════════════════════
+                        GROUP 1 — الضوابط الأساسية
+                    ══════════════════════════════════════════════ */}
+                    <div style={{ marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                        <span style={{ fontSize: 14 }}>⚙️</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: 1 }}>الضوابط الأساسية</span>
+                        <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
                       </div>
+
+                      {/* Target doctors */}
+                      <label style={settingLabelStyle}>
+                        👨‍⚕️ عدد الأطباء المستهدف
+                        <input type="number" min={1} max={200} value={sTargetDoctors}
+                          onChange={e => setSTargetDoctors(+e.target.value)}
+                          style={{ ...settingInputStyle, width: 80, textAlign: 'center' }} />
+                      </label>
+
+                      {/* Target visits per doctor */}
+                      <label style={settingLabelStyle}>
+                        📞 عدد الزيارات لكل طبيب
+                        <input type="number" min={1} max={20} value={sTargetVisits}
+                          onChange={e => setSTargetVisits(+e.target.value)}
+                          style={{ ...settingInputStyle, width: 80, textAlign: 'center' }} />
+                      </label>
                     </div>
 
-                    {/* Restrict to rep areas — OR — plan areas editable checklist */}
-                    {activePlan.planAreas && activePlan.planAreas.length > 0 ? (
+                    {/* ══════════════════════════════════════════════
+                        GROUP 2 — أطباء البلانات السابقة
+                    ══════════════════════════════════════════════ */}
+                    <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                        <span style={{ fontSize: 14 }}>🔁</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#166534', letterSpacing: 0.5 }}>من البلانات السابقة</span>
+                        <div style={{ flex: 1, height: 1, background: '#86efac' }} />
+                      </div>
+
+                      {/* Keep feedback */}
                       <div style={{ marginBottom: 14 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 مناطق البلان</p>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => setEditAreaIds(allAreas.map(a => a.id))} type="button"
-                              style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                              ✓ الكل
-                            </button>
-                            <button onClick={() => setEditAreaIds([])} type="button"
-                              style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                              ✕ إلغاء
-                            </button>
-                          </div>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>✅ فيدباك يُبقى عليه</p>
+                        <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b' }}>الأطباء الذين آخر فيدباكهم كالتالي يُعادون في البلان الجديد</p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {([
+                            { k: 'writing',       label: 'يكتب',       color: '#166534', bg: '#dcfce7' },
+                            { k: 'stocked',       label: 'نزل الايتم', color: '#1e40af', bg: '#dbeafe' },
+                            { k: 'interested',    label: 'مهتم',       color: '#7c3aed', bg: '#ede9fe' },
+                            { k: 'not_interested',label: 'غير مهتم',   color: '#991b1b', bg: '#fee2e2' },
+                            { k: 'unavailable',   label: 'غير متوفر',  color: '#92400e', bg: '#fef3c7' },
+                            { k: 'pending',       label: 'معلق',       color: '#475569', bg: '#f1f5f9' },
+                          ] as const).map(f => {
+                            const on = sKeepFeedback.includes(f.k);
+                            return (
+                              <span key={f.k} onClick={() => setSKeepFeedback(prev =>
+                                on ? prev.filter(x => x !== f.k) : [...prev, f.k]
+                              )} style={{
+                                padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                                cursor: 'pointer', userSelect: 'none',
+                                background: on ? f.bg : '#fff',
+                                color: on ? f.color : '#94a3b8',
+                                border: `2px solid ${on ? f.color : '#e2e8f0'}`,
+                              }}>{f.label}</span>
+                            );
+                          })}
                         </div>
-                        <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 6 }}>
-                          {allAreas.map(a => (
-                            <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '3px 6px', borderRadius: 6, background: editAreaIds.includes(a.id) ? '#eff6ff' : 'transparent' }}>
-                              <input type="checkbox" checked={editAreaIds.includes(a.id)}
-                                onChange={e => {
-                                  if (e.target.checked) setEditAreaIds(prev => [...prev, a.id]);
-                                  else setEditAreaIds(prev => prev.filter(id => id !== a.id));
-                                }} />
-                              {a.name}
-                            </label>
-                          ))}
-                        </div>
-                        <button onClick={async () => {
-                          setSavingAreas(true);
-                          try {
-                            const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/areas`, {
-                              method: 'PUT', headers: H(),
-                              body: JSON.stringify({ areaIds: editAreaIds }),
-                            });
-                            if (!r.ok) { const j = await r.json(); throw new Error(j.error ?? j.message ?? 'فشل'); }
-                            invalidateCache('/api/monthly-plans');
-                            await reloadPlan(activePlan.id);
-                          } catch (e: any) { alert(e.message); }
-                          finally { setSavingAreas(false); }
-                        }} disabled={savingAreas}
-                          style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                          {savingAreas ? 'جاري الحفظ...' : '💾 حفظ المناطق'}
-                        </button>
                       </div>
-                    ) : (
-                    <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 تقييد بمناطق المندوب فقط</span>
-                      <div onClick={() => setSRestrictAreas(v => !v)}
-                        style={{
-                          width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s',
-                          background: sRestrictAreas ? '#8b5cf6' : '#e2e8f0', position: 'relative',
-                        }}>
-                        <div style={{
-                          position: 'absolute', top: 3, transition: 'left 0.2s',
-                          left: sRestrictAreas ? 23 : 3,
-                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                          boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                        }} />
-                      </div>
-                    </label>
-                    )}
 
-                    {/* Sort by */}
-                    <label style={settingLabelStyle}>
-                      🔀 ترتيب الأطباء الجدد
-                      <select value={sSortBy} onChange={e => setSSortBy(e.target.value as any)}
-                        style={settingInputStyle}>
-                        <option value="oldest">الأقدم إدخالاً</option>
-                        <option value="newest">الأحدث إدخالاً</option>
-                        <option value="random">عشوائي</option>
-                      </select>
-                    </label>
-
-                    {/* Note analysis toggle */}
-                    <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10 }}>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📝 تحليل ملاحظات الزيارات</p>
-                        <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                          يسحب الأطباء الذين ملاحظات زياراتهم تشير إلى متابعة، طلب عينات، سؤال، زيارة قادمة، إحضار مدير، متابعة صيدلية... حتى لو الفيدباك الأخير سلبي
-                        </p>
-                      </div>
-                      <div onClick={() => setSUseNoteAnalysis(v => !v)}
-                        style={{
-                          width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
-                          background: sUseNoteAnalysis ? '#8b5cf6' : '#e2e8f0', position: 'relative',
-                        }}>
-                        <div style={{
-                          position: 'absolute', top: 3, transition: 'left 0.2s',
-                          left: sUseNoteAnalysis ? 23 : 3,
-                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                          boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                        }} />
-                      </div>
-                    </label>
-
-                    {/* ── Lookback months ── */}
-                    {(() => {
-                      // Build list of last 6 months before this plan's month
-                      const opts: { label: string; val: string }[] = [];
-                      for (let i = 1; i <= 6; i++) {
-                        let mo = activePlan.month - i; let yr = activePlan.year;
-                        if (mo <= 0) { mo += 12; yr -= 1; }
-                        const val = `${yr}-${String(mo).padStart(2,'0')}`;
-                        opts.push({ label: `${MONTHS_AR[mo-1]} ${yr}`, val });
-                      }
-                      return (
-                        <div style={{ marginBottom: 14 }}>
-                          <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📅 الأشهر السابقة للبحث</p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {opts.map(o => {
-                              const on = sLookbackList.includes(o.val);
-                              return (
-                                <span key={o.val} onClick={() => setSLookbackList(prev =>
-                                  on ? prev.filter(v => v !== o.val) : [...prev, o.val]
-                                )} style={{
-                                  padding: '4px 12px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-                                  cursor: 'pointer', userSelect: 'none',
-                                  background: on ? '#dbeafe' : '#f8fafc',
-                                  color:      on ? '#1e40af' : '#94a3b8',
-                                  border: `2px solid ${on ? '#1e40af' : '#e2e8f0'}`,
-                                }}>{o.label}</span>
-                              );
-                            })}
+                      {/* Lookback months */}
+                      {(() => {
+                        const opts: { label: string; val: string }[] = [];
+                        for (let i = 1; i <= 6; i++) {
+                          let mo = activePlan.month - i; let yr = activePlan.year;
+                          if (mo <= 0) { mo += 12; yr -= 1; }
+                          const val = `${yr}-${String(mo).padStart(2,'0')}`;
+                          opts.push({ label: `${MONTHS_AR[mo-1]} ${yr}`, val });
+                        }
+                        return (
+                          <div style={{ marginBottom: 14 }}>
+                            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📅 الأشهر السابقة للبحث</p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {opts.map(o => {
+                                const on = sLookbackList.includes(o.val);
+                                return (
+                                  <span key={o.val} onClick={() => setSLookbackList(prev =>
+                                    on ? prev.filter(v => v !== o.val) : [...prev, o.val]
+                                  )} style={{
+                                    padding: '4px 12px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                                    cursor: 'pointer', userSelect: 'none',
+                                    background: on ? '#dbeafe' : '#fff',
+                                    color:      on ? '#1e40af' : '#94a3b8',
+                                    border: `2px solid ${on ? '#1e40af' : '#e2e8f0'}`,
+                                  }}>{o.label}</span>
+                                );
+                              })}
+                            </div>
+                            <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>
+                              {sLookbackList.length === 0 ? 'الشهر السابق فقط (افتراضي)' : `${sLookbackList.length} شهر محدد`}
+                            </p>
                           </div>
-                          <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>
-                            {sLookbackList.length === 0 ? 'الشهر السابق فقط (افتراضي)' : `${sLookbackList.length} شهر محدد`}
+                        );
+                      })()}
+
+                      {/* Note analysis toggle */}
+                      <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📝 تحليل ملاحظات الزيارات</p>
+                          <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                            يسحب الأطباء الذين ملاحظاتهم تشير إلى متابعة أو طلب عينات... حتى لو الفيدباك الأخير سلبي
                           </p>
                         </div>
-                      );
-                    })()}
+                        <div onClick={() => setSUseNoteAnalysis(v => !v)}
+                          style={{
+                            width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
+                            background: sUseNoteAnalysis ? '#8b5cf6' : '#e2e8f0', position: 'relative',
+                          }}>
+                          <div style={{
+                            position: 'absolute', top: 3, transition: 'left 0.2s',
+                            left: sUseNoteAnalysis ? 23 : 3,
+                            width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                          }} />
+                        </div>
+                      </label>
 
-                    {/* ── New doctors ratio ── */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>🆕 نسبة الأطباء الجدد</p>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: '#8b5cf6' }}>
-                          {sNewRatio === 0 ? 'تلقائي' : `${sNewRatio}%`}
-                        </span>
+                      {/* Prioritize missed */}
+                      <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10, marginBottom: 14 }}>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📌 أولوية الأطباء المهملين</p>
+                          <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                            الأطباء الذين كانوا في البلان السابق ولم تُسجَّل لهم أي زيارة يظهرون أولاً
+                          </p>
+                        </div>
+                        <div onClick={() => setSPrioritizeMissed(v => !v)}
+                          style={{
+                            width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
+                            background: sPrioritizeMissed ? '#f59e0b' : '#e2e8f0', position: 'relative',
+                          }}>
+                          <div style={{
+                            position: 'absolute', top: 3, transition: 'left 0.2s',
+                            left: sPrioritizeMissed ? 23 : 3,
+                            width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                          }} />
+                        </div>
+                      </label>
+
+                      {/* Max repetitions */}
+                      <div style={{ marginBottom: 4 }}>
+                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🔄 استبعاد المتكررين بلا نتيجة</p>
+                        <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                          استبعاد الطبيب إذا ظهر في X بلانات متتالية بدون فيدباك إيجابي
+                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>بعد</span>
+                          <input type="number" min={0} max={12} value={sMaxRepetitions}
+                            onChange={e => setSMaxRepetitions(Math.max(0, parseInt(e.target.value) || 0))}
+                            style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700,
+                              color: sMaxRepetitions > 0 ? '#dc2626' : '#94a3b8',
+                              background: sMaxRepetitions > 0 ? '#fef2f2' : '#fff', outline: 'none' }}
+                            onFocus={e => (e.target.style.borderColor = '#ef4444')}
+                            onBlur={e  => (e.target.style.borderColor = '#cbd5e1')} />
+                          <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+                            {sMaxRepetitions === 0 ? 'بلان — (معطّل)' : 'بلان متتالي بلا نتيجة → يُستبعد'}
+                          </span>
+                        </div>
                       </div>
-                      <input type="range" min={0} max={100} step={5} value={sNewRatio}
-                        onChange={e => setSNewRatio(+e.target.value)}
-                        style={{ width: '100%', accentColor: '#8b5cf6' }} />
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
-                        <span>تلقائي</span><span>50%</span><span>100% جدد</span>
-                      </div>
-                      <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>
-                        أطباء موجودون في السرفي لكن لم يُزاروا أو لم تنزل لهم طلبية
-                      </p>
                     </div>
 
-                    {/* ── Focus filters ── */}
-                    {(() => {
-                      const repAreas: { id: number; name: string }[] = (activePlan as any).scientificRep?.areas ?? [];
-                      const extraAreas = plans.flatMap(p => p.entries.map(e => e.doctor.area).filter(Boolean)) as { id: number; name: string }[];
-                      const allAreaMap = new Map<number, string>();
-                      [...repAreas, ...extraAreas].forEach(a => allAreaMap.set(a.id, a.name));
-                      const allAreas = [...allAreaMap.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-                      const filteredItems = items.filter(it =>
-                        !sFocusItemIds.find(x => x.id === String(it.id)) &&
-                        (!sFocusItemText || it.name.toLowerCase().includes(sFocusItemText.toLowerCase()))
-                      );
-                      const filteredAreas = allAreas.filter(a =>
-                        !sFocusAreaIds.find(x => x.id === String(a.id)) &&
-                        (!sFocusAreaText || a.name.toLowerCase().includes(sFocusAreaText.toLowerCase()))
-                      );
-                      const allSpecialties = [...new Set(
-                        plans.flatMap(p => p.entries.map(e => e.doctor.specialty)).filter((s): s is string => Boolean(s))
-                      )].sort();
-                      const filteredSpecs = allSpecialties.filter(s =>
-                        !sFocusSpecialties.includes(s) &&
-                        (!sFocusSpecText || s.toLowerCase().includes(sFocusSpecText.toLowerCase()))
-                      );
-                      const ddBase: React.CSSProperties = {
-                        position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 600,
-                        background: '#fff', border: '1.5px solid #c4b5fd', borderRadius: 8,
-                        boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 150, overflowY: 'auto',
-                      };
-                      const ddItem: React.CSSProperties = { padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#374151' };
-                      const chipStyle = (color: string, bg: string): React.CSSProperties => ({
-                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
-                        fontSize: 11, fontWeight: 600, background: bg, color, border: `1px solid ${color}20`,
-                        cursor: 'pointer', flexShrink: 0,
-                      });
-                      const inputStyle: React.CSSProperties = {
-                        ...settingInputStyle, borderRadius: 7, marginTop: 4,
-                      };
-                      return (
+                    {/* ══════════════════════════════════════════════
+                        GROUP 3 — الأطباء الجدد
+                    ══════════════════════════════════════════════ */}
+                    <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                        <span style={{ fontSize: 14 }}>🆕</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#1e40af', letterSpacing: 0.5 }}>الأطباء الجدد</span>
+                        <div style={{ flex: 1, height: 1, background: '#93c5fd' }} />
+                      </div>
+
+                      {/* New doctors ratio */}
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>📊 نسبة الأطباء الجدد</p>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: '#1e40af' }}>
+                            {sNewRatio === 0 ? 'تلقائي' : `${sNewRatio}%`}
+                          </span>
+                        </div>
+                        <input type="range" min={0} max={100} step={5} value={sNewRatio}
+                          onChange={e => setSNewRatio(+e.target.value)}
+                          style={{ width: '100%', accentColor: '#3b82f6' }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                          <span>تلقائي</span><span>50%</span><span>100% جدد</span>
+                        </div>
+                        <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>
+                          أطباء في السرفي لكن لم يُزاروا أو لم تنزل لهم طلبية
+                        </p>
+                      </div>
+
+                      {/* Sort new doctors */}
+                      <label style={{ ...settingLabelStyle, marginBottom: 14 }}>
+                        🔀 ترتيب الأطباء الجدد
+                        <select value={sSortBy} onChange={e => setSSortBy(e.target.value as any)}
+                          style={settingInputStyle}>
+                          <option value="oldest">الأقدم إدخالاً</option>
+                          <option value="newest">الأحدث إدخالاً</option>
+                          <option value="random">عشوائي</option>
+                        </select>
+                      </label>
+
+                      {/* Not visited since X months */}
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🕐 استبعاد من زُيِّروا مؤخراً</p>
+                        <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                          لا تقترح أطباء تمت زيارتهم خلال آخر N شهر — للتركيز على الأطباء المهملين
+                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>منذ أقل من</span>
+                          <input type="number" min={0} max={24} value={sNotVisitedMonths}
+                            onChange={e => setSNotVisitedMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                            style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700,
+                              color: sNotVisitedMonths > 0 ? '#0369a1' : '#94a3b8',
+                              background: sNotVisitedMonths > 0 ? '#f0f9ff' : '#fff', outline: 'none' }}
+                            onFocus={e => (e.target.style.borderColor = '#0ea5e9')}
+                            onBlur={e  => (e.target.style.borderColor = '#cbd5e1')} />
+                          <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+                            {sNotVisitedMonths === 0 ? 'شهر — (معطّل)' : 'شهر → يُستبعد من الاقتراح'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Wish list */}
+                      {(() => {
+                        let wishIds: number[] = [];
+                        const wishItems: Record<number, string> = {};
+                        const wishNames: Record<number, string> = {};
+                        try {
+                          const stored = localStorage.getItem(`wishedDoctors_${authUser?.id ?? 'guest'}`);
+                          wishIds = stored ? JSON.parse(stored) : [];
+                          const wi = localStorage.getItem(`wishedItems_${authUser?.id ?? 'guest'}`);
+                          if (wi) Object.assign(wishItems, JSON.parse(wi));
+                          const wn = localStorage.getItem(`wishedDoctorNames_${authUser?.id ?? 'guest'}`);
+                          if (wn) Object.assign(wishNames, JSON.parse(wn));
+                        } catch { /* ignore */ }
+                        if (wishIds.some(id => !wishNames[id])) {
+                          plans.forEach(p => p.entries.forEach(e => {
+                            if (!wishNames[e.doctorId] && e.doctor?.name) wishNames[e.doctorId] = e.doctor.name;
+                          }));
+                        }
+                        const wishCount = wishIds.length;
+                        const activeWishCount = wishIds.filter(id => !sWishExcluded.has(id)).length;
+                        return (
+                          <div style={{ border: '1.5px solid #bfdbfe', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sUseWishList && wishCount > 0 ? '#fffbeb' : '#f8fafc' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                                <span style={{ fontSize: 16 }}>⭐</span>
+                                <div style={{ flex: 1 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>قائمة الطلبات</span>
+                                  {wishCount > 0 && (
+                                    <button onClick={() => setSWishDropdownOpen(v => !v)}
+                                      style={{ marginRight: 8, padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700,
+                                        background: sUseWishList ? '#fef9c3' : '#f1f5f9',
+                                        color: sUseWishList ? '#854d0e' : '#64748b',
+                                        border: `1px solid ${sUseWishList ? '#fde047' : '#e2e8f0'}`,
+                                        cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                      {activeWishCount} طبيب
+                                      <span style={{ fontSize: 10, display: 'inline-block', transform: sWishDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <div onClick={() => wishCount > 0 && setSUseWishList(v => !v)}
+                                style={{
+                                  width: 44, height: 24, borderRadius: 12, transition: 'background 0.2s', flexShrink: 0,
+                                  background: sUseWishList && wishCount > 0 ? '#f59e0b' : '#e2e8f0',
+                                  position: 'relative', cursor: wishCount > 0 ? 'pointer' : 'not-allowed', opacity: wishCount === 0 ? 0.5 : 1,
+                                }}>
+                                <div style={{
+                                  position: 'absolute', top: 3, transition: 'left 0.2s',
+                                  left: sUseWishList && wishCount > 0 ? 23 : 3,
+                                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                                  boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                                }} />
+                              </div>
+                            </div>
+                            <div style={{ padding: '0 12px 8px', background: sUseWishList && wishCount > 0 ? '#fffbeb' : '#f8fafc' }}>
+                              <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                                {wishCount === 0
+                                  ? 'لا يوجد أطباء في قائمة الطلبات — أضفهم من صفحة السرفي'
+                                  : 'يضمن تضمين الأطباء الذين اخترتهم في السرفي بغض النظر عن المنطقة'}
+                              </p>
+                            </div>
+                            {sWishDropdownOpen && wishCount > 0 && (
+                              <div style={{ borderTop: '1px solid #e2e8f0', padding: 10, background: '#fff' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <span style={{ fontSize: 11, color: '#64748b' }}>اختر من تريد تضمينه</span>
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onMouseDown={() => setSWishExcluded(new Set())}
+                                      style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #22c55e', background: '#dcfce7', color: '#166534', cursor: 'pointer' }}>
+                                      ✅ الكل
+                                    </button>
+                                    <button onMouseDown={() => setSWishExcluded(new Set(wishIds))}
+                                      style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #fca5a5', background: '#fee2e2', color: '#991b1b', cursor: 'pointer' }}>
+                                      ✗ لا شيء
+                                    </button>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+                                  {wishIds.map(id => {
+                                    const excluded = sWishExcluded.has(id);
+                                    return (
+                                      <div key={id}
+                                        onClick={() => setSWishExcluded(prev => { const s = new Set(prev); excluded ? s.delete(id) : s.add(id); return s; })}
+                                        style={{
+                                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 7,
+                                          background: excluded ? '#f8fafc' : '#fffbeb',
+                                          border: `1px solid ${excluded ? '#e2e8f0' : '#fde047'}`,
+                                          cursor: 'pointer', opacity: excluded ? 0.55 : 1,
+                                        }}>
+                                        <span style={{ fontSize: 14, color: excluded ? '#94a3b8' : '#f59e0b', flexShrink: 0 }}>{excluded ? '☆' : '⭐'}</span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: excluded ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {wishNames[id] ?? `طبيب #${id}`}
+                                          </p>
+                                          {wishItems[id] && (
+                                            <p style={{ margin: 0, fontSize: 10, color: '#64748b' }}>💊 {wishItems[id]}</p>
+                                          )}
+                                        </div>
+                                        <span style={{ fontSize: 11, color: excluded ? '#94a3b8' : '#166534', fontWeight: 600 }}>{excluded ? 'غير مرشح' : 'مرشح'}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* ══════════════════════════════════════════════
+                        GROUP 4 — المناطق والتركيز
+                    ══════════════════════════════════════════════ */}
+                    <div style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                        <span style={{ fontSize: 14 }}>📍</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#5b21b6', letterSpacing: 0.5 }}>المناطق والتركيز</span>
+                        <div style={{ flex: 1, height: 1, background: '#c4b5fd' }} />
+                      </div>
+
+                      {/* Restrict to rep areas — OR — plan areas editable checklist */}
+                      {activePlan.planAreas && activePlan.planAreas.length > 0 ? (
                         <div style={{ marginBottom: 14 }}>
-                          <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🎯 تركيز على</p>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            {/* Focus items */}
-                            <div>
-                              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>💊 ايتمات معينة</p>
-                              {sFocusItemIds.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-                                  {sFocusItemIds.map(x => (
-                                    <span key={x.id} style={chipStyle('#7c3aed', '#ede9fe')}
-                                      onClick={() => setSFocusItemIds(prev => prev.filter(p => p.id !== x.id))}>
-                                      {x.name} ×
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              <div style={{ position: 'relative' }}>
-                                <input type="text" value={sFocusItemText} autoComplete="off"
-                                  onChange={e => { setSFocusItemText(e.target.value); setSFocusItemDD(true); }}
-                                  onFocus={() => setSFocusItemDD(true)}
-                                  onBlur={() => setTimeout(() => setSFocusItemDD(false), 150)}
-                                  placeholder={sFocusItemIds.length === 0 ? 'ابحث وأضف ايتم...' : 'أضف ايتم آخر...'}
-                                  style={inputStyle} />
-                                {sFocusItemDD && filteredItems.length > 0 && (
-                                  <div style={ddBase}>
-                                    {filteredItems.slice(0, 40).map(it => (
-                                      <div key={it.id}
-                                        onMouseDown={() => { setSFocusItemIds(prev => [...prev, { id: String(it.id), name: it.name }]); setSFocusItemText(''); setSFocusItemDD(false); }}
-                                        style={ddItem}>{it.name}</div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Focus areas */}
-                            <div>
-                              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>📍 مناطق معينة</p>
-                              {sFocusAreaIds.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-                                  {sFocusAreaIds.map(x => (
-                                    <span key={x.id} style={chipStyle('#1e40af', '#dbeafe')}
-                                      onClick={() => setSFocusAreaIds(prev => prev.filter(p => p.id !== x.id))}>
-                                      {x.name} ×
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              <div style={{ position: 'relative' }}>
-                                <input type="text" value={sFocusAreaText} autoComplete="off"
-                                  onChange={e => { setSFocusAreaText(e.target.value); setSFocusAreaDD(true); }}
-                                  onFocus={() => setSFocusAreaDD(true)}
-                                  onBlur={() => setTimeout(() => setSFocusAreaDD(false), 150)}
-                                  placeholder={sFocusAreaIds.length === 0 ? 'ابحث وأضف منطقة...' : 'أضف منطقة أخرى...'}
-                                  style={inputStyle} />
-                                {sFocusAreaDD && filteredAreas.length > 0 && (
-                                  <div style={ddBase}>
-                                    {filteredAreas.slice(0, 40).map(a => (
-                                      <div key={a.id}
-                                        onMouseDown={() => { setSFocusAreaIds(prev => [...prev, { id: String(a.id), name: a.name }]); setSFocusAreaText(''); setSFocusAreaDD(false); }}
-                                        style={ddItem}>{a.name}</div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Focus specialties */}
-                            <div>
-                              <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>🔬 اختصاصات معينة</p>
-                              {sFocusSpecialties.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-                                  {sFocusSpecialties.map(s => (
-                                    <span key={s} style={chipStyle('#166534', '#dcfce7')}
-                                      onClick={() => setSFocusSpecialties(prev => prev.filter(p => p !== s))}>
-                                      {s} ×
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              <div style={{ position: 'relative' }}>
-                                <input type="text" value={sFocusSpecText} autoComplete="off"
-                                  onChange={e => { setSFocusSpecText(e.target.value); setSFocusSpecDD(true); }}
-                                  onFocus={() => setSFocusSpecDD(true)}
-                                  onBlur={() => setTimeout(() => setSFocusSpecDD(false), 150)}
-                                  placeholder={sFocusSpecialties.length === 0 ? 'ابحث وأضف اختصاص...' : 'أضف اختصاص آخر...'}
-                                  style={inputStyle} />
-                                {sFocusSpecDD && (filteredSpecs.length > 0 || sFocusSpecText.trim()) && (
-                                  <div style={ddBase}>
-                                    {sFocusSpecText.trim() && !filteredSpecs.includes(sFocusSpecText.trim()) && !sFocusSpecialties.includes(sFocusSpecText.trim()) && (
-                                      <div onMouseDown={() => { setSFocusSpecialties(prev => [...prev, sFocusSpecText.trim()]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
-                                        style={{ ...ddItem, color: '#166534', fontWeight: 600 }}>➕ "{sFocusSpecText.trim()}"</div>
-                                    )}
-                                    {filteredSpecs.slice(0, 40).map(s => (
-                                      <div key={s}
-                                        onMouseDown={() => { setSFocusSpecialties(prev => [...prev, s]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
-                                        style={ddItem}>{s}</div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 مناطق البلان</p>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={() => setEditAreaIds(allAreas.map(a => a.id))} type="button"
+                                style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                                ✓ الكل
+                              </button>
+                              <button onClick={() => setEditAreaIds([])} type="button"
+                                style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                                ✕ إلغاء
+                              </button>
                             </div>
                           </div>
+                          <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 6, background: '#fff' }}>
+                            {allAreas.map(a => (
+                              <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '3px 6px', borderRadius: 6, background: editAreaIds.includes(a.id) ? '#eff6ff' : 'transparent' }}>
+                                <input type="checkbox" checked={editAreaIds.includes(a.id)}
+                                  onChange={e => {
+                                    if (e.target.checked) setEditAreaIds(prev => [...prev, a.id]);
+                                    else setEditAreaIds(prev => prev.filter(id => id !== a.id));
+                                  }} />
+                                {a.name}
+                              </label>
+                            ))}
+                          </div>
+                          <button onClick={async () => {
+                            setSavingAreas(true);
+                            try {
+                              const r = await fetch(`${API}/api/monthly-plans/${activePlan.id}/areas`, {
+                                method: 'PUT', headers: H(),
+                                body: JSON.stringify({ areaIds: editAreaIds }),
+                              });
+                              if (!r.ok) { const j = await r.json(); throw new Error(j.error ?? j.message ?? 'فشل'); }
+                              invalidateCache('/api/monthly-plans');
+                              await reloadPlan(activePlan.id);
+                            } catch (e: any) { alert(e.message); }
+                            finally { setSavingAreas(false); }
+                          }} disabled={savingAreas}
+                            style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            {savingAreas ? 'جاري الحفظ...' : '💾 حفظ المناطق'}
+                          </button>
                         </div>
-                      );
-                    })()}
+                      ) : (
+                        <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 تقييد بمناطق المندوب فقط</span>
+                          <div onClick={() => setSRestrictAreas(v => !v)}
+                            style={{
+                              width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s',
+                              background: sRestrictAreas ? '#8b5cf6' : '#e2e8f0', position: 'relative',
+                            }}>
+                            <div style={{
+                              position: 'absolute', top: 3, transition: 'left 0.2s',
+                              left: sRestrictAreas ? 23 : 3,
+                              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                            }} />
+                          </div>
+                        </label>
+                      )}
 
-                    {/* User custom note */}
-                    <div style={{ marginBottom: 6 }}>
-                      <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#374151' }}>
-                        💬 تعليمات مخصصة <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 11 }}>(اختياري)</span>
-                      </p>
-                      <textarea
-                        value={sUserNote}
-                        onChange={e => setSUserNote(e.target.value)}
-                        rows={3}
-                        placeholder={'مثال: أضف دكتور أحمد من الكرادة، استبعد أطباء منطقة الدورة، ركز على تخصص باطنية...'}
-                        style={{
-                          width: '100%', boxSizing: 'border-box', resize: 'vertical',
-                          border: '1.5px solid #e2e8f0', borderRadius: 8, padding: '8px 10px',
-                          fontSize: 12, lineHeight: 1.6, color: '#374151', outline: 'none',
-                          background: '#f8fafc', direction: 'rtl', fontFamily: 'inherit',
-                          transition: 'border-color 0.15s',
-                        }}
-                        onFocus={e => (e.target.style.borderColor = '#8b5cf6')}
-                        onBlur={e  => (e.target.style.borderColor = '#e2e8f0')}
-                      />
-                      <p style={{ margin: '4px 0 0', fontSize: 10, color: '#94a3b8', lineHeight: 1.4 }}>
-                        سيتم تحليل ملاحظاتك بالذكاء الاصطناعي وتطبيقها على الاقتراح
-                      </p>
-                    </div>
-
-                    {/* Wish list (قائمة الطلبات) */}
-                    {(() => {
-                      let wishIds: number[] = [];
-                      const wishItems: Record<number, string> = {};
-                      const wishNames: Record<number, string> = {};
-                      try {
-                        const stored = localStorage.getItem(`wishedDoctors_${authUser?.id ?? 'guest'}`);
-                        wishIds = stored ? JSON.parse(stored) : [];
-                        const wi = localStorage.getItem(`wishedItems_${authUser?.id ?? 'guest'}`);
-                        if (wi) Object.assign(wishItems, JSON.parse(wi));
-                        const wn = localStorage.getItem(`wishedDoctorNames_${authUser?.id ?? 'guest'}`);
-                        if (wn) Object.assign(wishNames, JSON.parse(wn));
-                      } catch { /* ignore */ }
-                      // Fallback: look up names from plans data for any IDs missing a name
-                      if (wishIds.some(id => !wishNames[id])) {
-                        plans.forEach(p => p.entries.forEach(e => {
-                          if (!wishNames[e.doctorId] && e.doctor?.name) wishNames[e.doctorId] = e.doctor.name;
-                        }));
-                      }
-                      const wishCount = wishIds.length;
-                      const activeWishCount = wishIds.filter(id => !sWishExcluded.has(id)).length;
-                      return (
-                        <div style={{ marginBottom: 14, border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                          {/* Header row */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sUseWishList && wishCount > 0 ? '#fffbeb' : '#f8fafc' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                              <span style={{ fontSize: 16 }}>⭐</span>
-                              <div style={{ flex: 1 }}>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>قائمة الطلبات</span>
-                                {wishCount > 0 && (
-                                  <button
-                                    onClick={() => setSWishDropdownOpen(v => !v)}
-                                    style={{ marginRight: 8, padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700,
-                                      background: sUseWishList ? '#fef9c3' : '#f1f5f9',
-                                      color: sUseWishList ? '#854d0e' : '#64748b',
-                                      border: `1px solid ${sUseWishList ? '#fde047' : '#e2e8f0'}`,
-                                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                    {activeWishCount} طبيب
-                                    <span style={{ fontSize: 10, display: 'inline-block', transform: sWishDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
-                                  </button>
-                                )}
+                      {/* Area quota distribution */}
+                      {sRepAreas.length > 0 && (
+                        <div style={{ marginBottom: 14, border: '1.5px solid #ddd6fe', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sAreaQuotasEnabled ? '#f0f9ff' : '#f8fafc' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 16 }}>📊</span>
+                              <div>
+                                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>توزيع الأطباء على المناطق</p>
+                                {sAreaQuotasEnabled && (() => {
+                                  const quotaTotal = Object.values(sAreaQuotas).reduce((s, v) => s + (v || 0), 0);
+                                  const isEqual = quotaTotal === sTargetDoctors;
+                                  return (
+                                    <p style={{ margin: 0, fontSize: 11, color: isEqual ? '#0369a1' : '#92400e' }}>
+                                      المجموع: {quotaTotal} طبيب
+                                      {!isEqual && quotaTotal > 0 && <span style={{ marginRight: 4 }}>→ سيُوزَّع {sTargetDoctors} طبيب بنفس النسب</span>}
+                                    </p>
+                                  );
+                                })()}
                               </div>
                             </div>
-                            {/* Toggle */}
-                            <div onClick={() => wishCount > 0 && setSUseWishList(v => !v)}
+                            <div onClick={() => {
+                                const next = !sAreaQuotasEnabled;
+                                setSAreaQuotasEnabled(next);
+                                if (next && sRepAreas.length > 0) {
+                                  const base = Math.floor(sTargetDoctors / sRepAreas.length);
+                                  const rem  = sTargetDoctors % sRepAreas.length;
+                                  const q: Record<string, number> = {};
+                                  sRepAreas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
+                                  setSAreaQuotas(q);
+                                }
+                              }}
                               style={{
-                                width: 44, height: 24, borderRadius: 12, transition: 'background 0.2s', flexShrink: 0,
-                                background: sUseWishList && wishCount > 0 ? '#f59e0b' : '#e2e8f0',
-                                position: 'relative', cursor: wishCount > 0 ? 'pointer' : 'not-allowed', opacity: wishCount === 0 ? 0.5 : 1,
+                                width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+                                background: sAreaQuotasEnabled ? '#0ea5e9' : '#e2e8f0', position: 'relative',
                               }}>
                               <div style={{
                                 position: 'absolute', top: 3, transition: 'left 0.2s',
-                                left: sUseWishList && wishCount > 0 ? 23 : 3,
+                                left: sAreaQuotasEnabled ? 23 : 3,
                                 width: 18, height: 18, borderRadius: '50%', background: '#fff',
                                 boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
                               }} />
                             </div>
                           </div>
-                          {/* Subtitle */}
-                          <div style={{ padding: '0 12px 8px', background: sUseWishList && wishCount > 0 ? '#fffbeb' : '#f8fafc' }}>
-                            <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                              {wishCount === 0
-                                ? 'لا يوجد أطباء في قائمة الطلبات حالياً — أضفهم من صفحة السرفي'
-                                : 'يضمن تضمين الأطباء الذين اخترتهم في السرفي بغض النظر عن المنطقة'}
-                            </p>
-                          </div>
-                          {/* Expandable doctor list */}
-                          {sWishDropdownOpen && wishCount > 0 && (
-                            <div style={{ borderTop: '1px solid #e2e8f0', padding: 10, background: '#fff' }}>
-                              {/* Select all / deselect all */}
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <span style={{ fontSize: 11, color: '#64748b' }}>اختر من تريد تضمينه</span>
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                  <button onMouseDown={() => setSWishExcluded(new Set())}
-                                    style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #22c55e', background: '#dcfce7', color: '#166534', cursor: 'pointer' }}>
-                                    ✅ الكل
-                                  </button>
-                                  <button onMouseDown={() => setSWishExcluded(new Set(wishIds))}
-                                    style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #fca5a5', background: '#fee2e2', color: '#991b1b', cursor: 'pointer' }}>
-                                    ✗ لا شيء
-                                  </button>
-                                </div>
+                          {sAreaQuotasEnabled && (
+                            <div style={{ padding: '8px 12px 10px' }}>
+                              <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
+                                حدد عدد الأطباء من كل منطقة — يحل محل &quot;عدد الأطباء المستهدف&quot;
+                              </p>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {sRepAreas.map((area) => (
+                                  <div key={area.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {area.name}
+                                    </span>
+                                    <input type="number" min={0} max={500}
+                                      value={sAreaQuotas[String(area.id)] ?? 0}
+                                      onChange={e => {
+                                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                                        setSAreaQuotas(prev => ({ ...prev, [String(area.id)]: val }));
+                                      }}
+                                      style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700, color: '#0369a1', background: '#f0f9ff', outline: 'none' }}
+                                      onFocus={e => (e.target.style.borderColor = '#0ea5e9')}
+                                      onBlur={e  => (e.target.style.borderColor = '#cbd5e1')} />
+                                    <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>طبيب</span>
+                                  </div>
+                                ))}
                               </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
-                                {wishIds.map(id => {
-                                  const excluded = sWishExcluded.has(id);
-                                  const itemName = wishItems[id];
-                                  return (
-                                    <div key={id}
-                                      onClick={() => setSWishExcluded(prev => {
-                                        const s = new Set(prev);
-                                        excluded ? s.delete(id) : s.add(id);
-                                        return s;
-                                      })}
-                                      style={{
-                                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 7,
-                                        background: excluded ? '#f8fafc' : '#fffbeb',
-                                        border: `1px solid ${excluded ? '#e2e8f0' : '#fde047'}`,
-                                        cursor: 'pointer', opacity: excluded ? 0.55 : 1,
-                                      }}>
-                                      <span style={{ fontSize: 14, color: excluded ? '#94a3b8' : '#f59e0b', flexShrink: 0 }}>{excluded ? '☆' : '⭐'}</span>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: excluded ? '#94a3b8' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {wishNames[id] ?? `طبيب #${id}`}
-                                        </p>
-                                        {wishItems[id] && (
-                                          <p style={{ margin: 0, fontSize: 10, color: '#64748b' }}>💊 {wishItems[id]}</p>
-                                        )}
-                                      </div>
-                                      <span style={{ fontSize: 11, color: excluded ? '#94a3b8' : '#166534', fontWeight: 600 }}>{excluded ? 'غير مرشح' : 'مرشح'}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                              <button onClick={() => {
+                                const base = Math.floor(sTargetDoctors / sRepAreas.length);
+                                const rem  = sTargetDoctors % sRepAreas.length;
+                                const q: Record<string, number> = {};
+                                sRepAreas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
+                                setSAreaQuotas(q);
+                              }} style={{ marginTop: 10, padding: '5px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#f0f9ff', color: '#0369a1', border: '1.5px solid #bae6fd', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                ↺ توزيع متساوي ({Math.floor(sTargetDoctors / sRepAreas.length)}-{Math.ceil(sTargetDoctors / sRepAreas.length)} لكل منطقة)
+                              </button>
                             </div>
                           )}
                         </div>
-                      );
-                    })()}
+                      )}
 
-                    {/* ── Feature 2: Prioritize missed doctors ── */}
-                    <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10 }}>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📌 أولوية الأطباء المهملين</p>
-                        <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                          الأطباء الذين كانوا في بلان الشهر الماضي ولم تُسجَّل لهم أي زيارة يظهرون أولاً في الاقتراح
-                        </p>
-                      </div>
-                      <div onClick={() => setSPrioritizeMissed(v => !v)}
-                        style={{
-                          width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
-                          background: sPrioritizeMissed ? '#f59e0b' : '#e2e8f0', position: 'relative',
-                        }}>
-                        <div style={{
-                          position: 'absolute', top: 3, transition: 'left 0.2s',
-                          left: sPrioritizeMissed ? 23 : 3,
-                          width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                          boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                        }} />
-                      </div>
-                    </label>
-
-                    {/* ── Feature 3: Max consecutive repetitions ── */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <div>
-                          <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🔄 استبعاد الأطباء المتكررين بلا نتيجة</p>
-                          <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                            استبعاد الطبيب إذا ظهر في X بلانات متتالية بدون فيدباك إيجابي
-                          </p>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>بعد</span>
-                        <input
-                          type="number" min={0} max={12} value={sMaxRepetitions}
-                          onChange={e => setSMaxRepetitions(Math.max(0, parseInt(e.target.value) || 0))}
-                          style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700, color: sMaxRepetitions > 0 ? '#dc2626' : '#94a3b8', background: sMaxRepetitions > 0 ? '#fef2f2' : '#f8fafc', outline: 'none' }}
-                          onFocus={e => (e.target.style.borderColor = '#ef4444')}
-                          onBlur={e  => (e.target.style.borderColor = '#cbd5e1')}
-                        />
-                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
-                          {sMaxRepetitions === 0 ? 'بلان — (معطّل)' : `بلان متتالي بلا نتيجة → يُستبعد`}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* ── Feature 5: Not visited since X months ── */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ marginBottom: 4 }}>
-                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🕐 فقط الأطباء غير المزارين منذ مدة</p>
-                        <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                          استبعاد الأطباء الذين تمت زيارتهم خلال آخر N شهر (للتركيز على المهملين)
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>منذ أقل من</span>
-                        <input
-                          type="number" min={0} max={24} value={sNotVisitedMonths}
-                          onChange={e => setSNotVisitedMonths(Math.max(0, parseInt(e.target.value) || 0))}
-                          style={{ width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700, color: sNotVisitedMonths > 0 ? '#0369a1' : '#94a3b8', background: sNotVisitedMonths > 0 ? '#f0f9ff' : '#f8fafc', outline: 'none' }}
-                          onFocus={e => (e.target.style.borderColor = '#0ea5e9')}
-                          onBlur={e  => (e.target.style.borderColor = '#cbd5e1')}
-                        />
-                        <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
-                          {sNotVisitedMonths === 0 ? 'شهر — (معطّل)' : `شهر → يُستبعد من الاقتراح`}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* ── Area quota distribution ── */}
-                    {sRepAreas.length > 0 && (
-                      <div style={{ marginBottom: 14, border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                        {/* Header row */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sAreaQuotasEnabled ? '#f0f9ff' : '#f8fafc' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 16 }}>📊</span>
-                            <div>
-                              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>توزيع الأطباء على المناطق</p>
-                              {sAreaQuotasEnabled && (() => {
-                                const quotaTotal = Object.values(sAreaQuotas).reduce((s, v) => s + (v || 0), 0);
-                                const isEqual = quotaTotal === sTargetDoctors;
-                                return (
-                                  <p style={{ margin: 0, fontSize: 11, color: isEqual ? '#0369a1' : '#92400e' }}>
-                                    المجموع: {quotaTotal} طبيب
-                                    {!isEqual && quotaTotal > 0 && (
-                                      <span style={{ marginRight: 4 }}>
-                                        → سيُوزَّع {sTargetDoctors} طبيب بنفس النسب
+                      {/* Focus filters: items, areas, specialties */}
+                      {(() => {
+                        const repAreas: { id: number; name: string }[] = (activePlan as any).scientificRep?.areas ?? [];
+                        const extraAreas = plans.flatMap(p => p.entries.map(e => e.doctor.area).filter(Boolean)) as { id: number; name: string }[];
+                        const allAreaMap = new Map<number, string>();
+                        [...repAreas, ...extraAreas].forEach(a => allAreaMap.set(a.id, a.name));
+                        const allAreas2 = [...allAreaMap.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+                        const filteredItems = items.filter(it =>
+                          !sFocusItemIds.find(x => x.id === String(it.id)) &&
+                          (!sFocusItemText || it.name.toLowerCase().includes(sFocusItemText.toLowerCase()))
+                        );
+                        const filteredAreas = allAreas2.filter(a =>
+                          !sFocusAreaIds.find(x => x.id === String(a.id)) &&
+                          (!sFocusAreaText || a.name.toLowerCase().includes(sFocusAreaText.toLowerCase()))
+                        );
+                        const allSpecialties = [...new Set(
+                          plans.flatMap(p => p.entries.map(e => e.doctor.specialty)).filter((s): s is string => Boolean(s))
+                        )].sort();
+                        const filteredSpecs = allSpecialties.filter(s =>
+                          !sFocusSpecialties.includes(s) &&
+                          (!sFocusSpecText || s.toLowerCase().includes(sFocusSpecText.toLowerCase()))
+                        );
+                        const ddBase: React.CSSProperties = {
+                          position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 600,
+                          background: '#fff', border: '1.5px solid #c4b5fd', borderRadius: 8,
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 150, overflowY: 'auto',
+                        };
+                        const ddItem: React.CSSProperties = { padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#374151' };
+                        const chipStyle = (color: string, bg: string): React.CSSProperties => ({
+                          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
+                          fontSize: 11, fontWeight: 600, background: bg, color, border: `1px solid ${color}20`, cursor: 'pointer', flexShrink: 0,
+                        });
+                        const inputStyle2: React.CSSProperties = { ...settingInputStyle, borderRadius: 7, marginTop: 4 };
+                        return (
+                          <div style={{ marginBottom: 4 }}>
+                            <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🎯 تركيز على</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                              {/* Focus items */}
+                              <div>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>💊 ايتمات معينة</p>
+                                {sFocusItemIds.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                    {sFocusItemIds.map(x => (
+                                      <span key={x.id} style={chipStyle('#7c3aed', '#ede9fe')}
+                                        onClick={() => setSFocusItemIds(prev => prev.filter(p => p.id !== x.id))}>
+                                        {x.name} ×
                                       </span>
-                                    )}
-                                  </p>
-                                );
-                              })()}
-                            </div>
-                          </div>
-                          <div onClick={() => {
-                              const next = !sAreaQuotasEnabled;
-                              setSAreaQuotasEnabled(next);
-                              if (next && sRepAreas.length > 0) {
-                                const base = Math.floor(sTargetDoctors / sRepAreas.length);
-                                const rem  = sTargetDoctors % sRepAreas.length;
-                                const q: Record<string, number> = {};
-                                sRepAreas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
-                                setSAreaQuotas(q);
-                              }
-                            }}
-                            style={{
-                              width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
-                              background: sAreaQuotasEnabled ? '#0ea5e9' : '#e2e8f0', position: 'relative',
-                            }}>
-                            <div style={{
-                              position: 'absolute', top: 3, transition: 'left 0.2s',
-                              left: sAreaQuotasEnabled ? 23 : 3,
-                              width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                              boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                            }} />
-                          </div>
-                        </div>
-                        {/* Area inputs */}
-                        {sAreaQuotasEnabled && (
-                          <div style={{ padding: '8px 12px 10px', background: '#fff' }}>
-                            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
-                              حدد عدد الأطباء المطلوب من كل منطقة — الإجمالي يحل محل &quot;عدد الأطباء المستهدف&quot;
-                            </p>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              {sRepAreas.map((area, i) => (
-                                <div key={area.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{
-                                    flex: 1, fontSize: 13, fontWeight: 600, color: '#1e293b',
-                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                  }}>
-                                    {area.name}
-                                  </span>
-                                  <input
-                                    type="number" min={0} max={500}
-                                    value={sAreaQuotas[String(area.id)] ?? 0}
-                                    onChange={e => {
-                                      const val = Math.max(0, parseInt(e.target.value) || 0);
-                                      setSAreaQuotas(prev => ({ ...prev, [String(area.id)]: val }));
-                                    }}
-                                    style={{
-                                      width: 64, textAlign: 'center', padding: '4px 6px', borderRadius: 7,
-                                      border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700,
-                                      color: '#0369a1', background: '#f0f9ff', outline: 'none',
-                                    }}
-                                    onFocus={e => (e.target.style.borderColor = '#0ea5e9')}
-                                    onBlur={e  => (e.target.style.borderColor = '#cbd5e1')}
-                                  />
-                                  <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>طبيب</span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ position: 'relative' }}>
+                                  <input type="text" value={sFocusItemText} autoComplete="off"
+                                    onChange={e => { setSFocusItemText(e.target.value); setSFocusItemDD(true); }}
+                                    onFocus={() => setSFocusItemDD(true)}
+                                    onBlur={() => setTimeout(() => setSFocusItemDD(false), 150)}
+                                    placeholder={sFocusItemIds.length === 0 ? 'ابحث وأضف ايتم...' : 'أضف ايتم آخر...'}
+                                    style={inputStyle2} />
+                                  {sFocusItemDD && filteredItems.length > 0 && (
+                                    <div style={ddBase}>
+                                      {filteredItems.slice(0, 40).map(it => (
+                                        <div key={it.id}
+                                          onMouseDown={() => { setSFocusItemIds(prev => [...prev, { id: String(it.id), name: it.name }]); setSFocusItemText(''); setSFocusItemDD(false); }}
+                                          style={ddItem}>{it.name}</div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
+                              </div>
+                              {/* Focus areas */}
+                              <div>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>📍 مناطق معينة</p>
+                                {sFocusAreaIds.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                    {sFocusAreaIds.map(x => (
+                                      <span key={x.id} style={chipStyle('#1e40af', '#dbeafe')}
+                                        onClick={() => setSFocusAreaIds(prev => prev.filter(p => p.id !== x.id))}>
+                                        {x.name} ×
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ position: 'relative' }}>
+                                  <input type="text" value={sFocusAreaText} autoComplete="off"
+                                    onChange={e => { setSFocusAreaText(e.target.value); setSFocusAreaDD(true); }}
+                                    onFocus={() => setSFocusAreaDD(true)}
+                                    onBlur={() => setTimeout(() => setSFocusAreaDD(false), 150)}
+                                    placeholder={sFocusAreaIds.length === 0 ? 'ابحث وأضف منطقة...' : 'أضف منطقة أخرى...'}
+                                    style={inputStyle2} />
+                                  {sFocusAreaDD && filteredAreas.length > 0 && (
+                                    <div style={ddBase}>
+                                      {filteredAreas.slice(0, 40).map(a => (
+                                        <div key={a.id}
+                                          onMouseDown={() => { setSFocusAreaIds(prev => [...prev, { id: String(a.id), name: a.name }]); setSFocusAreaText(''); setSFocusAreaDD(false); }}
+                                          style={ddItem}>{a.name}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Focus specialties */}
+                              <div>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>🔬 اختصاصات معينة</p>
+                                {sFocusSpecialties.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                    {sFocusSpecialties.map(s => (
+                                      <span key={s} style={chipStyle('#166534', '#dcfce7')}
+                                        onClick={() => setSFocusSpecialties(prev => prev.filter(p => p !== s))}>
+                                        {s} ×
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ position: 'relative' }}>
+                                  <input type="text" value={sFocusSpecText} autoComplete="off"
+                                    onChange={e => { setSFocusSpecText(e.target.value); setSFocusSpecDD(true); }}
+                                    onFocus={() => setSFocusSpecDD(true)}
+                                    onBlur={() => setTimeout(() => setSFocusSpecDD(false), 150)}
+                                    placeholder={sFocusSpecialties.length === 0 ? 'ابحث وأضف اختصاص...' : 'أضف اختصاص آخر...'}
+                                    style={inputStyle2} />
+                                  {sFocusSpecDD && (filteredSpecs.length > 0 || sFocusSpecText.trim()) && (
+                                    <div style={ddBase}>
+                                      {sFocusSpecText.trim() && !filteredSpecs.includes(sFocusSpecText.trim()) && !sFocusSpecialties.includes(sFocusSpecText.trim()) && (
+                                        <div onMouseDown={() => { setSFocusSpecialties(prev => [...prev, sFocusSpecText.trim()]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
+                                          style={{ ...ddItem, color: '#166534', fontWeight: 600 }}>➕ "{sFocusSpecText.trim()}"</div>
+                                      )}
+                                      {filteredSpecs.slice(0, 40).map(s => (
+                                        <div key={s}
+                                          onMouseDown={() => { setSFocusSpecialties(prev => [...prev, s]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
+                                          style={ddItem}>{s}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                            {/* Reset to equal button */}
-                            <button
-                              onClick={() => {
-                                const base = Math.floor(sTargetDoctors / sRepAreas.length);
-                                const rem  = sTargetDoctors % sRepAreas.length;
-                                const q: Record<string, number> = {};
-                                sRepAreas.forEach((a, i) => { q[String(a.id)] = base + (i < rem ? 1 : 0); });
-                                setSAreaQuotas(q);
-                              }}
-                              style={{
-                                marginTop: 10, padding: '5px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                                background: '#f0f9ff', color: '#0369a1', border: '1.5px solid #bae6fd',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                              }}>
-                              ↺ توزيع متساوي ({Math.floor(sTargetDoctors / sRepAreas.length)}-{Math.ceil(sTargetDoctors / sRepAreas.length)} لكل منطقة)
-                            </button>
                           </div>
-                        )}
+                        );
+                      })()}
+                    </div>
+
+                    {/* ══════════════════════════════════════════════
+                        GROUP 5 — تعليمات الذكاء الاصطناعي
+                    ══════════════════════════════════════════════ */}
+                    <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                        <span style={{ fontSize: 14 }}>🤖</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#92400e', letterSpacing: 0.5 }}>تعليمات الذكاء الاصطناعي</span>
+                        <div style={{ flex: 1, height: 1, background: '#fdba74' }} />
                       </div>
-                    )}
+                      <textarea
+                        value={sUserNote}
+                        onChange={e => setSUserNote(e.target.value)}
+                        rows={3}
+                        placeholder="مثال: أضف دكتور أحمد من الكرادة، استبعد أطباء منطقة الدورة، ركز على تخصص باطنية..."
+                        style={{
+                          width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                          border: '1.5px solid #fed7aa', borderRadius: 8, padding: '8px 10px',
+                          fontSize: 12, lineHeight: 1.6, color: '#374151', outline: 'none',
+                          background: '#fff', direction: 'rtl', fontFamily: 'inherit',
+                          transition: 'border-color 0.15s',
+                        }}
+                        onFocus={e => (e.target.style.borderColor = '#f97316')}
+                        onBlur={e  => (e.target.style.borderColor = '#fed7aa')}
+                      />
+                      <p style={{ margin: '4px 0 0', fontSize: 10, color: '#92400e', lineHeight: 1.4 }}>
+                        سيتم تحليل ملاحظاتك بالذكاء الاصطناعي وتطبيقها على الاقتراح
+                      </p>
+                    </div>
 
                     <button onClick={loadSuggest} disabled={suggestLoading}
                       style={{ ...btnStyle('#7c3aed'), width: '100%', marginTop: 10 }}>
