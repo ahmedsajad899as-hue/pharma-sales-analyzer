@@ -1473,26 +1473,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const itemMatch = !hasTags && q ? [...overallSales.byItem, ...(overallReturns?.byItem ?? [])].some(i => normalise(i.name).includes(q)) : false;
         const companyMatch = !hasTags && q ? overallSales.byCompany.some(c => normalise(c.name).includes(q)) : false;
 
-        // Single-text helpers (used in text mode)
-        const buildItemsFromArea = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r => normalise(r.areaName).includes(q));
-          const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
-            if (!map.has(r.itemName)) map.set(r.itemName, { name: r.itemName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
-          }
-          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-        const buildAreasFromItem = (byAreaItem: AreaItemRow[]): BreakdownRow[] => {
-          const filtered = byAreaItem.filter(r => normalise(r.itemName).includes(q));
-          const map = new Map<string, BreakdownRow>();
-          for (const r of filtered) {
-            if (!map.has(r.areaName)) map.set(r.areaName, { name: r.areaName, totalQty: 0, totalValue: 0 });
-            const row = map.get(r.areaName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
-          }
-          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-
         // ─── Unified tag filtering ────────────────────────────────────────────
         // Filters byAreaItem rows where ALL active tag types match simultaneously (AND logic).
         const filterTaggedRows = (byAreaItem: AreaItemRow[], byItem: BreakdownRow[]): AreaItemRow[] => {
