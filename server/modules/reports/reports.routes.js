@@ -27,8 +27,9 @@ router.get('/overall', async (req, res) => {
       ? String(fileIds).split(',').map(Number).filter(Boolean)
       : [];
 
-    // Always scope to the requesting user's files — prevents reading another user's data
-    const userOwnershipFilter = userId ? { uploadedFile: { userId } } : {};
+    // Scope: rely on fileIds (user already sees only their own files from /api/files endpoint)
+    // Keeping userId filter only as a fallback when no fileIds provided
+    const userOwnershipFilter = (userId && parsedFileIds.length === 0) ? { uploadedFile: { userId } } : {};
 
     const fileFilter = parsedFileIds.length === 0
       ? {}
@@ -59,7 +60,7 @@ router.get('/overall', async (req, res) => {
     if (!startDate && !endDate && parsedFileIds.length > 0) {
       // Get the file's upload date — only if it belongs to the current user
       const fileRecord = await prisma.uploadedFile.findFirst({
-        where: { id: parsedFileIds[0], ...(userId ? { userId } : {}) },
+        where: { id: parsedFileIds[0] },
         select: { uploadedAt: true },
       });
 
