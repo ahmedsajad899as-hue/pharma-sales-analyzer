@@ -27,18 +27,88 @@ async function getUserAreaNames(userId) {
 // ── GET /api/doctor-archive ──────────────────────────────────
 // Returns archive entries for current user with survey doctor data,
 // grouped by area.
-// Managers can pass ?repUserId=<id> to view a specific rep's archive.
+// Managers can pass ?repUserId=<id> to view ALL survey doctors in the rep's
+// assigned areas (with archive status overlay), like the visits analysis page.
 export async function getArchive(req, res, next) {
   try {
     const requestingUser = req.user;
     const isManager = !FIELD_ROLES.has(requestingUser.role);
-    let userId = requestingUser.id;
 
+    // ── Manager viewing a specific rep ──────────────────────────────────────
     if (isManager && req.query.repUserId) {
       const repId = parseInt(req.query.repUserId, 10);
-      if (!isNaN(repId)) userId = repId;
+      if (isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid repUserId' });
+
+      // Get rep's assigned area names
+      const areaRows = await prisma.userAreaAssignment.findMany({
+        where: { userId: repId },
+        include: { area: { select: { name: true } } },
+      });
+      const repAreaNames = areaRows.map(r => r.area.name.trim());
+
+      // Get active surveys
+      const surveys = await prisma.masterSurvey.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      const surveyIds = surveys.map(s => s.id);
+
+      // Get all survey doctors in rep's areas
+      let surveyDoctors = [];
+      if (surveyIds.length > 0) {
+        const normAreaNames = repAreaNames.map(normKey);
+        const allDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: { in: surveyIds } },
+          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true },
+          orderBy: { name: 'asc' },
+        });
+        surveyDoctors = repAreaNames.length > 0
+          ? allDocs.filter(d => d.areaName?.trim() && normAreaNames.includes(normKey(d.areaName)))
+          : allDocs;
+      }
+
+      // Get rep's archive entries for overlay
+      const entries = await prisma.doctorArchiveEntry.findMany({
+        where: { userId: repId },
+        select: {
+          id: true, masterSurveyDoctorId: true,
+          isVisited: true, isWriting: true, visitItems: true, writingItems: true, notes: true,
+        },
+      });
+      const entryMap = new Map(entries.map(e => [e.masterSurveyDoctorId, e]));
+
+      // Group by areaName
+      const areaMap = new Map();
+      for (const doc of surveyDoctors) {
+        const areaKey = doc.areaName?.trim() || 'بدون منطقة';
+        if (!areaMap.has(areaKey)) areaMap.set(areaKey, { name: areaKey, doctors: [] });
+        const entry = entryMap.get(doc.id);
+        areaMap.get(areaKey).doctors.push({
+          entryId:       entry?.id ?? null,
+          surveyDoctorId: doc.id,
+          name:          doc.name,
+          specialty:     doc.specialty ?? null,
+          areaName:      doc.areaName ?? null,
+          pharmacyName:  doc.pharmacyName ?? null,
+          className:     doc.className ?? null,
+          isVisited:     entry?.isVisited ?? false,
+          isWriting:     entry?.isWriting ?? false,
+          visitItems:    entry?.visitItems  ? JSON.parse(entry.visitItems)  : [],
+          writingItems:  entry?.writingItems ? JSON.parse(entry.writingItems) : [],
+          notes:         entry?.notes ?? null,
+        });
+      }
+
+      const areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+      const total        = surveyDoctors.length;
+      const totalVisited = entries.filter(e => e.isVisited).length;
+      const totalWriting = entries.filter(e => e.isWriting).length;
+
+      return res.json({ success: true, areas, total, totalVisited, totalWriting });
     }
 
+    // ── Regular user (or manager viewing own archive) ────────────────────────
+    const userId = requestingUser.id;
     const entries = await prisma.doctorArchiveEntry.findMany({
       where: { userId },
       include: {
