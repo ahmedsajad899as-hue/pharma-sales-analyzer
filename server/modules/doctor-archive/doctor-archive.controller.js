@@ -39,61 +39,62 @@ export async function getArchive(req, res, next) {
       const repId = parseInt(req.query.repUserId, 10);
       if (isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid repUserId' });
 
-      // Get rep's linked scientificRep id
-      const repUser = await prisma.user.findUnique({
-        where: { id: repId },
-        select: { linkedRepId: true },
+      // Get rep's assigned area names (from UserAreaAssignment)
+      const areaRows = await prisma.userAreaAssignment.findMany({
+        where: { userId: repId },
+        include: { area: { select: { name: true } } },
       });
+      // Also try scientificRepArea via linkedRepId
+      const repUser = await prisma.user.findUnique({ where: { id: repId }, select: { linkedRepId: true } });
       const linkedRepId = repUser?.linkedRepId ?? null;
+      let saAreaIds = [];
+      if (linkedRepId) {
+        const saRows = await prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } });
+        const extraAreas = await prisma.area.findMany({ where: { id: { in: saRows.map(r => r.areaId) } }, select: { name: true } });
+        saAreaIds = extraAreas.map(a => a.name.trim());
+      }
+      const repAreaNames = [...new Set([...areaRows.map(r => r.area.name.trim()), ...saAreaIds])];
+      const normAreaNames = repAreaNames.map(normKey);
 
-      // Get rep's assigned area IDs (same as visits analysis)
-      const [uaRows, saRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({ where: { userId: repId }, select: { areaId: true, area: { select: { id: true, name: true } } } }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-          : Promise.resolve([]),
-      ]);
-      const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
+      // Get active surveys
+      const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
+      const surveyIds = surveys.map(s => s.id);
 
-      // Fetch doctors from Doctor table in rep's areas — same source as visits analysis
-      const doctorWhere = repAreaIds.length > 0
-        ? { areaId: { in: repAreaIds } }
-        : { userId: repId };
-      const rawDocs = await prisma.doctor.findMany({
-        where: doctorWhere,
-        include: {
-          area: { select: { id: true, name: true } },
-          masterSurveyDoctor: { select: { id: true, specialty: true, pharmacyName: true, className: true } },
-        },
-        orderBy: { name: 'asc' },
-      });
+      // Get all survey doctors in rep's areas (MasterSurveyDoctor — same source archive entries use)
+      let surveyDoctors = [];
+      if (surveyIds.length > 0) {
+        const allDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: { in: surveyIds } },
+          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true },
+          orderBy: { name: 'asc' },
+        });
+        surveyDoctors = normAreaNames.length > 0
+          ? allDocs.filter(d => d.areaName?.trim() && normAreaNames.includes(normKey(d.areaName)))
+          : allDocs;
+      }
 
-      // Get rep's archive entries for overlay (keyed by masterSurveyDoctorId)
+      // Get rep's archive entries keyed by masterSurveyDoctorId
       const entries = await prisma.doctorArchiveEntry.findMany({
         where: { userId: repId },
-        select: {
-          id: true, masterSurveyDoctorId: true,
-          isVisited: true, isWriting: true, visitItems: true, writingItems: true, notes: true,
-        },
+        select: { id: true, masterSurveyDoctorId: true, isVisited: true, isWriting: true, visitItems: true, writingItems: true, notes: true },
       });
       const entryMap = new Map(entries.map(e => [e.masterSurveyDoctorId, e]));
 
-      // Group by area name
+      // Group by areaName
       const areaMap = new Map();
-      for (const doc of rawDocs) {
-        const areaKey = doc.area?.name?.trim() || 'بدون منطقة';
+      for (const doc of surveyDoctors) {
+        const areaKey = doc.areaName?.trim() || 'بدون منطقة';
         if (!areaMap.has(areaKey)) areaMap.set(areaKey, { name: areaKey, doctors: [] });
-        const surveyId = doc.masterSurveyDoctorId;
-        const entry = surveyId ? entryMap.get(surveyId) : undefined;
+        const entry = entryMap.get(doc.id);
         areaMap.get(areaKey).doctors.push({
           entryId:        entry?.id ?? null,
-          surveyDoctorId: surveyId ?? null,
-          doctorId:       doc.id,
+          surveyDoctorId: doc.id,
+          doctorId:       null,
           name:           doc.name,
-          specialty:      doc.masterSurveyDoctor?.specialty ?? null,
-          areaName:       doc.area?.name ?? null,
-          pharmacyName:   doc.pharmacyName ?? doc.masterSurveyDoctor?.pharmacyName ?? null,
-          className:      doc.masterSurveyDoctor?.className ?? null,
+          specialty:      doc.specialty ?? null,
+          areaName:       doc.areaName ?? null,
+          pharmacyName:   doc.pharmacyName ?? null,
+          className:      doc.className ?? null,
           isVisited:      entry?.isVisited ?? false,
           isWriting:      entry?.isWriting ?? false,
           visitItems:     entry?.visitItems  ? JSON.parse(entry.visitItems)  : [],
@@ -103,11 +104,10 @@ export async function getArchive(req, res, next) {
       }
 
       const areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-      const total        = rawDocs.length;
       const totalVisited = entries.filter(e => e.isVisited).length;
       const totalWriting = entries.filter(e => e.isWriting).length;
 
-      return res.json({ success: true, areas, total, totalVisited, totalWriting });
+      return res.json({ success: true, areas, total: surveyDoctors.length, totalVisited, totalWriting });
     }
 
     // ── Regular user (or manager viewing own archive) ────────────────────────
