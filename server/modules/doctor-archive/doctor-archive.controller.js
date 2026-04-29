@@ -27,9 +27,18 @@ async function getUserAreaNames(userId) {
 // ── GET /api/doctor-archive ──────────────────────────────────
 // Returns archive entries for current user with survey doctor data,
 // grouped by area.
+// Managers can pass ?repUserId=<id> to view a specific rep's archive.
 export async function getArchive(req, res, next) {
   try {
-    const userId = req.user.id;
+    const requestingUser = req.user;
+    const isManager = !FIELD_ROLES.has(requestingUser.role);
+    let userId = requestingUser.id;
+
+    if (isManager && req.query.repUserId) {
+      const repId = parseInt(req.query.repUserId, 10);
+      if (!isNaN(repId)) userId = repId;
+    }
+
     const entries = await prisma.doctorArchiveEntry.findMany({
       where: { userId },
       include: {

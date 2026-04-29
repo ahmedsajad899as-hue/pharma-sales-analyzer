@@ -290,6 +290,7 @@ export default function DoctorsPage() {
   const [archiveAreaFilter, setArchiveAreaFilter] = useState('all');
   const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
   const [archiveSubPopup, setArchiveSubPopup]     = useState<null | 'visited' | 'writing' | 'items'>(null);
+  const [archiveRepFilter, setArchiveRepFilter]   = useState<number | null>(null);
   // Add from survey modal
   const [showAddModal, setShowAddModal]           = useState(false);
   const [surveyDoctors, setSurveyDoctors]         = useState<{ id: number; name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null }[]>([]);
@@ -557,7 +558,10 @@ export default function DoctorsPage() {
   const loadArchive = useCallback(async () => {
     setArchiveLoading(true);
     try {
-      const r = await fetch(`${API}/api/doctor-archive`, { headers: H() });
+      const url = archiveRepFilter !== null
+        ? `${API}/api/doctor-archive?repUserId=${archiveRepFilter}`
+        : `${API}/api/doctor-archive`;
+      const r = await fetch(url, { headers: H() });
       const j = await r.json();
       if (j.success) {
         setArchiveAreas(j.areas ?? []);
@@ -568,7 +572,7 @@ export default function DoctorsPage() {
     } catch (e) { console.error(e); }
     finally { setArchiveLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, archiveRepFilter]);
 
   const loadSurveyDoctors = useCallback(async () => {
     setSurveyDocLoading(true);
@@ -757,8 +761,8 @@ export default function DoctorsPage() {
 
   // Load archive when tab opens
   useEffect(() => {
-    if (activeTab === 'archive') { loadArchive(); }
-  }, [activeTab, loadArchive]);
+    if (activeTab === 'archive') { loadArchive(); loadManagerReps(); }
+  }, [activeTab, loadArchive, loadManagerReps]);
 
   // Load survey doctors when add modal opens
   useEffect(() => {
@@ -2425,6 +2429,33 @@ export default function DoctorsPage() {
 
         return (
           <div>
+            {/* Rep selector (managers only) */}
+            {!isFieldRep && managerReps.length > 0 && (
+              <div style={{ marginBottom: 14, direction: 'rtl' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>👤 المندوب</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => { setArchiveRepFilter(null); setArchiveAreaFilter('all'); }}
+                    style={{
+                      padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: `1.5px solid ${archiveRepFilter === null ? '#6366f1' : '#e2e8f0'}`,
+                      background: archiveRepFilter === null ? '#eef2ff' : '#f8fafc',
+                      color: archiveRepFilter === null ? '#4338ca' : '#64748b',
+                    }}>الكل</button>
+                  {managerReps.map(rep => (
+                    <button
+                      key={rep.userId}
+                      onClick={() => { setArchiveRepFilter(rep.userId); setArchiveAreaFilter('all'); }}
+                      style={{
+                        padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        border: `1.5px solid ${archiveRepFilter === rep.userId ? '#6366f1' : '#e2e8f0'}`,
+                        background: archiveRepFilter === rep.userId ? '#eef2ff' : '#f8fafc',
+                        color: archiveRepFilter === rep.userId ? '#4338ca' : '#64748b',
+                      }}>{rep.name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Stats row */}
             {(() => {
               const allDocsFlat = archiveAreas.flatMap(a => a.doctors);
