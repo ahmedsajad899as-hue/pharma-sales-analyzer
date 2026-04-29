@@ -218,9 +218,15 @@ export async function getSurveyDoctors(req, res, next) {
 
 // ── POST /api/doctor-archive/:surveyDoctorId ─────────────────
 // Add a survey doctor to the current user's archive.
+// Managers can pass ?forUserId=<id> to add to a specific rep's archive.
 export async function addToArchive(req, res, next) {
   try {
-    const userId           = req.user.id;
+    const isManager = !FIELD_ROLES.has(req.user.role);
+    let userId = req.user.id;
+    if (isManager && req.query.forUserId) {
+      const fid = parseInt(req.query.forUserId, 10);
+      if (!isNaN(fid)) userId = fid;
+    }
     const surveyDoctorId   = parseInt(req.params.surveyDoctorId);
     if (isNaN(surveyDoctorId)) return res.status(400).json({ success: false, error: 'معرّف غير صحيح' });
 
@@ -240,16 +246,18 @@ export async function addToArchive(req, res, next) {
 
 // ── PATCH /api/doctor-archive/:surveyDoctorId ────────────────
 // Update isVisited, isWriting, writingItems, notes for an archive entry.
+// Auto-creates the entry if it doesn't exist (upsert).
+// Managers can pass ?forUserId=<id> to update a specific rep's entry.
 export async function updateArchiveEntry(req, res, next) {
   try {
-    const userId         = req.user.id;
+    const isManager = !FIELD_ROLES.has(req.user.role);
+    let userId = req.user.id;
+    if (isManager && req.query.forUserId) {
+      const fid = parseInt(req.query.forUserId, 10);
+      if (!isNaN(fid)) userId = fid;
+    }
     const surveyDoctorId = parseInt(req.params.surveyDoctorId);
     if (isNaN(surveyDoctorId)) return res.status(400).json({ success: false, error: 'معرّف غير صحيح' });
-
-    const existing = await prisma.doctorArchiveEntry.findUnique({
-      where: { userId_masterSurveyDoctorId: { userId, masterSurveyDoctorId: surveyDoctorId } },
-    });
-    if (!existing) return res.status(404).json({ success: false, error: 'لم يتم العثور على السجل' });
 
     const data = {};
     if (req.body.isVisited   !== undefined) data.isVisited   = Boolean(req.body.isVisited);
@@ -264,9 +272,11 @@ export async function updateArchiveEntry(req, res, next) {
     }
     if (req.body.notes !== undefined) data.notes = req.body.notes || null;
 
-    const updated = await prisma.doctorArchiveEntry.update({
-      where: { userId_masterSurveyDoctorId: { userId, masterSurveyDoctorId: surveyDoctorId } },
-      data,
+    // Upsert: create entry if it doesn't exist yet, then apply data
+    const updated = await prisma.doctorArchiveEntry.upsert({
+      where:  { userId_masterSurveyDoctorId: { userId, masterSurveyDoctorId: surveyDoctorId } },
+      create: { userId, masterSurveyDoctorId: surveyDoctorId, ...data },
+      update: data,
     });
 
     res.json({ success: true, entry: updated });
@@ -317,9 +327,15 @@ export async function addCustomDoctor(req, res, next) {
 
 // ── DELETE /api/doctor-archive/:surveyDoctorId ───────────────
 // Remove a doctor from the current user's archive.
+// Managers can pass ?forUserId=<id> to remove from a specific rep's archive.
 export async function removeFromArchive(req, res, next) {
   try {
-    const userId         = req.user.id;
+    const isManager = !FIELD_ROLES.has(req.user.role);
+    let userId = req.user.id;
+    if (isManager && req.query.forUserId) {
+      const fid = parseInt(req.query.forUserId, 10);
+      if (!isNaN(fid)) userId = fid;
+    }
     const surveyDoctorId = parseInt(req.params.surveyDoctorId);
     if (isNaN(surveyDoctorId)) return res.status(400).json({ success: false, error: 'معرّف غير صحيح' });
 

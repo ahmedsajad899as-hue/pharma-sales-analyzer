@@ -649,7 +649,8 @@ export default function DoctorsPage() {
       return areas;
     });
     try {
-      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}`, {
+      const qs = archiveRepFilter !== null ? `?forUserId=${archiveRepFilter}` : '';
+      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}${qs}`, {
         method: 'PATCH', headers: H(), body: JSON.stringify(patch),
       });
     } catch (e) { console.error(e); loadArchive(); }
@@ -667,7 +668,8 @@ export default function DoctorsPage() {
       return next;
     });
     try {
-      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}`, { method: 'DELETE', headers: H() });
+      const qs = archiveRepFilter !== null ? `?forUserId=${archiveRepFilter}` : '';
+      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}${qs}`, { method: 'DELETE', headers: H() });
       loadSurveyDoctors(); // refresh survey list so removed doctor reappears
     } catch (e) { console.error(e); loadArchive(); }
   };
@@ -683,8 +685,9 @@ export default function DoctorsPage() {
       return next;
     });
     try {
+      const qs = archiveRepFilter !== null ? `?forUserId=${archiveRepFilter}` : '';
       await Promise.all(doctorIds.map(id =>
-        fetch(`${API}/api/doctor-archive/${id}`, { method: 'DELETE', headers: H() })
+        fetch(`${API}/api/doctor-archive/${id}${qs}`, { method: 'DELETE', headers: H() })
       ));
       loadSurveyDoctors();
     } catch (e) { console.error(e); loadArchive(); }
