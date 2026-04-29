@@ -270,7 +270,7 @@ export default function DoctorsPage() {
 
   // ── Archive tab state ────────────────────────────────────────
   interface ArchiveDoctor {
-    entryId: number; surveyDoctorId: number;
+    entryId: number | null; surveyDoctorId: number | null; doctorId?: number | null;
     name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null;
     isVisited: boolean; isWriting: boolean; visitItems: string[]; writingItems: string[]; notes: string | null;
   }
@@ -635,11 +635,16 @@ export default function DoctorsPage() {
     finally { setAddingIds(new Set()); setImportingAll(false); }
   };
 
-  const patchArchive = async (surveyDoctorId: number, patch: Record<string, unknown>) => {
+  const patchArchive = async (doc: ArchiveDoctor, patch: Record<string, unknown>) => {
+    const surveyDoctorId = doc.surveyDoctorId;
+    const doctorId = doc.doctorId;
     // Optimistic update on archiveAreas
     setArchiveAreas(prev => prev.map(area => ({
       ...area,
-      doctors: area.doctors.map(d => d.surveyDoctorId === surveyDoctorId ? { ...d, ...patch } : d),
+      doctors: area.doctors.map(d =>
+        (surveyDoctorId && d.surveyDoctorId === surveyDoctorId) || (doctorId && d.doctorId === doctorId)
+          ? { ...d, ...patch } : d
+      ),
     })));
     // Recalculate stats optimistically
     setArchiveAreas(areas => {
@@ -649,8 +654,12 @@ export default function DoctorsPage() {
       return areas;
     });
     try {
-      const qs = archiveRepFilter !== null ? `?forUserId=${archiveRepFilter}` : '';
-      await fetch(`${API}/api/doctor-archive/${surveyDoctorId}${qs}`, {
+      const params = new URLSearchParams();
+      if (archiveRepFilter !== null) params.set('forUserId', String(archiveRepFilter));
+      if (!surveyDoctorId && doctorId) params.set('doctorId', String(doctorId));
+      const qs = params.toString() ? `?${params}` : '';
+      const sid = surveyDoctorId ?? 0;
+      await fetch(`${API}/api/doctor-archive/${sid}${qs}`, {
         method: 'PATCH', headers: H(), body: JSON.stringify(patch),
       });
     } catch (e) { console.error(e); loadArchive(); }
@@ -2601,7 +2610,7 @@ export default function DoctorsPage() {
                                   {/* Toggles row */}
                                   <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                                     {/* Visited toggle */}
-                                    <button onClick={() => patchArchive(doc.surveyDoctorId, { isVisited: !doc.isVisited })}
+                                    <button onClick={() => patchArchive(doc, { isVisited: !doc.isVisited })}
                                       title="تمت الزيارة"
                                       style={{ padding: '3px 9px', borderRadius: 6, border: `1px solid ${doc.isVisited ? '#94a3b8' : '#e2e8f0'}`,
                                         background: doc.isVisited ? '#1e293b' : '#f8fafc', color: doc.isVisited ? '#fff' : '#94a3b8',
@@ -2610,7 +2619,7 @@ export default function DoctorsPage() {
                                     </button>
 
                                     {/* Writing toggle */}
-                                    <button onClick={() => patchArchive(doc.surveyDoctorId, { isWriting: !doc.isWriting })}
+                                    <button onClick={() => patchArchive(doc, { isWriting: !doc.isWriting })}
                                       title="يكتب"
                                       style={{ padding: '3px 9px', borderRadius: 6, border: `1px solid ${doc.isWriting ? '#94a3b8' : '#e2e8f0'}`,
                                         background: doc.isWriting ? '#1e293b' : '#f8fafc', color: doc.isWriting ? '#fff' : '#94a3b8',
@@ -2626,20 +2635,20 @@ export default function DoctorsPage() {
                                         {doc.visitItems.map((item, i) => (
                                           <span key={i} style={{ background: '#f1f5f9', color: '#334155', borderRadius: 4, padding: '2px 7px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
                                             {item}
-                                            <button onClick={() => patchArchive(doc.surveyDoctorId, { visitItems: doc.visitItems.filter((_, idx) => idx !== i) })}
+                                            <button onClick={() => patchArchive(doc, { visitItems: doc.visitItems.filter((_, idx) => idx !== i) })}
                                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 11, lineHeight: 1 }}>×</button>
                                           </span>
                                         ))}
-                                        {visitItemInputId === doc.surveyDoctorId ? (
+                                        {visitItemInputId === (doc.surveyDoctorId ?? doc.doctorId) ? (
                                           <div style={{ position: 'relative' }}>
                                             <input autoFocus value={visitItemInputVal} onChange={e => setVisitItemInputVal(e.target.value)}
                                               onKeyDown={e => {
                                                 if (e.key === 'Enter' && visitItemInputVal.trim()) {
-                                                  patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] });
+                                                  patchArchive(doc, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] });
                                                   setVisitItemInputVal(''); setVisitItemInputId(null);
                                                 } else if (e.key === 'Escape') { setVisitItemInputVal(''); setVisitItemInputId(null); }
                                               }}
-                                              onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
+                                              onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
                                               style={{ padding: '2px 7px', borderRadius: 4, border: '1px solid #94a3b8', fontSize: 11, outline: 'none', width: 90, background: '#fafafa' }}
                                               placeholder="إيتم..." />
                                             {(() => {
@@ -2648,7 +2657,7 @@ export default function DoctorsPage() {
                                               return sugs.length > 0 ? (
                                                 <div style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 200, minWidth: 140, maxHeight: 150, overflowY: 'auto', marginTop: 2, direction: 'rtl' }}>
                                                   {sugs.slice(0, 8).map(s => (
-                                                    <button key={s} onMouseDown={() => { patchArchive(doc.surveyDoctorId, { visitItems: [...doc.visitItems, s] }); setVisitItemInputVal(''); setVisitItemInputId(null); }}
+                                                    <button key={s} onMouseDown={() => { patchArchive(doc, { visitItems: [...doc.visitItems, s] }); setVisitItemInputVal(''); setVisitItemInputId(null); }}
                                                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                                                       onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                                                       style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '5px 10px', textAlign: 'right', cursor: 'pointer', fontSize: 11, color: '#334155' }}>
@@ -2660,7 +2669,7 @@ export default function DoctorsPage() {
                                             })()}
                                           </div>
                                         ) : (
-                                          <button onClick={() => setVisitItemInputId(doc.surveyDoctorId)}
+                                          <button onClick={() => setVisitItemInputId(doc.surveyDoctorId ?? doc.doctorId ?? null)}
                                             style={{ background: 'none', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
                                             +
                                           </button>
@@ -2676,20 +2685,20 @@ export default function DoctorsPage() {
                                         {doc.writingItems.map((item, i) => (
                                           <span key={i} style={{ background: '#f1f5f9', color: '#334155', borderRadius: 4, padding: '2px 7px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
                                             {item}
-                                            <button onClick={() => patchArchive(doc.surveyDoctorId, { writingItems: doc.writingItems.filter((_, idx) => idx !== i) })}
+                                            <button onClick={() => patchArchive(doc, { writingItems: doc.writingItems.filter((_, idx) => idx !== i) })}
                                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 11, lineHeight: 1 }}>×</button>
                                           </span>
                                         ))}
-                                        {itemInputId === doc.surveyDoctorId ? (
+                                        {itemInputId === (doc.surveyDoctorId ?? doc.doctorId) ? (
                                           <div style={{ position: 'relative' }}>
                                             <input autoFocus value={itemInputVal} onChange={e => setItemInputVal(e.target.value)}
                                               onKeyDown={e => {
                                                 if (e.key === 'Enter' && itemInputVal.trim()) {
-                                                  patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] });
+                                                  patchArchive(doc, { writingItems: [...doc.writingItems, itemInputVal.trim()] });
                                                   setItemInputVal(''); setItemInputId(null);
                                                 } else if (e.key === 'Escape') { setItemInputVal(''); setItemInputId(null); }
                                               }}
-                                              onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
+                                              onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
                                               style={{ padding: '2px 7px', borderRadius: 4, border: '1px solid #94a3b8', fontSize: 11, outline: 'none', width: 90, background: '#fafafa' }}
                                               placeholder="إيتم..." />
                                             {(() => {
@@ -2698,7 +2707,7 @@ export default function DoctorsPage() {
                                               return sugs.length > 0 ? (
                                                 <div style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 200, minWidth: 140, maxHeight: 150, overflowY: 'auto', marginTop: 2, direction: 'rtl' }}>
                                                   {sugs.slice(0, 8).map(s => (
-                                                    <button key={s} onMouseDown={() => { patchArchive(doc.surveyDoctorId, { writingItems: [...doc.writingItems, s] }); setItemInputVal(''); setItemInputId(null); }}
+                                                    <button key={s} onMouseDown={() => { patchArchive(doc, { writingItems: [...doc.writingItems, s] }); setItemInputVal(''); setItemInputId(null); }}
                                                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                                                       onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                                                       style={{ display: 'block', width: '100%', background: 'none', border: 'none', padding: '5px 10px', textAlign: 'right', cursor: 'pointer', fontSize: 11, color: '#334155' }}>
@@ -2710,7 +2719,7 @@ export default function DoctorsPage() {
                                             })()}
                                           </div>
                                         ) : (
-                                          <button onClick={() => setItemInputId(doc.surveyDoctorId)}
+                                          <button onClick={() => setItemInputId(doc.surveyDoctorId ?? doc.doctorId ?? null)}
                                             style={{ background: 'none', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
                                             +
                                           </button>
@@ -2720,24 +2729,24 @@ export default function DoctorsPage() {
                                   )}
 
                                   {/* Notes */}
-                                  {notesEditId === doc.surveyDoctorId ? (
+                                  {notesEditId === (doc.surveyDoctorId ?? doc.doctorId) ? (
                                     <div style={{ marginTop: 8 }}>
                                       <input autoFocus value={notesEditVal} onChange={e => setNotesEditVal(e.target.value)}
                                         onKeyDown={e => {
-                                          if (e.key === 'Enter') { patchArchive(doc.surveyDoctorId, { notes: notesEditVal || null }); setNotesEditId(null); }
+                                          if (e.key === 'Enter') { patchArchive(doc, { notes: notesEditVal || null }); setNotesEditId(null); }
                                           else if (e.key === 'Escape') setNotesEditId(null);
                                         }}
-                                        onBlur={() => { patchArchive(doc.surveyDoctorId, { notes: notesEditVal || null }); setNotesEditId(null); }}
+                                        onBlur={() => { patchArchive(doc, { notes: notesEditVal || null }); setNotesEditId(null); }}
                                         style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', direction: 'rtl' }}
                                         placeholder="ملاحظات..." />
                                     </div>
                                   ) : doc.notes ? (
-                                    <div onClick={() => { setNotesEditId(doc.surveyDoctorId); setNotesEditVal(doc.notes ?? ''); }}
+                                    <div onClick={() => { setNotesEditId(doc.surveyDoctorId ?? doc.doctorId ?? null); setNotesEditVal(doc.notes ?? ''); }}
                                       style={{ marginTop: 5, fontSize: 11, color: '#64748b', background: '#fafafa', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', display: 'inline-block', border: '1px solid #f1f5f9' }}>
                                       📝 {doc.notes}
                                     </div>
                                   ) : (
-                                    <button onClick={() => { setNotesEditId(doc.surveyDoctorId); setNotesEditVal(''); }}
+                                    <button onClick={() => { setNotesEditId(doc.surveyDoctorId ?? doc.doctorId ?? null); setNotesEditVal(''); }}
                                       style={{ marginTop: 5, background: 'none', border: 'none', fontSize: 11, color: '#cbd5e1', cursor: 'pointer', padding: 0 }}>
                                       + ملاحظة
                                     </button>

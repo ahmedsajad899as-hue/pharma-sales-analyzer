@@ -39,35 +39,36 @@ export async function getArchive(req, res, next) {
       const repId = parseInt(req.query.repUserId, 10);
       if (isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid repUserId' });
 
-      // Get rep's assigned area names
-      const areaRows = await prisma.userAreaAssignment.findMany({
-        where: { userId: repId },
-        include: { area: { select: { name: true } } },
+      // Get rep's linked scientificRep id
+      const repUser = await prisma.user.findUnique({
+        where: { id: repId },
+        select: { linkedRepId: true },
       });
-      const repAreaNames = areaRows.map(r => r.area.name.trim());
+      const linkedRepId = repUser?.linkedRepId ?? null;
 
-      // Get active surveys
-      const surveys = await prisma.masterSurvey.findMany({
-        where: { isActive: true },
-        select: { id: true },
+      // Get rep's assigned area IDs (same as visits analysis)
+      const [uaRows, saRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId: repId }, select: { areaId: true, area: { select: { id: true, name: true } } } }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+          : Promise.resolve([]),
+      ]);
+      const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
+
+      // Fetch doctors from Doctor table in rep's areas — same source as visits analysis
+      const doctorWhere = repAreaIds.length > 0
+        ? { areaId: { in: repAreaIds } }
+        : { userId: repId };
+      const rawDocs = await prisma.doctor.findMany({
+        where: doctorWhere,
+        include: {
+          area: { select: { id: true, name: true } },
+          masterSurveyDoctor: { select: { id: true, specialty: true, pharmacyName: true, className: true } },
+        },
+        orderBy: { name: 'asc' },
       });
-      const surveyIds = surveys.map(s => s.id);
 
-      // Get all survey doctors in rep's areas
-      let surveyDoctors = [];
-      if (surveyIds.length > 0) {
-        const normAreaNames = repAreaNames.map(normKey);
-        const allDocs = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: { in: surveyIds } },
-          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true },
-          orderBy: { name: 'asc' },
-        });
-        surveyDoctors = repAreaNames.length > 0
-          ? allDocs.filter(d => d.areaName?.trim() && normAreaNames.includes(normKey(d.areaName)))
-          : allDocs;
-      }
-
-      // Get rep's archive entries for overlay
+      // Get rep's archive entries for overlay (keyed by masterSurveyDoctorId)
       const entries = await prisma.doctorArchiveEntry.findMany({
         where: { userId: repId },
         select: {
@@ -77,30 +78,32 @@ export async function getArchive(req, res, next) {
       });
       const entryMap = new Map(entries.map(e => [e.masterSurveyDoctorId, e]));
 
-      // Group by areaName
+      // Group by area name
       const areaMap = new Map();
-      for (const doc of surveyDoctors) {
-        const areaKey = doc.areaName?.trim() || 'بدون منطقة';
+      for (const doc of rawDocs) {
+        const areaKey = doc.area?.name?.trim() || 'بدون منطقة';
         if (!areaMap.has(areaKey)) areaMap.set(areaKey, { name: areaKey, doctors: [] });
-        const entry = entryMap.get(doc.id);
+        const surveyId = doc.masterSurveyDoctorId;
+        const entry = surveyId ? entryMap.get(surveyId) : undefined;
         areaMap.get(areaKey).doctors.push({
-          entryId:       entry?.id ?? null,
-          surveyDoctorId: doc.id,
-          name:          doc.name,
-          specialty:     doc.specialty ?? null,
-          areaName:      doc.areaName ?? null,
-          pharmacyName:  doc.pharmacyName ?? null,
-          className:     doc.className ?? null,
-          isVisited:     entry?.isVisited ?? false,
-          isWriting:     entry?.isWriting ?? false,
-          visitItems:    entry?.visitItems  ? JSON.parse(entry.visitItems)  : [],
-          writingItems:  entry?.writingItems ? JSON.parse(entry.writingItems) : [],
-          notes:         entry?.notes ?? null,
+          entryId:        entry?.id ?? null,
+          surveyDoctorId: surveyId ?? null,
+          doctorId:       doc.id,
+          name:           doc.name,
+          specialty:      doc.masterSurveyDoctor?.specialty ?? null,
+          areaName:       doc.area?.name ?? null,
+          pharmacyName:   doc.pharmacyName ?? doc.masterSurveyDoctor?.pharmacyName ?? null,
+          className:      doc.masterSurveyDoctor?.className ?? null,
+          isVisited:      entry?.isVisited ?? false,
+          isWriting:      entry?.isWriting ?? false,
+          visitItems:     entry?.visitItems  ? JSON.parse(entry.visitItems)  : [],
+          writingItems:   entry?.writingItems ? JSON.parse(entry.writingItems) : [],
+          notes:          entry?.notes ?? null,
         });
       }
 
       const areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-      const total        = surveyDoctors.length;
+      const total        = rawDocs.length;
       const totalVisited = entries.filter(e => e.isVisited).length;
       const totalWriting = entries.filter(e => e.isWriting).length;
 
@@ -248,6 +251,8 @@ export async function addToArchive(req, res, next) {
 // Update isVisited, isWriting, writingItems, notes for an archive entry.
 // Auto-creates the entry if it doesn't exist (upsert).
 // Managers can pass ?forUserId=<id> to update a specific rep's entry.
+// :surveyDoctorId can be 0 — in that case pass ?doctorId=<id> in query to
+// resolve the masterSurveyDoctorId from the Doctor record.
 export async function updateArchiveEntry(req, res, next) {
   try {
     const isManager = !FIELD_ROLES.has(req.user.role);
@@ -256,8 +261,19 @@ export async function updateArchiveEntry(req, res, next) {
       const fid = parseInt(req.query.forUserId, 10);
       if (!isNaN(fid)) userId = fid;
     }
-    const surveyDoctorId = parseInt(req.params.surveyDoctorId);
-    if (isNaN(surveyDoctorId)) return res.status(400).json({ success: false, error: 'معرّف غير صحيح' });
+
+    let surveyDoctorId = parseInt(req.params.surveyDoctorId);
+
+    // If no surveyDoctorId (0 or NaN), try resolving via doctorId query param
+    if (!surveyDoctorId && req.query.doctorId) {
+      const dId = parseInt(req.query.doctorId, 10);
+      if (!isNaN(dId)) {
+        const doc = await prisma.doctor.findUnique({ where: { id: dId }, select: { masterSurveyDoctorId: true } });
+        if (doc?.masterSurveyDoctorId) surveyDoctorId = doc.masterSurveyDoctorId;
+      }
+    }
+
+    if (!surveyDoctorId || isNaN(surveyDoctorId)) return res.status(400).json({ success: false, error: 'هذا الطبيب غير مرتبط بسجل سيرفي، لا يمكن حفظ الزيارة' });
 
     const data = {};
     if (req.body.isVisited   !== undefined) data.isVisited   = Boolean(req.body.isVisited);
