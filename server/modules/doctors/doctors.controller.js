@@ -47,7 +47,30 @@ export async function visitsByArea(req, res, next) {
 
       if (repAreaIds.length === 0) return res.json({ areas: [] });
 
-      // ── 2. Get rep's visits for the period ───────────────────
+      // ── 2. Get area names from IDs (for survey matching) ──────
+      const areaRecords = await prisma.area.findMany({
+        where: { id: { in: repAreaIds } },
+        select: { id: true, name: true },
+      });
+      const normToArea = new Map(areaRecords.map(a => [normArea(a.name), a]));
+      const normAreaNames = [...normToArea.keys()];
+
+      // ── 3. Get active survey doctors in rep's areas ───────────
+      const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
+      const surveyIds = surveys.map(s => s.id);
+      let surveyDoctors = [];
+      if (surveyIds.length > 0) {
+        const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: { in: surveyIds } },
+          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
+          orderBy: { name: 'asc' },
+        });
+        surveyDoctors = normAreaNames.length > 0
+          ? allSurveyDocs.filter(d => d.areaName?.trim() && normAreaNames.includes(normArea(d.areaName)))
+          : allSurveyDocs;
+      }
+
+      // ── 4. Get rep's visits and map by masterSurveyDoctorId ───
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
           scientificRepId: linkedRepId ?? -1,
@@ -55,31 +78,31 @@ export async function visitsByArea(req, res, next) {
         },
         select: {
           id: true, visitDate: true, feedback: true, notes: true,
-          doctorId: true,
           item: { select: { id: true, name: true } },
+          doctor: { select: { masterSurveyDoctorId: true } },
         },
         orderBy: { visitDate: 'desc' },
       });
-      const visitsByDoc = new Map();
+      const visitsBySurveyDocId = new Map();
       for (const v of allVisits) {
-        if (!visitsByDoc.has(v.doctorId)) visitsByDoc.set(v.doctorId, []);
-        visitsByDoc.get(v.doctorId).push(v);
+        const msId = v.doctor?.masterSurveyDoctorId;
+        if (msId != null) {
+          if (!visitsBySurveyDocId.has(msId)) visitsBySurveyDocId.set(msId, []);
+          visitsBySurveyDocId.get(msId).push({ id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item });
+        }
       }
 
-      // ── 3. Fetch doctors - IDENTICAL query to list endpoint ──
-      // Uses areaId: { in: repAreaIds } - exact same as list no-q branch
-      // No deduplication by name - each doctor row is a separate record
-      const rawDocs = await prisma.doctor.findMany({
-        where: { areaId: { in: repAreaIds } },
-        include: {
-          area:       { select: { id: true, name: true } },
-          targetItem: { select: { id: true, name: true } },
-        },
-        orderBy: { name: 'asc' },
+      // ── 5. Build doctors array from survey ────────────────────
+      doctors = surveyDoctors.map(d => {
+        const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? { id: null, name: d.areaName ?? 'بدون منطقة' };
+        return {
+          id: d.id, name: d.name, specialty: d.specialty ?? null,
+          pharmacyName: d.pharmacyName ?? null,
+          area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
+          visits: visitsBySurveyDocId.get(d.id) ?? [],
+        };
       });
-
-      doctors = rawDocs.map(d => ({ ...d, visits: visitsByDoc.get(d.id) ?? [] }));
-      console.log('[visitsByArea] repAreaIds count:', repAreaIds.length, 'doctors:', doctors.length);
+      console.log('[visitsByArea] repAreaIds count:', repAreaIds.length, 'surveyDoctors:', doctors.length);
 
     } else {
       // للمدير: فلترة حسب مندوب محدد أو جميع الأطباء
@@ -111,30 +134,54 @@ export async function visitsByArea(req, res, next) {
           where: visitWhereRep,
           select: {
             id: true, visitDate: true, feedback: true, notes: true,
-            doctorId: true,
             item: { select: { id: true, name: true } },
+            doctor: { select: { masterSurveyDoctorId: true } },
           },
           orderBy: { visitDate: 'desc' },
         });
-        const visitsByDocRep = new Map();
-        for (const v of repVisits) {
-          if (!visitsByDocRep.has(v.doctorId)) visitsByDocRep.set(v.doctorId, []);
-          visitsByDocRep.get(v.doctorId).push(v);
+
+        // Get area names for survey matching
+        const areaRecords = await prisma.area.findMany({
+          where: repAreaIds.length > 0 ? { id: { in: repAreaIds } } : { id: -1 },
+          select: { id: true, name: true },
+        });
+        const normToArea = new Map(areaRecords.map(a => [normArea(a.name), a]));
+        const normAreaNames = [...normToArea.keys()];
+
+        // Get active survey doctors in rep's areas
+        const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
+        const surveyIds = surveys.map(s => s.id);
+        let surveyDoctors = [];
+        if (surveyIds.length > 0) {
+          const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
+            where: { surveyId: { in: surveyIds } },
+            select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
+            orderBy: { name: 'asc' },
+          });
+          surveyDoctors = normAreaNames.length > 0
+            ? allSurveyDocs.filter(d => d.areaName?.trim() && normAreaNames.includes(normArea(d.areaName)))
+            : allSurveyDocs;
         }
 
-        // الأطباء في مناطق المندوب — نفس منطق المندوب بدون فلتر userId
-        const doctorWhere = repAreaIds.length > 0
-          ? { areaId: { in: repAreaIds } }
-          : { userId }; // fallback إذا لم تُحدَّد مناطق
-        const rawDocs = await prisma.doctor.findMany({
-          where: doctorWhere,
-          include: {
-            area:       { select: { id: true, name: true } },
-            targetItem: { select: { id: true, name: true } },
-          },
-          orderBy: { name: 'asc' },
+        // Map visits by masterSurveyDoctorId
+        const visitsBySurveyDocId = new Map();
+        for (const v of repVisits) {
+          const msId = v.doctor?.masterSurveyDoctorId;
+          if (msId != null) {
+            if (!visitsBySurveyDocId.has(msId)) visitsBySurveyDocId.set(msId, []);
+            visitsBySurveyDocId.get(msId).push({ id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item });
+          }
+        }
+
+        doctors = surveyDoctors.map(d => {
+          const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? { id: null, name: d.areaName ?? 'بدون منطقة' };
+          return {
+            id: d.id, name: d.name, specialty: d.specialty ?? null,
+            pharmacyName: d.pharmacyName ?? null,
+            area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
+            visits: visitsBySurveyDocId.get(d.id) ?? [],
+          };
         });
-        doctors = rawDocs.map(d => ({ ...d, visits: visitsByDocRep.get(d.id) ?? [] }));
       } else {
       // الكل: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
       doctors = await prisma.doctor.findMany({
