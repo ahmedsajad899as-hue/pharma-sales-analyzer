@@ -422,5 +422,18 @@ export async function getReport(id, query = {}) {
     byArea,
     byItem,
     byRep,
+    _debug: {
+      fileIds,
+      nameMatchCandidatesCount: nameMatchCandidates.length,
+      nameMatchIds,
+      explicitCommRepIds,
+      filteredExplicitIds,
+      areaIds,
+      itemIds,
+      resultA_totals: resultA?.totals ?? null,
+      resultA_byRep: resultA?.byRep ?? null,
+      resultB_totals: resultB?.totals ?? null,
+      resultB_byRep: resultB?.byRep ?? null,
+    },
   };
 }
