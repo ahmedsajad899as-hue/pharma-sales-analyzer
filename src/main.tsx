@@ -39,6 +39,13 @@ window.fetch = function(input: RequestInfo | URL, init: RequestInit = {}) {
   return _origFetch(input, init);
 };
 
+// ── Register Service Worker for PWA installability ──────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {/* ignore */});
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {window.location.pathname.startsWith('/super-admin') ? <SuperAdminApp /> : <App />}

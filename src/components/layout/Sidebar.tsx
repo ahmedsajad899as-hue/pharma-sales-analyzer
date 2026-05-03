@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { PageId } from '../../App';
 import { useAuth } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
@@ -36,6 +36,39 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSwitchPanel, setShowSwitchPanel] = useState(false);
+
+  // ── PWA Install ──────────────────────────────────────────────────────────
+  const installPromptRef = useRef<any>(null);
+  const [canInstall, setCanInstall] = useState(false);
+  const [installDone, setInstallDone] = useState(false);
+
+  useEffect(() => {
+    // Check if already running as standalone PWA
+    if (window.matchMedia('(display-mode: standalone)').matches) return;
+    const handler = (e: any) => {
+      e.preventDefault();
+      installPromptRef.current = e;
+      setCanInstall(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => {
+      setCanInstall(false);
+      setInstallDone(true);
+    });
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPromptRef.current) return;
+    installPromptRef.current.prompt();
+    const { outcome } = await installPromptRef.current.userChoice;
+    if (outcome === 'accepted') {
+      setCanInstall(false);
+      setInstallDone(true);
+    }
+    installPromptRef.current = null;
+  };
+  // ────────────────────────────────────────────────────────────────────────;
 
 
 
@@ -268,6 +301,23 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 >{isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}</button>
               </div>
               )}
+              {canInstall && (
+                <div style={{ marginBottom: 6 }}>
+                  <button
+                    onClick={handleInstall}
+                    style={{
+                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                      border: 'none',
+                      borderRadius: 8, padding: '7px 14px', fontSize: 13,
+                      color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
+                    }}
+                  >
+                    ⬇️ تثبيت التطبيق
+                  </button>
+                </div>
+              )}
               <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
                 🚪 {t.sidebar.logout}
               </button>
@@ -309,6 +359,19 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   color: isLocal ? '#fbbf24' : '#4ade80',
                 }}
               >{isLocal ? '🚀' : '🖥️'}</button>
+              )}
+              {canInstall && (
+                <button
+                  onClick={handleInstall}
+                  title="تثبيت التطبيق"
+                  style={{
+                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                    border: 'none',
+                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+                    boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
+                  }}
+                >⬇️</button>
               )}
               <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%' }}>
                 <span className="sidebar-nav-icon">🚪</span>
@@ -442,6 +505,22 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 {isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}
               </button>
               )}
+              {canInstall && (
+                <button
+                  onClick={() => { handleInstall(); setMobileMenuOpen(false); }}
+                  style={{
+                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                    border: 'none',
+                    borderRadius: 8, padding: '10px 14px', fontSize: 14,
+                    fontWeight: 700, color: '#fff',
+                    cursor: 'pointer', width: '100%', textAlign: 'center',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    boxShadow: '0 2px 10px rgba(22,163,74,0.4)',
+                  }}
+                >
+                  ⬇️ تثبيت التطبيق
+                </button>
+              )}
               <button
                 className="btn btn--secondary"
                 style={{ width: '100%', fontSize: 14 }}
@@ -571,6 +650,47 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── PWA INSTALL BANNER (mobile, floating) ── */}
+      {canInstall && !mobileMenuOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 68, /* above mobile bottom nav */
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9990,
+            display: 'none', /* hidden on desktop — shown via media query below */
+          }}
+          className="pwa-install-banner"
+        >
+          <button
+            onClick={handleInstall}
+            style={{
+              background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+              border: 'none',
+              borderRadius: 28,
+              padding: '11px 24px',
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 20px rgba(22,163,74,0.5)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ⬇️ تثبيت التطبيق
+          </button>
+          <style>{`
+            @media (max-width: 767px) {
+              .pwa-install-banner { display: block !important; }
+            }
+          `}</style>
         </div>
       )}
     </>
