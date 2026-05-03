@@ -712,6 +712,9 @@ export default function SalesDataPage() {
   type WarehouseClass = { region: string; warehouse: string; category: WarehouseCategory };
   const [warehouseClasses, setWarehouseClasses] = useState<WarehouseClass[]>([]);
 
+  // Ref so export callbacks can read the latest shortage count without forward-ref TS errors
+  const redCellCountRef = useRef(0);
+
   // Load per-user settings from localStorage once userId is known
   useEffect(() => {
     if (!lsPrefix) return;
@@ -841,6 +844,13 @@ export default function SalesDataPage() {
   const exportTableToExcel = useCallback(() => {
     const tableHTML = buildStyledTableHTML();
     if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const badgeParts = [
+      regionFilter !== 'all' ? `<span style="font-weight:700;color:#1e293b;font-size:13px;margin-left:8px;">📍 المنطقة: ${regionFilter}</span>` : '',
+      showValue ? `<span style="padding:2px 10px;border-radius:12px;background:#fffbeb;border:1.5px solid #f59e0b;color:#b45309;font-weight:700;font-size:11px;">💰 قيمة مالية</span>` : '',
+      redCellCountRef.current > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;font-weight:700;font-size:11px;">⚠ النقص: ${redCellCountRef.current}</span>` : '',
+      warehouseClasses.length > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#eef2ff;border:1.5px solid #a5b4fc;color:#4338ca;font-weight:700;font-size:11px;">🏷️ تصنيف المذاخر: ${warehouseClasses.length}</span>` : '',
+    ].filter(Boolean).join('');
+    const infoHTML = badgeParts ? `<div style="font-family:Arial,Tahoma,sans-serif;direction:rtl;margin-bottom:10px;padding:8px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">${badgeParts}</div>` : '';
     const html = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head>
 <meta charset="utf-8"/>
@@ -851,7 +861,7 @@ export default function SalesDataPage() {
  </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>
 </xml><![endif]-->
 <style>body{font-family:Arial,Tahoma,sans-serif;direction:rtl}table{border-collapse:collapse}</style>
-</head><body dir="rtl">${tableHTML}</body></html>`;
+</head><body dir="rtl">${infoHTML}${tableHTML}</body></html>`;
     const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -859,11 +869,18 @@ export default function SalesDataPage() {
     a.download = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.xls`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [activeFile, buildStyledTableHTML]);
+  }, [activeFile, buildStyledTableHTML, regionFilter, showValue, warehouseClasses]);
 
   const exportTableToWord = useCallback(() => {
     const tableHTML = buildStyledTableHTML();
     if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const badgeParts = [
+      regionFilter !== 'all' ? `<span style="font-weight:700;color:#1e293b;font-size:13px;margin-left:8px;">📍 المنطقة: ${regionFilter}</span>` : '',
+      showValue ? `<span style="padding:2px 10px;border-radius:12px;background:#fffbeb;border:1.5px solid #f59e0b;color:#b45309;font-weight:700;font-size:11px;">💰 قيمة مالية</span>` : '',
+      redCellCountRef.current > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;font-weight:700;font-size:11px;">⚠ النقص: ${redCellCountRef.current}</span>` : '',
+      warehouseClasses.length > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#eef2ff;border:1.5px solid #a5b4fc;color:#4338ca;font-weight:700;font-size:11px;">🏷️ تصنيف المذاخر: ${warehouseClasses.length}</span>` : '',
+    ].filter(Boolean).join('');
+    const infoHTML = badgeParts ? `<div style="font-family:Arial,Tahoma,sans-serif;direction:rtl;margin-bottom:10px;padding:8px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">${badgeParts}</div>` : '';
     const html = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head>
 <meta charset="utf-8"/>
@@ -874,7 +891,7 @@ export default function SalesDataPage() {
 body{font-family:Arial,Tahoma,sans-serif;direction:rtl}
 table{border-collapse:collapse;width:100%}
 </style>
-</head><body dir="rtl">${tableHTML}</body></html>`;
+</head><body dir="rtl">${infoHTML}${tableHTML}</body></html>`;
     const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -882,7 +899,7 @@ table{border-collapse:collapse;width:100%}
     a.download = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.doc`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [activeFile, buildStyledTableHTML]);
+  }, [activeFile, buildStyledTableHTML, regionFilter, showValue, warehouseClasses]);
 
   const exportTableToPDF = useCallback(async () => {
     const container = tableContainerRef.current;
@@ -907,6 +924,26 @@ table{border-collapse:collapse;width:100%}
     const wrap = document.createElement('div');
     wrap.setAttribute('dir', 'rtl');
     wrap.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
+
+    // Build info header for image export
+    const headerBadges: { text: string; bg: string; border: string; color: string }[] = [];
+    if (regionFilter !== 'all') headerBadges.push({ text: `📍 المنطقة: ${regionFilter}`, bg: '#f1f5f9', border: '#cbd5e1', color: '#1e293b' });
+    if (showValue)              headerBadges.push({ text: '💰 قيمة مالية',             bg: '#fffbeb', border: '#f59e0b', color: '#b45309' });
+    if (redCellCountRef.current > 0) headerBadges.push({ text: `⚠ النقص: ${redCellCountRef.current}`,  bg: '#fef2f2', border: '#fca5a5', color: '#dc2626' });
+    if (warehouseClasses.length > 0) headerBadges.push({ text: `🏷️ تصنيف المذاخر: ${warehouseClasses.length}`, bg: '#eef2ff', border: '#a5b4fc', color: '#4338ca' });
+    if (headerBadges.length > 0) {
+      const infoDiv = document.createElement('div');
+      infoDiv.setAttribute('dir', 'rtl');
+      infoDiv.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;';
+      headerBadges.forEach(b => {
+        const span = document.createElement('span');
+        span.style.cssText = `padding:3px 11px;border-radius:12px;background:${b.bg};border:1.5px solid ${b.border};color:${b.color};font-weight:700;font-size:12px;white-space:nowrap;`;
+        span.textContent = b.text;
+        infoDiv.appendChild(span);
+      });
+      wrap.appendChild(infoDiv);
+    }
+
     wrap.appendChild(clone);
     document.body.appendChild(wrap);
 
@@ -949,7 +986,7 @@ table{border-collapse:collapse;width:100%}
     } finally {
       document.body.removeChild(wrap);
     }
-  }, [activeFile]);
+  }, [activeFile, regionFilter, showValue, warehouseClasses]);
 
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
@@ -1148,6 +1185,7 @@ table{border-collapse:collapse;width:100%}
     }
     return count;
   }, [activeFile, filteredRows, shortageThreshold, regionFilter, warehouseKeys]);
+  redCellCountRef.current = redCellCount;
 
   // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
   // Tracks both region totals and individual warehouse columns.
@@ -1288,7 +1326,19 @@ table{border-collapse:collapse;width:100%}
   const totalPages = 1;
   // Sort: by total desc when showValue active, else by company → item name
   const pageRows = useMemo(() => {
-    const rows = [...filteredRows];
+    let rows = [...filteredRows];
+    // In shortage-only mode, show only rows that have at least one shortage cell
+    // in the currently-visible columns (works correctly after region/company switches)
+    if (shortageOnlyMode) {
+      const T = Math.max(0, shortageThreshold || 0);
+      rows = rows.filter(row =>
+        displayCols.some(col => {
+          if (isRT(col)) return false;
+          const v = cellVal(row, col);
+          return v === 0 || (T > 0 && v > 0 && v < T);
+        })
+      );
+    }
     return rows.sort((a, b) => {
       const ca = String(a[companyCol] ?? '').toLowerCase();
       const cb = String(b[companyCol] ?? '').toLowerCase();
@@ -1297,7 +1347,7 @@ table{border-collapse:collapse;width:100%}
       const ib = String(b[itemNameCol] ?? '').toLowerCase();
       return ia.localeCompare(ib, 'ar');
     });
-  }, [filteredRows, companyCol, itemNameCol]);
+  }, [filteredRows, shortageOnlyMode, displayCols, shortageThreshold, companyCol, itemNameCol]);
 
   // Handlers
   const handleFile = useCallback((file: File): Promise<{ ok: boolean; err?: string; saved?: SalesFile }> => {
@@ -1393,10 +1443,18 @@ table{border-collapse:collapse;width:100%}
     if (!next.find(f => f.id === activeId)) setActiveId(next[0]?.id ?? '');
   };
 
-  const selectRegion = (r: string) => { setRegionFilter(r); setWarehouseKeys(new Set()); setPage(1); };
+  const selectRegion = (r: string) => {
+    setRegionFilter(r);
+    setWarehouseKeys(new Set());
+    setPage(1);
+    // Clear item selection so shortage-only mode re-evaluates against the new region
+    if (shortageOnlyMode) { setSelectedItems([]); setItemQuery(''); }
+  };
   const toggleCompany = (c: string) => {
     setSelectedCompanies(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
     setPage(1);
+    // Clear item selection so shortage-only mode re-evaluates against the new company
+    if (shortageOnlyMode) { setSelectedItems([]); setItemQuery(''); }
   };
   const clearCompanies = () => { setSelectedCompanies(new Set()); setSelectedItems([]); setItemQuery(''); setPage(1); };
   const toggleWH = (key: string) => {
