@@ -309,20 +309,21 @@ export async function getReport(id, query = {}) {
     itemIds = allMatchingItems.map(i => i.id);
   }
 
-  // ── 4. Two separate queries — proven approach, no OR-query interference ──
+  // ── 4. Row-level approach: fetch all relevant sales once, filter in memory ──
+  // This avoids any Prisma OR-query weirdness and makes filtering bulletproof.
   const hasAreas = areaIds && areaIds.length > 0;
   const hasItems = itemIds && itemIds.length > 0;
 
-  // Exclude name-match IDs from explicit list to prevent double-counting.
   const nameMatchSet = new Set(nameMatchIds);
-  const filteredExplicitIds = explicitCommRepIds.filter(rid => !nameMatchSet.has(rid));
+  const explicitSet  = new Set(explicitCommRepIds);
+  const allRepIds    = [...new Set([...nameMatchIds, ...explicitCommRepIds])];
 
   console.log('[SciRep.getReport] DEBUG', JSON.stringify({
     repId: id, repName: rep.name, fileIds,
     nameMatchCandidates: nameMatchCandidates.length,
     nameMatchIds,
     explicitCommRepIds,
-    filteredExplicitIds,
+    allRepIds,
     areaIds,
     itemIds,
   }));
@@ -339,78 +340,68 @@ export async function getReport(id, query = {}) {
 
   if (!fileIds || (Array.isArray(fileIds) && fileIds.length === 0)) return emptyResult;
 
-  const dateRange = { startDate: query.startDate, endDate: query.endDate };
-  const isReturn  = query.recordType === 'return';
+  const dateRange  = { startDate: query.startDate, endDate: query.endDate };
+  const startDate  = query.startDate ? new Date(query.startDate) : null;
+  const endDate    = query.endDate   ? new Date(query.endDate)   : null;
+  const recordType = query.recordType || null;
 
-  // Query A: name-matched reps → no area/item filter (all their sales in active files)
-  let resultA = null;
-  if (nameMatchIds.length > 0) {
-    if (isReturn) {
-      resultA = await getReturnsForSciRepScope(null, null, dateRange, fileIds, nameMatchIds);
-    } else {
-      resultA = await getSalesForScientificRep(nameMatchIds, null, null, dateRange, fileIds, query.recordType || null);
-    }
-  }
-  console.log('[SciRep.getReport] resultA totals:', JSON.stringify(resultA?.totals ?? null));
-
-  // Query B: explicit commercial rep assignments → WITH area/item filter
-  let resultB = null;
-  if (filteredExplicitIds.length > 0) {
-    if (isReturn) {
-      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, filteredExplicitIds);
-    } else {
-      resultB = await getSalesForScientificRep(filteredExplicitIds, areaIds, itemIds, dateRange, fileIds, query.recordType || null);
-    }
-  }
-  console.log('[SciRep.getReport] resultB totals:', JSON.stringify(resultB?.totals ?? null));
-
-  // Fallback: no rep assignments at all → area/item only (legacy mode)
-  if (!resultA && !resultB) {
-    if (isReturn) {
-      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, null);
-    } else {
-      resultB = await getSalesForScientificRep([], areaIds, itemIds, dateRange, fileIds, query.recordType || null);
-    }
-  }
-
-  // Merge A + B: repIds are disjoint (nameMatchIds ∩ filteredExplicitIds = ∅)
-  // byArea keys = areaId-repId → no collision. byItem keys = itemId → merge by sum.
-  const mergeTwo = (a, b) => {
-    if (!a) return b;
-    if (!b) return a;
-
-    const areaMap = new Map();
-    for (const row of [...a.byArea, ...b.byArea]) {
-      const k = `${row.areaId ?? row.areaName}-${row.repId ?? row.repName}`;
-      if (!areaMap.has(k)) areaMap.set(k, { ...row });
-      else { areaMap.get(k).totalQuantity += row.totalQuantity; areaMap.get(k).totalValue += row.totalValue; }
-    }
-    const itemMap = new Map();
-    for (const row of [...a.byItem, ...b.byItem]) {
-      const k = row.itemId ?? row.itemName;
-      if (!itemMap.has(k)) itemMap.set(k, { ...row });
-      else { itemMap.get(k).totalQuantity += row.totalQuantity; itemMap.get(k).totalValue += row.totalValue; }
-    }
-    const repMap = new Map();
-    for (const row of [...a.byRep, ...b.byRep]) {
-      const k = row.repId ?? row.repName;
-      if (!repMap.has(k)) repMap.set(k, { ...row });
-      else { repMap.get(k).totalQuantity += row.totalQuantity; repMap.get(k).totalValue += row.totalValue; }
-    }
-    return {
-      totals: {
-        totalQuantity: a.totals.totalQuantity + b.totals.totalQuantity,
-        totalValue:    +(a.totals.totalValue  + b.totals.totalValue).toFixed(2),
-      },
-      byArea: [...areaMap.values()].sort((x, y) => y.totalValue - x.totalValue),
-      byItem: [...itemMap.values()].sort((x, y) => y.totalValue - x.totalValue),
-      byRep:  [...repMap.values()].sort((x, y) => y.totalValue - x.totalValue),
-    };
+  // Build base WHERE: scoped by fileIds, date, recordType
+  const baseWhere = {
+    ...(fileIds.length === 1 ? { uploadedFileId: fileIds[0] } : { uploadedFileId: { in: fileIds } }),
+    ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
+    ...(recordType ? { recordType } : {}),
   };
 
-  const salesResult = mergeTwo(resultA, resultB)
-    ?? { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
-  const { totals, byArea, byItem, byRep } = salesResult;
+  let rawSales = [];
+
+  if (allRepIds.length > 0) {
+    // Fetch all sales for involved reps (name-match + explicit) in active files
+    rawSales = await prisma.sale.findMany({
+      where: { ...baseWhere, representativeId: { in: allRepIds } },
+      select: {
+        quantity: true, totalValue: true,
+        areaId: true, itemId: true,
+        area: { select: { id: true, name: true } },
+        item: { select: { id: true, name: true } },
+        representative: { select: { id: true, name: true } },
+      },
+    });
+
+    // Row-level filter:
+    //   - name-match rep   → keep ALL their sales (no area/item filter)
+    //   - explicit-only rep → apply area/item filter
+    //   - if rep is BOTH name-match AND explicit → keep all (name-match wins, no double-count since one row only)
+    const areaSet = hasAreas ? new Set(areaIds) : null;
+    const itemSet = hasItems ? new Set(itemIds) : null;
+    rawSales = rawSales.filter(s => {
+      const repId = s.representative.id;
+      if (nameMatchSet.has(repId)) return true; // name-match: no filter
+      // explicit-only path
+      if (areaSet && !areaSet.has(s.areaId)) return false;
+      if (itemSet && !itemSet.has(s.itemId)) return false;
+      return true;
+    });
+  } else if (hasAreas || hasItems) {
+    // Legacy: no rep assignments at all → area/item only
+    rawSales = await prisma.sale.findMany({
+      where: {
+        ...baseWhere,
+        ...(hasAreas ? { areaId: { in: areaIds } } : {}),
+        ...(hasItems ? { itemId: { in: itemIds } } : {}),
+      },
+      select: {
+        quantity: true, totalValue: true,
+        areaId: true, itemId: true,
+        area: { select: { id: true, name: true } },
+        item: { select: { id: true, name: true } },
+        representative: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  const aggregated = aggregateSalesWithReps(rawSales);
+  console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);
+  const { totals, byArea, byItem, byRep } = aggregated;
 
   return {
     scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
@@ -424,16 +415,12 @@ export async function getReport(id, query = {}) {
     byRep,
     _debug: {
       fileIds,
-      nameMatchCandidatesCount: nameMatchCandidates.length,
       nameMatchIds,
       explicitCommRepIds,
-      filteredExplicitIds,
       areaIds,
       itemIds,
-      resultA_totals: resultA?.totals ?? null,
-      resultA_byRep: resultA?.byRep ?? null,
-      resultB_totals: resultB?.totals ?? null,
-      resultB_byRep: resultB?.byRep ?? null,
+      rawRowCount: rawSales.length,
+      totals,
     },
   };
 }
