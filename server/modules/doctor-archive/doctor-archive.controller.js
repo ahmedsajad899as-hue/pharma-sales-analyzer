@@ -362,3 +362,88 @@ export async function removeFromArchive(req, res, next) {
     res.json({ success: true });
   } catch (e) { next(e); }
 }
+
+// ── POST /api/doctor-archive/import-from-visits ──────────────
+// Bulk-import all survey doctors visible in the rep's "تحليل الزيارات"
+// into the archive. Managers can pass ?repUserId=<id> to import for a rep.
+// Already-archived doctors are skipped (upsert-like, idempotent).
+export async function importFromVisits(req, res, next) {
+  try {
+    const requestingUser = req.user;
+    const isManager = !FIELD_ROLES.has(requestingUser.role);
+
+    // Decide target user (the rep whose archive we populate)
+    let targetUserId = requestingUser.id;
+    if (isManager && req.body.repUserId) {
+      const rid = parseInt(req.body.repUserId, 10);
+      if (!isNaN(rid)) targetUserId = rid;
+    }
+
+    // Resolve area names for targetUser (same logic as visitsByArea)
+    const normArea = s => String(s || '').trim()
+      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+      .toLowerCase().trim();
+
+    const userRow = await prisma.user.findUnique({ where: { id: targetUserId }, select: { linkedRepId: true } });
+    const linkedRepId = userRow?.linkedRepId ?? null;
+
+    const [uaRows, saRows] = await Promise.all([
+      prisma.userAreaAssignment.findMany({ where: { userId: targetUserId }, select: { areaId: true } }),
+      linkedRepId
+        ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+        : Promise.resolve([]),
+    ]);
+    const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
+
+    let surveyDoctorIds = [];
+
+    if (repAreaIds.length > 0) {
+      // Get area names for normalization
+      const areaRecords = await prisma.area.findMany({
+        where: { id: { in: repAreaIds } },
+        select: { name: true },
+      });
+      const normAreaNames = new Set(areaRecords.map(a => normArea(a.name)));
+
+      // Get active survey doctors in those areas
+      const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
+      const surveyIds = surveys.map(s => s.id);
+      if (surveyIds.length > 0) {
+        const allDocs = await prisma.masterSurveyDoctor.findMany({
+          where: { surveyId: { in: surveyIds } },
+          select: { id: true, areaName: true },
+        });
+        surveyDoctorIds = allDocs
+          .filter(d => d.areaName?.trim() && normAreaNames.has(normArea(d.areaName)))
+          .map(d => d.id);
+      }
+    }
+
+    if (surveyDoctorIds.length === 0) {
+      return res.json({ success: true, imported: 0, alreadyExists: 0, total: 0 });
+    }
+
+    // Find already-archived ones to skip
+    const existing = await prisma.doctorArchiveEntry.findMany({
+      where: { userId: targetUserId, masterSurveyDoctorId: { in: surveyDoctorIds } },
+      select: { masterSurveyDoctorId: true },
+    });
+    const existingSet = new Set(existing.map(e => e.masterSurveyDoctorId));
+    const toCreate = surveyDoctorIds.filter(id => !existingSet.has(id));
+
+    if (toCreate.length > 0) {
+      await prisma.doctorArchiveEntry.createMany({
+        data: toCreate.map(id => ({ userId: targetUserId, masterSurveyDoctorId: id })),
+        skipDuplicates: true,
+      });
+    }
+
+    res.json({
+      success: true,
+      imported: toCreate.length,
+      alreadyExists: existingSet.size,
+      total: surveyDoctorIds.length,
+    });
+  } catch (e) { next(e); }
+}

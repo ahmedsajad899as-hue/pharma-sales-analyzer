@@ -291,6 +291,8 @@ export default function DoctorsPage() {
   const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
   const [archiveSubPopup, setArchiveSubPopup]     = useState<null | 'visited' | 'writing' | 'items'>(null);
   const [archiveRepFilter, setArchiveRepFilter]   = useState<number | null>(null);
+  const [importingFromVisits, setImportingFromVisits] = useState(false);
+  const [importFromVisitsResult, setImportFromVisitsResult] = useState<{ imported: number; alreadyExists: number; total: number } | null>(null);
   // Add from survey modal
   const [showAddModal, setShowAddModal]           = useState(false);
   const [surveyDoctors, setSurveyDoctors]         = useState<{ id: number; name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null }[]>([]);
@@ -573,6 +575,27 @@ export default function DoctorsPage() {
     finally { setArchiveLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, archiveRepFilter]);
+
+  const importFromVisitsHandler = useCallback(async () => {
+    setImportingFromVisits(true);
+    setImportFromVisitsResult(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (archiveRepFilter !== null) body.repUserId = archiveRepFilter;
+      const r = await fetch(`${API}/api/doctor-archive/import-from-visits`, {
+        method: 'POST',
+        headers: { ...H(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (j.success) {
+        setImportFromVisitsResult({ imported: j.imported, alreadyExists: j.alreadyExists, total: j.total });
+        if (j.imported > 0) loadArchive();
+      }
+    } catch (e) { console.error(e); }
+    finally { setImportingFromVisits(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, archiveRepFilter, loadArchive]);
 
   const loadSurveyDoctors = useCallback(async () => {
     setSurveyDocLoading(true);
@@ -970,6 +993,11 @@ export default function DoctorsPage() {
             <button onClick={() => setShowAddModal(true)}
               style={{ ...btnStyle('#8b5cf6') }}>
               ＋ من السيرفي
+            </button>
+            <button onClick={importFromVisitsHandler} disabled={importingFromVisits}
+              style={{ ...btnStyle('#0ea5e9'), opacity: importingFromVisits ? 0.7 : 1 }}
+              title="استيراد جميع أطباء تحليل الزيارات إلى الأرشيف">
+              {importingFromVisits ? '⏳ جاري...' : '📥 من الزيارات'}
             </button>
             <button onClick={() => setShowNewDocForm(true)}
               style={{ ...btnStyle('#475569') }}>
@@ -2523,6 +2551,18 @@ export default function DoctorsPage() {
                 {archiveLoading ? '⏳' : '↻'}
               </button>
             </div>
+
+            {/* Import from visits result banner */}
+            {importFromVisitsResult && (
+              <div style={{ background: importFromVisitsResult.imported > 0 ? '#f0fdf4' : '#f8fafc', border: `1px solid ${importFromVisitsResult.imported > 0 ? '#86efac' : '#e2e8f0'}`, borderRadius: 8, padding: '8px 14px', marginBottom: 12, direction: 'rtl', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 13, color: '#334155' }}>
+                  {importFromVisitsResult.imported > 0
+                    ? `✅ تم استيراد ${importFromVisitsResult.imported} طبيب جديد من أصل ${importFromVisitsResult.total}`
+                    : `ℹ️ جميع الأطباء (${importFromVisitsResult.total}) موجودون في الأرشيف مسبقاً`}
+                </span>
+                <button onClick={() => setImportFromVisitsResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8', lineHeight: 1, padding: '0 4px' }}>✕</button>
+              </div>
+            )}
 
             {/* Starred panel */}
             {showArchiveWishPanel && archiveStarred.size > 0 && (() => {
