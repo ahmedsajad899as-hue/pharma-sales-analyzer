@@ -1034,17 +1034,19 @@ export default function DoctorsPage() {
         {activeTab === 'archive' && showArchiveTab && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => setShowAddModal(true)}
-              style={{ ...btnStyle('#8b5cf6') }}>
-              ＋ من السيرفي
+              title="إضافة من السيرفي"
+              style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 8, width: 38, height: 38, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+              📋
             </button>
             <button onClick={importFromVisitsHandler} disabled={importingFromVisits}
-              style={{ ...btnStyle('#0ea5e9'), opacity: importingFromVisits ? 0.7 : 1 }}
-              title="استيراد جميع أطباء تحليل الزيارات إلى الأرشيف">
-              {importingFromVisits ? '⏳ جاري...' : '📥 من الزيارات'}
+              title="استيراد من تحليل الزيارات"
+              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 8, width: 38, height: 38, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: importingFromVisits ? 0.7 : 1 }}>
+              {importingFromVisits ? '⏳' : '📥'}
             </button>
             <button onClick={() => setShowNewDocForm(true)}
-              style={{ ...btnStyle('#475569') }}>
-              ＋ طبيب جديد
+              title="إضافة طبيب جديد"
+              style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: 8, width: 38, height: 38, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+              ＋
             </button>
           </div>
         )}
