@@ -516,7 +516,7 @@ function aggregateSales(sales) {
  * Same as aggregateSales but also groups by commercial representative,
  * and groups byArea by (area + rep) so each row shows area + its commercial rep.
  */
-function aggregateSalesWithReps(sales) {
+export function aggregateSalesWithReps(sales) {
   const areaRepMap = new Map(); // key = "areaId-repId"
   const itemMap    = new Map();
   const repMap     = new Map();
