@@ -242,7 +242,28 @@ export async function getReport(id, query = {}) {
     where: { scientificRepId: id },
     select: { commercialRepId: true, commercialRep: { select: { id: true, name: true } } },
   });
-  const commRepIds = commercialLinks.map(l => l.commercialRepId);
+  const explicitCommRepIds = commercialLinks.map(l => l.commercialRepId);
+
+  // Also find MedicalRepresentative records whose name matches the sci rep's own
+  // name (normalized Arabic). This handles uploaded files where the sci rep's name
+  // appears directly in the rep column instead of being assigned via the junction table.
+  function _normalizeAr(s) {
+    return String(s).trim()
+      .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
+      .replace(/\u0629/g, '\u0647')
+      .replace(/\u0640/g, '')
+      .replace(/[\u064B-\u065F]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  const normalizedSciRepName = _normalizeAr(rep.name);
+  const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
+  const nameMatchIds = allMedReps
+    .filter(r => _normalizeAr(r.name) === normalizedSciRepName)
+    .map(r => r.id);
+
+  // Merge explicit assignments + name-matched reps (deduplicated)
+  const commRepIds = [...new Set([...explicitCommRepIds, ...nameMatchIds])];
 
   // Load assigned area links and resolve ALL area IDs with those names cross-user.
   // Areas assigned via admin panel may be scoped to adminUserId, while sales areas
