@@ -1,5 +1,5 @@
 import * as repo from './scientific-reps.repository.js';
-import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps } from '../sales/sales.repository.js';
+import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope } from '../sales/sales.repository.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
@@ -309,11 +309,11 @@ export async function getReport(id, query = {}) {
     itemIds = allMatchingItems.map(i => i.id);
   }
 
-  // ── 4. Single OR query — no double-counting, no merge needed ─────────────
+  // ── 4. Two separate queries — proven approach, no OR-query interference ──
   const hasAreas = areaIds && areaIds.length > 0;
   const hasItems = itemIds && itemIds.length > 0;
 
-  // Exclude name-match IDs from explicit list (they are handled without area/item filter).
+  // Exclude name-match IDs from explicit list to prevent double-counting.
   const nameMatchSet = new Set(nameMatchIds);
   const filteredExplicitIds = explicitCommRepIds.filter(rid => !nameMatchSet.has(rid));
 
@@ -329,63 +329,76 @@ export async function getReport(id, query = {}) {
 
   if (!fileIds || (Array.isArray(fileIds) && fileIds.length === 0)) return emptyResult;
 
-  const fileFilter = Array.isArray(fileIds) && fileIds.length === 1
-    ? { uploadedFileId: fileIds[0] }
-    : { uploadedFileId: { in: fileIds } };
+  const dateRange = { startDate: query.startDate, endDate: query.endDate };
+  const isReturn  = query.recordType === 'return';
 
-  const dateFilter = (() => {
-    if (!query.startDate && !query.endDate) return {};
-    const f = {};
-    if (query.startDate) f.gte = new Date(query.startDate);
-    if (query.endDate)   f.lte = new Date(query.endDate);
-    return { saleDate: f };
-  })();
-
-  // Build OR branches:
-  //  • Branch 1 (name-match): rep name matches sci rep name → ALL sales, no area/item filter
-  //  • Branch 2 (explicit): explicitly assigned commercial reps → filtered by area/item
-  const orBranches = [];
+  // Query A: name-matched reps → no area/item filter (all their sales in active files)
+  let resultA = null;
   if (nameMatchIds.length > 0) {
-    orBranches.push({ representativeId: { in: nameMatchIds } });
-  }
-  if (filteredExplicitIds.length > 0) {
-    orBranches.push({
-      representativeId: { in: filteredExplicitIds },
-      ...(hasAreas ? { areaId: { in: areaIds } } : {}),
-      ...(hasItems ? { itemId: { in: itemIds } } : {}),
-    });
-  }
-  // Fallback: no rep assignments at all → scope by area/item only (legacy)
-  if (orBranches.length === 0) {
-    if (hasAreas || hasItems) {
-      orBranches.push({
-        ...(hasAreas ? { areaId: { in: areaIds } } : {}),
-        ...(hasItems ? { itemId: { in: itemIds } } : {}),
-      });
+    if (isReturn) {
+      resultA = await getReturnsForSciRepScope(null, null, dateRange, fileIds, nameMatchIds);
     } else {
-      return emptyResult;
+      resultA = await getSalesForScientificRep(nameMatchIds, null, null, dateRange, fileIds, query.recordType || null);
     }
   }
 
-  const where = {
-    ...(orBranches.length === 1 ? orBranches[0] : { OR: orBranches }),
-    ...fileFilter,
-    ...dateFilter,
-    ...(query.recordType ? { recordType: query.recordType } : {}),
+  // Query B: explicit commercial rep assignments → WITH area/item filter
+  let resultB = null;
+  if (filteredExplicitIds.length > 0) {
+    if (isReturn) {
+      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, filteredExplicitIds);
+    } else {
+      resultB = await getSalesForScientificRep(filteredExplicitIds, areaIds, itemIds, dateRange, fileIds, query.recordType || null);
+    }
+  }
+
+  // Fallback: no rep assignments at all → area/item only (legacy mode)
+  if (!resultA && !resultB) {
+    if (isReturn) {
+      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, null);
+    } else {
+      resultB = await getSalesForScientificRep([], areaIds, itemIds, dateRange, fileIds, query.recordType || null);
+    }
+  }
+
+  // Merge A + B: repIds are disjoint (nameMatchIds ∩ filteredExplicitIds = ∅)
+  // byArea keys = areaId-repId → no collision. byItem keys = itemId → merge by sum.
+  const mergeTwo = (a, b) => {
+    if (!a) return b;
+    if (!b) return a;
+
+    const areaMap = new Map();
+    for (const row of [...a.byArea, ...b.byArea]) {
+      const k = `${row.areaId ?? row.areaName}-${row.repId ?? row.repName}`;
+      if (!areaMap.has(k)) areaMap.set(k, { ...row });
+      else { areaMap.get(k).totalQuantity += row.totalQuantity; areaMap.get(k).totalValue += row.totalValue; }
+    }
+    const itemMap = new Map();
+    for (const row of [...a.byItem, ...b.byItem]) {
+      const k = row.itemId ?? row.itemName;
+      if (!itemMap.has(k)) itemMap.set(k, { ...row });
+      else { itemMap.get(k).totalQuantity += row.totalQuantity; itemMap.get(k).totalValue += row.totalValue; }
+    }
+    const repMap = new Map();
+    for (const row of [...a.byRep, ...b.byRep]) {
+      const k = row.repId ?? row.repName;
+      if (!repMap.has(k)) repMap.set(k, { ...row });
+      else { repMap.get(k).totalQuantity += row.totalQuantity; repMap.get(k).totalValue += row.totalValue; }
+    }
+    return {
+      totals: {
+        totalQuantity: a.totals.totalQuantity + b.totals.totalQuantity,
+        totalValue:    +(a.totals.totalValue  + b.totals.totalValue).toFixed(2),
+      },
+      byArea: [...areaMap.values()].sort((x, y) => y.totalValue - x.totalValue),
+      byItem: [...itemMap.values()].sort((x, y) => y.totalValue - x.totalValue),
+      byRep:  [...repMap.values()].sort((x, y) => y.totalValue - x.totalValue),
+    };
   };
 
-  const salesRows = await prisma.sale.findMany({
-    where,
-    select: {
-      quantity:       true,
-      totalValue:     true,
-      area:           { select: { id: true, name: true } },
-      item:           { select: { id: true, name: true } },
-      representative: { select: { id: true, name: true } },
-    },
-  });
-
-  const { totals, byArea, byItem, byRep } = aggregateSalesWithReps(salesRows);
+  const salesResult = mergeTwo(resultA, resultB)
+    ?? { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
+  const { totals, byArea, byItem, byRep } = salesResult;
 
   return {
     scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
