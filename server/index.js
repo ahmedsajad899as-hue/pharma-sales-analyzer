@@ -39,10 +39,15 @@ import masterSurveyRoutes        from './modules/master-survey/master-survey.rou
 import companyMembersRoutes      from './modules/company-members/company-members.routes.js';
 import distributorSalesRoutes    from './modules/distributor-sales/distributor-sales.routes.js';
 import doctorArchiveRoutes       from './modules/doctor-archive/doctor-archive.routes.js';
+import targetsRoutes              from './modules/targets/targets.routes.js';
 
 dotenv.config();
 
 const app = express();
+
+// __serverDir must be defined before multer so uploads path is absolute
+const __serverDir = path.dirname(fileURLToPath(import.meta.url));
+const distPath    = path.join(__serverDir, '..', 'dist');
 
 // Ensure uploads directory exists (Railway ephemeral filesystem)
 const uploadsDir = path.join(__serverDir, 'uploads');
@@ -75,8 +80,6 @@ app.use(express.json({ limit: '50mb' }));
 app.use(activityMiddleware); // Log non-GET authenticated actions
 
 // ── Serve React frontend in production (BEFORE auth) ─────────
-const __serverDir = path.dirname(fileURLToPath(import.meta.url));
-const distPath    = path.join(__serverDir, '..', 'dist');
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(distPath));
@@ -271,6 +274,7 @@ app.use('/api/master-surveys',    masterSurveyRoutes);
 app.use('/api/company-members',   companyMembersRoutes);
 app.use('/api/distributor-sales', distributorSalesRoutes);
 app.use('/api/doctor-archive',    doctorArchiveRoutes);
+app.use('/api/targets',           targetsRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

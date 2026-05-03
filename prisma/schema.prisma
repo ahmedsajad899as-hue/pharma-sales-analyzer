@@ -189,6 +189,7 @@ model Item {
   userItemAssignments UserItemAssignment[]
   pharmacyVisitItems  PharmacyVisitItem[]
   commercialItems     CommercialInvoiceItem[]
+  repTargets          RepItemTarget[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -1106,6 +1107,25 @@ model MasterSurveyDoctor {
 
   @@index([surveyId])
   @@map("master_survey_doctors")
+}
+
+// ─── Rep Item Target (التارگت الشهري للمندوب لكل ايتم) ────────
+model RepItemTarget {
+  id      Int    @id @default(autoincrement())
+  repType String // 'scientific' | 'commercial'
+  repId   Int    // ScientificRepresentative.id OR MedicalRepresentative.id
+  itemId  Int
+  month   Int
+  year    Int
+  target  Float  @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([repType, repId, itemId, month, year])
+  @@index([repType, repId])
+  @@map("rep_item_targets")
 }
 
 // ─── Master Survey Pharmacy (صيدلية داخل السيرفي) ───────────
