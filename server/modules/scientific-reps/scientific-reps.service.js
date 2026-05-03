@@ -317,6 +317,16 @@ export async function getReport(id, query = {}) {
   const nameMatchSet = new Set(nameMatchIds);
   const filteredExplicitIds = explicitCommRepIds.filter(rid => !nameMatchSet.has(rid));
 
+  console.log('[SciRep.getReport] DEBUG', JSON.stringify({
+    repId: id, repName: rep.name, fileIds,
+    nameMatchCandidates: nameMatchCandidates.length,
+    nameMatchIds,
+    explicitCommRepIds,
+    filteredExplicitIds,
+    areaIds,
+    itemIds,
+  }));
+
   const emptyResult = {
     scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
@@ -341,6 +351,7 @@ export async function getReport(id, query = {}) {
       resultA = await getSalesForScientificRep(nameMatchIds, null, null, dateRange, fileIds, query.recordType || null);
     }
   }
+  console.log('[SciRep.getReport] resultA totals:', JSON.stringify(resultA?.totals ?? null));
 
   // Query B: explicit commercial rep assignments → WITH area/item filter
   let resultB = null;
@@ -351,6 +362,7 @@ export async function getReport(id, query = {}) {
       resultB = await getSalesForScientificRep(filteredExplicitIds, areaIds, itemIds, dateRange, fileIds, query.recordType || null);
     }
   }
+  console.log('[SciRep.getReport] resultB totals:', JSON.stringify(resultB?.totals ?? null));
 
   // Fallback: no rep assignments at all → area/item only (legacy mode)
   if (!resultA && !resultB) {
