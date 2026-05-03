@@ -481,6 +481,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [previewLoading, setPreviewLoading]       = useState(false);
   const previewFileName = `تقرير_${new Date().toISOString().slice(0,10)}.xlsx`;
 
+  // Target comparison state
+  const [showTargets, setShowTargets]     = useState(false);
+  const [targetData, setTargetData]       = useState<{ itemId: number; itemName: string; target: number }[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
   const [fileSourceCurrency, setFileSourceCurrency] = useState<'IQD' | 'USD'>('IQD');
@@ -612,6 +617,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setCommReturnsReport(returnsRes.ok ? parseReport(returnsJson.data ?? returnsJson) : null);
       setReportView('sales');
       setActiveTab('area');
+      setShowTargets(false);
+      setTargetData([]);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
@@ -664,6 +671,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setSciReturnsReport(returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null);
       setReportView('sales');
       setActiveTab('area');
+      setShowTargets(false);
+      setTargetData([]);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
@@ -721,6 +730,27 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
+
+  // Load targets for a rep + derive period from fromDate or current month
+  const loadTargetsForRep = async (repType: 'scientific' | 'commercial', repId: string) => {
+    if (!repId) { setTargetData([]); return; }
+    setTargetsLoading(true);
+    try {
+      const refDate = fromDate ? new Date(fromDate) : new Date();
+      const month = refDate.getMonth() + 1;
+      const year  = refDate.getFullYear();
+      const qs = new URLSearchParams({ repType, repId, month: String(month), year: String(year) });
+      const res = await fetch(`/api/targets?${qs}`, { headers: authH() });
+      const json = await res.json();
+      setTargetData((json.data ?? []).map((t: any) => ({
+        itemId: t.itemId,
+        itemName: t.item?.name ?? '—',
+        target: t.target ?? 0,
+      })));
+    } finally {
+      setTargetsLoading(false);
+    }
+  };
   const fmtSigned = (n: number) => (n >= 0 ? '+' : '') + fmt(n);
 
   // Currency-aware value formatting
@@ -1913,6 +1943,59 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem, false, commViewMode)}
             </>
           )}
+          {activeTab === 'item' && commRepId && (
+            <div style={{ marginTop: 20 }}>
+              <button
+                className="btn btn--secondary"
+                style={{ marginBottom: 10, fontSize: 13 }}
+                onClick={() => {
+                  if (!showTargets) {
+                    loadTargetsForRep('commercial', commRepId);
+                    setShowTargets(true);
+                  } else {
+                    setShowTargets(false);
+                  }
+                }}
+              >
+                🎯 {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
+              </button>
+              {showTargets && (
+                targetsLoading ? <div style={{ textAlign: 'center', padding: 20 }}>جاري التحميل...</div> : (
+                  <div className="table-wrapper">
+                    <table className="data-table" style={{ fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>المادة</th>
+                          <th>التارگت</th>
+                          <th>صافي المبيعات</th>
+                          <th>نسبة التحقق</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {targetData.length === 0 ? (
+                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
+                        ) : targetData.map(td => {
+                          const salesRow  = commReport.byItem.find(r => r.name === td.itemName);
+                          const retRow    = commReturnsReport?.byItem.find(r => r.name === td.itemName);
+                          const netVal    = (salesRow?.totalValue ?? 0) - (retRow?.totalValue ?? 0);
+                          const pct       = td.target > 0 ? (netVal / td.target) * 100 : null;
+                          const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
+                          return (
+                            <tr key={td.itemId}>
+                              <td>{td.itemName}</td>
+                              <td>{fmtVal(td.target)}</td>
+                              <td style={{ color: netVal < 0 ? '#dc2626' : undefined }}>{fmtValSigned(netVal)}</td>
+                              <td style={{ color, fontWeight: 600 }}>{pct !== null ? `${Math.round(pct)}%` : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
+          )}
         </>
         );
       })()}
@@ -1998,6 +2081,59 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem, false, sciViewMode)}
               {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep, false, sciViewMode)}
             </>
+          )}
+          {activeTab === 'item' && sciRepId && (
+            <div style={{ marginTop: 20 }}>
+              <button
+                className="btn btn--secondary"
+                style={{ marginBottom: 10, fontSize: 13 }}
+                onClick={() => {
+                  if (!showTargets) {
+                    loadTargetsForRep('scientific', sciRepId);
+                    setShowTargets(true);
+                  } else {
+                    setShowTargets(false);
+                  }
+                }}
+              >
+                🎯 {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
+              </button>
+              {showTargets && (
+                targetsLoading ? <div style={{ textAlign: 'center', padding: 20 }}>جاري التحميل...</div> : (
+                  <div className="table-wrapper">
+                    <table className="data-table" style={{ fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th>المادة</th>
+                          <th>التارگت</th>
+                          <th>صافي المبيعات</th>
+                          <th>نسبة التحقق</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {targetData.length === 0 ? (
+                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
+                        ) : targetData.map(td => {
+                          const salesRow  = sciReport.byItem.find(r => r.name === td.itemName);
+                          const retRow    = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
+                          const netVal    = (salesRow?.totalValue ?? 0) - (retRow?.totalValue ?? 0);
+                          const pct       = td.target > 0 ? (netVal / td.target) * 100 : null;
+                          const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
+                          return (
+                            <tr key={td.itemId}>
+                              <td>{td.itemName}</td>
+                              <td>{fmtVal(td.target)}</td>
+                              <td style={{ color: netVal < 0 ? '#dc2626' : undefined }}>{fmtValSigned(netVal)}</td>
+                              <td style={{ color, fontWeight: 600 }}>{pct !== null ? `${Math.round(pct)}%` : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
           )}
         </>
         );

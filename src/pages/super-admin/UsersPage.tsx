@@ -108,6 +108,8 @@ const FEATURE_TREE: FeatureNode[] = [
   { key: 'wish_list',  label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'خاصية عرض قائمة الأطباء المستهدفين' },
   // ── 9. تبديل الحساب
   { key: 'switch_account', label: 'تبديل الحساب (Switch Account)', icon: '⇄', desc: 'زر في الشريط الجانبي لتبديل الحسابات المحفوظة بدون تسجيل خروج' },
+  // ── 11. التارگت الشهري
+  { key: 'targets_tab', label: '🎯 التارگت الشهري', icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين العلميين والتجاريين ومقارنته بالمبيعات' },
 ];
 
 interface Office   { id: number; name: string; }

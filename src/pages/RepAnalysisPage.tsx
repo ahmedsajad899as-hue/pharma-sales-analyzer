@@ -6,8 +6,9 @@ import RepresentativesPage from './RepresentativesPage';
 import ScientificRepsPage from './ScientificRepsPage';
 import ReportsPage from './ReportsPage';
 import ItemsPage from './ItemsPage';
+import TargetsPage from './TargetsPage';
 
-type TabId = 'upload' | 'representatives' | 'scientific-reps' | 'reports' | 'items';
+type TabId = 'upload' | 'representatives' | 'scientific-reps' | 'reports' | 'items' | 'targets';
 
 interface Props {
   activeFileIds: number[];
@@ -21,6 +22,7 @@ const TABS: { id: TabId; label: string; desc: string }[] = [
   { id: 'scientific-reps', label: 'المندوبون العلميون',  desc: 'إدارة المندوبين العلميين وتعيين المناطق' },
   { id: 'reports',         label: 'التقارير والتحليل',   desc: 'تقارير المبيعات والتحليل المفصّل' },
   { id: 'items',           label: 'الايتمات',            desc: 'إدارة ايتمات الشركة بكافة تفاصيلها' },
+  { id: 'targets',         label: '🎯 التارگت',          desc: 'إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
 ];
 
 export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavigate }: Props) {
@@ -59,6 +61,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
       case 'scientific-reps': return <ScientificRepsPage activeFileIds={activeFileIds} />;
       case 'reports':         return <ReportsPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;
       case 'items':           return <ItemsPage />;
+      case 'targets':         return <TargetsPage activeFileIds={activeFileIds} />;
     }
   };
 
