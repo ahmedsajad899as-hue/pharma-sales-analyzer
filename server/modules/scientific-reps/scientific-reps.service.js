@@ -343,6 +343,10 @@ export async function getReport(id, query = {}) {
   // ── 5. Run queries ────────────────────────────────────────────────────────
   // Query A: name-matched reps → NO area/item filter (all sales attributed directly)
   // Query B: explicit commercial reps → WITH area/item filter (existing logic)
+  // Exclude any rep IDs already covered by Query A (name-match) to prevent double-counting.
+  const nameMatchSet = new Set(nameMatchIds);
+  const filteredExplicitIds = explicitCommRepIds.filter(id => !nameMatchSet.has(id));
+
   let resultA = null;
   let resultB = null;
 
@@ -354,11 +358,11 @@ export async function getReport(id, query = {}) {
     }
   }
 
-  if (explicitCommRepIds.length > 0) {
+  if (filteredExplicitIds.length > 0) {
     if (isReturn) {
-      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, explicitCommRepIds);
+      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, filteredExplicitIds);
     } else {
-      resultB = await getSalesForScientificRep(explicitCommRepIds, areaIds, itemIds, dateRange, fileIds, query.recordType || null);
+      resultB = await getSalesForScientificRep(filteredExplicitIds, areaIds, itemIds, dateRange, fileIds, query.recordType || null);
     }
   }
 
