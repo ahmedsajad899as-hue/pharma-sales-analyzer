@@ -2959,9 +2959,18 @@ export default function DoctorsPage() {
       {/* ── New Custom Doctor Modal ────────────────────────── */}
       {showNewDocForm && (() => {
         const areaOptions = [...new Set(archiveAreas.map(a => a.name))].sort();
-        const normN = (s: string) => s.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[ًٌٍَُِّْ]/g, '');
+        const normN = (s: string) => s.trim().toLowerCase()
+          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ').trim();
+        const wordsOf = (s: string) => normN(s).split(' ').filter(Boolean);
+        const namesOverlap = (a: string, b: string) => {
+          const wa = wordsOf(a); const wb = wordsOf(b);
+          if (wa.length === 0 || wb.length === 0) return false;
+          const [shorter, longer] = wa.length <= wb.length ? [wa, wb] : [wb, wa];
+          return shorter.every(w => longer.includes(w));
+        };
         const dupMatch = newDocName.trim().length > 1
-          ? archiveAreas.flatMap(a => a.doctors).find(d => normN(d.name) === normN(newDocName))
+          ? archiveAreas.flatMap(a => a.doctors).find(d => namesOverlap(d.name, newDocName))
           : null;
         return (
           <div style={overlayStyle} onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }}>
