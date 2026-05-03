@@ -254,14 +254,31 @@ export async function getReport(id, query = {}) {
   const explicitCommRepIds = commercialLinks.map(l => l.commercialRepId);
 
   // ── 2. Find MedicalRepresentative records whose name matches the sci rep ──
-  // These are sales rows where the rep column = the sci rep's own name.
-  // They are attributed WITHOUT area/item restrictions — all sales for that
-  // name in the file go directly to this sci rep.
+  // IMPORTANT: scope to only reps that actually have sales in the active files.
+  // This prevents data leakage from old/unrelated uploads that share the same rep name.
   const normalizedSciRepName = _normalizeAr(rep.name);
+
+  // Parse fileIds early — needed for the name-match scoping below.
+  const fileIds = query.fileIds ?? null;
+
   const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
-  const nameMatchIds = allMedReps
+  const nameMatchCandidates = allMedReps
     .filter(r => _normalizeAr(r.name) === normalizedSciRepName)
     .map(r => r.id);
+
+  let nameMatchIds = [];
+  if (nameMatchCandidates.length > 0 && fileIds && fileIds.length > 0) {
+    const fileFilter0 = fileIds.length === 1
+      ? { uploadedFileId: fileIds[0] }
+      : { uploadedFileId: { in: fileIds } };
+    // Only keep rep IDs that actually appear in the active files
+    const repsInFiles = await prisma.sale.findMany({
+      where: { representativeId: { in: nameMatchCandidates }, ...fileFilter0 },
+      select: { representativeId: true },
+      distinct: ['representativeId'],
+    });
+    nameMatchIds = repsInFiles.map(r => r.representativeId);
+  }
 
   // ── 3. Load area/item assignments (used only for explicit commercial reps) ─
   const areaLinks = await prisma.scientificRepArea.findMany({
@@ -300,7 +317,6 @@ export async function getReport(id, query = {}) {
   const nameMatchSet = new Set(nameMatchIds);
   const filteredExplicitIds = explicitCommRepIds.filter(rid => !nameMatchSet.has(rid));
 
-  const fileIds = query.fileIds ?? null;
   const emptyResult = {
     scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
