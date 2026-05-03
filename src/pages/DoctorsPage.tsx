@@ -2796,15 +2796,17 @@ export default function DoctorsPage() {
                                 {/* Star + Remove buttons */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                   <button onClick={() => toggleArchiveStar(doc.surveyDoctorId)} title={archiveStarred.has(doc.surveyDoctorId) ? 'إزالة من البلان' : 'أضف للبلان'}
-                                    style={{ background: 'none', border: 'none',
-                                      width: 26, height: 26, cursor: 'pointer', fontSize: 14,
+                                    style={{ background: archiveStarred.has(doc.surveyDoctorId) ? '#fef9c3' : 'none',
+                                      border: archiveStarred.has(doc.surveyDoctorId) ? '1.5px solid #fbbf24' : '1.5px solid #e2e8f0',
+                                      borderRadius: 7,
+                                      width: 32, height: 32, cursor: 'pointer', fontSize: 20,
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      color: archiveStarred.has(doc.surveyDoctorId) ? '#1e293b' : '#cbd5e1',
-                                      transition: 'color .15s', padding: 0 }}>
+                                      color: archiveStarred.has(doc.surveyDoctorId) ? '#d97706' : '#cbd5e1',
+                                      transition: 'all .15s', padding: 0 }}>
                                     {archiveStarred.has(doc.surveyDoctorId) ? '★' : '☆'}
                                   </button>
                                   <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة"
-                                    style={{ background: 'none', border: 'none', width: 26, height: 26, fontSize: 13, cursor: 'pointer', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, borderRadius: 4 }}>
+                                    style={{ background: 'none', border: 'none', width: 32, height: 32, fontSize: 13, cursor: 'pointer', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, borderRadius: 4 }}>
                                     ️️
                                   </button>
                                 </div>
