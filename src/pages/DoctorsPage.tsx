@@ -1053,17 +1053,17 @@ export default function DoctorsPage() {
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
         {([
-          ...(showVisitAnalysis                    ? [['visits',      '📍 تحليل الزيارات']]      : []),
-          ...(showDoctorsList                       ? [['list',        '📋 قائمة الأطباء']]        : []),
-          ...(showArchiveTab                        ? [['archive',     '📚 أرشيف السيرفي']]        : []),
-          ...(isCommercialRep && showMyVisits       ? [['myvisits',    '📝 زياراتي']]              : []),
-          ...(isCommercialRep && showPharmacies     ? [['pharmacies',  '🏪 قائمة الصيدليات']]     : []),
+          ...(showVisitAnalysis                    ? [['visits',      '📍 الزيارات']]          : []),
+          ...(showDoctorsList                       ? [['list',        '📋 الأطباء']]            : []),
+          ...(showArchiveTab                        ? [['archive',     '📚 أرشيف']]              : []),
+          ...(isCommercialRep && showMyVisits       ? [['myvisits',    '📝 زياراتي']]            : []),
+          ...(isCommercialRep && showPharmacies     ? [['pharmacies',  '🏪 الصيدليات']]         : []),
         ] as ['list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive', string][]).map(([tab, label]) => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
-            padding: '8px 18px', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap',
+            padding: '7px 10px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', flex: 1,
             color: activeTab === tab ? '#6366f1' : '#64748b',
             borderBottom: activeTab === tab ? '2px solid #6366f1' : '2px solid transparent',
             marginBottom: -2, transition: 'all 0.15s',
