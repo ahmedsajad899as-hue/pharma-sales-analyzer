@@ -237,38 +237,33 @@ export async function getAssignedAreaIds(id) {
 export async function getReport(id, query = {}) {
   const rep = await assertExists(id);
 
-  // Load assigned commercial-rep IDs
+  // ── Arabic normalizer (unify alef variants, teh marbuta, remove diacritics) ──
+  const _normalizeAr = s => String(s).trim()
+    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
+    .replace(/\u0629/g, '\u0647')
+    .replace(/\u0640/g, '')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // ── 1. Load explicit commercial-rep assignments ───────────────────────────
   const commercialLinks = await prisma.scientificRepCommercial.findMany({
     where: { scientificRepId: id },
     select: { commercialRepId: true, commercialRep: { select: { id: true, name: true } } },
   });
   const explicitCommRepIds = commercialLinks.map(l => l.commercialRepId);
 
-  // Also find MedicalRepresentative records whose name matches the sci rep's own
-  // name (normalized Arabic). This handles uploaded files where the sci rep's name
-  // appears directly in the rep column instead of being assigned via the junction table.
-  function _normalizeAr(s) {
-    return String(s).trim()
-      .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
-      .replace(/\u0629/g, '\u0647')
-      .replace(/\u0640/g, '')
-      .replace(/[\u064B-\u065F]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
+  // ── 2. Find MedicalRepresentative records whose name matches the sci rep ──
+  // These are sales rows where the rep column = the sci rep's own name.
+  // They are attributed WITHOUT area/item restrictions — all sales for that
+  // name in the file go directly to this sci rep.
   const normalizedSciRepName = _normalizeAr(rep.name);
   const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
   const nameMatchIds = allMedReps
     .filter(r => _normalizeAr(r.name) === normalizedSciRepName)
     .map(r => r.id);
 
-  // Merge explicit assignments + name-matched reps (deduplicated)
-  const commRepIds = [...new Set([...explicitCommRepIds, ...nameMatchIds])];
-
-  // Load assigned area links and resolve ALL area IDs with those names cross-user.
-  // Areas assigned via admin panel may be scoped to adminUserId, while sales areas
-  // are scoped to the uploaderUserId — same name, different records.
-  // We resolve by name to capture all matching area IDs regardless of who created them.
+  // ── 3. Load area/item assignments (used only for explicit commercial reps) ─
   const areaLinks = await prisma.scientificRepArea.findMany({
     where: { scientificRepId: id },
     select: { areaId: true, area: { select: { id: true, name: true } } },
@@ -283,7 +278,6 @@ export async function getReport(id, query = {}) {
     areaIds = allMatchingAreas.map(a => a.id);
   }
 
-  // Same cross-user resolution for items.
   const itemLinks = await prisma.scientificRepItem.findMany({
     where: { scientificRepId: id },
     select: { itemId: true, item: { select: { id: true, name: true } } },
@@ -298,29 +292,86 @@ export async function getReport(id, query = {}) {
     itemIds = allMatchingItems.map(i => i.id);
   }
 
-  // For returns: use cross-user resolved areaIds/itemIds (same as sales).
-  // fileIds-only scope was too broad — it returned returns from unassigned areas.
-  let salesResult, returnsResult;
-  if (query.recordType === 'return') {
-    returnsResult = await getReturnsForSciRepScope(
-      areaIds,
-      itemIds,
-      { startDate: query.startDate, endDate: query.endDate },
-      query.fileIds ?? null,
-      commRepIds.length > 0 ? commRepIds : null,
-    );
-    salesResult = returnsResult;
-  } else {
-    salesResult = await getSalesForScientificRep(
-      commRepIds,
-      areaIds,
-      itemIds,
-      { startDate: query.startDate, endDate: query.endDate },
-      query.fileIds ?? null,
-      query.recordType || null,
-    );
+  // ── 4. Query helper that merges two result sets ───────────────────────────
+  const mergeResults = (a, b) => {
+    if (!a) return b;
+    if (!b) return a;
+    const totals = {
+      totalQuantity: a.totals.totalQuantity + b.totals.totalQuantity,
+      totalValue:    +(a.totals.totalValue  + b.totals.totalValue).toFixed(2),
+    };
+    // Merge byArea (key: areaId-repId)
+    const areaMap = new Map();
+    for (const row of [...(a.byArea ?? []), ...(b.byArea ?? [])]) {
+      const key = `${row.areaId}-${row.repId}`;
+      if (!areaMap.has(key)) areaMap.set(key, { ...row });
+      else {
+        areaMap.get(key).totalQuantity += row.totalQuantity;
+        areaMap.get(key).totalValue    += row.totalValue;
+      }
+    }
+    // Merge byItem (key: itemId)
+    const itemMap2 = new Map();
+    for (const row of [...(a.byItem ?? []), ...(b.byItem ?? [])]) {
+      if (!itemMap2.has(row.itemId)) itemMap2.set(row.itemId, { ...row });
+      else {
+        itemMap2.get(row.itemId).totalQuantity += row.totalQuantity;
+        itemMap2.get(row.itemId).totalValue    += row.totalValue;
+      }
+    }
+    // Merge byRep (key: repId)
+    const repMap2 = new Map();
+    for (const row of [...(a.byRep ?? []), ...(b.byRep ?? [])]) {
+      if (!repMap2.has(row.repId)) repMap2.set(row.repId, { ...row });
+      else {
+        repMap2.get(row.repId).totalQuantity += row.totalQuantity;
+        repMap2.get(row.repId).totalValue    += row.totalValue;
+      }
+    }
+    return {
+      totals,
+      byArea: [...areaMap.values()].sort((x, y) => y.totalValue - x.totalValue),
+      byItem: [...itemMap2.values()].sort((x, y) => y.totalValue - x.totalValue),
+      byRep:  [...repMap2.values()].sort((x, y) => y.totalValue - x.totalValue),
+    };
+  };
+
+  const dateRange = { startDate: query.startDate, endDate: query.endDate };
+  const fileIds   = query.fileIds ?? null;
+  const isReturn  = query.recordType === 'return';
+
+  // ── 5. Run queries ────────────────────────────────────────────────────────
+  // Query A: name-matched reps → NO area/item filter (all sales attributed directly)
+  // Query B: explicit commercial reps → WITH area/item filter (existing logic)
+  let resultA = null;
+  let resultB = null;
+
+  if (nameMatchIds.length > 0) {
+    if (isReturn) {
+      resultA = await getReturnsForSciRepScope(null, null, dateRange, fileIds, nameMatchIds);
+    } else {
+      resultA = await getSalesForScientificRep(nameMatchIds, null, null, dateRange, fileIds, query.recordType || null);
+    }
   }
 
+  if (explicitCommRepIds.length > 0) {
+    if (isReturn) {
+      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, explicitCommRepIds);
+    } else {
+      resultB = await getSalesForScientificRep(explicitCommRepIds, areaIds, itemIds, dateRange, fileIds, query.recordType || null);
+    }
+  }
+
+  // Fallback: no assignments of any kind (legacy area/item only mode)
+  if (!resultA && !resultB) {
+    if (isReturn) {
+      resultB = await getReturnsForSciRepScope(areaIds, itemIds, dateRange, fileIds, null);
+    } else {
+      resultB = await getSalesForScientificRep([], areaIds, itemIds, dateRange, fileIds, query.recordType || null);
+    }
+  }
+
+  const salesResult = mergeResults(resultA, resultB) ?? { totals: { totalQuantity: 0, totalValue: 0 }, byArea: [], byItem: [], byRep: [] };
   const { totals, byArea, byItem, byRep } = salesResult;
 
   return {
