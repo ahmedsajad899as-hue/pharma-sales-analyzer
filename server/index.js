@@ -43,7 +43,12 @@ import doctorArchiveRoutes       from './modules/doctor-archive/doctor-archive.r
 dotenv.config();
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+
+// Ensure uploads directory exists (Railway ephemeral filesystem)
+const uploadsDir = path.join(__serverDir, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const upload = multer({ dest: uploadsDir });
 
 // Multer for item images (keeps file extension, stores in uploads/items/)
 const imageUpload = multer({

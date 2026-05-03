@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import * as ctrl from './monthly-plans.controller.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsDir = path.resolve(__dirname, '../../../uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
 const router  = Router();
-const upload  = multer({ dest: 'uploads/' });
+const upload  = multer({ dest: uploadsDir });
 
 router.get('/',                        ctrl.list);
 router.get('/suggest',                 ctrl.suggest);

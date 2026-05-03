@@ -451,7 +451,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           const r = await fetch('/api/pharmacy-visits/voice-record', {
             method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd
           });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          if (!r.ok) { const errBody = await r.json().catch(() => ({})); throw new Error(errBody.error || `HTTP ${r.status}`); }
           const data = await r.json();
           if (data.pharmacyName) setClPharmacyName(data.pharmacyName);
           if (data.areaId)       { setClPharmacyAreaId(String(data.areaId)); setClPharmacyAreaName(data.areaName || ''); }
@@ -480,7 +480,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         const r = await fetch(voiceUrl, {
           method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd
         });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) { const errBody = await r.json().catch(() => ({})); throw new Error(errBody.error || `HTTP ${r.status}`); }
         const data = await r.json();
         const visits: any[] = data.visits ?? [];
         if (visits.length === 0) { setVoiceError('لم يتم التعرف على اسم الطبيب — ابدأ بذكر اسم الطبيب بوضوح ثم حاول مجدداً'); return; }
