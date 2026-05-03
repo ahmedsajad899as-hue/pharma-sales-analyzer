@@ -516,10 +516,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
   useEffect(() => {
     autoLoaded.current = false; // Reset so auto-load re-fires when reps reload for new files
+    // Always clear stale report data immediately when active files change
+    setCommReport(null);
+    setSciReport(null);
+    setCommReturnsReport(null);
+    setSciReturnsReport(null);
+    setOverallSales(null);
+    setOverallReturns(null);
     if (activeFileIds.length === 0) {
       setCommReps([]);
-      setCommReport(null);
-      setSciReport(null);
       setFileCurrencyMode('IQD');
       setFileSourceCurrency('IQD');
       setFileExchangeRate(1500);

@@ -67,11 +67,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const json = await res.json();
       const fetched: UploadedFile[] = Array.isArray(json.data) ? json.data : [];
       setFiles(fetched);
-      // Auto-activate the most recent file if nothing is currently active
-      if (activeFileIdsRef.current.length === 0 && fetched.length > 0) {
-        const newest = fetched.reduce((a, b) => new Date(a.uploadedAt) > new Date(b.uploadedAt) ? a : b);
-        onFileActivatedRef.current(newest.id);
-      }
+      // No auto-activation — the user must activate a file manually
     } catch { /* ignore */ }
     finally { setFilesLoading(false); }
   }, [token]); // removed activeFileIds & onFileActivated — refs keep them up-to-date without re-triggering
