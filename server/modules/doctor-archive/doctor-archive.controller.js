@@ -4,6 +4,13 @@ const normKey = s => String(s ?? '').trim().toLowerCase()
   .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
   .replace(/[ًٌٍَُِّْ]/g, '');
 
+// Same normalization used in visitsByArea — strips area prefixes like "حي "
+const normArea = s => String(s ?? '').trim()
+  .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+  .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+  .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
+  .toLowerCase().trim();
+
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep']);
 
 // Visible surveys for this user (same logic as master-survey module)
@@ -54,7 +61,7 @@ export async function getArchive(req, res, next) {
         saAreaIds = extraAreas.map(a => a.name.trim());
       }
       const repAreaNames = [...new Set([...areaRows.map(r => r.area.name.trim()), ...saAreaIds])];
-      const normAreaNames = repAreaNames.map(normKey);
+      const normAreaNames = new Set(repAreaNames.map(normArea));
 
       // Get active surveys
       const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
@@ -68,8 +75,8 @@ export async function getArchive(req, res, next) {
           select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true },
           orderBy: { name: 'asc' },
         });
-        surveyDoctors = normAreaNames.length > 0
-          ? allDocs.filter(d => d.areaName?.trim() && normAreaNames.includes(normKey(d.areaName)))
+        surveyDoctors = normAreaNames.size > 0
+          ? allDocs.filter(d => d.areaName?.trim() && normAreaNames.has(normArea(d.areaName)))
           : allDocs;
       }
 
