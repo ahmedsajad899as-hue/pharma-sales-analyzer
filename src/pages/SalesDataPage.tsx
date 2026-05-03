@@ -734,6 +734,7 @@ export default function SalesDataPage() {
   const classifyFileRef = useRef<HTMLInputElement>(null);
   const [focusCategoryA, setFocusCategoryA] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const exportViewRef     = useRef<HTMLDivElement>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const normName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -902,48 +903,44 @@ table{border-collapse:collapse;width:100%}
   }, [activeFile, buildStyledTableHTML, regionFilter, showValue, warehouseClasses]);
 
   const exportTableToPDF = useCallback(async () => {
-    const container = tableContainerRef.current;
-    if (!container) { alert('لا يوجد جدول للتصدير'); return; }
-    const table = container.querySelector('table');
-    if (!table) { alert('لا يوجد جدول للتصدير'); return; }
+    const section = exportViewRef.current;
+    if (!section) { alert('لا يوجد جدول للتصدير'); return; }
 
-    // Clone the table off-screen with sticky positioning reset, so the
-    // rendered image matches the visual layout exactly.
-    const clone = table.cloneNode(true) as HTMLTableElement;
-    clone.querySelectorAll('button, input').forEach(el => (el as HTMLElement).remove());
+    // Clone the entire visible section (buttons + info row + table)
+    const clone = section.cloneNode(true) as HTMLElement;
+
+    // Remove interactive elements that don't belong in a screenshot
     clone.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
-    clone.style.borderCollapse = 'collapse';
-    clone.style.background = '#fff';
+    // Remove open dropdown menus / popovers
+    clone.querySelectorAll('[style*="position: absolute"], [style*="position:absolute"], [style*="position: fixed"], [style*="position:fixed"]').forEach(el => {
+      (el as HTMLElement).style.display = 'none';
+    });
+    // Remove buttons that are controls (✕ close buttons, export dropdown trigger)
+    clone.querySelectorAll('button').forEach(el => {
+      const txt = (el as HTMLElement).textContent?.trim() ?? '';
+      // Keep decorative badge-like spans rendered as buttons, remove control buttons
+      if (txt === '✕' || txt.startsWith('⬇') || txt === '×') (el as HTMLElement).style.visibility = 'hidden';
+    });
+
+    // Reset sticky/overflow so the full table renders
+    clone.style.overflow = 'visible';
     clone.querySelectorAll('th, td').forEach(c => {
       const el = c as HTMLElement;
       el.style.position = 'static';
-      if (!el.style.border) el.style.border = '1px solid #e2e8f0';
-      el.style.padding = el.style.padding || '6px 8px';
     });
+    const tableWrap = clone.querySelector('[style*="overflow"]') as HTMLElement | null;
+    if (tableWrap) tableWrap.style.overflow = 'visible';
 
     const wrap = document.createElement('div');
     wrap.setAttribute('dir', 'rtl');
-    wrap.style.cssText = 'position:fixed;top:0;left:-99999px;background:#fff;padding:12px;font-family:Arial,Tahoma,sans-serif;';
-
-    // Build info header for image export
-    const headerBadges: { text: string; bg: string; border: string; color: string }[] = [];
-    if (regionFilter !== 'all') headerBadges.push({ text: `📍 المنطقة: ${regionFilter}`, bg: '#f1f5f9', border: '#cbd5e1', color: '#1e293b' });
-    if (showValue)              headerBadges.push({ text: '💰 قيمة مالية',             bg: '#fffbeb', border: '#f59e0b', color: '#b45309' });
-    if (redCellCountRef.current > 0) headerBadges.push({ text: `⚠ النقص: ${redCellCountRef.current}`,  bg: '#fef2f2', border: '#fca5a5', color: '#dc2626' });
-    if (warehouseClasses.length > 0) headerBadges.push({ text: `🏷️ تصنيف المذاخر: ${warehouseClasses.length}`, bg: '#eef2ff', border: '#a5b4fc', color: '#4338ca' });
-    if (headerBadges.length > 0) {
-      const infoDiv = document.createElement('div');
-      infoDiv.setAttribute('dir', 'rtl');
-      infoDiv.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;';
-      headerBadges.forEach(b => {
-        const span = document.createElement('span');
-        span.style.cssText = `padding:3px 11px;border-radius:12px;background:${b.bg};border:1.5px solid ${b.border};color:${b.color};font-weight:700;font-size:12px;white-space:nowrap;`;
-        span.textContent = b.text;
-        infoDiv.appendChild(span);
-      });
-      wrap.appendChild(infoDiv);
-    }
-
+    wrap.style.cssText = `
+      position: fixed; top: 0; left: -99999px;
+      background: #fff;
+      padding: 20px;
+      font-family: Arial, Tahoma, sans-serif;
+      width: ${Math.max(section.scrollWidth + 40, 900)}px;
+      box-sizing: border-box;
+    `;
     wrap.appendChild(clone);
     document.body.appendChild(wrap);
 
@@ -954,6 +951,8 @@ table{border-collapse:collapse;width:100%}
         scale: 2,
         useCORS: true,
         logging: false,
+        width: wrap.offsetWidth,
+        windowWidth: wrap.offsetWidth,
       });
 
       const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
@@ -986,7 +985,7 @@ table{border-collapse:collapse;width:100%}
     } finally {
       document.body.removeChild(wrap);
     }
-  }, [activeFile, regionFilter, showValue, warehouseClasses]);
+  }, [activeFile]);
 
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
@@ -1929,6 +1928,8 @@ table{border-collapse:collapse;width:100%}
             })()}
           </div>
 
+          {/* Tab switcher + value toggle — wrapped for image export */}
+          <div ref={exportViewRef}>
           {/* Tab switcher + value toggle */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             {(['table', 'analysis'] as const).filter(id => id === 'table' || hasFeature('sales_data_analysis')).map(id => (
@@ -2234,6 +2235,7 @@ table{border-collapse:collapse;width:100%}
 
             </>
           )}
+          </div>{/* end exportViewRef wrapper */}
 
           {/* ANALYSIS VIEW */}
           {tab === 'analysis' && (
