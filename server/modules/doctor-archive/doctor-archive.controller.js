@@ -379,44 +379,56 @@ export async function importFromVisits(req, res, next) {
       if (!isNaN(rid)) targetUserId = rid;
     }
 
-    // Resolve area names for targetUser (same logic as visitsByArea)
+    // Normalization — MUST match visitsByArea exactly (including prefix stripping)
     const normArea = s => String(s || '').trim()
       .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
       .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+      .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
       .toLowerCase().trim();
-
-    const userRow = await prisma.user.findUnique({ where: { id: targetUserId }, select: { linkedRepId: true } });
-    const linkedRepId = userRow?.linkedRepId ?? null;
-
-    const [uaRows, saRows] = await Promise.all([
-      prisma.userAreaAssignment.findMany({ where: { userId: targetUserId }, select: { areaId: true } }),
-      linkedRepId
-        ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-        : Promise.resolve([]),
-    ]);
-    const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
 
     let surveyDoctorIds = [];
 
-    if (repAreaIds.length > 0) {
-      // Get area names for normalization
-      const areaRecords = await prisma.area.findMany({
-        where: { id: { in: repAreaIds } },
-        select: { name: true },
-      });
-      const normAreaNames = new Set(areaRecords.map(a => normArea(a.name)));
+    // Check if targetUser is a field rep or a manager
+    const targetUser = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true, linkedRepId: true } });
+    const isTargetFieldRep = FIELD_ROLES.has(targetUser?.role ?? '');
 
-      // Get active survey doctors in those areas
-      const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
-      const surveyIds = surveys.map(s => s.id);
-      if (surveyIds.length > 0) {
-        const allDocs = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: { in: surveyIds } },
-          select: { id: true, areaName: true },
+    if (!isTargetFieldRep && !req.body.repUserId) {
+      // Manager viewing their own archive: visitsByArea uses Doctor records.
+      // Use Doctor.masterSurveyDoctorId to link to archive entries.
+      const doctors = await prisma.doctor.findMany({
+        where: { userId: targetUserId, masterSurveyDoctorId: { not: null } },
+        select: { masterSurveyDoctorId: true },
+      });
+      surveyDoctorIds = [...new Set(doctors.map(d => d.masterSurveyDoctorId).filter(Boolean))];
+    } else {
+      // Field rep or manager targeting a specific rep: use MasterSurveyDoctor in their areas
+      const linkedRepId = targetUser?.linkedRepId ?? null;
+      const [uaRows, saRows] = await Promise.all([
+        prisma.userAreaAssignment.findMany({ where: { userId: targetUserId }, select: { areaId: true } }),
+        linkedRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+          : Promise.resolve([]),
+      ]);
+      const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
+
+      if (repAreaIds.length > 0) {
+        const areaRecords = await prisma.area.findMany({
+          where: { id: { in: repAreaIds } },
+          select: { name: true },
         });
-        surveyDoctorIds = allDocs
-          .filter(d => d.areaName?.trim() && normAreaNames.has(normArea(d.areaName)))
-          .map(d => d.id);
+        const normAreaNames = new Set(areaRecords.map(a => normArea(a.name)));
+
+        const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
+        const surveyIds = surveys.map(s => s.id);
+        if (surveyIds.length > 0) {
+          const allDocs = await prisma.masterSurveyDoctor.findMany({
+            where: { surveyId: { in: surveyIds } },
+            select: { id: true, areaName: true },
+          });
+          surveyDoctorIds = allDocs
+            .filter(d => d.areaName?.trim() && normAreaNames.has(normArea(d.areaName)))
+            .map(d => d.id);
+        }
       }
     }
 
