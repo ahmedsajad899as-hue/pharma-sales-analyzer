@@ -320,6 +320,15 @@ export default function DoctorsPage() {
   const [newDocClass, setNewDocClass]             = useState('');
   const [newDocSaving, setNewDocSaving]           = useState(false);
   const [newDocErr, setNewDocErr]                 = useState('');
+  // Edit existing doctor form
+  const [editDocId, setEditDocId]                 = useState<number | null>(null);
+  const [editDocName, setEditDocName]             = useState('');
+  const [editDocSpecialty, setEditDocSpecialty]   = useState('');
+  const [editDocArea, setEditDocArea]             = useState('');
+  const [editDocPharmacy, setEditDocPharmacy]     = useState('');
+  const [editDocClass, setEditDocClass]           = useState('');
+  const [editDocSaving, setEditDocSaving]         = useState(false);
+  const [editDocErr, setEditDocErr]               = useState('');
 
   // Back button: close open modals/panels in priority order
   useBackHandler([
@@ -343,6 +352,7 @@ export default function DoctorsPage() {
     [showArchiveWishPanel,         () => setShowArchiveWishPanel(false)],
     [archiveSubPopup !== null,      () => setArchiveSubPopup(null)],
     [showNewDocForm,               () => { setShowNewDocForm(false); setNewDocErr(''); }],
+    [editDocId !== null,           () => { setEditDocId(null); setEditDocErr(''); }],
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
 
@@ -642,6 +652,39 @@ export default function DoctorsPage() {
       loadArchive();
     } catch (e: any) { setNewDocErr(e.message); }
     finally { setNewDocSaving(false); }
+  };
+
+  const openEditDoc = (doc: ArchiveDoctor) => {
+    setEditDocId(doc.surveyDoctorId);
+    setEditDocName(doc.name);
+    setEditDocSpecialty(doc.specialty ?? '');
+    setEditDocArea(doc.areaName ?? '');
+    setEditDocPharmacy(doc.pharmacyName ?? '');
+    setEditDocClass(doc.className ?? '');
+    setEditDocErr('');
+  };
+
+  const submitEditDoctor = async () => {
+    if (!editDocName.trim()) { setEditDocErr('الاسم مطلوب'); return; }
+    if (editDocId === null) return;
+    setEditDocSaving(true); setEditDocErr('');
+    try {
+      const r = await fetch(`${API}/api/doctor-archive/doctor/${editDocId}`, {
+        method: 'PATCH', headers: H(),
+        body: JSON.stringify({
+          name:         editDocName.trim(),
+          specialty:    editDocSpecialty.trim() || null,
+          areaName:     editDocArea.trim()      || null,
+          pharmacyName: editDocPharmacy.trim()  || null,
+          className:    editDocClass.trim()     || null,
+        }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error ?? 'فشل الحفظ');
+      setEditDocId(null);
+      loadArchive();
+    } catch (e: any) { setEditDocErr(e.message); }
+    finally { setEditDocSaving(false); }
   };
 
   const addAllToArchive = async (ids: number[]) => {
@@ -2793,7 +2836,7 @@ export default function DoctorsPage() {
                                   )}
                                 </div>
 
-                                {/* Star + Remove buttons */}
+                                {/* Star + Edit + Remove buttons */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
                                   <button onClick={() => toggleArchiveStar(doc.surveyDoctorId)} title={archiveStarred.has(doc.surveyDoctorId) ? 'إزالة من البلان' : 'أضف للبلان'}
                                     style={{ background: archiveStarred.has(doc.surveyDoctorId) ? '#fef9c3' : 'none',
@@ -2805,9 +2848,13 @@ export default function DoctorsPage() {
                                       transition: 'all .15s', padding: 0 }}>
                                     {archiveStarred.has(doc.surveyDoctorId) ? '★' : '☆'}
                                   </button>
+                                  <button onClick={() => openEditDoc(doc)} title="تعديل"
+                                    style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: 7, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                                    ✏️
+                                  </button>
                                   <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة"
-                                    style={{ background: 'none', border: 'none', width: 32, height: 32, fontSize: 13, cursor: 'pointer', color: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, borderRadius: 4 }}>
-                                    ️️
+                                    style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: 7, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                                    🗑
                                   </button>
                                 </div>
                               </div>
@@ -2955,6 +3002,61 @@ export default function DoctorsPage() {
           </div>
         );
       })()}
+
+      {/* ── Edit Doctor Modal ──────────────────────────────── */}
+      {editDocId !== null && (
+        <div style={overlayStyle} onClick={() => { setEditDocId(null); setEditDocErr(''); }}>
+          <div style={{ ...modalStyle, maxWidth: 400 }} onClick={e => e.stopPropagation()} dir="rtl">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>تعديل بيانات الطبيب</span>
+              <button onClick={() => { setEditDocId(null); setEditDocErr(''); }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الاسم *</label>
+                <input autoFocus value={editDocName} onChange={e => setEditDocName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && submitEditDoctor()}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${editDocErr && !editDocName.trim() ? '#f87171' : '#e2e8f0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>التخصص</label>
+                <input value={editDocSpecialty} onChange={e => setEditDocSpecialty(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                  placeholder="مثال: قلب، عيون..." />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>المنطقة</label>
+                <input value={editDocArea} onChange={e => setEditDocArea(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الصيدلية</label>
+                <input value={editDocPharmacy} onChange={e => setEditDocPharmacy(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الكلاس</label>
+                <input value={editDocClass} onChange={e => setEditDocClass(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                  placeholder="مثال: A, B, C" />
+              </div>
+            </div>
+            {editDocErr && (
+              <div style={{ marginTop: 10, fontSize: 12, color: '#ef4444', background: '#fef2f2', borderRadius: 6, padding: '6px 10px' }}>{editDocErr}</div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button onClick={submitEditDoctor} disabled={editDocSaving}
+                style={{ flex: 1, padding: '9px 0', background: '#1e293b', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: editDocSaving ? 0.7 : 1 }}>
+                {editDocSaving ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+              </button>
+              <button onClick={() => { setEditDocId(null); setEditDocErr(''); }}
+                style={{ padding: '9px 16px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── New Custom Doctor Modal ────────────────────────── */}
       {showNewDocForm && (() => {

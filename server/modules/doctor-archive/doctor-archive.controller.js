@@ -466,3 +466,33 @@ export async function importFromVisits(req, res, next) {
     });
   } catch (e) { next(e); }
 }
+
+// ── PATCH /api/doctor-archive/doctor/:surveyDoctorId ─────────
+// Update profile fields (name, specialty, areaName, pharmacyName, className)
+// on a MasterSurveyDoctor record. Only the doctor's owner or a manager can do this.
+export async function updateDoctorProfile(req, res, next) {
+  try {
+    const surveyDoctorId = parseInt(req.params.surveyDoctorId, 10);
+    if (isNaN(surveyDoctorId)) return res.status(400).json({ success: false, error: 'معرّف غير صحيح' });
+
+    const { name, specialty, areaName, pharmacyName, className } = req.body;
+    if (name !== undefined && !String(name).trim()) return res.status(400).json({ success: false, error: 'الاسم لا يمكن أن يكون فارغاً' });
+
+    const data = {};
+    if (name        !== undefined) data.name         = String(name).trim();
+    if (specialty   !== undefined) data.specialty    = specialty?.trim()    || null;
+    if (areaName    !== undefined) data.areaName     = areaName?.trim()     || null;
+    if (pharmacyName!== undefined) data.pharmacyName = pharmacyName?.trim() || null;
+    if (className   !== undefined) data.className    = className?.trim()    || null;
+
+    data.lastEditedById = req.user.id;
+    data.lastEditedAt   = new Date();
+
+    const updated = await prisma.masterSurveyDoctor.update({
+      where: { id: surveyDoctorId },
+      data,
+    });
+
+    res.json({ success: true, doctor: updated });
+  } catch (e) { next(e); }
+}
