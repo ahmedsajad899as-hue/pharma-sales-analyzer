@@ -2959,6 +2959,10 @@ export default function DoctorsPage() {
       {/* ── New Custom Doctor Modal ────────────────────────── */}
       {showNewDocForm && (() => {
         const areaOptions = [...new Set(archiveAreas.map(a => a.name))].sort();
+        const normN = (s: string) => s.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[ًٌٍَُِّْ]/g, '');
+        const dupMatch = newDocName.trim().length > 1
+          ? archiveAreas.flatMap(a => a.doctors).find(d => normN(d.name) === normN(newDocName))
+          : null;
         return (
           <div style={overlayStyle} onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }}>
             <div style={{ ...modalStyle, maxWidth: 400 }} onClick={e => e.stopPropagation()} dir="rtl">
@@ -2973,8 +2977,13 @@ export default function DoctorsPage() {
                   <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الاسم *</label>
                   <input autoFocus value={newDocName} onChange={e => setNewDocName(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && submitCustomDoctor()}
-                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${newDocErr && !newDocName.trim() ? '#f87171' : '#e2e8f0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${dupMatch ? '#f59e0b' : newDocErr && !newDocName.trim() ? '#f87171' : '#e2e8f0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
                     placeholder="اسم الطبيب" />
+                  {dupMatch && (
+                    <div style={{ marginTop: 5, fontSize: 11, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6, padding: '5px 9px' }}>
+                      ⚠️ الاسم موجود مسبقاً في {dupMatch.areaName || 'الأرشيف'}
+                    </div>
+                  )}
                 </div>
 
                 {/* Specialty */}
@@ -3017,7 +3026,7 @@ export default function DoctorsPage() {
 
                 {/* Class */}
                 <div>
-                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>التصنيف</label>
+                  <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>الكلاس</label>
                   <input value={newDocClass} onChange={e => setNewDocClass(e.target.value)}
                     style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#fafafa' }}
                     placeholder="مثال: A, B, C" />
