@@ -421,6 +421,13 @@ export async function list(req, res, next) {
             select: { userId: true },
           });
           if (repRecord?.userId) managerUserId = repRecord.userId;
+        } else {
+          // No linkedRepId — try UserManagerAssignment to find the manager's userId
+          const managerAssign = await prisma.userManagerAssignment.findFirst({
+            where: { userId },
+            select: { managerId: true },
+          });
+          if (managerAssign?.managerId) managerUserId = managerAssign.managerId;
         }
         where = { userId: managerUserId, name: { contains: q.trim() } };
 
@@ -490,6 +497,13 @@ export async function list(req, res, next) {
           where: { id: userRecord.linkedRepId }, select: { userId: true },
         });
         if (repRow?.userId) ownerUserId = repRow.userId;
+      } else if (isFieldRep) {
+        // No linkedRepId — use manager's userId via UserManagerAssignment
+        const managerAssign = await prisma.userManagerAssignment.findFirst({
+          where: { userId },
+          select: { managerId: true },
+        });
+        if (managerAssign?.managerId) ownerUserId = managerAssign.managerId;
       }
 
       const activeSurvey = await prisma.masterSurvey.findFirst({
