@@ -496,6 +496,79 @@ export async function list(req, res, next) {
         where = andFilters.length > 0
           ? { AND: [baseWhere, ...andFilters] }
           : baseWhere;
+
+        // ── Auto-import: استيراد كل أطباء السيرفي في مناطق المندوب دفعة واحدة ──
+        if (repAreaIds.length > 0) {
+          try {
+            const normAreaKey = s => String(s ?? '').trim().toLowerCase()
+              .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+              .replace(/[ًٌٍَُِّْ]/g, '');
+
+            // أسماء مناطق المندوب
+            const repAreaRecords = await prisma.area.findMany({
+              where: { id: { in: repAreaIds } },
+              select: { id: true, name: true },
+            });
+            const repAreaNameToId = new Map(repAreaRecords.map(a => [normAreaKey(a.name), a.id]));
+            const repAreaNormNames = [...repAreaNameToId.keys()];
+
+            const activeSurvey = await prisma.masterSurvey.findFirst({
+              where: { isActive: true }, select: { id: true }, orderBy: { createdAt: 'desc' },
+            });
+            if (activeSurvey && repAreaNormNames.length > 0) {
+              // كل أطباء السيرفي في مناطق المندوب
+              const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
+                where: { surveyId: activeSurvey.id, areaName: { not: null } },
+                select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
+              });
+              const surveyDocsInAreas = allSurveyDocs.filter(d =>
+                d.areaName?.trim() && repAreaNormNames.includes(normAreaKey(d.areaName))
+              );
+
+              if (surveyDocsInAreas.length > 0) {
+                // الأطباء الموجودون فعلاً تحت المدير
+                const existing = await prisma.doctor.findMany({
+                  where: {
+                    userId: browseManagerId,
+                    name: { in: surveyDocsInAreas.map(d => d.name.trim()) },
+                  },
+                  select: { id: true, name: true, areaId: true },
+                });
+                const existingByName = new Map(
+                  existing.map(d => [d.name.trim().toLowerCase(), d])
+                );
+
+                const toCreate = [];
+                const toFix = [];
+                for (const sd of surveyDocsInAreas) {
+                  const nameKey = sd.name.trim().toLowerCase();
+                  const resolvedAreaId = repAreaNameToId.get(normAreaKey(sd.areaName)) || null;
+                  const ex = existingByName.get(nameKey);
+                  if (ex) {
+                    if (!ex.areaId && resolvedAreaId) toFix.push({ id: ex.id, areaId: resolvedAreaId });
+                  } else {
+                    toCreate.push({
+                      name: sd.name.trim(),
+                      specialty: sd.specialty || null,
+                      pharmacyName: sd.pharmacyName || null,
+                      areaId: resolvedAreaId,
+                      userId: browseManagerId,
+                    });
+                  }
+                }
+
+                if (toCreate.length > 0) {
+                  await prisma.doctor.createMany({ data: toCreate, skipDuplicates: true });
+                }
+                for (const fix of toFix) {
+                  await prisma.doctor.update({ where: { id: fix.id }, data: { areaId: fix.areaId } });
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[doctors.list] auto-import failed:', err?.message);
+          }
+        }
       }
 
     } else {
