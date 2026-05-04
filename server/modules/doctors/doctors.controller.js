@@ -457,7 +457,7 @@ export async function list(req, res, next) {
         if (areaId)                 where.areaId   = parseInt(areaId);
         if (isActive !== undefined) where.isActive = (isActive === 'true');
       } else {
-        // ── عند التصفح (بدون q): استخدام فلتر المناطق ──
+        // ── عند التصفح (بدون q): استخدام فلتر المناطق + null-area docs من المدير ──
         const [userAreaRows, repAreaRows] = await Promise.all([
           prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
           linkedRepId
@@ -469,9 +469,25 @@ export async function list(req, res, next) {
           ...repAreaRows.map(a => a.areaId),
         ])];
 
+        // نحتاج userId المدير لتضمين الأطباء الذين areaId = null (مسجلين تحت المدير)
+        let browseManagerId = userId;
+        if (linkedRepId) {
+          const repRecord = await prisma.scientificRepresentative.findUnique({
+            where: { id: linkedRepId }, select: { userId: true },
+          });
+          if (repRecord?.userId) browseManagerId = repRecord.userId;
+        }
+        if (browseManagerId === userId) {
+          const managerAssign = await prisma.userManagerAssignment.findFirst({
+            where: { userId }, select: { managerId: true },
+          });
+          if (managerAssign?.managerId) browseManagerId = managerAssign.managerId;
+        }
+
         const baseWhere = repAreaIds.length > 0
-          ? { areaId: { in: repAreaIds } }
-          : { userId }; // fallback إذا لم تُحدَّد مناطق
+          // أطباء بمنطقة محددة (أي مدير) + أطباء بدون منطقة مملوكة للمدير
+          ? { OR: [{ areaId: { in: repAreaIds } }, { areaId: null, userId: browseManagerId }] }
+          : { userId: browseManagerId };
 
         const andFilters = [];
         if (areaId)                 andFilters.push({ areaId: parseInt(areaId) });
