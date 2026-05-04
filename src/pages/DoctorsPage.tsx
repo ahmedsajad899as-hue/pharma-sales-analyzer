@@ -2659,69 +2659,135 @@ export default function DoctorsPage() {
                   const isExpanded = effectiveExpanded.has(area.name);
                   const visitedCount = area.doctors.filter(d => d.isVisited).length;
                   const writingCount = area.doctors.filter(d => d.isWriting).length;
+                  const pct = area.doctors.length > 0 ? Math.round(visitedCount / area.doctors.length * 100) : 0;
                   return (
-                    <div key={area.name} style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                      {/* Area header */}
-                      <div onClick={() => setArchiveExpandedAreas(prev => { const s = new Set(prev); s.has(area.name) ? s.delete(area.name) : s.add(area.name); return s; })}
-                        style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', background: isExpanded ? '#fafafa' : '#fff', direction: 'rtl' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', flex: 1 }}>📍 {area.name}</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>{area.doctors.length}</span>
-                        {visitedCount > 0 && <span style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', borderRadius: 6, padding: '1px 7px' }}>✅ {visitedCount}</span>}
-                        {writingCount > 0 && <span style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', borderRadius: 6, padding: '1px 7px' }}>✍ {writingCount}</span>}
+                    <div key={area.name} style={{
+                      background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
+                      overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
+                    }}>
+                      {/* Area header — matches visits tab style */}
+                      <button onClick={() => setArchiveExpandedAreas(prev => { const s = new Set(prev); s.has(area.name) ? s.delete(area.name) : s.add(area.name); return s; })}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'right', direction: 'rtl' }}>
+                        {/* Progress ring */}
+                        <div style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
+                          <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
+                            <circle cx="22" cy="22" r="18" fill="none" stroke="#e2e8f0" strokeWidth="4" />
+                            <circle cx="22" cy="22" r="18" fill="none"
+                              stroke={pct >= 80 ? '#10b981' : pct >= 50 ? '#6366f1' : '#f59e0b'}
+                              strokeWidth="4"
+                              strokeDasharray={`${2 * Math.PI * 18}`}
+                              strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
+                              strokeLinecap="round" />
+                          </svg>
+                          <span style={{
+                            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                            justifyContent: 'center', fontSize: 10, fontWeight: 700,
+                            color: pct >= 80 ? '#065f46' : pct >= 50 ? '#4338ca' : '#92400e',
+                          }}>{pct}%</span>
+                        </div>
+
+                        <div style={{ flex: 1, textAlign: 'right' }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{area.name}</div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#64748b', background: '#f1f5f9', borderRadius: 20, padding: '2px 9px' }}>
+                              👥 {area.doctors.length} طبيب
+                            </span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 20, overflow: 'hidden', fontSize: 12 }}>
+                              <span style={{ padding: '2px 9px', color: '#065f46', fontWeight: 700 }}>{visitedCount} ✅</span>
+                              {writingCount > 0 && (
+                                <>
+                                  <span style={{ color: '#34d399', fontSize: 11, padding: '0 2px' }}>←</span>
+                                  <span style={{ padding: '2px 9px', color: '#0d9488', fontWeight: 700, borderRight: '1px solid #6ee7b7' }}>{writingCount} ✏️</span>
+                                </>
+                              )}
+                            </span>
+                            {area.doctors.length - visitedCount > 0 && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px' }}>
+                                🔲 {area.doctors.length - visitedCount} لم يُزار
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
                         <button
                           onClick={e => { e.stopPropagation(); removeAreaFromArchive(area.name, area.doctors.map(d => d.surveyDoctorId)); }}
                           title="حذف المنطقة"
-                          style={{ background: 'none', border: 'none', padding: '2px 6px', fontSize: 13, cursor: 'pointer', color: '#94a3b8', flexShrink: 0, lineHeight: 1, borderRadius: 4 }}>
+                          style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 8, padding: '4px 8px', fontSize: 13, cursor: 'pointer', color: '#fca5a5', flexShrink: 0, lineHeight: 1 }}>
                           🗑
                         </button>
-                        <span style={{ color: '#cbd5e1', fontSize: 11 }}>{isExpanded ? '▴' : '▾'}</span>
-                      </div>
+                        <span style={{ fontSize: 18, color: '#94a3b8', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>▾</span>
+                      </button>
 
                       {/* Doctor list */}
                       {isExpanded && (
-                        <div style={{ borderTop: '1px solid #f1f5f9' }}>
+                        <div style={{ borderTop: '1px solid #f1f5f9', padding: '4px 0 8px' }}>
                           {area.doctors.map(doc => (
-                            <div key={doc.surveyDoctorId} style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', direction: 'rtl' }}>
-                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                                {/* Info */}
+                            <div key={doc.surveyDoctorId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <div style={{
+                                display: 'flex', alignItems: 'flex-start', gap: 10,
+                                padding: '11px 18px', direction: 'rtl',
+                                opacity: doc.isVisited ? 1 : 0.7,
+                                transition: 'opacity 0.15s',
+                              }}>
+                                {/* Status dot */}
+                                <span style={{
+                                  width: 9, height: 9, borderRadius: '50%', flexShrink: 0, marginTop: 5,
+                                  background: doc.isWriting ? '#10b981' : doc.isVisited ? '#6366f1' : '#d1d5db',
+                                }} />
+
+                                {/* Main info */}
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{doc.name}</span>
+                                  {/* Name row */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{doc.name}</span>
+                                    {doc.isWriting && (
+                                      <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 8, background: '#d1fae5', border: '1px solid #6ee7b7', flexShrink: 0, lineHeight: 1 }}>✏️</span>
+                                    )}
+                                    {doc.className && (
+                                      <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 6, padding: '1px 7px', fontWeight: 600 }}>{doc.className}</span>
+                                    )}
+                                  </div>
+                                  {/* Specialty + area */}
+                                  <div style={{ display: 'flex', gap: 6, marginTop: 2, flexWrap: 'wrap', alignItems: 'center' }}>
                                     {doc.specialty && <span style={{ fontSize: 11, color: '#94a3b8' }}>{doc.specialty}</span>}
                                     {doc.pharmacyName && <span style={{ fontSize: 11, color: '#94a3b8' }}>· {doc.pharmacyName}</span>}
-                                    {doc.className && <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 4, padding: '1px 6px' }}>{doc.className}</span>}
                                   </div>
 
-                                  {/* Toggles row */}
-                                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                    {/* Visited toggle */}
+                                  {/* Toggle buttons row */}
+                                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                     <button onClick={() => patchArchive(doc, { isVisited: !doc.isVisited })}
                                       title="تمت الزيارة"
-                                      style={{ padding: '3px 9px', borderRadius: 6, border: `1px solid ${doc.isVisited ? '#94a3b8' : '#e2e8f0'}`,
-                                        background: doc.isVisited ? '#1e293b' : '#f8fafc', color: doc.isVisited ? '#fff' : '#94a3b8',
-                                        fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                      {doc.isVisited ? '✅' : '○'} زيارة
+                                      style={{
+                                        padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                        border: `1.5px solid ${doc.isVisited ? '#6ee7b7' : '#e2e8f0'}`,
+                                        background: doc.isVisited ? '#ecfdf5' : '#f8fafc',
+                                        color: doc.isVisited ? '#065f46' : '#94a3b8',
+                                        display: 'flex', alignItems: 'center', gap: 4, transition: 'all .15s',
+                                      }}>
+                                      ✅ زيارة
                                     </button>
-
-                                    {/* Writing toggle */}
                                     <button onClick={() => patchArchive(doc, { isWriting: !doc.isWriting })}
                                       title="يكتب"
-                                      style={{ padding: '3px 9px', borderRadius: 6, border: `1px solid ${doc.isWriting ? '#94a3b8' : '#e2e8f0'}`,
-                                        background: doc.isWriting ? '#1e293b' : '#f8fafc', color: doc.isWriting ? '#fff' : '#94a3b8',
-                                        fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                      {doc.isWriting ? '✍' : '○'} كتابة
+                                      style={{
+                                        padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                        border: `1.5px solid ${doc.isWriting ? '#6ee7b7' : '#e2e8f0'}`,
+                                        background: doc.isWriting ? '#d1fae5' : '#f8fafc',
+                                        color: doc.isWriting ? '#065f46' : '#94a3b8',
+                                        display: 'flex', alignItems: 'center', gap: 4, transition: 'all .15s',
+                                      }}>
+                                      ✏️ كتابة
                                     </button>
                                   </div>
 
-                                  {/* Visit items (shown when visited) */}
+                                  {/* Visit items */}
                                   {doc.isVisited && (
-                                    <div style={{ marginTop: 6 }}>
+                                    <div style={{ marginTop: 7 }}>
                                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                         {doc.visitItems.map((item, i) => (
-                                          <span key={i} style={{ background: '#f1f5f9', color: '#334155', borderRadius: 4, padding: '2px 7px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                            {item}
+                                          <span key={i} style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #6ee7b7', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            💊 {item}
                                             <button onClick={() => patchArchive(doc, { visitItems: doc.visitItems.filter((_, idx) => idx !== i) })}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 11, lineHeight: 1 }}>×</button>
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6ee7b7', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                                           </span>
                                         ))}
                                         {visitItemInputId === (doc.surveyDoctorId ?? doc.doctorId) ? (
@@ -2734,7 +2800,7 @@ export default function DoctorsPage() {
                                                 } else if (e.key === 'Escape') { setVisitItemInputVal(''); setVisitItemInputId(null); }
                                               }}
                                               onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
-                                              style={{ padding: '2px 7px', borderRadius: 4, border: '1px solid #94a3b8', fontSize: 11, outline: 'none', width: 90, background: '#fafafa' }}
+                                              style={{ padding: '3px 9px', borderRadius: 20, border: '1.5px solid #6ee7b7', fontSize: 11, outline: 'none', width: 90, background: '#ecfdf5', color: '#065f46' }}
                                               placeholder="إيتم..." />
                                             {(() => {
                                               const q = visitItemInputVal.trim().toLowerCase();
@@ -2755,7 +2821,7 @@ export default function DoctorsPage() {
                                           </div>
                                         ) : (
                                           <button onClick={() => setVisitItemInputId(doc.surveyDoctorId ?? doc.doctorId ?? null)}
-                                            style={{ background: 'none', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
+                                            style={{ background: 'none', border: '1.5px dashed #6ee7b7', borderRadius: 20, padding: '2px 9px', fontSize: 11, color: '#6ee7b7', cursor: 'pointer' }}>
                                             +
                                           </button>
                                         )}
@@ -2765,13 +2831,13 @@ export default function DoctorsPage() {
 
                                   {/* Writing items */}
                                   {doc.isWriting && (
-                                    <div style={{ marginTop: 6 }}>
+                                    <div style={{ marginTop: 7 }}>
                                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                         {doc.writingItems.map((item, i) => (
-                                          <span key={i} style={{ background: '#f1f5f9', color: '#334155', borderRadius: 4, padding: '2px 7px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                            {item}
+                                          <span key={i} style={{ background: '#d1fae5', color: '#065f46', border: '1px solid #34d399', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            ✏️ {item}
                                             <button onClick={() => patchArchive(doc, { writingItems: doc.writingItems.filter((_, idx) => idx !== i) })}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 11, lineHeight: 1 }}>×</button>
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#34d399', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                                           </span>
                                         ))}
                                         {itemInputId === (doc.surveyDoctorId ?? doc.doctorId) ? (
@@ -2784,7 +2850,7 @@ export default function DoctorsPage() {
                                                 } else if (e.key === 'Escape') { setItemInputVal(''); setItemInputId(null); }
                                               }}
                                               onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
-                                              style={{ padding: '2px 7px', borderRadius: 4, border: '1px solid #94a3b8', fontSize: 11, outline: 'none', width: 90, background: '#fafafa' }}
+                                              style={{ padding: '3px 9px', borderRadius: 20, border: '1.5px solid #34d399', fontSize: 11, outline: 'none', width: 90, background: '#d1fae5', color: '#065f46' }}
                                               placeholder="إيتم..." />
                                             {(() => {
                                               const q = itemInputVal.trim().toLowerCase();
@@ -2805,7 +2871,7 @@ export default function DoctorsPage() {
                                           </div>
                                         ) : (
                                           <button onClick={() => setItemInputId(doc.surveyDoctorId ?? doc.doctorId ?? null)}
-                                            style={{ background: 'none', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '2px 7px', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
+                                            style={{ background: 'none', border: '1.5px dashed #34d399', borderRadius: 20, padding: '2px 9px', fontSize: 11, color: '#34d399', cursor: 'pointer' }}>
                                             +
                                           </button>
                                         )}
@@ -2827,35 +2893,36 @@ export default function DoctorsPage() {
                                     </div>
                                   ) : doc.notes ? (
                                     <div onClick={() => { setNotesEditId(doc.surveyDoctorId ?? doc.doctorId ?? null); setNotesEditVal(doc.notes ?? ''); }}
-                                      style={{ marginTop: 5, fontSize: 11, color: '#64748b', background: '#fafafa', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', display: 'inline-block', border: '1px solid #f1f5f9' }}>
+                                      style={{ marginTop: 6, fontSize: 11, color: '#64748b', background: '#fafafa', padding: '4px 10px', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid #e2e8f0' }}>
                                       📝 {doc.notes}
                                     </div>
                                   ) : (
                                     <button onClick={() => { setNotesEditId(doc.surveyDoctorId ?? doc.doctorId ?? null); setNotesEditVal(''); }}
-                                      style={{ marginTop: 5, background: 'none', border: 'none', fontSize: 11, color: '#cbd5e1', cursor: 'pointer', padding: 0 }}>
+                                      style={{ marginTop: 6, background: 'none', border: 'none', fontSize: 11, color: '#cbd5e1', cursor: 'pointer', padding: 0 }}>
                                       + ملاحظة
                                     </button>
                                   )}
                                 </div>
 
-                                {/* Star + Edit + Remove buttons */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+                                {/* Action buttons: star, edit, remove */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
                                   <button onClick={() => toggleArchiveStar(doc.surveyDoctorId)} title={archiveStarred.has(doc.surveyDoctorId) ? 'إزالة من البلان' : 'أضف للبلان'}
-                                    style={{ background: archiveStarred.has(doc.surveyDoctorId) ? '#fef9c3' : 'none',
-                                      border: archiveStarred.has(doc.surveyDoctorId) ? '1.5px solid #fbbf24' : '1.5px solid #e2e8f0',
-                                      borderRadius: 7,
-                                      width: 32, height: 32, cursor: 'pointer', fontSize: 20,
+                                    style={{
+                                      background: archiveStarred.has(doc.surveyDoctorId) ? '#fef9c3' : 'transparent',
+                                      border: `1.5px solid ${archiveStarred.has(doc.surveyDoctorId) ? '#fbbf24' : '#e2e8f0'}`,
+                                      borderRadius: 8, width: 32, height: 32, cursor: 'pointer', fontSize: 18,
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                                       color: archiveStarred.has(doc.surveyDoctorId) ? '#d97706' : '#cbd5e1',
-                                      transition: 'all .15s', padding: 0 }}>
+                                      transition: 'all .15s', padding: 0,
+                                    }}>
                                     {archiveStarred.has(doc.surveyDoctorId) ? '★' : '☆'}
                                   </button>
                                   <button onClick={() => openEditDoc(doc)} title="تعديل"
-                                    style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: 7, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                                    style={{ background: 'transparent', border: '1.5px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
                                     ✏️
                                   </button>
                                   <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة"
-                                    style={{ background: 'none', border: '1.5px solid #e2e8f0', borderRadius: 7, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                                    style={{ background: 'transparent', border: '1.5px solid #fecaca', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
                                     🗑
                                   </button>
                                 </div>
