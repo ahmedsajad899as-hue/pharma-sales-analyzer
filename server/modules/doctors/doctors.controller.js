@@ -485,8 +485,8 @@ export async function list(req, res, next) {
         }
 
         const baseWhere = repAreaIds.length > 0
-          // أطباء بمنطقة محددة (أي مدير) + أطباء بدون منطقة مملوكة للمدير
-          ? { OR: [{ areaId: { in: repAreaIds } }, { areaId: null, userId: browseManagerId }] }
+          // فقط أطباء المدير في مناطق المندوب المحددة
+          ? { userId: browseManagerId, areaId: { in: repAreaIds } }
           : { userId: browseManagerId };
 
         const andFilters = [];
