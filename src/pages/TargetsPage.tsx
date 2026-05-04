@@ -102,7 +102,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     if (!selRepId) return;
     setSaving(true);
     try {
-      await fetch(`${API}/api/targets`, {
+      const res = await fetch(`${API}/api/targets`, {
         method: 'PUT',
         headers: H(),
         body: JSON.stringify({
@@ -113,8 +113,15 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           targets: rows.map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 })),
         }),
       });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        alert(`فشل حفظ التارگت (${res.status})\n${txt}`);
+        return;
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      alert(`خطأ في الاتصال: ${e?.message || e}`);
     } finally {
       setSaving(false);
     }
