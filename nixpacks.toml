@@ -6,7 +6,7 @@ NIXPACKS_NO_CACHE = "1"
 cmds = ["npm install --include=dev", "node_modules/.bin/prisma generate --schema prisma/schema.postgresql.prisma"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["NODE_OPTIONS=--max-old-space-size=4096 npm run build"]
 
 [start]
 cmd = "(node_modules/.bin/prisma db push --schema prisma/schema.postgresql.prisma --accept-data-loss || echo 'db push failed, server starting anyway') && (node prisma/seed-super-admin.js || echo 'seed skipped') && (node _fix_survey_imports.mjs || echo 'fix_survey_imports skipped') && npm start"
