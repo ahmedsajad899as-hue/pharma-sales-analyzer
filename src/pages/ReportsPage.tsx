@@ -458,8 +458,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [selCommIds, setSelCommIds]           = useState<Set<number>>(new Set());
   const [selSciIds, setSelSciIds]             = useState<Set<number>>(new Set());
   const [exportProgress, setExportProgress]   = useState('');
-  const [commViewMode, setCommViewMode] = useState<'qty' | 'value'>('value');
-  const [sciViewMode,  setSciViewMode]  = useState<'qty' | 'value'>('value');
+  const [commViewMode, setCommViewMode] = useState<'qty' | 'value'>('qty');
+  const [sciViewMode,  setSciViewMode]  = useState<'qty' | 'value'>('qty');
 
   // Overall / comprehensive analysis
   const [overallSales, setOverallSales]     = useState<OverallReport | null>(null);
@@ -471,7 +471,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company'>('area');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
-  const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('value');
+  const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   const [overallFileId, setOverallFileId]   = useState<string>('');
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
