@@ -1971,8 +1971,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       <thead>
                         <tr>
                           <th>المادة</th>
-                          <th>التارگت</th>
-                          <th>صافي المبيعات</th>
+                          <th>التارگت (عدد)</th>
+                          <th>صافي الكمية</th>
                           <th>نسبة التحقق</th>
                         </tr>
                       </thead>
@@ -1982,14 +1982,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         ) : targetData.map(td => {
                           const salesRow  = commReport.byItem.find(r => r.name === td.itemName);
                           const retRow    = commReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          const netVal    = (salesRow?.totalValue ?? 0) - (retRow?.totalValue ?? 0);
-                          const pct       = td.target > 0 ? (netVal / td.target) * 100 : null;
+                          const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          const pct       = td.target > 0 ? (netQty / td.target) * 100 : null;
                           const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
                           return (
                             <tr key={td.itemId}>
                               <td>{td.itemName}</td>
-                              <td>{fmtVal(td.target)}</td>
-                              <td style={{ color: netVal < 0 ? '#dc2626' : undefined }}>{fmtValSigned(netVal)}</td>
+                              <td>{fmt(td.target)}</td>
+                              <td style={{ color: netQty < 0 ? '#dc2626' : undefined }}>{fmtSigned(netQty)}</td>
                               <td style={{ color, fontWeight: 600 }}>{pct !== null ? `${Math.round(pct)}%` : '—'}</td>
                             </tr>
                           );
@@ -2110,8 +2110,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       <thead>
                         <tr>
                           <th>المادة</th>
-                          <th>التارگت</th>
-                          <th>صافي المبيعات</th>
+                          <th>التارگت (عدد)</th>
+                          <th>صافي الكمية</th>
                           <th>نسبة التحقق</th>
                         </tr>
                       </thead>
@@ -2121,14 +2121,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         ) : targetData.map(td => {
                           const salesRow  = sciReport.byItem.find(r => r.name === td.itemName);
                           const retRow    = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          const netVal    = (salesRow?.totalValue ?? 0) - (retRow?.totalValue ?? 0);
-                          const pct       = td.target > 0 ? (netVal / td.target) * 100 : null;
+                          const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          const pct       = td.target > 0 ? (netQty / td.target) * 100 : null;
                           const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
                           return (
                             <tr key={td.itemId}>
                               <td>{td.itemName}</td>
-                              <td>{fmtVal(td.target)}</td>
-                              <td style={{ color: netVal < 0 ? '#dc2626' : undefined }}>{fmtValSigned(netVal)}</td>
+                              <td>{fmt(td.target)}</td>
+                              <td style={{ color: netQty < 0 ? '#dc2626' : undefined }}>{fmtSigned(netQty)}</td>
                               <td style={{ color, fontWeight: 600 }}>{pct !== null ? `${Math.round(pct)}%` : '—'}</td>
                             </tr>
                           );
