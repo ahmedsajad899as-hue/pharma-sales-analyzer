@@ -413,43 +413,45 @@ export async function list(req, res, next) {
       const linkedRepId = userRecord?.linkedRepId;
 
       if (q?.trim()) {
-        // ── عند البحث بالاسم: استخدام userId لمدير الشركة بدلاً من فلتر المناطق ──
-        let managerUserId = userId; // fallback
-        if (linkedRepId) {
-          const repRecord = await prisma.scientificRepresentative.findUnique({
-            where: { id: linkedRepId },
-            select: { userId: true },
-          });
-          if (repRecord?.userId) managerUserId = repRecord.userId;
-        } else {
-          // No linkedRepId — try UserManagerAssignment to find the manager's userId
-          const managerAssign = await prisma.userManagerAssignment.findFirst({
-            where: { userId },
-            select: { managerId: true },
-          });
-          if (managerAssign?.managerId) managerUserId = managerAssign.managerId;
-        }
-        where = { userId: managerUserId, name: { contains: q.trim() } };
+        // ── جلب مناطق المندوب أولاً (مصدر رئيسي لفلترة البحث) ──
+        const [userAreaRows, repAreaRows] = await Promise.all([
+          prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
+          linkedRepId
+            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+            : Promise.resolve([]),
+        ]);
+        const repAreaIds = [...new Set([
+          ...userAreaRows.map(a => a.areaId),
+          ...repAreaRows.map(a => a.areaId),
+        ])];
 
-        // ── Apply area filter for field reps (restrict to assigned areas) ──
-        if (filterByArea) {
-          const [userAreaRows, repAreaRows] = await Promise.all([
-            prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-            linkedRepId
-              ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-              : Promise.resolve([]),
-          ]);
-          const repAreaIds = [...new Set([
-            ...userAreaRows.map(a => a.areaId),
-            ...repAreaRows.map(a => a.areaId),
-          ])];
-          if (repAreaIds.length > 0) {
-            // Include assigned areas + null-area doctors (will be post-filtered by survey areaName)
-            const areaFilter = { OR: [{ areaId: { in: repAreaIds } }, { areaId: null }] };
-            where = { AND: [where, areaFilter] };
-            // Store for post-filtering null-area doctors by survey areaName
-            var _filterRepAreaIds = repAreaIds;
+        const nameFilter = { name: { contains: q.trim() } };
+
+        if (filterByArea && repAreaIds.length > 0) {
+          // ── الأولوية: فلتر المناطق (لا يحتاج لمعرفة userId المدير) ──
+          const areaFilter = { OR: [{ areaId: { in: repAreaIds } }, { areaId: null }] };
+          where = { AND: [nameFilter, areaFilter] };
+          // Store for post-filtering null-area doctors by survey areaName
+          var _filterRepAreaIds = repAreaIds;
+        } else {
+          // ── احتياطي: استخدام userId المدير (عندما لا توجد مناطق أو filterByArea=false) ──
+          let managerUserId = userId; // fallback
+          if (linkedRepId) {
+            const repRecord = await prisma.scientificRepresentative.findUnique({
+              where: { id: linkedRepId },
+              select: { userId: true },
+            });
+            if (repRecord?.userId) managerUserId = repRecord.userId;
           }
+          // إذا لم ينجح linkedRepId (userId=null أو غير محدد)، نحاول UserManagerAssignment
+          if (managerUserId === userId) {
+            const managerAssign = await prisma.userManagerAssignment.findFirst({
+              where: { userId },
+              select: { managerId: true },
+            });
+            if (managerAssign?.managerId) managerUserId = managerAssign.managerId;
+          }
+          where = { userId: managerUserId, ...nameFilter };
         }
 
         if (areaId)                 where.areaId   = parseInt(areaId);
@@ -492,18 +494,20 @@ export async function list(req, res, next) {
     if (q?.trim().length >= 2) {
       // Resolve owner userId for new Doctor creation
       let ownerUserId = userId;
-      if (isFieldRep && userRecord?.linkedRepId) {
-        const repRow = await prisma.scientificRepresentative.findUnique({
-          where: { id: userRecord.linkedRepId }, select: { userId: true },
-        });
-        if (repRow?.userId) ownerUserId = repRow.userId;
-      } else if (isFieldRep) {
-        // No linkedRepId — use manager's userId via UserManagerAssignment
-        const managerAssign = await prisma.userManagerAssignment.findFirst({
-          where: { userId },
-          select: { managerId: true },
-        });
-        if (managerAssign?.managerId) ownerUserId = managerAssign.managerId;
+      if (isFieldRep) {
+        if (userRecord?.linkedRepId) {
+          const repRow = await prisma.scientificRepresentative.findUnique({
+            where: { id: userRecord.linkedRepId }, select: { userId: true },
+          });
+          if (repRow?.userId) ownerUserId = repRow.userId;
+        }
+        // إذا لم ينجح linkedRepId (userId=null)، نحاول UserManagerAssignment
+        if (ownerUserId === userId) {
+          const managerAssign = await prisma.userManagerAssignment.findFirst({
+            where: { userId }, select: { managerId: true },
+          });
+          if (managerAssign?.managerId) ownerUserId = managerAssign.managerId;
+        }
       }
 
       const activeSurvey = await prisma.masterSurvey.findFirst({
