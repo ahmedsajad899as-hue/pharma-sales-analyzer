@@ -201,7 +201,7 @@ router.get('/overall', async (req, res) => {
       }
     }
 
-    const byItem     = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byItem     = [...itemMap.values()].sort((a, b) => a.itemName.localeCompare(b.itemName));
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);

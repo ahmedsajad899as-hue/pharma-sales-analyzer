@@ -1539,9 +1539,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             }
             const row = map.get(r.itemName)!; row.totalQty += r.totalQty; row.totalValue += r.totalValue;
           }
-          return [...map.values()].sort((a, b) => b.totalValue - a.totalValue);
-        };
-        const aggCompanies = (rows: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
+          return [...map.values()].sort((a, b) => a.name.localeCompare(b.name)); = (rows: AreaItemRow[], byItem: BreakdownRow[]): BreakdownRow[] => {
           const itemInfoMap = new Map(byItem.map(r => [r.name, r]));
           const map = new Map<string, BreakdownRow>();
           for (const r of rows) {

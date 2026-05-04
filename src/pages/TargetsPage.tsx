@@ -77,7 +77,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         (json.data as SavedTarget[] ?? []).map(t => [t.itemId, t.target])
       );
 
-      setRows(items.map(item => ({
+      setRows(items.slice().sort((a, b) => a.name.localeCompare(b.name)).map(item => ({
         itemId: item.id,
         itemName: item.name,
         target: String(savedMap.get(item.id) ?? ''),

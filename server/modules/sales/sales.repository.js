@@ -503,7 +503,7 @@ function aggregateSales(sales) {
   }
 
   const byArea = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
-  const byItem = [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+  const byItem = [...itemMap.values()].sort((a, b) => a.itemName.localeCompare(b.itemName));
 
   return {
     totals: { totalQuantity, totalValue: +totalValue.toFixed(2) },
@@ -562,7 +562,7 @@ export function aggregateSalesWithReps(sales) {
   return {
     totals: { totalQuantity, totalValue: +totalValue.toFixed(2) },
     byArea: [...areaRepMap.values()].sort((a, b) => b.totalValue - a.totalValue),
-    byItem: [...itemMap.values()].sort((a, b) => b.totalValue - a.totalValue),
+    byItem: [...itemMap.values()].sort((a, b) => a.itemName.localeCompare(b.itemName)),
     byRep:  [...repMap.values()].sort((a, b) => b.totalValue - a.totalValue),
   };
 }
