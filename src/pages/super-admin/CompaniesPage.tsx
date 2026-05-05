@@ -85,44 +85,77 @@ const ROLE_META: Record<string, { label: string; color: string; bg: string; icon
 const DEF_META = { label: 'مستخدم', color: '#64748b', bg: '#f8fafc', icon: '👤' };
 
 // ─── CSS injected once for the tree connectors ────────────────────────────
+// IMPORTANT: direction:ltr is forced on tree containers so RTL page layout
+// doesn't reverse flex order and break :first-child/:last-child corner styles.
 const ORG_CSS = `
-  .otree-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:center; }
-  .otree-ul   { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:center;
-                padding-top:20px; position:relative; }
-  .otree-ul::before { content:''; position:absolute; top:0; left:50%; border-left:2px solid #cbd5e1; width:0; height:20px; }
-  .otree-li { display:inline-flex; flex-direction:column; align-items:center; position:relative; padding:20px 8px 0; text-align:center; }
-  .otree-li::before,.otree-li::after { content:''; position:absolute; top:0; right:50%; border-top:2px solid #cbd5e1; width:50%; height:20px; }
-  .otree-li::after  { right:auto; left:50%; border-left:2px solid #cbd5e1; }
-  .otree-li:only-child::before,.otree-li:only-child::after { display:none; }
+  .otree-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:8px 16px 24px; }
+  .otree-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:center; direction:ltr; }
+  .otree-ul   {
+    list-style:none; margin:0; padding:0;
+    display:flex; flex-wrap:nowrap; justify-content:center;
+    padding-top:30px; position:relative; direction:ltr;
+  }
+  .otree-ul::before {
+    content:''; position:absolute; top:0; left:50%;
+    transform:translateX(-50%);
+    border-left:2px solid #94a3b8; width:0; height:30px;
+  }
+  .otree-li {
+    display:inline-flex; flex-direction:column; align-items:center;
+    position:relative; padding:30px 10px 0; text-align:center;
+  }
+  .otree-li::before, .otree-li::after {
+    content:''; position:absolute; top:0;
+    border-top:2px solid #94a3b8; width:50%; height:30px;
+  }
+  .otree-li::before { right:50%; }
+  .otree-li::after  { left:50%; border-left:2px solid #94a3b8; }
+  .otree-li:only-child::before, .otree-li:only-child::after { display:none; }
   .otree-li:only-child { padding-top:0; }
-  .otree-li:first-child::before,.otree-li:last-child::after { border:0 none; }
-  .otree-li:last-child::before  { border-right:2px solid #cbd5e1; border-radius:0 5px 0 0; }
-  .otree-li:first-child::after  { border-radius:5px 0 0 0; }
+  .otree-li:first-child::before, .otree-li:last-child::after { border:0 none; }
+  .otree-li:last-child::before  { border-right:2px solid #94a3b8; border-radius:0 6px 0 0; }
+  .otree-li:first-child::after  { border-radius:6px 0 0 0; }
+  .otree-card {
+    position:relative; direction:rtl;
+    background:#fff; border-radius:12px;
+    padding:12px 14px; min-width:148px; max-width:192px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 0 0 1.5px rgba(0,0,0,0.06);
+    cursor:pointer; transition:transform .15s, box-shadow .15s;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .otree-card:hover { transform:translateY(-3px); box-shadow:0 6px 20px rgba(0,0,0,0.13); }
+  .otree-card-icon {
+    width:40px; height:40px; border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:20px; margin-bottom:2px; flex-shrink:0;
+  }
+  .otree-card-name  { font-weight:700; font-size:12.5px; color:#1e293b; line-height:1.35; }
+  .otree-card-badge { font-size:10px; font-weight:600; border-radius:20px; padding:2px 9px; white-space:nowrap; }
+  .otree-card-phone { font-size:10px; color:#94a3b8; }
+  .otree-card-off   { font-size:9px; color:#dc2626; font-weight:700; }
 `;
 
 // ─── Single node card ─────────────────────────────────────────────────────
 function OrgCard({ u, onSelect }: { u: OrgUser; onSelect?: (u: OrgUser) => void }) {
   const m = ROLE_META[u.role] ?? DEF_META;
   return (
-    <div onClick={() => onSelect?.(u)} style={{
-      background: m.bg, border: `1px solid ${m.color}33`, borderTop: `3px solid ${m.color}`,
-      borderRadius: 10, padding: '10px 12px', minWidth: 140, maxWidth: 180,
-      display: 'inline-block', verticalAlign: 'top',
-      opacity: u.isActive ? 1 : 0.6, boxShadow: '0 1px 4px #0001',
-      cursor: onSelect ? 'pointer' : 'default', transition: 'box-shadow .15s, transform .15s',
-    }}
-      onMouseEnter={e => { if (onSelect) { (e.currentTarget as HTMLDivElement).style.boxShadow = `0 4px 14px ${m.color}44`; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; } }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px #0001'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; }}
+    <div
+      className="otree-card"
+      onClick={() => onSelect?.(u)}
+      style={{
+        borderTop: `3px solid ${m.color}`,
+        opacity: u.isActive ? 1 : 0.6,
+      }}
     >
-      <div style={{ fontSize: 20, marginBottom: 3 }}>{m.icon}</div>
-      <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b', marginBottom: 2, lineHeight: 1.4 }}>
-        {u.displayName || u.username}
+      <div className="otree-card-icon" style={{ background: `${m.color}18` }}>
+        {m.icon}
       </div>
-      <span style={{ fontSize: 10, color: m.color, fontWeight: 600, background: `${m.color}18`, borderRadius: 20, padding: '1px 7px' }}>
+      <div className="otree-card-name">{u.displayName || u.username}</div>
+      <span className="otree-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>
         {m.label}
       </span>
-      {u.phone && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>{u.phone}</div>}
-      {!u.isActive && <div style={{ fontSize: 9, color: '#dc2626', fontWeight: 700, marginTop: 2 }}>⚠️ معطل</div>}
+      {u.phone && <div className="otree-card-phone">{u.phone}</div>}
+      {!u.isActive && <div className="otree-card-off">⚠️ معطل</div>}
     </div>
   );
 }
@@ -156,7 +189,7 @@ function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: OrgUser
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: ORG_CSS }} />
-      <div style={{ overflowX: 'auto', paddingBottom: 16, minWidth: 0 }}>
+      <div className="otree-wrap">
         <ul className="otree-root">
           {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} visited={new Set()} onSelect={onSelect} />)}
         </ul>
