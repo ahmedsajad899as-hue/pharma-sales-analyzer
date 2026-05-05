@@ -11,7 +11,7 @@ const normArea = s => String(s ?? '').trim()
   .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
   .toLowerCase().trim();
 
-const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep']);
+const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'commercial_rep']);
 
 // Visible surveys for this user (same logic as master-survey module)
 function visibleWhere(user) {
