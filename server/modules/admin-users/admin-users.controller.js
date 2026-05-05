@@ -49,6 +49,9 @@ export async function getUser(req, res) {
 }
 
 // ── Create user ───────────────────────────────────────────────────────────
+// Features disabled by default for every new user — master admin can re-enable them
+const DEFAULT_DISABLED_FEATURES = ['rep_analysis', 'sales_data', 'distributor_sales', 'users_list'];
+
 export async function createUser(req, res) {
   const { username, password, displayName, role = 'scientific_rep', officeId, phone, permissions } = req.body;
   if (!username || !password)
@@ -56,6 +59,12 @@ export async function createUser(req, res) {
 
   const exists = await prisma.user.findUnique({ where: { username } });
   if (exists) return res.status(409).json({ error: 'Username already taken' });
+
+  // Build default permissions — merge caller-supplied with defaults
+  const defaultPerms = { disabledFeatures: DEFAULT_DISABLED_FEATURES, requireGps: true };
+  const mergedPerms = permissions
+    ? { ...defaultPerms, ...permissions }
+    : defaultPerms;
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
@@ -66,7 +75,7 @@ export async function createUser(req, res) {
       role,
       phone,
       officeId: officeId ? parseInt(officeId) : null,
-      permissions: permissions ? JSON.stringify(permissions) : null,
+      permissions: JSON.stringify(mergedPerms),
     },
     select: userSelect,
   });

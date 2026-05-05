@@ -179,7 +179,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [itemSearch,         setItemSearch]         = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
-  const [featSection,        setFeatSection]        = useState<string>('gps');
+  const [featSection,        setFeatSection]        = useState<string>(() => localStorage.getItem('sa_user_feat_section') || 'gps');
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
@@ -216,6 +216,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     else localStorage.removeItem('sa_user_detail_id');
   }, [detail?.id]);
   useEffect(() => { localStorage.setItem('sa_user_tab', tab); }, [tab]);
+  useEffect(() => { localStorage.setItem('sa_user_feat_section', featSection); }, [featSection]);
 
   // Restore detail view on mount (page refresh)
   useEffect(() => {
@@ -258,7 +259,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
   }, [detail?.id]);
 
-  const loadDetail = (id: number) => {
+  const loadDetail = (id: number, opts: { keepTab?: boolean } = {}) => {
     // Save current scroll position before entering detail
     const main = getMainEl();
     if (main) savedScrollRef.current = main.scrollTop;
@@ -266,10 +267,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     fetch(`/api/sa/users/${id}`, { headers: H() }).then(r => r.json()).then(d => {
       if (d.success) {
         setDetail(d.data);
-        setTab('info');
-        localStorage.setItem('sa_user_tab', 'info');
-        // Scroll to top of detail view
-        requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = 0; });
+        if (!opts.keepTab) {
+          setTab('info');
+          localStorage.setItem('sa_user_tab', 'info');
+          // Scroll to top of detail view
+          requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = 0; });
+        }
       }
     });
     loadRefs();
@@ -309,6 +312,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     if (detail?.id === form.id) loadDetail(form.id);
   };
 
+  // Lightweight toast for save feedback
+  const showToast = (msg: string, color: string = '#16a34a') => {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    Object.assign(el.style, {
+      position: 'fixed', top: '24px', left: '50%', transform: 'translateX(-50%)',
+      background: color, color: '#fff', padding: '10px 22px', borderRadius: '10px',
+      fontSize: '14px', fontWeight: '700', zIndex: '99999', direction: 'rtl',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.25)', opacity: '0', transition: 'opacity .15s',
+    } as CSSStyleDeclaration);
+    document.body.appendChild(el);
+    requestAnimationFrame(() => { el.style.opacity = '1'; });
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, 1800);
+  };
+
   const saveAssignment = async (type: string, ids: number[]) => {
     if (!detail) return;
     setSaving(true);
@@ -316,13 +334,27 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       companies: 'companyIds', lines: 'lineIds', items: 'itemIds', areas: 'areaIds', managers: 'managerIds',
     };
     try {
-      await fetch(`/api/sa/users/${detail.id}/${type}`, {
+      const res = await fetch(`/api/sa/users/${detail.id}/${type}`, {
         method: 'PUT', headers: H(), body: JSON.stringify({ [keyMap[type]]: ids }),
       });
-      loadDetail(detail.id);
+      if (!res.ok) {
+        if (res.status === 401) {
+          showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626');
+          logout();
+          return;
+        }
+        let errMsg = 'فشل الحفظ';
+        try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+        showToast('❌ ' + errMsg, '#dc2626');
+        return;
+      }
+      // Reload detail but keep the user on the same tab (don't snap back to 'info')
+      loadDetail(detail.id, { keepTab: true });
       if (type === 'areas') window.dispatchEvent(new Event('areas-changed'));
+      showToast('✅ تم الحفظ');
     } catch (e) {
       console.error('saveAssignment error:', e);
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
     } finally {
       setSaving(false);
     }
@@ -332,7 +364,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     if (!detail) return;
     setSaving(true);
     try {
-      await fetch(`/api/sa/users/${detail.id}/features`, {
+      const res = await fetch(`/api/sa/users/${detail.id}/features`, {
         method: 'PUT', headers: H(), body: JSON.stringify({
           disabledFeatures: draftDisabledFeats,
           requireGps: draftRequireGps,
@@ -341,7 +373,22 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           doctorFilterSurveyOnly: draftDoctorFilter.surveyOnly,
         }),
       });
-      loadDetail(detail.id);
+      if (!res.ok) {
+        if (res.status === 401) {
+          showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626');
+          logout();
+          return;
+        }
+        let errMsg = 'فشل الحفظ';
+        try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+        showToast('❌ ' + errMsg, '#dc2626');
+        return;
+      }
+      loadDetail(detail.id, { keepTab: true });
+      showToast('✅ تم الحفظ');
+    } catch (e) {
+      console.error('saveFeatures error:', e);
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
     } finally {
       setSaving(false);
     }
