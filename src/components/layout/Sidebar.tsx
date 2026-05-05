@@ -40,6 +40,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // ── PWA Install ──────────────────────────────────────────────────────────
   const installPromptRef = useRef<any>(null);
   const [canInstall, setCanInstall] = useState(false);
+  const [showIosInstallModal, setShowIosInstallModal] = useState(false);
+  const isIos = typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
+  const showIosBtn = isIos && !isStandalone;
   const [installDone, setInstallDone] = useState(false);
 
   useEffect(() => {
@@ -318,6 +322,23 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   </button>
                 </div>
               )}
+              {showIosBtn && (
+                <div style={{ marginBottom: 6 }}>
+                  <button
+                    onClick={() => setShowIosInstallModal(true)}
+                    style={{
+                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                      border: 'none',
+                      borderRadius: 8, padding: '7px 14px', fontSize: 13,
+                      color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
+                    }}
+                  >
+                    ⬇️ تثبيت التطبيق
+                  </button>
+                </div>
+              )}
               <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
                 🚪 {t.sidebar.logout}
               </button>
@@ -363,6 +384,19 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               {canInstall && (
                 <button
                   onClick={handleInstall}
+                  title="تثبيت التطبيق"
+                  style={{
+                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                    border: 'none',
+                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+                    boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
+                  }}
+                >⬇️</button>
+              )}
+              {showIosBtn && (
+                <button
+                  onClick={() => setShowIosInstallModal(true)}
                   title="تثبيت التطبيق"
                   style={{
                     background: 'linear-gradient(135deg, #16a34a, #22c55e)',
@@ -521,6 +555,22 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   ⬇️ تثبيت التطبيق
                 </button>
               )}
+              {showIosBtn && (
+                <button
+                  onClick={() => { setShowIosInstallModal(true); setMobileMenuOpen(false); }}
+                  style={{
+                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
+                    border: 'none',
+                    borderRadius: 8, padding: '10px 14px', fontSize: 14,
+                    fontWeight: 700, color: '#fff',
+                    cursor: 'pointer', width: '100%', textAlign: 'center',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    boxShadow: '0 2px 10px rgba(22,163,74,0.4)',
+                  }}
+                >
+                  ⬇️ تثبيت التطبيق
+                </button>
+              )}
               <button
                 className="btn btn--secondary"
                 style={{ width: '100%', fontSize: 14 }}
@@ -649,6 +699,78 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 لا توجد حسابات محفوظة أخرى — سجّل دخول بحساب آخر أولاً ليظهر هنا
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── iOS Install Instructions Modal ── */}
+      {showIosInstallModal && (
+        <div
+          onClick={() => setShowIosInstallModal(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+            zIndex: 999999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: '20px 20px 0 0',
+              padding: '24px 20px 36px',
+              width: '100%', maxWidth: 480,
+              direction: 'rtl',
+              boxShadow: '0 -8px 40px rgba(0,0,0,0.25)',
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>📲 إضافة إلى الشاشة الرئيسية</h2>
+              <button
+                onClick={() => setShowIosInstallModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}
+              >✕</button>
+            </div>
+
+            {/* Steps */}
+            {[
+              {
+                num: 1,
+                title: 'افتح الموقع في متصفح Safari',
+                desc: 'يجب استخدام Safari — المتصفح الافتراضي لـ iPhone',
+                icon: '🧭',
+              },
+              {
+                num: 2,
+                title: 'اضغط على أيقونة المشاركة ↑',
+                desc: 'الأيقونة في شريط الأدوات السفلي بالمتصفح',
+                icon: '⬆️',
+              },
+              {
+                num: 3,
+                title: 'اضغط "إضافة إلى الشاشة الرئيسية"',
+                desc: 'ثم اضغط "إضافة" في أعلى يسار النافذة',
+                icon: '🏠',
+              },
+            ].map(step => (
+              <div key={step.num} style={{
+                display: 'flex', gap: 14, alignItems: 'flex-start',
+                padding: '14px 0',
+                borderBottom: step.num < 3 ? '1px solid #f1f5f9' : 'none',
+              }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: '#1e293b', color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800, fontSize: 15, flexShrink: 0,
+                }}>{step.num}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', marginBottom: 3 }}>
+                    {step.icon} {step.title}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#64748b' }}>{step.desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
