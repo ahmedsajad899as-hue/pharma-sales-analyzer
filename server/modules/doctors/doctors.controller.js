@@ -15,7 +15,7 @@ export async function visitsByArea(req, res, next) {
       lt:  new Date(filterYear, filterMonth, 1),
     } : undefined;
 
-    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
     // ── Arabic normalization (used in both branches) ──────────
@@ -319,7 +319,7 @@ export async function pharmacyVisitsByArea(req, res, next) {
       lt:  new Date(filterYear, filterMonth, 1),
     } : undefined;
 
-    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
     let linkedRepId = null;
