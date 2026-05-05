@@ -107,7 +107,7 @@ function fmt(dateStr: string) {
 export default function DoctorsPage() {
   const { token, user, hasFeature } = useAuth();
   const isCommercialRep = user?.role === 'commercial_rep';
-  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
   const isFieldRep  = FIELD_ROLES.includes(user?.role ?? '');
   const showDoctorFields    = hasFeature('doctor_fields');
   const showVisitAnalysis   = hasFeature('visit_analysis_tab');
