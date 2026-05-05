@@ -1,11 +1,19 @@
 // Ordine PWA Service Worker
-const CACHE_NAME = 'ordine-v1';
+const CACHE_NAME = 'ordine-v3';
 
-// On install: activate immediately
+// On install: activate immediately (skip waiting for old SW to die)
 self.addEventListener('install', () => self.skipWaiting());
 
-// On activate: claim all clients
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+// On activate: claim all clients AND delete ALL old cache versions
+self.addEventListener('activate', e =>
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
+  )
+);
 
 // Network-first strategy: always try network, fall back to cache for navigation
 self.addEventListener('fetch', e => {
@@ -31,17 +39,17 @@ self.addEventListener('fetch', e => {
   // For API calls: always network only (never cache)
   if (request.url.includes('/api/')) return;
 
-  // For static assets: cache first, then network
+  // For static assets: NETWORK FIRST (ensures fresh assets after each deploy),
+  // fall back to cache only when offline.
   e.respondWith(
-    caches.match(request).then(cached => {
-      if (cached) return cached;
-      return fetch(request).then(res => {
+    fetch(request)
+      .then(res => {
         if (res.ok) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
         }
         return res;
-      });
-    })
+      })
+      .catch(() => caches.match(request))
   );
 });

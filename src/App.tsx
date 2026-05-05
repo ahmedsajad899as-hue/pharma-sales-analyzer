@@ -155,6 +155,15 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
             style={{ marginTop: 16, padding: '10px 24px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
             🔄 إعادة التحميل
           </button>
+          <button onClick={() => {
+            try { localStorage.clear(); sessionStorage.clear(); } catch {}
+            if ('caches' in window) {
+              caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => window.location.reload());
+            } else { window.location.reload(); }
+          }}
+            style={{ marginTop: 16, marginRight: 10, padding: '10px 24px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+            🗑️ مسح البيانات وإعادة التحميل
+          </button>
         </div>
       );
     }
