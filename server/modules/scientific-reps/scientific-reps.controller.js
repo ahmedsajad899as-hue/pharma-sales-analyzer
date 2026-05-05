@@ -16,7 +16,11 @@ export async function createRep(req, res, next) {
 
 export async function listReps(req, res, next) {
   try {
-    const reps = await svc.list({}, req.user ?? null);
+    // ?standalone=1 is sent by ScientificRepsPage (تحليل ملفات المندوبين).
+    // In standalone mode, return ONLY manually-created records scoped to this
+    // user (userId = user.id) — never mix in SA-managed system users.
+    const standalone = req.query.standalone === '1';
+    const reps = await svc.list({}, req.user ?? null, { standalone });
     res.json({ success: true, data: reps, total: reps.length });
   } catch (err) { next(err); }
 }

@@ -31,10 +31,39 @@ const COMPANY_SCOPED_ROLES = new Set([
   'office_manager', 'commercial_supervisor', 'commercial_team_leader',
 ]);
 
-export async function list(filters, user = null) {
+export async function list(filters, user = null, options = {}) {
+  const { standalone = false } = options;
   let whereFilters = { ...filters };
 
   if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
+    // ── STANDALONE MODE (ScientificRepsPage) ──────────────────────────────
+    // Return ONLY ScientificRepresentative records manually created by this
+    // user (userId = user.id). SA-managed system users are never included.
+    // Data is fully scoped per account — no cross-account sharing.
+    if (standalone) {
+      const myReps = await prisma.scientificRepresentative.findMany({
+        where: { userId: user.id },
+        select: {
+          id: true, name: true, phone: true, email: true, company: true,
+          isActive: true, notes: true,
+          areas:          { select: { area:          { select: { id: true, name: true } } } },
+          items:          { select: { item:          { select: { id: true, name: true } } } },
+          companies:      { select: { company:       { select: { id: true, name: true } } } },
+          commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
+        },
+        orderBy: { id: 'asc' },
+      });
+      return myReps.map(r => ({
+        id: r.id, name: r.name, phone: r.phone, email: r.email,
+        company: r.company, notes: r.notes, isActive: r.isActive,
+        areas:          r.areas?.map(a => a.area)          ?? [],
+        items:          r.items?.map(i => i.item)          ?? [],
+        companies:      r.companies?.map(c => c.company)   ?? [],
+        commercialReps: r.commercialReps?.map(l => l.commercialRep) ?? [],
+      }));
+    }
+
+    // ── NON-STANDALONE MODE (DashboardPage rep dropdown / visits system) ──
     // Get this manager's company assignments
     const assignments = await prisma.userCompanyAssignment.findMany({
       where: { userId: user.id },

@@ -65,7 +65,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/scientific-reps`, { headers: authH() });
+      const r = await fetch(`${API}/api/scientific-reps?standalone=1`, { headers: authH() });
       let j: any;
       try { j = await r.json(); } catch { throw new Error(`${t.common.serverError} (HTTP ${r.status})`); }
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
