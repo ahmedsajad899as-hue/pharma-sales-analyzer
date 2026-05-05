@@ -44,12 +44,32 @@ export async function list(filters, user = null) {
 
     if (companyIds.length === 0) return [];
 
+    // For company_manager and team_leader: scope to explicitly assigned subordinates only.
+    // For other roles (supervisor, product_manager, etc.): show all company reps.
+    let allowedUserIds = null; // null = no restriction
+    if (['company_manager', 'team_leader'].includes(user.role)) {
+      const subordinateRows = await prisma.userManagerAssignment.findMany({
+        where: { managerId: user.id },
+        select: { userId: true },
+      });
+      if (subordinateRows.length > 0) {
+        // Only show reps that are explicitly assigned under this manager
+        allowedUserIds = new Set(subordinateRows.map(r => r.userId));
+      }
+      // If no subordinates: team_leader sees nobody (rep mode), company_manager falls back to all company reps
+      if (subordinateRows.length === 0 && user.role === 'team_leader') {
+        return []; // team_leader with no assigned reps sees empty list
+      }
+    }
+
     // Return Users with scientific_rep / team_leader roles assigned to same companies
     const repUsers = await prisma.user.findMany({
       where: {
         role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
+        // If allowedUserIds is set, restrict to those users only
+        ...(allowedUserIds ? { id: { in: [...allowedUserIds] } } : {}),
       },
       include: {
         companyAssignments: { include: { company: { select: { id: true, name: true } } } },

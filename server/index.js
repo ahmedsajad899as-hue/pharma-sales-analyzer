@@ -2340,7 +2340,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     if (role === 'user') {
       if (userId) where.userId = userId;
       if (req.user?.linkedRepId) where.scientificRepId = req.user.linkedRepId;
-    } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
+    } else if (['scientific_rep', 'commercial_rep'].includes(role)) {
       // Rep sees visits they created (by userId) OR attributed to any of their ScientificRepresentative records.
       // Collect all possible scientificRepresentative IDs for this user.
       const repUserRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
@@ -2357,42 +2357,67 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
-    } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
+    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager'].includes(role)) {
       if (repId) {
         if (repId < 0) {
           // Negative repId = manager's own visits (encoded as -userId)
-          // Filter only by userId — don't require scientificRepId=null because
-          // visits created before the fix may have had a repId assigned incorrectly.
           where.userId = -repId;
         } else {
           // Specific scientific rep selected → filter directly
           where.scientificRepId = repId;
         }
       } else {
-        // No specific rep → show company reps' visits AND manager's own visits
-        const [assignments, managerRow] = await Promise.all([
-          prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }),
-          prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
-        ]);
-        const companyIds = assignments.map(a => a.companyId);
-        const managerOfficeId = managerRow?.officeId ?? null;
-        if (companyIds.length > 0) {
-          // Scope to same office to prevent cross-account leakage
-          const repUsersWhere = {
-            companyAssignments: { some: { companyId: { in: companyIds } } },
-            linkedRepId: { not: null },
-            ...(managerOfficeId ? { officeId: managerOfficeId } : { id: -1 }), // -1 = no match when no officeId
-          };
-          const repUsers = await prisma.user.findMany({ where: repUsersWhere, select: { linkedRepId: true } });
-          const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
-          // Always include manager's own visits (userId = managerId) alongside rep visits
+        // No specific rep → scope visits to assigned subordinates (or own for team_leader with no subs)
+        // Priority 1: show only explicitly assigned subordinates' visits
+        const subordinateRows = await prisma.userManagerAssignment.findMany({
+          where: { managerId: userId },
+          select: { userId: true },
+        });
+        if (subordinateRows.length > 0) {
+          const subUserIds = subordinateRows.map(r => r.userId);
+          const subUsers = await prisma.user.findMany({
+            where: { id: { in: subUserIds }, linkedRepId: { not: null } },
+            select: { linkedRepId: true },
+          });
+          const subRepIds = subUsers.map(u => u.linkedRepId).filter(Boolean);
           where.OR = [
-            ...(repIds.length > 0 ? [{ scientificRepId: { in: repIds } }] : []),
-            { userId },  // manager's own visits (scientificRepId = null)
+            ...(subRepIds.length > 0 ? [{ scientificRepId: { in: subRepIds } }] : []),
+            { userId },  // manager's own visits
+          ];
+        } else if (role === 'team_leader') {
+          // team_leader with no subordinates: show only own visits (like a rep)
+          const repUserRow2 = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+          const repLinkedId2 = repUserRow2?.linkedRepId ?? null;
+          const allRepRecords2 = await prisma.scientificRepresentative.findMany({ where: { userId }, select: { id: true } });
+          const allRepIds2 = [...new Set([repLinkedId2, ...allRepRecords2.map(r => r.id)].filter(Boolean))];
+          where.OR = [
+            { userId },
+            ...(allRepIds2.length > 0 ? [{ scientificRepId: { in: allRepIds2 } }] : []),
           ];
         } else {
-          // No company assignments: show only visits created by this manager
-          where.userId = userId;
+          // Fallback for company_manager/supervisor/product_manager with no subordinates:
+          // show all company reps (existing broad behavior)
+          const [assignments, managerRow] = await Promise.all([
+            prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }),
+            prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
+          ]);
+          const companyIds = assignments.map(a => a.companyId);
+          const managerOfficeId = managerRow?.officeId ?? null;
+          if (companyIds.length > 0) {
+            const repUsersWhere = {
+              companyAssignments: { some: { companyId: { in: companyIds } } },
+              linkedRepId: { not: null },
+              ...(managerOfficeId ? { officeId: managerOfficeId } : { id: -1 }),
+            };
+            const repUsers = await prisma.user.findMany({ where: repUsersWhere, select: { linkedRepId: true } });
+            const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
+            where.OR = [
+              ...(repIds.length > 0 ? [{ scientificRepId: { in: repIds } }] : []),
+              { userId },
+            ];
+          } else {
+            where.userId = userId;
+          }
         }
       }
     } else {
@@ -2424,25 +2449,24 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     if (role === 'user') {
       if (userId) pharmWhere.userId = userId;
       if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
-    } else if (['scientific_rep', 'team_leader', 'commercial_rep'].includes(role)) {
+    } else if (['scientific_rep', 'commercial_rep'].includes(role)) {
       // Same OR logic as doctor visits: userId OR any scientificRepId
       if (where.OR) pharmWhere.OR = where.OR;
       else pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
-    } else if (['company_manager', 'supervisor', 'product_manager'].includes(role)) {
+    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager'].includes(role)) {
       if (repId) {
         if (repId < 0) {
-          // Negative repId = manager's own pharmacy visits (encoded as -userId)
           pharmWhere.userId = -repId;
         } else {
           pharmWhere.scientificRepId = repId;
         }
       } else {
-        // Mirror the doctor visits OR clause: rep visits + manager's own
+        // Mirror the doctor visits OR clause (already computed above for subordinate scoping)
         if (where.OR) pharmWhere.OR = where.OR;
         else if (where.scientificRepId) pharmWhere.scientificRepId = where.scientificRepId;
-        else pharmWhere.userId = userId;  // no company assignments: scope to own userId only
+        else pharmWhere.userId = userId;
       }
     } else {
       if (repId) pharmWhere.scientificRepId = repId;

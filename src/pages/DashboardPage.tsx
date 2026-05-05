@@ -57,15 +57,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
-  const isCompanyManager = user?.role === 'company_manager';
+  const isCompanyManager = ['company_manager', 'team_leader'].includes(user?.role ?? '');
   const [showCallsSection, setShowCallsSection] = useState(() =>
-    user?.role === 'company_manager' ? true : localStorage.getItem('dash_calls_open') === 'true'
+    ['company_manager', 'team_leader'].includes(user?.role ?? '') ? true : localStorage.getItem('dash_calls_open') === 'true'
   );
   const [showCallStats, setShowCallStats] = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
   // Pre-fetched rep list for managers — shown in dropdown even when today has no visits
   const [dashReps, setDashReps] = useState<{ id: number; name: string }[]>([]);
-  const isScientificRep  = ['scientific_rep', 'team_leader', 'supervisor'].includes(user?.role ?? '');
+  const isScientificRep  = ['scientific_rep', 'supervisor'].includes(user?.role ?? '');
   const canHavePlan      = ['user', 'scientific_rep', 'team_leader', 'supervisor', 'commercial_rep'].includes(user?.role ?? '');
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
   const [showLikersId, setShowLikersId] = useState<number | null>(null);
