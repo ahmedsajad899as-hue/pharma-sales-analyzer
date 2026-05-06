@@ -85,6 +85,7 @@ model User {
   surveyHiddenFor     MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
   activityLogs        ActivityLog[]
   doctorArchiveEntries DoctorArchiveEntry[]
+  doctorWishlists     DoctorWishlist[]
 
   @@index([officeId])
   @@map("users")
@@ -478,6 +479,7 @@ model Doctor {
 
   planEntries PlanEntry[]
   visits      DoctorVisit[]
+  wishlists   DoctorWishlist[]
 
   @@index([userId])
   @@index([areaId])
@@ -1222,6 +1224,26 @@ model AppNotification {
 }
 
 // ─── Activity Log (سجل حركات المستخدمين) ──────────────────
+// ─── Doctor Wishlist (قائمة الطلبات) ─────────────────────────
+model DoctorWishlist {
+  id           Int      @id @default(autoincrement())
+  userId       Int      // المندوب الذي أضافه
+  doctorId     Int
+  itemName     String?  // الإيتم المختار
+  specialty    String?
+  pharmacyName String?
+  areaName     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, doctorId])
+  @@index([userId])
+  @@map("doctor_wishlists")
+}
+
 model ActivityLog {
   id        Int      @id @default(autoincrement())
   userId    Int?

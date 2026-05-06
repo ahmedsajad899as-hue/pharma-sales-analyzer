@@ -1244,3 +1244,97 @@ export async function pharmacyNameSuggestions(req, res, next) {
     res.json(names.slice(0, 10));
   } catch (e) { next(e); }
 }
+
+// ─── Wishlist (قائمة الطلبات) ──────────────────────────────
+
+export async function getWishlist(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const items = await prisma.doctorWishlist.findMany({
+      where: { userId },
+      include: {
+        doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { id: true, name: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json(items.map(w => ({
+      doctorId:    w.doctorId,
+      doctorName:  w.doctor.name,
+      specialty:   w.specialty ?? w.doctor.specialty,
+      pharmacyName:w.pharmacyName ?? w.doctor.pharmacyName,
+      areaName:    w.areaName ?? w.doctor.area?.name,
+      itemName:    w.itemName,
+      createdAt:   w.createdAt,
+    })));
+  } catch (e) { next(e); }
+}
+
+export async function getRepWishlist(req, res, next) {
+  try {
+    const managerId = req.user.id;
+    const role      = req.user.role;
+    const repUserId = parseInt(req.params.repUserId);
+    if (isNaN(repUserId)) return res.status(400).json({ error: 'repUserId غير صالح' });
+
+    const ALLOWED = ['admin', 'manager', 'supervisor', 'team_leader', 'commercial_team_leader',
+                     'company_manager', 'office_manager'];
+    if (!ALLOWED.includes(role)) {
+      const assignment = await prisma.userManagerAssignment.findFirst({
+        where: { managerId, userId: repUserId },
+      });
+      if (!assignment) return res.status(403).json({ error: 'غير مصرح' });
+    }
+
+    const items = await prisma.doctorWishlist.findMany({
+      where: { userId: repUserId },
+      include: {
+        doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { id: true, name: true } } } },
+        user:   { select: { id: true, displayName: true, username: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const repUser = items[0]?.user ?? await prisma.user.findUnique({
+      where: { id: repUserId },
+      select: { id: true, displayName: true, username: true },
+    });
+
+    res.json({
+      rep: repUser ? { id: repUser.id, name: repUser.displayName || repUser.username } : { id: repUserId, name: '—' },
+      wishlist: items.map(w => ({
+        doctorId:    w.doctorId,
+        doctorName:  w.doctor.name,
+        specialty:   w.specialty ?? w.doctor.specialty,
+        pharmacyName:w.pharmacyName ?? w.doctor.pharmacyName,
+        areaName:    w.areaName ?? w.doctor.area?.name,
+        itemName:    w.itemName,
+        createdAt:   w.createdAt,
+      })),
+    });
+  } catch (e) { next(e); }
+}
+
+export async function upsertWishlist(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const { doctorId, itemName, specialty, pharmacyName, areaName } = req.body;
+    if (!doctorId) return res.status(400).json({ error: 'doctorId مطلوب' });
+
+    const entry = await prisma.doctorWishlist.upsert({
+      where:  { userId_doctorId: { userId, doctorId: parseInt(doctorId) } },
+      create: { userId, doctorId: parseInt(doctorId), itemName: itemName ?? null, specialty: specialty ?? null, pharmacyName: pharmacyName ?? null, areaName: areaName ?? null },
+      update: { itemName: itemName ?? null, specialty: specialty ?? null, pharmacyName: pharmacyName ?? null, areaName: areaName ?? null, updatedAt: new Date() },
+    });
+    res.json({ ok: true, id: entry.id });
+  } catch (e) { next(e); }
+}
+
+export async function removeWishlist(req, res, next) {
+  try {
+    const userId   = req.user.id;
+    const doctorId = parseInt(req.params.doctorId);
+    if (isNaN(doctorId)) return res.status(400).json({ error: 'doctorId غير صالح' });
+    await prisma.doctorWishlist.deleteMany({ where: { userId, doctorId } });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+}

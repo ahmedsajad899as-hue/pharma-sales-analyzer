@@ -191,6 +191,17 @@ export default function DoctorsPage() {
   interface ManagerRep { userId: number; name: string; linkedRepId: number | null; }
   const [managerReps, setManagerReps]       = useState<ManagerRep[]>([]);
   const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
+  // Manager wishlist view — show each rep's wishlist
+  interface RepWishEntry { doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string; }
+  interface RepWishData  { rep: { id: number; name: string }; wishlist: RepWishEntry[]; loading: boolean; open: boolean; openDetails: Set<number>; }
+  const [repWishlists, setRepWishlists]     = useState<Record<number, RepWishData>>({});
+  const loadRepWishlist = (repUserId: number) => {
+    setRepWishlists(prev => ({ ...prev, [repUserId]: { ...(prev[repUserId] ?? { rep: { id: repUserId, name: '' }, wishlist: [], openDetails: new Set() }), loading: true, open: true } }));
+    fetch(`${API}/api/doctors/wishlist/rep/${repUserId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { rep: { id: repUserId, name: '—' }, wishlist: [] })
+      .then(data => setRepWishlists(prev => ({ ...prev, [repUserId]: { rep: data.rep, wishlist: data.wishlist ?? [], loading: false, open: true, openDetails: prev[repUserId]?.openDetails ?? new Set() } })))
+      .catch(() => setRepWishlists(prev => ({ ...prev, [repUserId]: { ...prev[repUserId], loading: false } })));
+  };
   const [expandedAreas, setExpandedAreas]   = useState<Set<string>>(new Set());
   const [visitSearch, setVisitSearch]       = useState('');
   const [showOnlyVisited, setShowOnlyVisited] = useState(false);  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
@@ -366,6 +377,7 @@ export default function DoctorsPage() {
   ]);
 
   const toggleWish = (id: number, name?: string, extra?: { specialty?: string; pharmacyName?: string; areaName?: string }) => {
+    const adding = !wishedDoctors.has(id);
     setWishedDoctors(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -386,6 +398,16 @@ export default function DoctorsPage() {
         return next;
       });
     }
+    // Sync to backend
+    const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    if (adding) {
+      fetch(`${API}/api/doctors/wishlist`, {
+        method: 'POST', headers: h,
+        body: JSON.stringify({ doctorId: id, specialty: extra?.specialty, pharmacyName: extra?.pharmacyName, areaName: extra?.areaName }),
+      }).catch(() => {/* silent */});
+    } else {
+      fetch(`${API}/api/doctors/wishlist/${id}`, { method: 'DELETE', headers: h }).catch(() => {/* silent */});
+    }
   };
   const setWishedItem = (docId: number, itemName: string) => {
     setWishedItems(prev => {
@@ -393,6 +415,12 @@ export default function DoctorsPage() {
       localStorage.setItem(itemsKey, JSON.stringify(next));
       return next;
     });
+    // Update backend item name
+    const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    fetch(`${API}/api/doctors/wishlist`, {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ doctorId: docId, itemName }),
+    }).catch(() => {/* silent */});
   };
   const toggleVisitExpand = (id: number) => setExpandedVisits(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
@@ -482,6 +510,37 @@ export default function DoctorsPage() {
     localStorage.removeItem('wishedDoctors');
     localStorage.removeItem('wishedItems');
     localStorage.removeItem('wishedDoctorNames');
+
+    // Load from backend and merge (backend is source of truth)
+    fetch(`${API}/api/doctors/wishlist`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((items: Array<{ doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string }>) => {
+        if (!Array.isArray(items)) return;
+        setWishedDoctors(new Set(items.map(w => w.doctorId)));
+        setWishedNames(prev => {
+          const next = { ...prev };
+          items.forEach(w => { next[w.doctorId] = w.doctorName; });
+          localStorage.setItem(kNm, JSON.stringify(next));
+          return next;
+        });
+        setWishedItems(prev => {
+          const next = { ...prev };
+          items.forEach(w => { if (w.itemName) next[w.doctorId] = w.itemName; });
+          localStorage.setItem(kIt, JSON.stringify(next));
+          return next;
+        });
+        setWishedInfo(prev => {
+          const next = { ...prev };
+          items.forEach(w => {
+            next[w.doctorId] = { specialty: w.specialty, pharmacyName: w.pharmacyName, areaName: w.areaName, addedBy: next[w.doctorId]?.addedBy };
+          });
+          localStorage.setItem(kInf, JSON.stringify(next));
+          return next;
+        });
+        localStorage.setItem(key, JSON.stringify(items.map(w => w.doctorId)));
+      })
+      .catch(() => {/* silent fallback to localStorage */});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   // AI assistant page-action listener
@@ -1945,6 +2004,93 @@ export default function DoctorsPage() {
               </div>
             );
           })()}
+
+          {/* ── Manager: wishlists of all sub-reps ── */}
+          {!isFieldRep && managerReps.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 16 }}>👥</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#4338ca' }}>قائمة طلبات المندوبين</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {managerReps.map(rep => {
+                  const rw = repWishlists[rep.userId];
+                  const isOpen = rw?.open ?? false;
+                  return (
+                    <div key={rep.userId} style={{ border: '1.5px solid #c7d2fe', borderRadius: 12, overflow: 'hidden' }}>
+                      <div
+                        onClick={() => {
+                          if (isOpen) {
+                            setRepWishlists(prev => ({ ...prev, [rep.userId]: { ...prev[rep.userId], open: false } }));
+                          } else {
+                            loadRepWishlist(rep.userId);
+                          }
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: isOpen ? '#eef2ff' : '#f8fafc', cursor: 'pointer' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 14 }}>👤</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#4338ca' }}>{rep.name}</span>
+                          {rw && !rw.loading && (
+                            <span style={{ background: rw.wishlist.length > 0 ? '#6366f1' : '#e2e8f0', color: rw.wishlist.length > 0 ? '#fff' : '#94a3b8', borderRadius: 99, fontSize: 11, fontWeight: 700, padding: '1px 8px' }}>
+                              {rw.wishlist.length}
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: 12, color: '#94a3b8', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
+                      </div>
+                      {isOpen && (
+                        <div style={{ padding: '10px 14px', background: '#fff' }}>
+                          {rw?.loading ? (
+                            <div style={{ textAlign: 'center', padding: '16px 0', color: '#94a3b8', fontSize: 13 }}>⏳ جاري التحميل...</div>
+                          ) : !rw?.wishlist.length ? (
+                            <div style={{ textAlign: 'center', padding: '12px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد أطباء مطلوبون</div>
+                          ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                              {rw.wishlist.map((w, idx) => {
+                                const detailOpen = rw.openDetails.has(w.doctorId);
+                                const hasDetails = !!(w.specialty || w.pharmacyName || w.areaName);
+                                return (
+                                  <div key={w.doctorId} style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1px solid #e2e8f0', direction: 'rtl', position: 'relative' }}>
+                                    <span style={{ position: 'absolute', top: 7, right: 10, background: '#eef2ff', color: '#4338ca', borderRadius: 99, fontSize: 10, fontWeight: 700, padding: '1px 5px' }}>{idx + 1}</span>
+                                    <div style={{ marginTop: 14, marginBottom: 4, fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{w.doctorName}</div>
+                                    {w.itemName && <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, marginBottom: 4 }}>💊 {w.itemName}</div>}
+                                    {hasDetails && (
+                                      <div>
+                                        <button
+                                          onClick={() => setRepWishlists(prev => {
+                                            const cur = prev[rep.userId];
+                                            const s = new Set(cur.openDetails);
+                                            s.has(w.doctorId) ? s.delete(w.doctorId) : s.add(w.doctorId);
+                                            return { ...prev, [rep.userId]: { ...cur, openDetails: s } };
+                                          })}
+                                          style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8' }}
+                                        >
+                                          <span style={{ fontSize: 10, display: 'inline-block', transition: 'transform 0.2s', transform: detailOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600 }}>{detailOpen ? 'إخفاء' : 'تفاصيل'}</span>
+                                        </button>
+                                        {detailOpen && (
+                                          <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                            {w.specialty && <div style={{ fontSize: 11, color: '#475569' }}>🩺 {w.specialty}</div>}
+                                            {w.pharmacyName && <div style={{ fontSize: 11, color: '#475569' }}>🏥 {w.pharmacyName}</div>}
+                                            {w.areaName && <div style={{ fontSize: 11, color: '#475569' }}>📍 {w.areaName}</div>}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {visitLoading && (
             <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
