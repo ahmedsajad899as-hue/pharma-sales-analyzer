@@ -562,29 +562,30 @@ export default function DoctorsPage() {
       .then((items: Array<{ doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string }> | null) => {
         if (!Array.isArray(items)) return; // error from backend — keep localStorage
 
-        if (items.length === 0) {
-          // Backend empty — check if localStorage has data and re-sync it
-          let localIds: number[] = [];
-          try { localIds = JSON.parse(localStorage.getItem(key) || '[]'); } catch { localIds = []; }
-          if (localIds.length > 0) {
-            let localItems: Record<number, string> = {};
-            let localInfo: Record<number, { specialty?: string; pharmacyName?: string; areaName?: string }> = {};
-            try { localItems = JSON.parse(localStorage.getItem(kIt) || '{}'); } catch { localItems = {}; }
-            try { localInfo  = JSON.parse(localStorage.getItem(kInf) || '{}'); } catch { localInfo = {}; }
-            const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-            // POST each local entry to backend to restore it
-            localIds.forEach(docId => {
-              const info = localInfo[docId] ?? {};
-              fetch(`${API}/api/doctors/wishlist`, {
-                method: 'POST', headers: h,
-                body: JSON.stringify({ doctorId: docId, itemName: localItems[docId] ?? undefined, specialty: info.specialty, pharmacyName: info.pharmacyName, areaName: info.areaName }),
-              }).catch(() => {});
-            });
-          }
-          return; // keep current localStorage state displayed
+        // ── Always re-sync: push any localStorage IDs that are missing from backend ──
+        const backendIds = new Set(items.map(w => w.doctorId));
+        let localIds: number[] = [];
+        try { localIds = JSON.parse(localStorage.getItem(key) || '[]'); } catch { localIds = []; }
+        const missingIds = localIds.filter(id => !backendIds.has(id));
+        if (missingIds.length > 0) {
+          let localItems: Record<number, string> = {};
+          let localInfo: Record<number, { specialty?: string; pharmacyName?: string; areaName?: string }> = {};
+          try { localItems = JSON.parse(localStorage.getItem(kIt) || '{}'); } catch { localItems = {}; }
+          try { localInfo  = JSON.parse(localStorage.getItem(kInf) || '{}'); } catch { localInfo = {}; }
+          const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+          // Fire-and-forget POSTs for missing entries
+          missingIds.forEach(docId => {
+            const info = localInfo[docId] ?? {};
+            fetch(`${API}/api/doctors/wishlist`, {
+              method: 'POST', headers: h,
+              body: JSON.stringify({ doctorId: docId, itemName: localItems[docId] ?? undefined, specialty: info.specialty, pharmacyName: info.pharmacyName, areaName: info.areaName }),
+            }).catch(() => {});
+          });
         }
 
-        // Backend has data — merge into state
+        if (items.length === 0) return; // backend empty — keep localStorage displayed
+
+        // Backend has data — merge into state (UNION of backend + local, never wipes local picks)
         setWishedDoctors(prev => {
           const merged = new Set([...prev, ...items.map(w => w.doctorId)]);
           localStorage.setItem(key, JSON.stringify([...merged]));
