@@ -1747,8 +1747,10 @@ export default function DoctorsPage() {
 
           {/* Wished doctors panel */}
           {showWishPanel && wishedDoctors.size > 0 && (() => {
-            const allDocs = visitAreas.flatMap(a => a.doctors);
-            const wished  = allDocs.filter(d => wishedDoctors.has(d.id));
+            const allDocsMap: Record<number, (typeof visitAreas)[0]['doctors'][0]> = {};
+            visitAreas.flatMap(a => a.doctors).forEach(d => { allDocsMap[d.id] = d; });
+            // Build wished list from wishedDoctors Set — include doctors even if they have no visits
+            const wished = [...wishedDoctors].map(id => allDocsMap[id] ?? { id, name: wishedNames[id] ?? `دكتور #${id}`, specialty: undefined, area: undefined, targetItem: undefined });
             return (
               <div style={{
                 background: '#f8fafc',
@@ -1770,9 +1772,9 @@ export default function DoctorsPage() {
                     setWishedDoctors(new Set());
                     setWishedItems({});
                     setWishedNames({});
-                    localStorage.removeItem('wishedDoctors');
-                    localStorage.removeItem('wishedItems');
-                    localStorage.removeItem('wishedDoctorNames');
+                    localStorage.removeItem(wishKey);
+                    localStorage.removeItem(itemsKey);
+                    localStorage.removeItem(namesKey);
                   }} style={{
                     background: 'none', border: '1px solid #e2e8f0', borderRadius: 7,
                     padding: '3px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer', fontWeight: 600,
