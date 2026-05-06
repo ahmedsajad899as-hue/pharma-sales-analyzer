@@ -262,6 +262,14 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                       placeholder="0"
                       value={row.target}
                       onChange={e => updateRow(i, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const inputs = document.querySelectorAll<HTMLInputElement>('.tgt-input');
+                          const next = inputs[i + 1];
+                          if (next) { next.focus(); next.select(); }
+                        }
+                      }}
                     />
                   </td>
                 </tr>
