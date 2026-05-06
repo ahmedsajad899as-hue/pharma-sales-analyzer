@@ -18,6 +18,8 @@ import {
   listOfficesForFilter,
   listCompaniesForFilter,
   listActivityLogs,
+  getActivityLoggingStatus,
+  setActivityLoggingStatus,
 } from './super-admin.controller.js';
 import { requireSuperAdmin, requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -52,7 +54,9 @@ router.get('/offices-for-filter',   requireMasterAdmin, listOfficesForFilter);
 router.get('/companies-for-filter', requireMasterAdmin, listCompaniesForFilter);
 
 // Activity logs (master only)
-router.get('/activity-logs', requireMasterAdmin, listActivityLogs);
+router.get('/activity-logs',          requireMasterAdmin, listActivityLogs);
+router.get('/activity-logging',       requireMasterAdmin, getActivityLoggingStatus);
+router.post('/activity-logging',      requireMasterAdmin, setActivityLoggingStatus);
 
 // Any super admin can impersonate a user
 router.post('/impersonate/:userId', requireSuperAdmin, impersonateUser);

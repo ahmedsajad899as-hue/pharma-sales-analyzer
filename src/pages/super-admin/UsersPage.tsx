@@ -182,6 +182,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [featSection,        setFeatSection]        = useState<string>(() => localStorage.getItem('sa_user_feat_section') || 'gps');
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
+  const [draftDisableActLog, setDraftDisableActLog] = useState(false);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
   const load = (restoreScroll = false) => {
@@ -260,12 +261,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       const p = JSON.parse(detail.permissions || '{}');
       setDraftDisabledFeats(p.disabledFeatures ?? []);
       setDraftRequireGps(p.requireGps !== false);
+      setDraftDisableActLog(p.disableActivityLog === true);
       setDraftDoctorFilter({
         byArea: p.doctorFilterByArea !== false,
         planMode: p.doctorFilterPlanMode || 'plan_and_all',
         surveyOnly: p.doctorFilterSurveyOnly === true,
       });
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
   }, [detail?.id]);
 
   const loadDetail = (id: number, opts: { keepTab?: boolean } = {}) => {
@@ -382,6 +384,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         method: 'PUT', headers: H(), body: JSON.stringify({
           disabledFeatures: draftDisabledFeats,
           requireGps: draftRequireGps,
+          disableActivityLog: draftDisableActLog,
           doctorFilterByArea: draftDoctorFilter.byArea,
           doctorFilterPlanMode: draftDoctorFilter.planMode,
           doctorFilterSurveyOnly: draftDoctorFilter.surveyOnly,
@@ -757,6 +760,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   <div style={{ padding: '10px 8px 4px' }}>
                     <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', padding: '0 4px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>الإعدادات</div>
                     <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
+                    <SidebarBtn id="activity_log"  icon="🕵️" label="سجل الحركات"  dot={{ color: draftDisableActLog ? '#94a3b8' : '#22c55e' }} />
                     <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
                   </div>
 
@@ -818,6 +822,37 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                           <input type="checkbox" checked={draftRequireGps} onChange={e => setDraftRequireGps(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
                           <span style={{ position: 'absolute', inset: 0, background: draftRequireGps ? '#f97316' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
                           <span style={{ position: 'absolute', top: 5, left: draftRequireGps ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Activity Log ── */}
+                  {featSection === 'activity_log' && (
+                    <div>
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>🕵️ سجل الحركات</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>تحديد ما إذا كانت تصرفات هذا المستخدم تُحفظ في سجل الحركات</div>
+                      </div>
+                      <div style={{
+                        borderRadius: 14, border: `2px solid ${draftDisableActLog ? '#94a3b8' : '#22c55e'}`,
+                        background: draftDisableActLog ? '#f8fafc' : '#f0fdf4',
+                        padding: '18px 20px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: draftDisableActLog ? '#e2e8f0' : '#bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🕵️</div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>تسجيل حركات المستخدم</div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                              {draftDisableActLog ? '⚫ معطّل — لن تُسجَّل تصرفات هذا المستخدم' : '🟢 مفعّل — جميع تصرفاته محفوظة في السجل'}
+                            </div>
+                          </div>
+                        </div>
+                        <label style={{ position: 'relative', display: 'inline-block', width: 56, height: 30, cursor: 'pointer', flexShrink: 0 }}>
+                          <input type="checkbox" checked={!draftDisableActLog} onChange={e => setDraftDisableActLog(!e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                          <span style={{ position: 'absolute', inset: 0, background: !draftDisableActLog ? '#22c55e' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
+                          <span style={{ position: 'absolute', top: 5, left: !draftDisableActLog ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
                         </label>
                       </div>
                     </div>

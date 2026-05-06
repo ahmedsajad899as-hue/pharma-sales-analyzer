@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../../lib/prisma.js';
+import { isGlobalLoggingEnabled, setGlobalLogging, loadGlobalLoggingFlag } from '../../lib/activityLogger.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super_admin_secret_change_in_prod';
 
@@ -239,7 +240,9 @@ export async function listActivityLogs(req, res) {
     const action    = req.query.action    || undefined;
     const module    = req.query.module    || undefined;
 
+// Also exclude __system__ records from list
     const where = {
+      NOT: { module: '__system__' },
       ...(search    ? { OR: [
         { action:  { contains: search, mode: 'insensitive' } },
         { details: { contains: search, mode: 'insensitive' } },
@@ -275,6 +278,25 @@ export async function listActivityLogs(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+}
+
+// ── Activity Logging Global Toggle ───────────────────────────────────────────
+let _flagLoadPromise = null;
+async function ensureFlag() {
+  if (!_flagLoadPromise) _flagLoadPromise = loadGlobalLoggingFlag();
+  return _flagLoadPromise;
+}
+
+export async function getActivityLoggingStatus(req, res) {
+  await ensureFlag();
+  res.json({ success: true, enabled: isGlobalLoggingEnabled() });
+}
+
+export async function setActivityLoggingStatus(req, res) {
+  const { enabled } = req.body;
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be boolean' });
+  await setGlobalLogging(enabled);
+  res.json({ success: true, enabled });
 }
 
 export async function listOfficesForFilter(req, res) {

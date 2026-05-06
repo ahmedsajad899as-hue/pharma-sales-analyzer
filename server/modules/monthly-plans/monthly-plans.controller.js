@@ -173,6 +173,7 @@ export async function suggest(req, res, next) {
       newRatio = '0',        // 0 = auto, 1-100 = force % of target to be new doctors
       focusItemId = '',      // filter new doctors by item
       focusSpecialty = '',   // filter new doctors by specialty
+      focusClass = '',       // filter new doctors by class (كلاس)
       focusAreaId = '',      // override area filter for new doctors
       wishedDoctorIds = '',  // comma-separated doctor IDs from rep wishlist (قائمة الطلبات)
       areaQuotas = '',       // JSON string e.g. '{"1":10,"4":5}' — per-area doctor quotas
@@ -612,11 +613,13 @@ export async function suggest(req, res, next) {
       return parts.map(id => ({ id, pct: Math.round(100 / parts.length) }));
     };
     const focusSpecEntries = parseFocusSpec(focusSpecialty);
+    const focusClassEntries = parseFocusSpec(focusClass); // reuse same parser — name+pct
     const focusItemEntries = parseFocusItem(focusItemId);
     // For area-quota path: derive hard-filter arrays (all entries combined)
     const specialtyFilter = focusSpecEntries.length
       ? focusSpecEntries.map(x => x.name)
       : (aiParsed?.specialties?.length ? aiParsed.specialties : null);
+    const classFilter = focusClassEntries.length ? focusClassEntries.map(x => x.name) : null;
     const itemFilter = focusItemEntries.length
       ? { targetItemId: { in: focusItemEntries.map(x => x.id) } }
       : {};
@@ -681,6 +684,7 @@ export async function suggest(req, res, next) {
               id: { notIn: [...excludedIds] },
               areaId: aId,
               ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+              ...(classFilter && { className: { in: classFilter } }),
               ...itemFilter,
             },
             include: {
@@ -723,6 +727,7 @@ export async function suggest(req, res, next) {
                 id: { notIn: [...extraExcludedIds] },
                 areaId: aId,
                 ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+                ...(classFilter && { className: { in: classFilter } }),
                 ...itemFilter,
               },
               include: {
@@ -751,7 +756,7 @@ export async function suggest(req, res, next) {
         ...(effectiveAreaIds.length > 0 && { areaId: { in: effectiveAreaIds } }),
       };
 
-      if (focusSpecEntries.length > 0 || focusItemEntries.length > 0) {
+      if (focusSpecEntries.length > 0 || focusItemEntries.length > 0 || focusClassEntries.length > 0) {
         // ── Weighted focus: Phase 1 — proportional slice per focus entry ──
         const focusedDocs = [];
 
@@ -787,6 +792,22 @@ export async function suggest(req, res, next) {
           focusedDocs.push(...docs);
         }
 
+        for (const fc_entry of focusClassEntries) {
+          const alloc = Math.round(needed * fc_entry.pct / 100);
+          if (alloc <= 0) continue;
+          const excl = new Set([...usedDoctorIds, ...excludedByRepetition, ...recentlyVisitedIds]);
+          const fc = sortBy === 'random' ? Math.min(alloc * 4, 500) : alloc;
+          let docs = await prisma.doctor.findMany({
+            where: { ...baseWhere, id: { notIn: [...excl] }, className: fc_entry.name },
+            include: docIncludes,
+            take: fc,
+            orderBy: sortBy === 'newest' ? { createdAt: 'desc' } : { createdAt: 'asc' },
+          });
+          if (sortBy === 'random') docs = docs.sort(() => Math.random() - 0.5).slice(0, alloc);
+          docs.forEach(d => usedDoctorIds.add(d.id));
+          focusedDocs.push(...docs);
+        }
+
         // Phase 2 — Fill remainder from general pool (no focus filter)
         const remaining = Math.max(0, needed - focusedDocs.length);
         if (remaining > 0) {
@@ -813,6 +834,7 @@ export async function suggest(req, res, next) {
             ...baseWhere,
             id: { notIn: [...excl] },
             ...(specialtyFilter && { specialty: { in: specialtyFilter } }),
+            ...(classFilter && { className: { in: classFilter } }),
             ...itemFilter,
           },
           include: docIncludes,

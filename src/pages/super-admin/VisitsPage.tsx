@@ -132,6 +132,8 @@ export default function VisitsPage() {
   const [actSearch,  setActSearch]  = useState('');
   const [actDateFrom, setActDateFrom] = useState('');
   const [actDateTo,   setActDateTo]   = useState('');
+  const [actGlobalEnabled,    setActGlobalEnabled]    = useState<boolean | null>(null);
+  const [actGlobalSaving,     setActGlobalSaving]     = useState(false);
   const ACT_LIMIT = 50;
 
   const [visits,  setVisits]  = useState<Visit[]>([]);
@@ -216,6 +218,11 @@ export default function VisitsPage() {
 
   const loadActivity = useCallback(() => {
     setActLoading(true);
+    // Also load global logging status
+    fetch('/api/super-admin/activity-logging', { headers: H() })
+      .then(r => r.json())
+      .then(d => { if (d.success) setActGlobalEnabled(d.enabled); })
+      .catch(() => {});
     const params = new URLSearchParams({
       page: String(actPage), limit: String(ACT_LIMIT),
       ...(actSearch   && { search:   actSearch }),
@@ -230,6 +237,18 @@ export default function VisitsPage() {
   }, [H, actPage, actSearch, actDateFrom, actDateTo]);
 
   useEffect(() => { if (tab === 'activity') loadActivity(); }, [loadActivity, tab]);
+
+  const toggleGlobalLogging = async (enabled: boolean) => {
+    setActGlobalSaving(true);
+    try {
+      const res = await fetch('/api/super-admin/activity-logging', {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({ enabled }),
+      });
+      const d = await res.json();
+      if (d.success) setActGlobalEnabled(d.enabled);
+    } finally { setActGlobalSaving(false); }
+  };
 
   const handleDelete = async (v: Visit) => {
     if (!confirm(`حذف زيارة "${v.doctor.name}" بتاريخ ${new Date(v.visitDate).toLocaleDateString('ar-IQ')}؟`)) return;
@@ -369,6 +388,34 @@ export default function VisitsPage() {
       {/* ── Activity Log Tab ──────────────────────────────────── */}
       {tab === 'activity' && (
         <div>
+          {/* Global logging toggle */}
+          {actGlobalEnabled !== null && (
+            <div style={{
+              marginBottom: 16, padding: '14px 18px', borderRadius: 14,
+              border: `2px solid ${actGlobalEnabled ? '#22c55e' : '#ef4444'}`,
+              background: actGlobalEnabled ? '#f0fdf4' : '#fef2f2',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 24 }}>🕵️</span>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>سجل الحركات — الإعداد العام</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    {actGlobalEnabled
+                      ? '🟢 مفعّل — تصرفات جميع المستخدمين تُسجَّل'
+                      : '🔴 معطّل — لا يُسجَّل أي نشاط لأي مستخدم'}
+                  </div>
+                </div>
+              </div>
+              <label style={{ position: 'relative', display: 'inline-block', width: 56, height: 30, cursor: actGlobalSaving ? 'wait' : 'pointer', flexShrink: 0, opacity: actGlobalSaving ? 0.6 : 1 }}>
+                <input type="checkbox" checked={actGlobalEnabled} disabled={actGlobalSaving}
+                  onChange={e => toggleGlobalLogging(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                <span style={{ position: 'absolute', inset: 0, background: actGlobalEnabled ? '#22c55e' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
+                <span style={{ position: 'absolute', top: 5, left: actGlobalEnabled ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+              </label>
+            </div>
+          )}
+
           {/* Filters */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
             <input

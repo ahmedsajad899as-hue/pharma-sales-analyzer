@@ -64,7 +64,7 @@ const API = import.meta.env.VITE_API_URL || '';
 interface NamedItem { id: number; name: string; }
 interface ScientificRep { id: number; name: string; }
 interface Doctor {
-  id: number; name: string; specialty?: string; pharmacyName?: string;
+  id: number; name: string; specialty?: string; pharmacyName?: string; className?: string;
   area?: NamedItem; targetItem?: NamedItem; fromWishList?: boolean;
 }
 interface VisitLike { id: number; userId: number; user: { id: number; username: string }; }
@@ -172,6 +172,9 @@ export default function MonthlyPlansPage() {
   const [sFocusSpecialties, setSFocusSpecialties] = useState<{name: string; pct: number}[]>((_ss.focusSpecialties ?? []).map((x: any) => typeof x === 'string' ? { name: x, pct: 60 } : x));
   const [sFocusSpecText, setSFocusSpecText]   = useState('');
   const [sFocusSpecDD, setSFocusSpecDD]       = useState(false);
+  const [sFocusClasses, setSFocusClasses]     = useState<{name: string; pct: number}[]>((_ss.focusClasses ?? []).map((x: any) => typeof x === 'string' ? { name: x, pct: 60 } : x));
+  const [sFocusClassText, setSFocusClassText] = useState('');
+  const [sFocusClassDD, setSFocusClassDD]     = useState(false);
   const [sFocusAreaIds, setSFocusAreaIds]     = useState<{id: string; name: string}[]>(_ss.focusAreaIds ?? []);
   const [sFocusAreaText, setSFocusAreaText]   = useState('');
   const [sFocusAreaDD, setSFocusAreaDD]       = useState(false);
@@ -194,12 +197,13 @@ export default function MonthlyPlansPage() {
       userNote: sUserNote, lookbackList: sLookbackList, newRatio: sNewRatio,
       focusItemIds: sFocusItemIds, focusSpecialties: sFocusSpecialties,
       focusAreaIds: sFocusAreaIds, useWishList: sUseWishList,
+      focusClasses: sFocusClasses,
       prioritizeMissed: sPrioritizeMissed, maxRepetitions: sMaxRepetitions,
       notVisitedMonths: sNotVisitedMonths,
     }));
   }, [sTargetDoctors, sTargetVisits, sKeepFeedback, sRestrictAreas, sSortBy,
       sUseNoteAnalysis, sUserNote, sLookbackList, sNewRatio,
-      sFocusItemIds, sFocusSpecialties, sFocusAreaIds, sUseWishList,
+      sFocusItemIds, sFocusSpecialties, sFocusAreaIds, sUseWishList, sFocusClasses,
       sPrioritizeMissed, sMaxRepetitions, sNotVisitedMonths]);
 
   const [sWishDropdownOpen, setSWishDropdownOpen] = useState(false);
@@ -688,6 +692,7 @@ export default function MonthlyPlansPage() {
         ...(!hasRep && { planId: String(activePlan.id) }),
         ...(sFocusItemIds.length > 0     && { focusItemId:     JSON.stringify(sFocusItemIds.map(x => ({ id: x.id, pct: x.pct }))) }),
         ...(sFocusSpecialties.length > 0 && { focusSpecialty:  JSON.stringify(sFocusSpecialties.map(x => ({ name: x.name, pct: x.pct }))) }),
+        ...(sFocusClasses.length > 0     && { focusClass:      JSON.stringify(sFocusClasses.map(x => ({ name: x.name, pct: x.pct }))) }),
         ...(sFocusAreaIds.length > 0     && { focusAreaId:     sFocusAreaIds.map(x => x.id).join(',') }),
         ...(sUserNote.trim() && { userNote:        sUserNote.trim() }),
         ...(wishedDoctorIds  && { wishedDoctorIds }),
@@ -2443,6 +2448,13 @@ export default function MonthlyPlansPage() {
                           !sFocusSpecialties.find(x => x.name === s) &&
                           (!sFocusSpecText || s.toLowerCase().includes(sFocusSpecText.toLowerCase()))
                         );
+                        const allClasses = [...new Set(
+                          plans.flatMap(p => p.entries.map(e => (e.doctor as any).className)).filter((c): c is string => Boolean(c))
+                        )].sort();
+                        const filteredClasses = allClasses.filter(c =>
+                          !sFocusClasses.find(x => x.name === c) &&
+                          (!sFocusClassText || c.toLowerCase().includes(sFocusClassText.toLowerCase()))
+                        );
                         const ddBase: React.CSSProperties = {
                           position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 600,
                           background: '#fff', border: '1.5px solid #c4b5fd', borderRadius: 8,
@@ -2565,6 +2577,48 @@ export default function MonthlyPlansPage() {
                                         <div key={s}
                                           onMouseDown={() => { setSFocusSpecialties(prev => [...prev, { name: s, pct: 60 }]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
                                           style={ddItem}>{s}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Focus classes */}
+                              <div>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>🏅 كلاس معين</p>
+                                {sFocusClasses.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                    {sFocusClasses.map(c => (
+                                      <span key={c.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#fef9c3', color: '#854d0e', border: '1.5px solid #fde68a', overflow: 'hidden', flexShrink: 0 }}>
+                                        <span style={{ padding: '3px 5px 3px 9px' }}>{c.name}</span>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(133,77,14,0.1)', borderRight: '1px solid #fde68a', borderLeft: '1px solid #fde68a' }}>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setSFocusClasses(prev => prev.map(p => p.name === c.name ? { ...p, pct: Math.max(10, p.pct - 10) } : p)); }}
+                                            style={{ width: 16, minHeight: 22, border: 'none', background: 'transparent', cursor: 'pointer', color: '#854d0e', fontSize: 13, fontWeight: 700, padding: '0 1px', lineHeight: 1 }}>−</button>
+                                          <span style={{ fontSize: 11, fontWeight: 800, color: '#92400e', padding: '0 2px', minWidth: 30, textAlign: 'center' }}>{c.pct}%</span>
+                                          <button type="button" onClick={e => { e.stopPropagation(); setSFocusClasses(prev => prev.map(p => p.name === c.name ? { ...p, pct: Math.min(100, p.pct + 10) } : p)); }}
+                                            style={{ width: 16, minHeight: 22, border: 'none', background: 'transparent', cursor: 'pointer', color: '#854d0e', fontSize: 13, fontWeight: 700, padding: '0 1px', lineHeight: 1 }}>+</button>
+                                        </span>
+                                        <span onClick={() => setSFocusClasses(prev => prev.filter(p => p.name !== c.name))} style={{ padding: '3px 7px 3px 4px', cursor: 'pointer', opacity: 0.5, fontSize: 13 }}>×</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                <div style={{ position: 'relative' }}>
+                                  <input type="text" value={sFocusClassText} autoComplete="off"
+                                    onChange={e => { setSFocusClassText(e.target.value); setSFocusClassDD(true); }}
+                                    onFocus={() => setSFocusClassDD(true)}
+                                    onBlur={() => setTimeout(() => setSFocusClassDD(false), 150)}
+                                    placeholder={sFocusClasses.length === 0 ? 'ابحث وأضف كلاس... (A, B, C)' : 'أضف كلاس آخر...'}
+                                    style={inputStyle2} />
+                                  {sFocusClassDD && (filteredClasses.length > 0 || sFocusClassText.trim()) && (
+                                    <div style={ddBase}>
+                                      {sFocusClassText.trim() && !sFocusClasses.find(x => x.name === sFocusClassText.trim()) && (
+                                        <div onMouseDown={() => { setSFocusClasses(prev => [...prev, { name: sFocusClassText.trim(), pct: 60 }]); setSFocusClassText(''); setSFocusClassDD(false); }}
+                                          style={{ ...ddItem, color: '#854d0e', fontWeight: 600 }}>➕ "{sFocusClassText.trim()}"</div>
+                                      )}
+                                      {filteredClasses.slice(0, 20).map(c => (
+                                        <div key={c}
+                                          onMouseDown={() => { setSFocusClasses(prev => [...prev, { name: c, pct: 60 }]); setSFocusClassText(''); setSFocusClassDD(false); }}
+                                          style={ddItem}>كلاس {c}</div>
                                       ))}
                                     </div>
                                   )}
@@ -3067,6 +3121,9 @@ export default function MonthlyPlansPage() {
                                 transition: 'all 0.15s', display: 'flex', flexDirection: 'column', gap: 4 }}>
                               <p style={{ margin: 0, fontWeight: 700, fontSize: 13 }}>{doc.name}</p>
                               <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>{doc.specialty ?? ''}{doc.area?.name ? ` · ${doc.area.name}` : ''}</p>
+                              {doc.className && (
+                                <span style={{ fontSize: 10, background: '#fef9c3', color: '#854d0e', borderRadius: 6, padding: '1px 6px', fontWeight: 700, border: '1px solid #fde68a', alignSelf: 'flex-start' }}>{doc.className}</span>
+                              )}
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: meta.bg, color: meta.color, fontWeight: 600 }}>
                                   {doc.fromWishList ? '⭐ مطلوب' : doc._type === 'new' ? '➕ جديد' : meta.label}
@@ -3274,6 +3331,16 @@ export default function MonthlyPlansPage() {
                                     {doc.targetItem && (
                                       <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#f0fdf4', color: '#166534', fontWeight: 600 }}>
                                         💊 {doc.targetItem.name}
+                                      </span>
+                                    )}
+                                    {doc.className && (
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#fef9c3', color: '#854d0e', fontWeight: 700, border: '1px solid #fde68a' }}>
+                                        {doc.className}
+                                      </span>
+                                    )}
+                                    {doc.className && (
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#fef9c3', color: '#854d0e', fontWeight: 700, border: '1px solid #fde68a' }}>
+                                        {doc.className}
                                       </span>
                                     )}
                                   </div>

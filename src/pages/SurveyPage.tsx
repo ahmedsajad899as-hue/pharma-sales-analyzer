@@ -9,7 +9,7 @@ interface Survey {
 }
 interface SurveyDoctor {
   id: number; name: string; specialty?: string; areaName?: string;
-  pharmacyName?: string; phone?: string; notes?: string;
+  pharmacyName?: string; className?: string; phone?: string; notes?: string;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
 interface SurveyPharmacy {
@@ -182,7 +182,7 @@ export default function SurveyPage() {
     const [form, setForm] = useState({
       name: doc?.name ?? '', specialty: doc?.specialty ?? '',
       areaName: doc?.areaName ?? '', pharmacyName: doc?.pharmacyName ?? '',
-      phone: doc?.phone ?? '', notes: doc?.notes ?? '',
+      className: doc?.className ?? '', phone: doc?.phone ?? '', notes: doc?.notes ?? '',
     });
     const [saving, setSaving] = useState(false);
     const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -204,7 +204,7 @@ export default function SurveyPage() {
         <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: '#1e293b', direction: 'rtl' }}>
           {isNew ? '➕ إضافة طبيب' : '✏️ تعديل بيانات الطبيب'}
         </h3>
-        {([['الاسم *','name'],['الاختصاص','specialty'],['المنطقة','areaName'],['الصيدلية المرتبطة','pharmacyName'],['الهاتف','phone']] as [string,string][]).map(([label, key]) => (
+        {([['الاسم *','name'],['الاختصاص','specialty'],['المنطقة','areaName'],['الصيدلية المرتبطة','pharmacyName'],['الكلاس','className'],['الهاتف','phone']] as [string,string][]).map(([label, key]) => (
           <div key={key} style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>{label}</label>
             <input value={(form as any)[key]} onChange={set(key)} style={inputStyle} />
@@ -430,6 +430,7 @@ export default function SurveyPage() {
                       {d.specialty    && <span style={infoChip}>{d.specialty}</span>}
                       {d.areaName     && <span style={infoChip}>📍 {d.areaName}</span>}
                       {d.pharmacyName && <span style={infoChip}>🏪 {d.pharmacyName}</span>}
+                      {d.className    && <span style={{ ...infoChip, background: '#fef9c3', color: '#854d0e', fontWeight: 700, border: '1px solid #fde68a' }}>{d.className}</span>}
                       {d.phone        && <span style={infoChip}>📞 {d.phone}</span>}
                     </div>
                     {d.notes && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{d.notes}</p>}

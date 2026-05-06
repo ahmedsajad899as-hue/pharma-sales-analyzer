@@ -63,6 +63,7 @@ interface Doctor {
   name: string;
   specialty?: string;
   pharmacyName?: string;
+  className?: string;
   notes?: string;
   isActive: boolean;
   area?: Area;
@@ -148,6 +149,7 @@ export default function DoctorsPage() {
   const [error, setError]       = useState('');
   const [search, setSearch]     = useState('');
   const [filterArea, setFilterArea] = useState<string>('all');
+  const [filterClass, setFilterClass] = useState<string>('all');
 
   // modal
   const [modal, setModal]     = useState<'add' | 'edit' | null>(null);
@@ -966,8 +968,14 @@ export default function DoctorsPage() {
   const filtered = useMemo(() => doctors.filter(d => {
     const matchSearch = !search || d.name.includes(search) || (d.specialty ?? '').includes(search) || (d.pharmacyName ?? '').includes(search);
     const matchArea   = filterArea === 'all' || d.area?.id?.toString() === filterArea;
-    return matchSearch && matchArea;
-  }), [doctors, search, filterArea]);
+    const matchClass  = filterClass === 'all' || (d.className ?? '') === filterClass;
+    return matchSearch && matchArea && matchClass;
+  }), [doctors, search, filterArea, filterClass]);
+
+  const uniqueClasses = useMemo(
+    () => [...new Set(doctors.map(d => d.className).filter(Boolean) as string[])].sort(),
+    [doctors]
+  );
 
   const doctorNameSuggestions = useMemo(
     () => doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean) as string[],
@@ -1152,6 +1160,12 @@ export default function DoctorsPage() {
           <option value="all">📍 كل المناطق</option>
           {areas.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
         </select>
+        {uniqueClasses.length > 0 && (
+          <select value={filterClass} onChange={e => setFilterClass(e.target.value)} style={{ ...inputStyle, maxWidth: 130 }}>
+            <option value="all">🏅 كل الكلاسات</option>
+            {uniqueClasses.map(c => <option key={c} value={c}>كلاس {c}</option>)}
+          </select>
+        )}
         <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
           {filtered.length} طبيب
         </span>
@@ -1208,6 +1222,11 @@ export default function DoctorsPage() {
                   {showDoctorFields && d.targetItem && (
                     <span style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', borderRadius: 8, padding: '1px 8px', fontWeight: 600 }}>
                       💊 {d.targetItem.name}
+                    </span>
+                  )}
+                  {showDoctorFields && d.className && (
+                    <span style={{ fontSize: 11, background: '#fef9c3', color: '#854d0e', borderRadius: 8, padding: '1px 8px', fontWeight: 700, border: '1px solid #fde68a' }}>
+                      {d.className}
                     </span>
                   )}
                 </div>
