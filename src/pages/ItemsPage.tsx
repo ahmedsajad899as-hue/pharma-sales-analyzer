@@ -201,8 +201,15 @@ export default function ItemsPage() {
   const handleDelete = async (item: Item) => {
     if (!confirm(`حذف الايتم "${item.name}"؟`)) return;
     try {
-      const r = await fetch(`${API}/api/items/${item.id}`, { method: 'DELETE', headers: authH() });
-      const j = await r.json();
+      let r = await fetch(`${API}/api/items/${item.id}`, { method: 'DELETE', headers: authH() });
+      let j = await r.json();
+      // 409 = item has dependent data (sales, visits, …). Offer force delete.
+      if (r.status === 409 && j?.code === 'HAS_DEPENDENCIES') {
+        const msg = `${j.error}\n\nهل تريد المتابعة وحذف جميع البيانات المرتبطة بهذا الايتم؟ هذا الإجراء لا يمكن التراجع عنه.`;
+        if (!confirm(msg)) return;
+        r = await fetch(`${API}/api/items/${item.id}?force=1`, { method: 'DELETE', headers: authH() });
+        j = await r.json();
+      }
       if (!r.ok) throw new Error(j.error || 'فشل الحذف');
       await load();
     } catch (e: any) { alert(e.message); }

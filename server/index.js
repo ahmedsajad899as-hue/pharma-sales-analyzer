@@ -634,12 +634,58 @@ app.delete('/api/items/:id', async (req, res) => {
   try {
     const id     = parseInt(req.params.id);
     const userId = req.user?.id ?? null;
+    const force  = req.query.force === '1';
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
     const item = await prisma.item.findFirst({ where: { id, ...(userId ? { userId } : {}) } });
     if (!item) return res.status(404).json({ error: 'الايتم غير موجود' });
-    await prisma.item.delete({ where: { id } });
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+
+    // Count "hard" data references that would be lost if we delete the item.
+    const [salesCount, doctorTargetCount, doctorVisitCount, pharmVisitItemCount, commInvItemCount] = await Promise.all([
+      prisma.sale.count({                  where: { itemId: id } }),
+      prisma.doctor.count({                where: { targetItemId: id } }),
+      prisma.doctorVisit.count({           where: { itemId: id } }),
+      prisma.pharmacyVisitItem.count({     where: { itemId: id } }),
+      prisma.commercialInvoiceItem.count({ where: { itemId: id } }),
+    ]);
+    const hardRefs = salesCount + doctorTargetCount + doctorVisitCount + pharmVisitItemCount + commInvItemCount;
+
+    if (hardRefs > 0 && !force) {
+      return res.status(409).json({
+        error: `لا يمكن حذف الايتم "${item.name}" لأنه مرتبط ببيانات موجودة (${salesCount} مبيعات، ${doctorVisitCount} زيارات أطباء، ${pharmVisitItemCount} زيارات صيدليات، ${commInvItemCount} فواتير تجارية، ${doctorTargetCount} أطباء كهدف). استخدم "دمج المتشابهات" لنقل البيانات إلى ايتم آخر، أو أعد المحاولة مع التأكيد على الحذف القسري.`,
+        code: 'HAS_DEPENDENCIES',
+        counts: { sales: salesCount, doctorTargets: doctorTargetCount, doctorVisits: doctorVisitCount, pharmacyVisitItems: pharmVisitItemCount, commercialInvoiceItems: commInvItemCount },
+      });
+    }
+
+    // Clean up all dependent rows in a transaction, then delete the item.
+    await prisma.$transaction(async (tx) => {
+      // Soft assignment-link tables (always safe to delete)
+      await tx.representativeItem.deleteMany({  where: { itemId: id } });
+      await tx.scientificRepItem.deleteMany({   where: { itemId: id } });
+      await tx.planEntryItem.deleteMany({       where: { itemId: id } });
+      await tx.productLineItem.deleteMany({     where: { itemId: id } });
+      await tx.userItemAssignment.deleteMany({  where: { itemId: id } });
+      await tx.fmsPlanItem.deleteMany({         where: { itemId: id } });
+      await tx.repItemTarget.deleteMany({       where: { itemId: id } });
+
+      if (force && hardRefs > 0) {
+        // Forced: also remove hard data references
+        await tx.sale.deleteMany({                  where: { itemId: id } });
+        await tx.doctorVisit.deleteMany({           where: { itemId: id } });
+        await tx.pharmacyVisitItem.deleteMany({     where: { itemId: id } });
+        await tx.commercialInvoiceItem.deleteMany({ where: { itemId: id } });
+        // Doctor.targetItemId is nullable — set to null instead of deleting doctors
+        await tx.doctor.updateMany({ where: { targetItemId: id }, data: { targetItemId: null } });
+      }
+
+      await tx.item.delete({ where: { id } });
+    }, { timeout: 30000 });
+
+    res.json({ success: true, forced: force, removedCounts: force ? { sales: salesCount, doctorVisits: doctorVisitCount, pharmacyVisitItems: pharmVisitItemCount, commercialInvoiceItems: commInvItemCount, doctorTargetsCleared: doctorTargetCount } : undefined });
+  } catch (err) {
+    console.error('[delete item]', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/items/:sourceId/merge  body: { targetId }

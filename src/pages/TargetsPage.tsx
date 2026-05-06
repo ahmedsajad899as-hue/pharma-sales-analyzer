@@ -27,9 +27,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [loading, setLoading] = useState(false);
   const [allItems, setAllItems] = useState<NamedItem[]>([]);
 
-  // Load reps
+  // Load reps — standalone=1 returns ONLY records manually created in
+  // the المندوبون العلميون tab (not every system user account).
   useEffect(() => {
-    fetch(`${API}/api/scientific-reps`, { headers: H() })
+    fetch(`${API}/api/scientific-reps?standalone=1`, { headers: H() })
       .then(r => r.json())
       .then(j => setSciReps(Array.isArray(j) ? j : (j.data ?? [])))
       .catch(() => {});
