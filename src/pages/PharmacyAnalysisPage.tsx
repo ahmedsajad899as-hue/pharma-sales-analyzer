@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -89,7 +89,48 @@ export default function PharmacyAnalysisPage() {
 
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Build fileIds query string
+  // ── Upload state ───────────────────────────────────────────────
+  const [uploading, setUploading]       = useState(false);
+  const [uploadMsg, setUploadMsg]       = useState<{ ok: boolean; text: string } | null>(null);
+  const [dragOver, setDragOver]         = useState(false);
+  const [showUpload, setShowUpload]     = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFile = useCallback(async (file: File) => {
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      setUploadMsg({ ok: false, text: 'يُسمح فقط بملفات Excel (.xlsx, .xls) أو CSV' });
+      return;
+    }
+    setUploading(true);
+    setUploadMsg(null);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('fileType', 'sales');
+    try {
+      const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'فشل الرفع');
+      const newId = data.data?.uploadedFile?.id ?? data.uploadedFile?.id;
+      setUploadMsg({ ok: true, text: `✓ تم رفع ${file.name} — ${data.data?.rowCount ?? ''} سجل` });
+      // Reload files and auto-select the new one
+      const r2 = await fetch(`${API}/api/files`, { headers: { Authorization: `Bearer ${token}` } });
+      const d2 = await r2.json();
+      const all: UpFile[] = Array.isArray(d2.data) ? d2.data : [];
+      setFiles(all);
+      setSelFiles(prev => { const s = new Set(prev); if (newId) s.add(newId); return s; });
+      setTimeout(() => setUploadMsg(null), 7000);
+    } catch (e: any) {
+      setUploadMsg({ ok: false, text: e.message || 'حدث خطأ أثناء الرفع' });
+    } finally {
+      setUploading(false);
+    }
+  }, [token]);
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  };
   const fileIdsParam = [...selFiles].join(',');
   const fileQuery    = fileIdsParam ? `?fileIds=${fileIdsParam}` : '?';
 
@@ -254,6 +295,68 @@ export default function PharmacyAnalysisPage() {
             {files.length === 0 && <span style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد ملفات مرفوعة</span>}
           </div>
         )}
+
+        {/* Upload sub-row inside file selector card */}
+        <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 12, paddingTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: showUpload ? 12 : 0 }}>
+            <button
+              onClick={() => setShowUpload(v => !v)}
+              style={{
+                padding: '5px 14px', borderRadius: 20, border: '1.5px dashed #a5b4fc', cursor: 'pointer',
+                background: showUpload ? '#eff6ff' : 'transparent', color: '#6366f1', fontSize: 12, fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: 6, transition: 'all .15s',
+              }}
+            >
+              {showUpload ? '✕ إخفاء رفع الملفات' : '⬆ رفع ملف جديد'}
+            </button>
+            {uploadMsg && (
+              <span style={{ fontSize: 12, fontWeight: 600, color: uploadMsg.ok ? '#16a34a' : '#dc2626' }}>
+                {uploadMsg.text}
+              </span>
+            )}
+          </div>
+
+          {showUpload && (
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => !uploading && uploadInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? '#6366f1' : '#c7d2fe'}`,
+                borderRadius: 12,
+                background: dragOver ? '#eef2ff' : '#fafbff',
+                padding: '22px 16px',
+                textAlign: 'center',
+                cursor: uploading ? 'default' : 'pointer',
+                transition: 'all .15s',
+              }}
+            >
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) { uploadFile(f); e.target.value = ''; } }}
+              />
+              {uploading ? (
+                <div style={{ color: '#6366f1', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                  <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2.5px solid #c7d2fe', borderTopColor: '#6366f1', animation: 'spin .7s linear infinite' }} />
+                  جاري رفع الملف...
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 32, marginBottom: 6 }}>📁</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5', marginBottom: 4 }}>
+                    اسحب وأفلت الملف هنا أو اضغط للاختيار
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>يدعم .xlsx / .xls / .csv</div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Tabs ── */}
