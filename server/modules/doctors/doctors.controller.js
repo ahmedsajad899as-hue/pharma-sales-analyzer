@@ -1355,6 +1355,8 @@ export async function getTeamWishlists(req, res, next) {
     res.json({ teams: [...byUser.values()] });
   } catch (e) { next(e); }
 }
+
+export async function getRepWishlist(req, res, next) {
   try {
     const managerId = req.user.id;
     const role      = req.user.role;
