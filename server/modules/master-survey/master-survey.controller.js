@@ -453,6 +453,54 @@ export async function updatePharmacy(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── POST /api/master-surveys/:id/pharmacies/import-all ─────
+export async function importAllPharmacies(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    await assertVisible(surveyId, req.user, res);
+
+    let userId    = req.user.id;
+    let areaRefId = req.user.id;
+    if (req.query.repId) {
+      const repUserId = await getRepLinkedUserId(req.query.repId);
+      if (repUserId) { userId = repUserId; areaRefId = repUserId; }
+    } else if (FIELD_ROLES.has(req.user.role)) {
+      const managerUserId = await getManagerUserId(req.user.id);
+      if (managerUserId) userId = managerUserId;
+    }
+
+    const userAreaNames = FIELD_ROLES.has(req.user.role) ? await getUserAssignedAreaNames(areaRefId) : [];
+    const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
+
+    const allSurveyPharmacies = await prisma.masterSurveyPharmacy.findMany({ where: { surveyId } });
+    const surveyPharmacies = normAreaSet
+      ? allSurveyPharmacies.filter(p => !p.areaName?.trim() || normAreaSet.has(normAreaKey(p.areaName)))
+      : allSurveyPharmacies;
+
+    const existingNames = new Set(
+      (await prisma.pharmacy.findMany({ where: { userId }, select: { name: true } }))
+        .map(p => p.name.toLowerCase().trim())
+    );
+
+    const newPharmacies = surveyPharmacies.filter(p => p.name?.trim() && !existingNames.has(p.name.toLowerCase().trim()));
+    if (newPharmacies.length === 0)
+      return res.json({ success: true, count: 0, message: 'جميع الصيدليات موجودة مسبقاً في قائمتك' });
+
+    const data = newPharmacies.map(p => ({
+      name:      p.name.trim(),
+      ownerName: p.ownerName ?? null,
+      phone:     p.phone    ?? null,
+      address:   p.address  ?? null,
+      areaName:  p.areaName ?? null,
+      notes:     p.notes    ?? null,
+      userId,
+    }));
+
+    const result = await prisma.pharmacy.createMany({ data, skipDuplicates: true });
+    res.json({ success: true, count: result.count, message: `تم استيراد ${result.count} صيدلية بنجاح` });
+  } catch (e) { next(e); }
+}
+
 // ── POST /api/master-surveys/:id/pharmacies/:pharmaId/import ─
 export async function importPharmacy(req, res, next) {
   try {

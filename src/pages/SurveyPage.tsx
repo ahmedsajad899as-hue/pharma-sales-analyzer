@@ -162,6 +162,20 @@ export default function SurveyPage() {
     } finally { setImportingAll(false); }
   };
 
+  const [importingAllPharm, setImportingAllPharm] = useState(false);
+
+  const importAllPharmacies = async () => {
+    if (!selectedSurvey) return;
+    setImportingAllPharm(true);
+    try {
+      const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/pharmacies/import-all${repParam}`, { method: 'POST', headers: H() });
+      const d = await r.json();
+      showToast(d.success ? `✅ ${d.message}` : `❌ ${d.error ?? 'خطأ'}`);
+    } catch {
+      showToast('❌ حدث خطأ أثناء الاستيراد');
+    } finally { setImportingAllPharm(false); }
+  };
+
   const importDoctor = async (docId: number) => {
     if (!selectedSurvey) return;
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import${repParam}`, { method: 'POST', headers: H() });
@@ -403,9 +417,18 @@ export default function SurveyPage() {
             </>
           )}
           {tab === 'pharmacies' && (
-            <button onClick={() => setAddingPharma(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>
-              ➕ إضافة صيدلية
-            </button>
+            <>
+              <button
+                onClick={importAllPharmacies}
+                disabled={importingAllPharm || selectedSurvey.pharmacies.length === 0}
+                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAllPharm ? 0.6 : 1 }}
+              >
+                {importingAllPharm ? 'جاري...' : '📥 استيرد الكل'}
+              </button>
+              <button onClick={() => setAddingPharma(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>
+                ➕ إضافة صيدلية
+              </button>
+            </>
           )}
         </div>
       </div>

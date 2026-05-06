@@ -2,7 +2,7 @@ import { Router } from 'express';
 import {
   listSurveys, getSurvey,
   addDoctor, updateDoctor, importAllDoctors, importDoctor,
-  addPharmacy, updatePharmacy, importPharmacy,
+  addPharmacy, updatePharmacy, importAllPharmacies, importPharmacy,
 } from './master-survey.controller.js';
 
 const router = Router();
@@ -21,6 +21,7 @@ router.post('/:id/doctors/:docId/import',        importDoctor);
 // Pharmacies
 router.post('/:id/pharmacies',                       addPharmacy);
 router.put('/:id/pharmacies/:pharmaId',              updatePharmacy);
+router.post('/:id/pharmacies/import-all',            importAllPharmacies);
 router.post('/:id/pharmacies/:pharmaId/import',      importPharmacy);
 
 export default router;
