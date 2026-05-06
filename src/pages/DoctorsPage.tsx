@@ -209,6 +209,7 @@ export default function DoctorsPage() {
   const wishKey  = `wishedDoctors_${user?.id ?? 'guest'}`;
   const itemsKey = `wishedItems_${user?.id ?? 'guest'}`;
   const namesKey = `wishedDoctorNames_${user?.id ?? 'guest'}`;
+  const infoKey  = `wishedDoctorInfo_${user?.id ?? 'guest'}`;
 
   const [wishedDoctors, setWishedDoctors] = useState<Set<number>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(`wishedDoctors_${user?.id ?? 'guest'}`) || '[]')); }
@@ -223,6 +224,12 @@ export default function DoctorsPage() {
     try { return JSON.parse(localStorage.getItem(`wishedDoctorNames_${user?.id ?? 'guest'}`) || '{}'); }
     catch { return {}; }
   });
+  // Extra doctor info (specialty, pharmacy, area, addedBy)
+  const [wishedInfo, setWishedInfo] = useState<Record<number, { specialty?: string; pharmacyName?: string; areaName?: string; addedBy?: string }>>(() => {
+    try { return JSON.parse(localStorage.getItem(`wishedDoctorInfo_${user?.id ?? 'guest'}`) || '{}'); }
+    catch { return {}; }
+  });
+  const [openWishDetails, setOpenWishDetails] = useState<Set<number>>(new Set());
   const [showWishPanel, setShowWishPanel] = useState(false);
   const [showWritingPopup, setShowWritingPopup] = useState(false);
 
@@ -358,7 +365,7 @@ export default function DoctorsPage() {
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
   ]);
 
-  const toggleWish = (id: number, name?: string) => {
+  const toggleWish = (id: number, name?: string, extra?: { specialty?: string; pharmacyName?: string; areaName?: string }) => {
     setWishedDoctors(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -369,6 +376,13 @@ export default function DoctorsPage() {
       setWishedNames(prev => {
         const next = { ...prev, [id]: name };
         localStorage.setItem(namesKey, JSON.stringify(next));
+        return next;
+      });
+    }
+    if (extra) {
+      setWishedInfo(prev => {
+        const next = { ...prev, [id]: { ...extra, addedBy: user?.displayName ?? user?.username ?? '' } };
+        localStorage.setItem(infoKey, JSON.stringify(next));
         return next;
       });
     }
@@ -459,9 +473,11 @@ export default function DoctorsPage() {
     const key  = `wishedDoctors_${user.id}`;
     const kIt  = `wishedItems_${user.id}`;
     const kNm  = `wishedDoctorNames_${user.id}`;
+    const kInf = `wishedDoctorInfo_${user.id}`;
     try { setWishedDoctors(new Set(JSON.parse(localStorage.getItem(key) || '[]'))); } catch { setWishedDoctors(new Set()); }
     try { setWishedItems(JSON.parse(localStorage.getItem(kIt) || '{}')); }           catch { setWishedItems({}); }
     try { setWishedNames(JSON.parse(localStorage.getItem(kNm) || '{}')); }           catch { setWishedNames({}); }
+    try { setWishedInfo(JSON.parse(localStorage.getItem(kInf) || '{}')); }           catch { setWishedInfo({}); }
     // Remove old generic keys so they no longer pollute any session
     localStorage.removeItem('wishedDoctors');
     localStorage.removeItem('wishedItems');
@@ -1236,7 +1252,7 @@ export default function DoctorsPage() {
               <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
                 {/* Wish star */}
                 {(() => { const isW = wishedDoctors.has(d.id); return (
-                  <button onClick={() => toggleWish(d.id, d.name)} title={isW ? 'إزالة من قائمة الطلبات' : 'أضف لقائمة الطلبات'} style={{
+                  <button onClick={() => toggleWish(d.id, d.name, { specialty: d.specialty, pharmacyName: d.pharmacyName, areaName: d.area?.name })} title={isW ? 'إزالة من قائمة الطلبات' : 'أضف لقائمة الطلبات'} style={{
                     background: isW ? '#eef2ff' : 'transparent', border: `1.5px solid ${isW ? '#6366f1' : '#cbd5e1'}`,
                     borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -1789,6 +1805,14 @@ export default function DoctorsPage() {
                     const filteredItems = currentItem.trim()
                       ? items.filter(it => it.name.toLowerCase().includes(currentItem.toLowerCase()))
                       : items;
+                    // Extra info: prefer live data from map, fall back to stored wishedInfo
+                    const info = wishedInfo[d.id] ?? {};
+                    const specialty   = (d as any).specialty   ?? info.specialty;
+                    const pharmacyName= (d as any).pharmacyName?? info.pharmacyName;
+                    const areaName    = (d as any).area?.name  ?? info.areaName;
+                    const addedBy     = info.addedBy;
+                    const hasDetails  = !!(specialty || pharmacyName || areaName || addedBy);
+                    const detailOpen  = openWishDetails.has(d.id);
                     return (
                       <div key={d.id} style={{
                         background: '#fff', borderRadius: 12, padding: '12px 12px 10px',
@@ -1811,10 +1835,50 @@ export default function DoctorsPage() {
                           padding: '1px 6px',
                         }}>{idx + 1}</span>
 
-                        <div style={{ marginTop: 14, marginBottom: 8 }}>
+                        <div style={{ marginTop: 14, marginBottom: 6 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{d.name}</div>
-                          {d.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{d.specialty}</div>}
                         </div>
+
+                        {/* Collapsible details */}
+                        {hasDetails && (
+                          <div style={{ marginBottom: 7 }}>
+                            <button
+                              onClick={() => setOpenWishDetails(prev => { const s = new Set(prev); s.has(d.id) ? s.delete(d.id) : s.add(d.id); return s; })}
+                              style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8' }}
+                            >
+                              <span style={{ fontSize: 10, display: 'inline-block', transition: 'transform 0.2s', transform: detailOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                              <span style={{ fontSize: 10, fontWeight: 600 }}>{detailOpen ? 'إخفاء التفاصيل' : 'تفاصيل'}</span>
+                            </button>
+                            {detailOpen && (
+                              <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {specialty && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+                                    <span style={{ color: '#94a3b8', flexShrink: 0 }}>🩺</span>
+                                    <span style={{ color: '#475569', fontWeight: 600 }}>{specialty}</span>
+                                  </div>
+                                )}
+                                {pharmacyName && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+                                    <span style={{ color: '#94a3b8', flexShrink: 0 }}>🏥</span>
+                                    <span style={{ color: '#475569', fontWeight: 600 }}>{pharmacyName}</span>
+                                  </div>
+                                )}
+                                {areaName && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+                                    <span style={{ color: '#94a3b8', flexShrink: 0 }}>📍</span>
+                                    <span style={{ color: '#475569', fontWeight: 600 }}>{areaName}</span>
+                                  </div>
+                                )}
+                                {addedBy && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+                                    <span style={{ color: '#94a3b8', flexShrink: 0 }}>👤</span>
+                                    <span style={{ color: '#475569', fontWeight: 600 }}>{addedBy}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Item dropdown */}
                         <div style={{ position: 'relative' }}>
@@ -2015,7 +2079,7 @@ export default function DoctorsPage() {
                             </div>
 
                             {/* Wish button */}
-                            <button onClick={() => toggleWish(doc.id, doc.name)} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
+                            <button onClick={() => toggleWish(doc.id, doc.name, { specialty: doc.specialty, pharmacyName: doc.pharmacyName, areaName: doc.area?.name })} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
                               background: isWished ? '#eef2ff' : 'transparent', border: `1.5px solid ${isWished ? '#6366f1' : '#cbd5e1'}`,
                               borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
                               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
