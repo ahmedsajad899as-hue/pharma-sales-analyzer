@@ -36,7 +36,8 @@ const _importSurvey          = () => import('./pages/SurveyPage');
 const _importFMS             = () => import('./pages/FMSPage');
 const _importSalesData       = () => import('./pages/SalesDataPage');
 const _importDistributorSales = () => import('./pages/DistributorSalesPage');
-const _importFileFilter       = () => import('./pages/FileFilterPage');
+const _importFileFilter          = () => import('./pages/FileFilterPage');
+const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -54,6 +55,7 @@ const FMSPage             = lazyWithRetry(_importFMS);
 const SalesDataPage           = lazyWithRetry(_importSalesData);
 const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
+const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -63,7 +65,7 @@ function preloadAllChunks() {
     _importRepresentatives(); _importScientificReps(); _importDoctors();
     _importMonthlyPlans(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
-    _importDistributorSales(); _importFileFilter();
+    _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis();
   });
 }
 
@@ -100,7 +102,8 @@ export type PageId =
   | 'fms'
   | 'sales-data'
   | 'distributor-sales'
-  | 'file-filter';
+  | 'file-filter'
+  | 'pharmacy-analysis';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -349,7 +352,7 @@ function AppInner() {
   const allPageIds: PageId[] = [
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
     'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
-    'distributor-sales', 'file-filter',
+    'distributor-sales', 'file-filter', 'pharmacy-analysis',
   ];
   useEffect(() => {
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
@@ -407,6 +410,7 @@ function AppInner() {
     { id: 'sales-data',      node: <SalesDataPage /> },
     { id: 'distributor-sales', node: <DistributorSalesPage /> },
     { id: 'file-filter',        node: <FileFilterPage /> },
+    { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },
   ];
 
   return (

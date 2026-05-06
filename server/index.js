@@ -39,6 +39,7 @@ import masterSurveyRoutes        from './modules/master-survey/master-survey.rou
 import companyMembersRoutes      from './modules/company-members/company-members.routes.js';
 import distributorSalesRoutes    from './modules/distributor-sales/distributor-sales.routes.js';
 import doctorArchiveRoutes       from './modules/doctor-archive/doctor-archive.routes.js';
+import pharmacyAnalysisRoutes   from './modules/pharmacy-analysis/pharmacy-analysis.routes.js';
 import targetsRoutes              from './modules/targets/targets.routes.js';
 
 dotenv.config();
@@ -272,8 +273,9 @@ app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);
 app.use('/api/master-surveys',    masterSurveyRoutes);
 app.use('/api/company-members',   companyMembersRoutes);
-app.use('/api/distributor-sales', distributorSalesRoutes);
-app.use('/api/doctor-archive',    doctorArchiveRoutes);
+app.use('/api/distributor-sales',    distributorSalesRoutes);
+app.use('/api/doctor-archive',      doctorArchiveRoutes);
+app.use('/api/pharmacy-analysis',   pharmacyAnalysisRoutes);
 app.use('/api/targets',           targetsRoutes);
 app.use('/api',                   salesRoutes);
 
