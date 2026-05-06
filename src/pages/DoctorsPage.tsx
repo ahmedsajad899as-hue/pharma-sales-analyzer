@@ -694,6 +694,44 @@ export default function DoctorsPage() {
     }
   }, [activeTab, loadVisits, loadManagerReps]);
 
+  // Auto-load + auto-refresh team wishlists for managers (no clicks needed)
+  useEffect(() => {
+    if (activeTab !== 'visits' || isFieldRep) return;
+    // Initial load
+    loadTeamWishlists();
+    // Refresh every 30 seconds while user is on visits tab
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadTeamWishlists();
+    }, 30000);
+    // Refresh when tab becomes visible again
+    const onVisible = () => { if (document.visibilityState === 'visible') loadTeamWishlists(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isFieldRep]);
+
+  // Auto-open the team wishlist panel for managers + expand all reps automatically
+  useEffect(() => {
+    if (activeTab !== 'visits' || isFieldRep) return;
+    if (teamWishLoaded && teamWishList.length > 0) {
+      setTeamWishPanelOpen(true);
+      // Auto-open each rep card so manager sees all doctors at once
+      setRepWishlists(prev => {
+        const next = { ...prev };
+        for (const t of teamWishList) {
+          if (t.wishlist.length > 0 && !next[t.rep.id]?.open) {
+            next[t.rep.id] = { rep: t.rep, wishlist: t.wishlist, loading: false, open: true, openDetails: next[t.rep.id]?.openDetails ?? new Set() };
+          }
+        }
+        return next;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamWishLoaded, teamWishList.length]);
+
   const loadPharmVisits = useCallback(async () => {
     setPharmVisitLoading(true);
     try {
