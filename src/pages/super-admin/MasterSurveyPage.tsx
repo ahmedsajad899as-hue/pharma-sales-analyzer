@@ -193,6 +193,7 @@ export default function MasterSurveyPage() {
 
   // doctor search filter
   const [docSearch, setDocSearch] = useState('');
+  const [fillingFromDoctors, setFillingFromDoctors] = useState(false);
 
   // excel import
   const [importDoctorsPreview, setImportDoctorsPreview] = useState<DocImportRow[]>([]);
@@ -333,6 +334,46 @@ export default function MasterSurveyPage() {
       alert(`❌ فشل الاستيراد: ${e.message}`);
     } finally {
       setImporting(false); setImportProgress('');
+    }
+  };
+
+  // ── Fill pharmacies from doctors' pharmacy names ─────────────────────────
+  const fillPharmaciesFromDoctors = async () => {
+    if (!selectedSurvey) return;
+    // Collect unique pharmacy names from doctors (skip empty)
+    const existingNames = new Set(
+      selectedSurvey.pharmacies.map(p => p.name?.trim().toLowerCase()).filter(Boolean)
+    );
+    const seen = new Set<string>();
+    const newPharmacies: { name: string; areaName: string }[] = [];
+    for (const doc of selectedSurvey.doctors) {
+      const raw = doc.pharmacyName?.trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (seen.has(key) || existingNames.has(key)) continue;
+      seen.add(key);
+      newPharmacies.push({ name: raw, areaName: doc.areaName?.trim() || '' });
+    }
+    if (newPharmacies.length === 0) {
+      alert('لا توجد صيدليات جديدة لإضافتها (جميع الأسماء موجودة مسبقاً أو فارغة)');
+      return;
+    }
+    if (!confirm(`سيتم إضافة ${newPharmacies.length} صيدلية من بيانات الأطباء. تأكيد؟`)) return;
+    setFillingFromDoctors(true);
+    const BATCH = 500;
+    try {
+      for (let i = 0; i < newPharmacies.length; i += BATCH) {
+        const chunk = newPharmacies.slice(i, i + BATCH);
+        const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: chunk }),
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || d.message || `خطأ ${r.status}`); }
+      }
+      fetchSurvey(selectedSurvey.id);
+    } catch (e: any) {
+      alert(`❌ فشل: ${e.message}`);
+    } finally {
+      setFillingFromDoctors(false);
     }
   };
 
@@ -821,6 +862,9 @@ export default function MasterSurveyPage() {
       {tab === 'pharmacies' && (
         <div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 14 }}>
+            <button onClick={fillPharmaciesFromDoctors} disabled={fillingFromDoctors} style={{ ...btnSecondary, padding: '9px 18px', background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a' }}>
+              {fillingFromDoctors ? '⏳ جاري الملء...' : '🔄 ملء من الأطباء'}
+            </button>
             <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
             <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
             <input ref={pharmaFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handlePharmaExcel} />
