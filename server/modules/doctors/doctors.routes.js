@@ -12,6 +12,7 @@ router.get('/visits-by-area',         ctrl.visitsByArea);
 router.get('/pharmacy-visits-by-area', ctrl.pharmacyVisitsByArea);
 router.get('/sub-reps',               ctrl.getManagerSubReps);
 router.get('/wishlist',               ctrl.getWishlist);
+router.get('/wishlist/teams',          ctrl.getTeamWishlists);
 router.get('/wishlist/rep/:repUserId', ctrl.getRepWishlist);
 router.post('/wishlist',              ctrl.upsertWishlist);
 router.delete('/wishlist/:doctorId',  ctrl.removeWishlist);

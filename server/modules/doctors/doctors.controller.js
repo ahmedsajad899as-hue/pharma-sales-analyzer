@@ -1269,7 +1269,92 @@ export async function getWishlist(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function getRepWishlist(req, res, next) {
+// GET /api/doctors/wishlist/teams — returns all reps (in same office or sub-assigned) who have wishlists
+export async function getTeamWishlists(req, res, next) {
+  try {
+    const managerId = req.user.id;
+    const role      = req.user.role;
+    const managerUser = await prisma.user.findUnique({ where: { id: managerId }, select: { officeId: true } });
+    const officeId  = managerUser?.officeId ?? null;
+
+    const PRIVILEGED = ['admin', 'manager', 'supervisor', 'team_leader', 'commercial_team_leader',
+                        'company_manager', 'office_manager'];
+
+    // Build candidate user IDs to search wishlists for
+    let candidateIds = [];
+
+    // 1. Direct sub-reps via UserManagerAssignment
+    const assignments = await prisma.userManagerAssignment.findMany({
+      where: { managerId },
+      select: { userId: true },
+    });
+    candidateIds = assignments.map(a => a.userId);
+
+    // 2. For privileged roles: also include all users in same office (if any)
+    if (PRIVILEGED.includes(role) && officeId) {
+      const officeUsers = await prisma.user.findMany({
+        where: { officeId, id: { not: managerId } },
+        select: { id: true },
+      });
+      const officeIds = officeUsers.map(u => u.id);
+      candidateIds = [...new Set([...candidateIds, ...officeIds])];
+    }
+
+    // 3. For admin/manager with no office: include all users with wishlists
+    if (PRIVILEGED.includes(role) && candidateIds.length === 0) {
+      const allWithWish = await prisma.doctorWishlist.findMany({
+        where: { userId: { not: managerId } },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      candidateIds = allWithWish.map(w => w.userId);
+    }
+
+    if (candidateIds.length === 0) return res.json({ teams: [] });
+
+    // Fetch wishlists grouped by userId
+    const allWishes = await prisma.doctorWishlist.findMany({
+      where: { userId: { in: candidateIds } },
+      include: {
+        doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { id: true, name: true } } } },
+        user:   { select: { id: true, displayName: true, username: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // Group by userId
+    const byUser = new Map();
+    for (const w of allWishes) {
+      if (!byUser.has(w.userId)) {
+        byUser.set(w.userId, { rep: { id: w.user.id, name: w.user.displayName || w.user.username }, wishlist: [] });
+      }
+      byUser.get(w.userId).wishlist.push({
+        doctorId:    w.doctorId,
+        doctorName:  w.doctor.name,
+        specialty:   w.specialty ?? w.doctor.specialty,
+        pharmacyName:w.pharmacyName ?? w.doctor.pharmacyName,
+        areaName:    w.areaName ?? w.doctor.area?.name,
+        itemName:    w.itemName,
+        createdAt:   w.createdAt,
+      });
+    }
+
+    // Also add users who are candidates but have empty wishlists (they show as 0 count)
+    const usersWithData = new Set([...byUser.keys()]);
+    const emptyUsers = candidateIds.filter(id => !usersWithData.has(id));
+    if (emptyUsers.length > 0) {
+      const emptyUserRecords = await prisma.user.findMany({
+        where: { id: { in: emptyUsers } },
+        select: { id: true, displayName: true, username: true },
+      });
+      for (const u of emptyUserRecords) {
+        byUser.set(u.id, { rep: { id: u.id, name: u.displayName || u.username }, wishlist: [] });
+      }
+    }
+
+    res.json({ teams: [...byUser.values()] });
+  } catch (e) { next(e); }
+}
   try {
     const managerId = req.user.id;
     const role      = req.user.role;

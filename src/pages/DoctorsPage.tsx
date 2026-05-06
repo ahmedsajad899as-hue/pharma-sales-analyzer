@@ -195,6 +195,29 @@ export default function DoctorsPage() {
   interface RepWishEntry { doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string; }
   interface RepWishData  { rep: { id: number; name: string }; wishlist: RepWishEntry[]; loading: boolean; open: boolean; openDetails: Set<number>; }
   const [repWishlists, setRepWishlists]     = useState<Record<number, RepWishData>>({});
+  // Team wishlists loaded from /wishlist/teams — doesn't depend on UserManagerAssignment
+  const [teamWishList, setTeamWishList]     = useState<Array<{ rep: { id: number; name: string }; wishlist: RepWishEntry[] }>>([]);
+  const [teamWishLoaded, setTeamWishLoaded] = useState(false);
+
+  const loadTeamWishlists = () => {
+    fetch(`${API}/api/doctors/wishlist/teams`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { teams: [] })
+      .then(data => {
+        const teams: Array<{ rep: { id: number; name: string }; wishlist: RepWishEntry[] }> = data.teams ?? [];
+        setTeamWishList(teams);
+        setTeamWishLoaded(true);
+        // Merge into repWishlists state
+        setRepWishlists(prev => {
+          const next = { ...prev };
+          for (const t of teams) {
+            next[t.rep.id] = { rep: t.rep, wishlist: t.wishlist, loading: false, open: prev[t.rep.id]?.open ?? false, openDetails: prev[t.rep.id]?.openDetails ?? new Set() };
+          }
+          return next;
+        });
+      })
+      .catch(() => setTeamWishLoaded(true));
+  };
+
   const loadRepWishlist = (repUserId: number) => {
     setRepWishlists(prev => ({ ...prev, [repUserId]: { ...(prev[repUserId] ?? { rep: { id: repUserId, name: '' }, wishlist: [], openDetails: new Set() }), loading: true, open: true } }));
     fetch(`${API}/api/doctors/wishlist/rep/${repUserId}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -614,7 +637,13 @@ export default function DoctorsPage() {
       return changed ? next : prev;
     });
   }, [doctors]);
-  useEffect(() => { if (activeTab === 'visits') { loadVisits(); loadManagerReps(); } }, [activeTab, loadVisits, loadManagerReps]);
+  useEffect(() => {
+    if (activeTab === 'visits') {
+      loadVisits();
+      loadManagerReps();
+      if (!isFieldRep && !teamWishLoaded) loadTeamWishlists();
+    }
+  }, [activeTab, loadVisits, loadManagerReps]);
 
   const loadPharmVisits = useCallback(async () => {
     setPharmVisitLoading(true);
@@ -2006,31 +2035,38 @@ export default function DoctorsPage() {
           })()}
 
           {/* ── Manager: wishlists of all sub-reps ── */}
-          {!isFieldRep && managerReps.length > 0 && (
+          {!isFieldRep && (teamWishList.length > 0 || managerReps.length > 0) && (
             <div style={{ marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <span style={{ fontSize: 16 }}>👥</span>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#4338ca' }}>قائمة طلبات المندوبين</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {managerReps.map(rep => {
-                  const rw = repWishlists[rep.userId];
+                {/* Use teamWishList if available, otherwise fall back to managerReps */}
+                {(teamWishList.length > 0 ? teamWishList : managerReps.map(r => ({ rep: { id: r.userId, name: r.name }, wishlist: [] }))).map(teamEntry => {
+                  const repId = teamEntry.rep.id;
+                  const rw = repWishlists[repId] ?? { rep: teamEntry.rep, wishlist: teamEntry.wishlist, loading: false, open: false, openDetails: new Set() };
                   const isOpen = rw?.open ?? false;
                   return (
-                    <div key={rep.userId} style={{ border: '1.5px solid #c7d2fe', borderRadius: 12, overflow: 'hidden' }}>
+                    <div key={repId} style={{ border: '1.5px solid #c7d2fe', borderRadius: 12, overflow: 'hidden' }}>
                       <div
                         onClick={() => {
                           if (isOpen) {
-                            setRepWishlists(prev => ({ ...prev, [rep.userId]: { ...prev[rep.userId], open: false } }));
+                            setRepWishlists(prev => ({ ...prev, [repId]: { ...prev[repId], open: false } }));
                           } else {
-                            loadRepWishlist(rep.userId);
+                            if (rw.wishlist.length > 0) {
+                              // Already have data from teamWishlists, just open
+                              setRepWishlists(prev => ({ ...prev, [repId]: { ...rw, open: true } }));
+                            } else {
+                              loadRepWishlist(repId);
+                            }
                           }
                         }}
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: isOpen ? '#eef2ff' : '#f8fafc', cursor: 'pointer' }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 14 }}>👤</span>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#4338ca' }}>{rep.name}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#4338ca' }}>{teamEntry.rep.name}</span>
                           {rw && !rw.loading && (
                             <span style={{ background: rw.wishlist.length > 0 ? '#6366f1' : '#e2e8f0', color: rw.wishlist.length > 0 ? '#fff' : '#94a3b8', borderRadius: 99, fontSize: 11, fontWeight: 700, padding: '1px 8px' }}>
                               {rw.wishlist.length}
@@ -2059,10 +2095,10 @@ export default function DoctorsPage() {
                                       <div>
                                         <button
                                           onClick={() => setRepWishlists(prev => {
-                                            const cur = prev[rep.userId];
+                                            const cur = prev[repId];
                                             const s = new Set(cur.openDetails);
                                             s.has(w.doctorId) ? s.delete(w.doctorId) : s.add(w.doctorId);
-                                            return { ...prev, [rep.userId]: { ...cur, openDetails: s } };
+                                            return { ...prev, [repId]: { ...cur, openDetails: s } };
                                           })}
                                           style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8' }}
                                         >
