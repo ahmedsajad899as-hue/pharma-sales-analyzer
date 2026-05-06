@@ -184,7 +184,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
-  const load = () => {
+  const load = (restoreScroll = false) => {
+    const scrollPos = restoreScroll ? (getMainEl()?.scrollTop ?? 0) : 0;
     setLoading(true);
     Promise.all([
       fetch('/api/sa/users',     { headers: H() }).then(r => r.json()),
@@ -194,7 +195,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       if (u.success) setUsers(u.data);
       if (o.success) setOffices(o.data);
       if (c.success) setCompanies(c.data);
-    }).finally(() => setLoading(false));
+    }).finally(() => {
+      setLoading(false);
+      if (restoreScroll) {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const m = getMainEl();
+          if (m) m.scrollTop = scrollPos;
+        }));
+      }
+    });
   };
 
   const loadRefs = async () => {
@@ -313,7 +322,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId] }),
       });
     }
-    setSaving(false); setForm(null); load();
+    setSaving(false); setForm(null); load(true);
     if (detail?.id === form.id) loadDetail(form.id);
   };
 
