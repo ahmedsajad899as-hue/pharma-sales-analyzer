@@ -87,6 +87,9 @@ model User {
   activityLogs             ActivityLog[]
   doctorArchiveEntries DoctorArchiveEntry[]
 
+  // Doctor Wishlist
+  doctorWishlists          DoctorWishlist[]
+
   // Filter Presets
   filterPresets            FilterPreset[]
 
@@ -432,6 +435,7 @@ model Doctor {
 
   planEntries PlanEntry[]
   visits      DoctorVisit[]
+  wishlists   DoctorWishlist[]
 
   @@index([userId])
   @@index([areaId])
@@ -1290,4 +1294,24 @@ model RepItemTarget {
   @@unique([repType, repId, itemId, month, year])
   @@index([repType, repId])
   @@map("rep_item_targets")
+}
+
+// ─── Doctor Wishlist (قائمة طلبات المندوب) ───────────────────
+model DoctorWishlist {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  doctorId     Int
+  itemName     String?
+  specialty    String?
+  pharmacyName String?
+  areaName     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, doctorId])
+  @@index([userId])
+  @@map("doctor_wishlists")
 }
