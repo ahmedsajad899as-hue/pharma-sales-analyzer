@@ -119,6 +119,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     master_survey:      'master-survey',
     distributor_sales:  'distributor-sales',
     sales_data:         'sales-data',
+    file_filter:        'file-filter',
   };
 
   // empty roles array = visible to all; otherwise check role inclusion
