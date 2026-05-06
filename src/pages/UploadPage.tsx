@@ -204,6 +204,36 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     }
   };
 
+  // Download filtered Excel for a scientific rep
+  const [exporting, setExporting] = useState<string | null>(null); // key = `${fileId}-${repId}`
+
+  const downloadRepSalesExcel = async (fileId: number, repId?: number) => {
+    const key = `${fileId}-${repId ?? 'me'}`;
+    setExporting(key);
+    try {
+      const url = `${API}/api/files/${fileId}/export-rep-sales${repId ? `?repId=${repId}` : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'فشل التحميل');
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      let filename = 'مبيعاتي.xlsx';
+      const match = disposition.match(/filename\*?=UTF-8''([^;]+)/i) ?? disposition.match(/filename="?([^";]+)"?/i);
+      if (match) filename = decodeURIComponent(match[1]);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   // Back button: close open overlays in priority order
   useBackHandler([
     [shareModalFile !== null, () => setShareModalFile(null)],
@@ -723,6 +753,22 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         {f.sharedWithRepId ? `🔗 ${f.sharedWithRep?.name ?? 'مندوب'}` : '🔗 مزامنة مع مندوب'}
                       </button>
                     )}
+                    {/* Download my sales — shown for shared files (received by scientific rep OR manager can download for assigned rep) */}
+                    {(f.sharedWithRepId && (f.userId !== user?.id || user?.linkedRepId)) && (
+                      <button
+                        onClick={() => downloadRepSalesExcel(f.id, f.userId === user?.id ? f.sharedWithRepId! : undefined)}
+                        disabled={exporting === `${f.id}-${f.userId === user?.id ? f.sharedWithRepId : 'me'}`}
+                        style={{
+                          padding: '4px 12px', fontSize: 13,
+                          background: '#ecfdf5', color: '#059669',
+                          border: '1px solid #6ee7b7', borderRadius: 6,
+                          cursor: 'pointer', fontWeight: 700,
+                        }}
+                        title="تحميل البيانات المفلترة حسب تعيينات المندوب كملف Excel"
+                      >
+                        {exporting === `${f.id}-${f.userId === user?.id ? f.sharedWithRepId : 'me'}` ? '⏳' : `📥 ${f.userId === user?.id ? `تحميل بيانات ${f.sharedWithRep?.name ?? 'المندوب'}` : 'تحميل مبيعاتي'}`}
+                      </button>
+                    )}
                     <button
                       className="btn btn--secondary"
                       style={{
@@ -1035,13 +1081,24 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
                 style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
                 onClick={() => setShareModalFile(null)}
               >
                 إلغاء
               </button>
+              {/* Download filtered excel for selected rep — only shown when a rep is selected */}
+              {selectedRepId && (
+                <button
+                  onClick={() => downloadRepSalesExcel(shareModalFile.id, selectedRepId)}
+                  disabled={exporting === `${shareModalFile.id}-${selectedRepId}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
+                  title="تحميل البيانات المفلترة للمندوب المختار كـ Excel"
+                >
+                  {exporting === `${shareModalFile.id}-${selectedRepId}` ? '⏳ جاري...' : '📥 معاينة وتحميل Excel'}
+                </button>
+              )}
               <button
                 style={{ padding: '8px 22px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14, opacity: saving ? 0.7 : 1 }}
                 onClick={confirmShare}

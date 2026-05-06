@@ -1249,7 +1249,137 @@ app.get('/api/files/:id/download', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Filter Presets (per-user, stored in DB as JSON) ───────────
+// ── Export filtered sales for a specific scientific rep as Excel ──
+// GET /api/files/:id/export-rep-sales?repId=X
+//   - Scientific rep calls with no repId (uses their own linkedRepId)
+//   - Manager calls with ?repId=X to preview/download what the rep sees
+app.get('/api/files/:id/export-rep-sales', requireAuth, async (req, res) => {
+  try {
+    const fileId  = parseInt(req.params.id);
+    const userId  = req.user?.id ?? null;
+
+    // Resolve which rep to export for
+    let repId = req.query.repId ? parseInt(req.query.repId) : null;
+
+    if (!repId) {
+      // Scientific rep calling for themselves
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      repId = userRow?.linkedRepId ?? null;
+    }
+    if (!repId || isNaN(repId)) return res.status(400).json({ error: 'لم يتم تحديد المندوب' });
+
+    // Load the file (must be accessible to this user: owned by them OR shared with their rep)
+    const userRow2 = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+    const myRepId  = userRow2?.linkedRepId ?? null;
+    const file = await prisma.uploadedFile.findFirst({
+      where: {
+        id: fileId,
+        OR: [
+          { userId },
+          { sharedWithRepId: myRepId ?? -1 },
+          { sharedWithRepId: repId },  // manager checking a rep's file
+        ],
+      },
+      select: { id: true, originalName: true, userId: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية الوصول إليه' });
+
+    // Load rep assignments
+    const rep = await prisma.scientificRepresentative.findUnique({
+      where: { id: repId },
+      select: {
+        name: true,
+        areas:          { select: { areaId: true } },
+        items:          { select: { itemId: true } },
+        commercialReps: { select: { commercialRepId: true } },
+      },
+    });
+    if (!rep) return res.status(404).json({ error: 'المندوب العلمي غير موجود' });
+
+    const areaIds        = rep.areas.map(a => a.areaId);
+    const itemIds        = rep.items.map(i => i.itemId);
+    const commRepIds     = rep.commercialReps.map(c => c.commercialRepId);
+
+    // Build OR filter from non-empty assignment lists
+    const orClauses = [];
+    if (areaIds.length)    orClauses.push({ areaId:            { in: areaIds } });
+    if (itemIds.length)    orClauses.push({ itemId:            { in: itemIds } });
+    if (commRepIds.length) orClauses.push({ representativeId:  { in: commRepIds } });
+
+    if (orClauses.length === 0) {
+      // No assignments — return empty file
+      const wb  = XLSX.utils.book_new();
+      const ws  = XLSX.utils.aoa_to_sheet([['المندوب التجاري','المنطقة','الايتم','الكمية','القيمة','النوع','التاريخ']]);
+      XLSX.utils.book_append_sheet(wb, ws, 'مبيعاتي');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      const fname = `مبيعات_${rep.name}.xlsx`;
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      return res.send(buf);
+    }
+
+    // Fetch matching sales
+    const sales = await prisma.sale.findMany({
+      where: {
+        uploadedFileId: fileId,
+        OR: orClauses,
+      },
+      select: {
+        representative: { select: { name: true } },
+        area:           { select: { name: true } },
+        item:           { select: { name: true } },
+        quantity:       true,
+        totalValue:     true,
+        recordType:     true,
+        saleDate:       true,
+      },
+      orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
+    });
+
+    // Build Excel
+    const headers = ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
+    const rows = sales.map(s => [
+      s.representative?.name ?? '',
+      s.area?.name          ?? '',
+      s.item?.name          ?? '',
+      s.quantity,
+      s.totalValue,
+      s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
+      s.saleDate ? new Date(s.saleDate).toLocaleDateString('ar-IQ') : '',
+    ]);
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    // Column widths
+    ws['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'مبيعاتي');
+
+    // Summary sheet
+    const salesRows    = sales.filter(s => s.recordType !== 'return');
+    const returnRows   = sales.filter(s => s.recordType === 'return');
+    const totalSales   = salesRows.reduce((a, s) => a + s.totalValue, 0);
+    const totalReturns = returnRows.reduce((a, s) => a + s.totalValue, 0);
+    const wsSummary = XLSX.utils.aoa_to_sheet([
+      ['ملخص بيانات المندوب العلمي'],
+      [''],
+      ['المندوب العلمي', rep.name],
+      ['إجمالي صفوف المبيعات', salesRows.length],
+      ['إجمالي صفوف المرتجعات', returnRows.length],
+      ['إجمالي قيمة المبيعات', totalSales],
+      ['إجمالي قيمة المرتجعات', totalReturns],
+      ['صافي القيمة', totalSales - totalReturns],
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
+
+    const buf  = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const fname = `مبيعات_${rep.name}_${new Date().toLocaleDateString('ar-IQ').replace(/\//g, '-')}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buf);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // GET  /api/filter-presets       — get all presets for current user
 // POST /api/filter-presets       — create or update a preset  { name, data }
 // DELETE /api/filter-presets/:id — delete a preset
