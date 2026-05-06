@@ -1407,10 +1407,18 @@ export async function upsertWishlist(req, res, next) {
     const { doctorId, itemName, specialty, pharmacyName, areaName } = req.body;
     if (!doctorId) return res.status(400).json({ error: 'doctorId مطلوب' });
 
+    const docId = parseInt(doctorId);
+    // Build update object — only include fields that were explicitly sent
+    const updateData = { updatedAt: new Date() };
+    if (itemName    !== undefined) updateData.itemName    = itemName    ?? null;
+    if (specialty   !== undefined) updateData.specialty   = specialty   ?? null;
+    if (pharmacyName !== undefined) updateData.pharmacyName = pharmacyName ?? null;
+    if (areaName    !== undefined) updateData.areaName    = areaName    ?? null;
+
     const entry = await prisma.doctorWishlist.upsert({
-      where:  { userId_doctorId: { userId, doctorId: parseInt(doctorId) } },
-      create: { userId, doctorId: parseInt(doctorId), itemName: itemName ?? null, specialty: specialty ?? null, pharmacyName: pharmacyName ?? null, areaName: areaName ?? null },
-      update: { itemName: itemName ?? null, specialty: specialty ?? null, pharmacyName: pharmacyName ?? null, areaName: areaName ?? null, updatedAt: new Date() },
+      where:  { userId_doctorId: { userId, doctorId: docId } },
+      create: { userId, doctorId: docId, itemName: itemName ?? null, specialty: specialty ?? null, pharmacyName: pharmacyName ?? null, areaName: areaName ?? null },
+      update: updateData,
     });
     res.json({ ok: true, id: entry.id });
   } catch (e) { next(e); }

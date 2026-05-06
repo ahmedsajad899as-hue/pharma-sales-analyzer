@@ -535,11 +535,18 @@ export default function DoctorsPage() {
     localStorage.removeItem('wishedDoctorNames');
 
     // Load from backend and merge (backend is source of truth)
+    // NOTE: only overwrite local state if backend actually has data.
+    // If backend returns empty (table just created / no data yet), keep localStorage.
     fetch(`${API}/api/doctors/wishlist`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : [])
-      .then((items: Array<{ doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string }>) => {
-        if (!Array.isArray(items)) return;
-        setWishedDoctors(new Set(items.map(w => w.doctorId)));
+      .then(r => r.ok ? r.json() : null)
+      .then((items: Array<{ doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string }> | null) => {
+        if (!Array.isArray(items)) return; // error from backend — keep localStorage
+        if (items.length === 0) return;    // backend empty — keep localStorage (don't wipe local picks)
+        setWishedDoctors(prev => {
+          const merged = new Set([...prev, ...items.map(w => w.doctorId)]);
+          localStorage.setItem(key, JSON.stringify([...merged]));
+          return merged;
+        });
         setWishedNames(prev => {
           const next = { ...prev };
           items.forEach(w => { next[w.doctorId] = w.doctorName; });
@@ -560,7 +567,6 @@ export default function DoctorsPage() {
           localStorage.setItem(kInf, JSON.stringify(next));
           return next;
         });
-        localStorage.setItem(key, JSON.stringify(items.map(w => w.doctorId)));
       })
       .catch(() => {/* silent fallback to localStorage */});
   // eslint-disable-next-line react-hooks/exhaustive-deps
