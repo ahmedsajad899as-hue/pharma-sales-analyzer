@@ -2099,7 +2099,7 @@ export default function DoctorsPage() {
                 onClick={() => {
                   const opening = !teamWishPanelOpen;
                   setTeamWishPanelOpen(opening);
-                  if (opening && !teamWishLoaded && !teamWishLoading) loadTeamWishlists();
+                  if (opening) loadTeamWishlists(); // always refresh on open
                 }}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: teamWishPanelOpen ? '#eef2ff' : '#f8fafc', cursor: 'pointer', userSelect: 'none' }}
               >
@@ -2112,7 +2112,17 @@ export default function DoctorsPage() {
                     </span>
                   )}
                 </div>
-                <span style={{ fontSize: 13, color: '#94a3b8', display: 'inline-block', transition: 'transform 0.2s', transform: teamWishPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {teamWishPanelOpen && (
+                    <button
+                      onClick={e => { e.stopPropagation(); loadTeamWishlists(); }}
+                      disabled={teamWishLoading}
+                      title="تحديث"
+                      style={{ background: '#fff', border: '1px solid #c7d2fe', borderRadius: 7, padding: '3px 9px', fontSize: 11, color: '#4338ca', cursor: teamWishLoading ? 'default' : 'pointer', fontWeight: 600 }}
+                    >{teamWishLoading ? '⏳' : '🔄 تحديث'}</button>
+                  )}
+                  <span style={{ fontSize: 13, color: '#94a3b8', display: 'inline-block', transition: 'transform 0.2s', transform: teamWishPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                </div>
               </div>
 
               {/* Panel body */}
@@ -2137,11 +2147,8 @@ export default function DoctorsPage() {
                               if (isOpen) {
                                 setRepWishlists(prev => ({ ...prev, [repId]: { ...prev[repId], open: false } }));
                               } else {
-                                if (rw.wishlist.length > 0) {
-                                  setRepWishlists(prev => ({ ...prev, [repId]: { ...rw, open: true } }));
-                                } else {
-                                  loadRepWishlist(repId);
-                                }
+                                // Always re-fetch fresh data from backend on open
+                                loadRepWishlist(repId);
                               }
                             }}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 13px', background: isOpen ? '#f0f4ff' : '#fafbff', cursor: 'pointer' }}
