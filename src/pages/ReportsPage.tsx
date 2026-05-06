@@ -1995,6 +1995,26 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           );
                         })}
                       </tbody>
+                      {targetData.length > 0 && (() => {
+                        const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
+                        const totalNet    = targetData.reduce((s, td) => {
+                          const salesRow = commReport.byItem.find(r => r.name === td.itemName);
+                          const retRow   = commReturnsReport?.byItem.find(r => r.name === td.itemName);
+                          return s + (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                        }, 0);
+                        const totalPct    = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
+                        const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
+                        return (
+                          <tfoot>
+                            <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
+                              <td style={{ padding: '10px 12px', color: '#065f46' }}>الإجمالي</td>
+                              <td style={{ padding: '10px 12px', color: '#065f46' }}>{fmt(totalTarget)}</td>
+                              <td style={{ padding: '10px 12px', color: totalNet < 0 ? '#dc2626' : '#065f46' }}>{fmtSigned(totalNet)}</td>
+                              <td style={{ padding: '10px 12px', color: pctColor, fontSize: 15 }}>{totalPct !== null ? `${totalPct}%` : '—'}</td>
+                            </tr>
+                          </tfoot>
+                        );
+                      })()}
                     </table>
                   </div>
                 )
@@ -2134,6 +2154,26 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           );
                         })}
                       </tbody>
+                      {targetData.length > 0 && (() => {
+                        const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
+                        const totalNet    = targetData.reduce((s, td) => {
+                          const salesRow = sciReport.byItem.find(r => r.name === td.itemName);
+                          const retRow   = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
+                          return s + (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                        }, 0);
+                        const totalPct    = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
+                        const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
+                        return (
+                          <tfoot>
+                            <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
+                              <td style={{ padding: '10px 12px', color: '#065f46' }}>الإجمالي</td>
+                              <td style={{ padding: '10px 12px', color: '#065f46' }}>{fmt(totalTarget)}</td>
+                              <td style={{ padding: '10px 12px', color: totalNet < 0 ? '#dc2626' : '#065f46' }}>{fmtSigned(totalNet)}</td>
+                              <td style={{ padding: '10px 12px', color: pctColor, fontSize: 15 }}>{totalPct !== null ? `${totalPct}%` : '—'}</td>
+                            </tr>
+                          </tfoot>
+                        );
+                      })()}
                     </table>
                   </div>
                 )
