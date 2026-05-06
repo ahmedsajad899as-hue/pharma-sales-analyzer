@@ -268,6 +268,24 @@ export default function DoctorsPage() {
   });
   const [openWishDetails, setOpenWishDetails] = useState<Set<number>>(new Set());
   const [showWishPanel, setShowWishPanel] = useState(false);
+  const [wishSyncing, setWishSyncing] = useState(false);
+  const [wishSyncDone, setWishSyncDone] = useState(false);
+  const syncWishlistToBackend = async () => {
+    if (wishSyncing) return;
+    setWishSyncing(true);
+    const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const ids = [...wishedDoctors];
+    await Promise.all(ids.map(docId => {
+      const info = wishedInfo[docId] ?? {};
+      return fetch(`${API}/api/doctors/wishlist`, {
+        method: 'POST', headers: h,
+        body: JSON.stringify({ doctorId: docId, itemName: wishedItems[docId] ?? undefined, specialty: info.specialty, pharmacyName: info.pharmacyName, areaName: info.areaName }),
+      }).catch(() => {});
+    }));
+    setWishSyncing(false);
+    setWishSyncDone(true);
+    setTimeout(() => setWishSyncDone(false), 3000);
+  };
   const [showWritingPopup, setShowWritingPopup] = useState(false);
 
   // ── Visits analysis toggle (doctors vs pharmacies) ─────────────
@@ -1913,6 +1931,15 @@ export default function DoctorsPage() {
                     background: 'none', border: '1px solid #e2e8f0', borderRadius: 7,
                     padding: '3px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer', fontWeight: 600,
                   }}>مسح الكل</button>
+                  <button
+                    onClick={syncWishlistToBackend}
+                    disabled={wishSyncing}
+                    style={{
+                      background: wishSyncDone ? '#dcfce7' : '#eef2ff', border: `1px solid ${wishSyncDone ? '#86efac' : '#c7d2fe'}`,
+                      borderRadius: 7, padding: '3px 10px', fontSize: 11,
+                      color: wishSyncDone ? '#16a34a' : '#4338ca', cursor: wishSyncing ? 'default' : 'pointer', fontWeight: 600,
+                    }}
+                  >{wishSyncing ? '⏳ جاري...' : wishSyncDone ? '✓ تمت المزامنة' : '☁ مزامنة'}</button>
                 </div>
 
                 {/* Cards grid */}
