@@ -1403,7 +1403,22 @@ export async function upsertWishlist(req, res, next) {
       update: updateData,
     });
     res.json({ ok: true, id: entry.id });
-  } catch (e) { next(e); }
+  } catch (e) {
+    console.error('[upsertWishlist] FAILED userId=%s doctorId=%s err=%s', req.user?.id, req.body?.doctorId, e.message);
+    next(e);
+  }
+}
+
+// GET /api/doctors/wishlist/debug — diagnostic count
+export async function debugWishlist(req, res, next) {
+  try {
+    const total = await prisma.doctorWishlist.count();
+    const mine  = await prisma.doctorWishlist.count({ where: { userId: req.user.id } });
+    res.json({ total, mine, userId: req.user.id });
+  } catch (e) {
+    console.error('[debugWishlist]', e.message);
+    res.json({ error: e.message });
+  }
 }
 
 export async function removeWishlist(req, res, next) {

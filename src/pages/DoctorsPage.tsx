@@ -269,22 +269,42 @@ export default function DoctorsPage() {
   const [openWishDetails, setOpenWishDetails] = useState<Set<number>>(new Set());
   const [showWishPanel, setShowWishPanel] = useState(false);
   const [wishSyncing, setWishSyncing] = useState(false);
-  const [wishSyncDone, setWishSyncDone] = useState(false);
+  const [wishSyncMsg, setWishSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const syncWishlistToBackend = async () => {
     if (wishSyncing) return;
     setWishSyncing(true);
+    setWishSyncMsg(null);
     const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
     const ids = [...wishedDoctors];
-    await Promise.all(ids.map(docId => {
+    if (ids.length === 0) {
+      setWishSyncing(false);
+      setWishSyncMsg({ ok: true, text: 'لا يوجد أطباء للمزامنة' });
+      setTimeout(() => setWishSyncMsg(null), 3000);
+      return;
+    }
+    let failed = 0;
+    let errMsg = '';
+    await Promise.all(ids.map(async docId => {
       const info = wishedInfo[docId] ?? {};
-      return fetch(`${API}/api/doctors/wishlist`, {
-        method: 'POST', headers: h,
-        body: JSON.stringify({ doctorId: docId, itemName: wishedItems[docId] ?? undefined, specialty: info.specialty, pharmacyName: info.pharmacyName, areaName: info.areaName }),
-      }).catch(() => {});
+      try {
+        const r = await fetch(`${API}/api/doctors/wishlist`, {
+          method: 'POST', headers: h,
+          body: JSON.stringify({ doctorId: docId, itemName: wishedItems[docId] ?? undefined, specialty: info.specialty, pharmacyName: info.pharmacyName, areaName: info.areaName }),
+        });
+        if (!r.ok) {
+          failed++;
+          const j = await r.json().catch(() => ({}));
+          errMsg = j?.error ?? j?.message ?? `status ${r.status}`;
+        }
+      } catch (e: any) { failed++; errMsg = e?.message ?? 'network error'; }
     }));
     setWishSyncing(false);
-    setWishSyncDone(true);
-    setTimeout(() => setWishSyncDone(false), 3000);
+    if (failed > 0) {
+      setWishSyncMsg({ ok: false, text: `فشل ${failed} من ${ids.length} — ${errMsg}` });
+    } else {
+      setWishSyncMsg({ ok: true, text: `✓ تمت مزامنة ${ids.length} طبيب` });
+    }
+    setTimeout(() => setWishSyncMsg(null), 6000);
   };
   const [showWritingPopup, setShowWritingPopup] = useState(false);
 
@@ -1974,11 +1994,13 @@ export default function DoctorsPage() {
                     onClick={syncWishlistToBackend}
                     disabled={wishSyncing}
                     style={{
-                      background: wishSyncDone ? '#dcfce7' : '#eef2ff', border: `1px solid ${wishSyncDone ? '#86efac' : '#c7d2fe'}`,
+                      background: wishSyncMsg ? (wishSyncMsg.ok ? '#dcfce7' : '#fef2f2') : '#eef2ff',
+                      border: `1px solid ${wishSyncMsg ? (wishSyncMsg.ok ? '#86efac' : '#fca5a5') : '#c7d2fe'}`,
                       borderRadius: 7, padding: '3px 10px', fontSize: 11,
-                      color: wishSyncDone ? '#16a34a' : '#4338ca', cursor: wishSyncing ? 'default' : 'pointer', fontWeight: 600,
+                      color: wishSyncMsg ? (wishSyncMsg.ok ? '#16a34a' : '#dc2626') : '#4338ca',
+                      cursor: wishSyncing ? 'default' : 'pointer', fontWeight: 600,
                     }}
-                  >{wishSyncing ? '⏳ جاري...' : wishSyncDone ? '✓ تمت المزامنة' : '☁ مزامنة'}</button>
+                  >{wishSyncing ? '⏳ جاري...' : wishSyncMsg ? wishSyncMsg.text : '☁ مزامنة'}</button>
                 </div>
 
                 {/* Cards grid */}
