@@ -27,6 +27,12 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [loading, setLoading] = useState(false);
   const [allItems, setAllItems] = useState<NamedItem[]>([]);
 
+  // Broadcast state
+  const [showBroadcast, setShowBroadcast]   = useState(false);
+  const [broadcastSel, setBroadcastSel]     = useState<Set<number>>(new Set());
+  const [broadcasting, setBroadcasting]     = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
+
   // Load reps — standalone=1 returns ONLY records manually created in
   // the المندوبون العلميون tab (not every system user account).
   useEffect(() => {
@@ -128,6 +134,38 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     }
   };
 
+  const broadcast = async () => {
+    if (broadcastSel.size === 0 || rows.length === 0) return;
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    let ok = 0; let fail = 0;
+    for (const repId of broadcastSel) {
+      try {
+        // For scientific reps: get the target rep's items and only apply matching rows
+        let targets: { itemId: number; target: number }[];
+        if (repType === 'scientific') {
+          const targetRep = sciReps.find(r => r.id === repId);
+          const targetItemIds = new Set((targetRep?.items ?? []).map(i => i.id));
+          targets = rows
+            .filter(r => targetItemIds.has(r.itemId))
+            .map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 }));
+        } else {
+          targets = rows.map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 }));
+        }
+        const res = await fetch(`${API}/api/targets`, {
+          method: 'PUT', headers: H(),
+          body: JSON.stringify({ repType, repId, month, year, targets }),
+        });
+        if (res.ok) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setBroadcasting(false);
+    setBroadcastResult(fail === 0
+      ? `✓ تم تعميم التارگت على ${ok} مندوب بنجاح`
+      : `⚠ نجح ${ok} وفشل ${fail}`);
+    setTimeout(() => { setBroadcastResult(null); setShowBroadcast(false); setBroadcastSel(new Set()); }, 3500);
+  };
+
   const reps = repType === 'scientific' ? sciReps : commReps;
   const months = [
     'يناير','فبراير','مارس','أبريل','مايو','يونيو',
@@ -211,7 +249,86 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         >
           {saving ? '⏳ جاري...' : saved ? '✓ تم الحفظ' : '💾 حفظ'}
         </button>
+
+        {/* Broadcast */}
+        <button
+          className="tgt-btn"
+          onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
+          disabled={!selRepId || rows.length === 0}
+          title="تعميم نفس التارگت على مندوبين آخرين"
+          style={{ background: showBroadcast ? '#f59e0b' : '#fff', color: showBroadcast ? '#fff' : '#f59e0b', border: '1.5px solid #f59e0b', opacity: (!selRepId || rows.length === 0) ? 0.4 : 1 }}
+        >
+          📢 تعميم على مندوبين
+        </button>
       </div>
+
+      {/* ── Broadcast Panel ── */}
+      {showBroadcast && selRepId && rows.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <span style={{ fontWeight: 800, fontSize: 14, color: '#92400e' }}>📢 تعميم التارگت على مندوبين آخرين</span>
+              <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
+                سيتم تطبيق تارگت {months[month - 1]} {year} على المندوبين المحددين أدناه
+                {repType === 'scientific' && <span> (يُطبَّق فقط على الايتمات المشتركة)</span>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                className="tgt-btn"
+                onClick={() => setBroadcastSel(new Set(reps.filter(r => r.id !== parseInt(selRepId)).map(r => r.id)))}
+                style={{ background: '#f59e0b', color: '#fff', fontSize: 12, padding: '5px 14px' }}
+              >تحديد الكل</button>
+              <button
+                className="tgt-btn"
+                onClick={() => setBroadcastSel(new Set())}
+                style={{ background: '#f1f5f9', color: '#374151', fontSize: 12, padding: '5px 14px' }}
+              >إلغاء الكل</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+            {reps.filter(r => r.id !== parseInt(selRepId)).map(r => {
+              const checked = broadcastSel.has(r.id);
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => setBroadcastSel(prev => { const s = new Set(prev); checked ? s.delete(r.id) : s.add(r.id); return s; })}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: checked ? 700 : 400,
+                    border: checked ? '1.5px solid #f59e0b' : '1.5px solid #e2e8f0',
+                    background: checked ? '#fef3c7' : '#fff',
+                    color: checked ? '#92400e' : '#64748b',
+                    transition: 'all .12s',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  {checked ? '✓' : '○'} {r.name}
+                </div>
+              );
+            })}
+            {reps.filter(r => r.id !== parseInt(selRepId)).length === 0 && (
+              <span style={{ fontSize: 13, color: '#94a3b8' }}>لا يوجد مندوبون آخرون</span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="tgt-btn"
+              onClick={broadcast}
+              disabled={broadcasting || broadcastSel.size === 0}
+              style={{ background: '#f59e0b', color: '#fff', opacity: broadcastSel.size === 0 ? 0.4 : 1, minWidth: 140 }}
+            >
+              {broadcasting ? '⏳ جاري التعميم...' : `📢 تعميم على ${broadcastSel.size} مندوب`}
+            </button>
+            {broadcastResult && (
+              <span style={{ fontSize: 13, fontWeight: 700, color: broadcastResult.startsWith('✓') ? '#059669' : '#d97706' }}>
+                {broadcastResult}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Items Table ── */}
       {!selRepId && (
