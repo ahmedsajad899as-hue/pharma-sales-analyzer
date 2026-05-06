@@ -309,6 +309,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       setSaving(false); return;
     }
     setSaving(false); setForm(null); load();
+    if (!isEdit && form.companyId && d.data?.id) {
+      await fetch(`/api/sa/users/${d.data.id}/companies`, {
+        method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId] }),
+      });
+    }
     if (detail?.id === form.id) loadDetail(form.id);
   };
 
@@ -1147,7 +1152,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
       {form && !detail && (
         <Modal onClose={() => { setForm(null); setError(''); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
-          <UserFormFields form={form} setForm={setForm} offices={offices} isEdit={Boolean(form.id)} />
+          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit={Boolean(form.id)} />
           {error && <ErrBox msg={error} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={() => { setForm(null); setError(''); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
@@ -1159,7 +1164,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   );
 }
 
-function UserFormFields({ form, setForm, offices, isEdit }: { form: any; setForm: any; offices: Office[]; isEdit: boolean }) {
+function UserFormFields({ form, setForm, offices, companies, isEdit }: { form: any; setForm: any; offices: Office[]; companies: Company[]; isEdit: boolean }) {
+  const officeCompanies = form.officeId ? companies.filter(c => c.officeId === Number(form.officeId)) : [];
   return (
     <>
       <Field label="اسم المستخدم *" value={form.username || ''} onChange={v => setForm((f: any) => ({ ...f, username: v }))} />
@@ -1175,12 +1181,22 @@ function UserFormFields({ form, setForm, offices, isEdit }: { form: any; setForm
       </div>
       <div style={{ marginBottom: 14 }}>
         <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>المكتب العلمي</label>
-        <select value={form.officeId || ''} onChange={e => setForm((f: any) => ({ ...f, officeId: e.target.value ? Number(e.target.value) : null }))}
+        <select value={form.officeId || ''} onChange={e => setForm((f: any) => ({ ...f, officeId: e.target.value ? Number(e.target.value) : null, companyId: null }))}
           style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}>
           <option value="">-- بدون مكتب --</option>
           {offices.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
       </div>
+      {officeCompanies.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>الشركة</label>
+          <select value={form.companyId || ''} onChange={e => setForm((f: any) => ({ ...f, companyId: e.target.value ? Number(e.target.value) : null }))}
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}>
+            <option value="">-- بدون شركة --</option>
+            {officeCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
     </>
   );
 }
