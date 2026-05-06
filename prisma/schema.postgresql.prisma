@@ -306,9 +306,14 @@ model UploadedFile {
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
 
+  // Share with a scientific rep — makes this file visible in the rep's account
+  sharedWithRepId Int?
+  sharedWithRep   ScientificRepresentative? @relation("FileSharedWithRep", fields: [sharedWithRepId], references: [id], onDelete: SetNull)
+
   sales Sale[]
 
   @@index([userId])
+  @@index([sharedWithRepId])
   @@map("uploaded_files")
 }
 
@@ -338,6 +343,7 @@ model ScientificRepresentative {
   fmsPlans       FmsPlan[]
   linkedUsers    User[]                    @relation("UserLinkedRep")
   locationPoints RepLocationPoint[]
+  sharedFiles    UploadedFile[]            @relation("FileSharedWithRep")
 
   @@unique([name, userId])
   @@index([userId])

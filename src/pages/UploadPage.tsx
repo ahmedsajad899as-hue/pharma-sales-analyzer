@@ -13,6 +13,8 @@ interface UploadedFile {
   currencyMode?: string;
   exchangeRate?: number;
   detectedCurrency?: string;
+  sharedWithRepId?: number | null;
+  sharedWithRep?: { id: number; name: string } | null;
   _count?: { sales: number };
 }
 
@@ -24,7 +26,7 @@ interface Props {
 const API = '';
 
 export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
-  const { token, hasFeature } = useAuth();
+  const { token, hasFeature, user } = useAuth();
   const { t } = useLanguage();
   const [dragging, setDragging]   = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -157,8 +159,54 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currSaveMsg, setCurrSaveMsg] = useState('');
 
+  // File-rep sharing state
+  const [shareModalFile, setShareModalFile] = useState<UploadedFile | null>(null);
+  const [sciReps, setSciReps] = useState<{ id: number; name: string }[]>([]);
+  const [sciRepsLoading, setSciRepsLoading] = useState(false);
+  const [selectedRepId, setSelectedRepId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [shareMsg, setShareMsg] = useState('');
+
+  const openShareModal = async (f: UploadedFile) => {
+    setShareModalFile(f);
+    setSelectedRepId(f.sharedWithRepId ?? null);
+    setShareMsg('');
+    if (sciReps.length === 0) {
+      setSciRepsLoading(true);
+      try {
+        const res  = await fetch(`${API}/api/scientific-reps?standalone=1`, { headers: { Authorization: `Bearer ${token}` } });
+        const json = await res.json();
+        setSciReps(Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : []);
+      } catch { /* ignore */ }
+      finally { setSciRepsLoading(false); }
+    }
+  };
+
+  const confirmShare = async () => {
+    if (!shareModalFile) return;
+    setSaving(true);
+    setShareMsg('');
+    try {
+      const res  = await fetch(`${API}/api/files/${shareModalFile.id}/share-with-rep`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ repId: selectedRepId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'فشل التعيين');
+      setShareMsg(selectedRepId ? '✓ تمت المزامنة بنجاح' : '✓ تم إلغاء المزامنة');
+      await loadFiles();
+      setTimeout(() => { setShareModalFile(null); setShareMsg(''); }, 1200);
+    } catch (err: any) {
+      setShareMsg(`⚠ ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Back button: close open overlays in priority order
   useBackHandler([
+    [shareModalFile !== null, () => setShareModalFile(null)],
     [currencyModal !== null, () => setCurrencyModal(null)],
     [analyzeFile !== null,   () => setAnalyzeFile(null)],
     [confirmId !== null,     () => setConfirmId(null)],
@@ -609,6 +657,18 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         ✓ {t.upload.statusActive}
                       </span>
                     )}
+                    {/* Shared badge — visible to both manager and rep */}
+                    {f.sharedWithRep && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd' }}>
+                        🔗 {f.sharedWithRep.name}
+                      </span>
+                    )}
+                    {/* Badge for scientific rep receiving a shared file */}
+                    {f.userId !== user?.id && f.sharedWithRepId && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+                        📥 مشارك معك
+                      </span>
+                    )}
                   </div>
                   {/* Row 2: meta info */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: '0.55rem', fontSize: 13, color: '#6b7280' }}>
@@ -645,6 +705,22 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         onClick={() => openCurrencyModal(f)}
                       >
                         {t.upload.btnCurrency}
+                      </button>
+                    )}
+                    {/* Share with scientific rep button — only for owned files by manager roles */}
+                    {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
+                      <button
+                        style={{
+                          padding: '4px 12px', fontSize: 13,
+                          background: f.sharedWithRepId ? '#ede9fe' : '#f5f3ff',
+                          color: f.sharedWithRepId ? '#6d28d9' : '#7c3aed',
+                          border: `1px solid ${f.sharedWithRepId ? '#c4b5fd' : '#ddd6fe'}`,
+                          borderRadius: 6, cursor: 'pointer', fontWeight: f.sharedWithRepId ? 700 : undefined,
+                        }}
+                        onClick={() => openShareModal(f)}
+                        title="مزامنة بيانات هذا الملف مع مندوب علمي"
+                      >
+                        {f.sharedWithRepId ? `🔗 ${f.sharedWithRep?.name ?? 'مندوب'}` : '🔗 مزامنة مع مندوب'}
                       </button>
                     )}
                     <button
@@ -891,6 +967,87 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 onClick={() => { const f = pendingFile; setPendingFile(null); uploadFile(f, preCurrency); }}
               >
                 {t.upload.preCurrencyConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Share with Scientific Rep Modal ── */}
+      {shareModalFile && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShareModalFile(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 18, padding: '2rem', minWidth: 340, maxWidth: 460, boxShadow: '0 10px 40px rgba(0,0,0,0.22)', direction: 'rtl', width: '90%' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 800, color: '#1e1b4b' }}>🔗 مزامنة مع مندوب علمي</h3>
+            <p style={{ margin: '0 0 1.25rem', fontSize: 13, color: '#6b7280' }}>{shareModalFile.originalName}</p>
+
+            <p style={{ margin: '0 0 10px', fontSize: 13, color: '#374151' }}>
+              اختر المندوب العلمي الذي سيتمكن من رؤية بيانات هذا الملف في حسابه:
+            </p>
+
+            {sciRepsLoading ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>⏳ جاري التحميل...</div>
+            ) : sciReps.length === 0 ? (
+              <div style={{ padding: '12px', background: '#fef2f2', borderRadius: 10, color: '#b91c1c', fontSize: 13 }}>
+                لا يوجد مندوبون علميون مضافون في حسابك
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto', marginBottom: 16 }}>
+                {/* None option */}
+                <label
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
+                    border: `1.5px solid ${selectedRepId === null ? '#e11d48' : '#e2e8f0'}`,
+                    background: selectedRepId === null ? '#fff1f2' : '#f9fafb',
+                  }}
+                >
+                  <input type="radio" name="shareRep" checked={selectedRepId === null} onChange={() => setSelectedRepId(null)} style={{ accentColor: '#e11d48' }} />
+                  <span style={{ fontSize: 13, fontWeight: selectedRepId === null ? 700 : 400, color: selectedRepId === null ? '#be123c' : '#374151' }}>
+                    🚫 بدون مزامنة (إلغاء التعيين)
+                  </span>
+                </label>
+                {sciReps.map(r => (
+                  <label
+                    key={r.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
+                      border: `1.5px solid ${selectedRepId === r.id ? '#7c3aed' : '#e2e8f0'}`,
+                      background: selectedRepId === r.id ? '#f5f3ff' : '#f9fafb',
+                    }}
+                  >
+                    <input type="radio" name="shareRep" checked={selectedRepId === r.id} onChange={() => setSelectedRepId(r.id)} style={{ accentColor: '#7c3aed' }} />
+                    <span style={{ fontSize: 13, fontWeight: selectedRepId === r.id ? 700 : 400, color: selectedRepId === r.id ? '#6d28d9' : '#374151' }}>
+                      🔬 {r.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {shareMsg && (
+              <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 700, color: shareMsg.startsWith('✓') ? '#059669' : '#dc2626' }}>
+                {shareMsg}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
+                onClick={() => setShareModalFile(null)}
+              >
+                إلغاء
+              </button>
+              <button
+                style={{ padding: '8px 22px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14, opacity: saving ? 0.7 : 1 }}
+                onClick={confirmShare}
+                disabled={saving || sciReps.length === 0}
+              >
+                {saving ? '⏳ جاري...' : '✓ تأكيد المزامنة'}
               </button>
             </div>
           </div>

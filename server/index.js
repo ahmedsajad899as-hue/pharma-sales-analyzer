@@ -940,16 +940,66 @@ app.get('/api/files', async (req, res) => {
     const typeFilter = context === 'filter_page'
       ? { fileType: 'filter_page' }
       : { NOT: { fileType: 'filter_page' } };
+
+    // If the current user is linked to a scientific rep, also include files shared with that rep
+    let linkedRepId = null;
+    if (userId) {
+      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      linkedRepId = userRow?.linkedRepId ?? null;
+    }
+
+    let whereClause;
+    if (userId && linkedRepId) {
+      whereClause = { OR: [ { userId, ...typeFilter }, { sharedWithRepId: linkedRepId, ...typeFilter } ], };
+    } else {
+      whereClause = { ...(userId ? { userId } : {}), ...typeFilter };
+    }
+
     const files = await prisma.uploadedFile.findMany({
-      where: { ...(userId ? { userId } : {}), ...typeFilter },
+      where: whereClause,
       orderBy: { uploadedAt: 'desc' },
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
         currencyMode: true, exchangeRate: true, detectedCurrency: true,
+        sharedWithRepId: true,
+        sharedWithRep: { select: { id: true, name: true } },
         _count: { select: { sales: true } },
       },
     });
     res.json({ success: true, data: files });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Share a file with a specific scientific rep ───────────────
+// POST /api/files/:id/share-with-rep  body: { repId: number | null }
+app.post('/api/files/:id/share-with-rep', requireAuth, async (req, res) => {
+  try {
+    const fileId = parseInt(req.params.id);
+    const repId  = req.body.repId != null ? parseInt(req.body.repId) : null;
+    const userId = req.user?.id ?? null;
+
+    // Only allow manager-level roles to share files
+    const ALLOWED = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'commercial_supervisor', 'commercial_team_leader']);
+    if (!ALLOWED.has(req.user?.role)) {
+      return res.status(403).json({ error: 'غير مصرح' });
+    }
+
+    // Verify the file belongs to this user
+    const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId } });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية تعديله' });
+
+    // Verify rep exists (if repId provided)
+    if (repId !== null) {
+      const rep = await prisma.scientificRepresentative.findFirst({ where: { id: repId, userId } });
+      if (!rep) return res.status(404).json({ error: 'المندوب غير موجود' });
+    }
+
+    const updated = await prisma.uploadedFile.update({
+      where: { id: fileId },
+      data:  { sharedWithRepId: repId },
+      select: { id: true, sharedWithRepId: true, sharedWithRep: { select: { id: true, name: true } } },
+    });
+    res.json({ success: true, data: updated });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
