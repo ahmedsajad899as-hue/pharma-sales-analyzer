@@ -506,7 +506,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
 // Always load scientific reps — doctor-visit reports don't require uploaded Excel files
   useEffect(() => {
-    fetch(`/api/scientific-reps`, { headers: authH() })
+    fetch(`/api/scientific-reps?standalone=1`, { headers: authH() })
       .then(r => r.json())
       .then(json => {
         const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
