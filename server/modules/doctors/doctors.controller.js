@@ -1274,34 +1274,16 @@ export async function getTeamWishlists(req, res, next) {
   try {
     const managerId = req.user.id;
     const role      = req.user.role;
-    const managerUser = await prisma.user.findUnique({ where: { id: managerId }, select: { officeId: true } });
-    const officeId  = managerUser?.officeId ?? null;
 
-    const PRIVILEGED = ['admin', 'manager', 'supervisor', 'team_leader', 'commercial_team_leader',
-                        'company_manager', 'office_manager'];
-
-    // Build candidate user IDs to search wishlists for
-    let candidateIds = [];
-
-    // 1. Direct sub-reps via UserManagerAssignment
+    // Only use direct UserManagerAssignment — no fallback to all office users
     const assignments = await prisma.userManagerAssignment.findMany({
       where: { managerId },
       select: { userId: true },
     });
-    candidateIds = assignments.map(a => a.userId);
+    let candidateIds = assignments.map(a => a.userId);
 
-    // 2. For privileged roles: also include all users in same office (if any)
-    if (PRIVILEGED.includes(role) && officeId) {
-      const officeUsers = await prisma.user.findMany({
-        where: { officeId, id: { not: managerId } },
-        select: { id: true },
-      });
-      const officeIds = officeUsers.map(u => u.id);
-      candidateIds = [...new Set([...candidateIds, ...officeIds])];
-    }
-
-    // 3. For admin/manager with no office: include all users with wishlists
-    if (PRIVILEGED.includes(role) && candidateIds.length === 0) {
+    // For admin with no assignments: show all users who have wishlists
+    if (candidateIds.length === 0 && role === 'admin') {
       const allWithWish = await prisma.doctorWishlist.findMany({
         where: { userId: { not: managerId } },
         select: { userId: true },
