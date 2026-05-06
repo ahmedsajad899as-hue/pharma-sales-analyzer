@@ -308,12 +308,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       }
       setSaving(false); return;
     }
-    setSaving(false); setForm(null); load();
     if (!isEdit && form.companyId && d.data?.id) {
       await fetch(`/api/sa/users/${d.data.id}/companies`, {
         method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId] }),
       });
     }
+    setSaving(false); setForm(null); load();
     if (detail?.id === form.id) loadDetail(form.id);
   };
 
