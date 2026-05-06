@@ -482,9 +482,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const previewFileName = `تقرير_${new Date().toISOString().slice(0,10)}.xlsx`;
 
   // Target comparison state
-  const [showTargets, setShowTargets]     = useState(false);
-  const [targetData, setTargetData]       = useState<{ itemId: number; itemName: string; target: number }[]>([]);
-  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [showTargets, setShowTargets]           = useState(false);
+  const [targetData, setTargetData]             = useState<{ itemId: number; itemName: string; target: number }[]>([]);
+  const [targetsLoading, setTargetsLoading]     = useState(false);
+  const [hideEmptyTargetRows, setHideEmptyTargetRows] = useState(true);
 
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
@@ -1967,6 +1968,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {showTargets && (
                 targetsLoading ? <div style={{ textAlign: 'center', padding: 20 }}>جاري التحميل...</div> : (
                   <div className="table-wrapper">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <button
+                        onClick={() => setHideEmptyTargetRows(v => !v)}
+                        style={{
+                          padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                          background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9',
+                          color: hideEmptyTargetRows ? '#fff' : '#374151',
+                          display: 'flex', alignItems: 'center', gap: 5,
+                        }}
+                        title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت"
+                      >
+                        {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
+                      </button>
+                      {hideEmptyTargetRows && <span style={{ fontSize: 11, color: '#64748b' }}>الايتمات بدون مبيع وتارگت مخفية</span>}
+                    </div>
                     <table className="data-table" style={{ fontSize: 13 }}>
                       <thead>
                         <tr>
@@ -1979,7 +1995,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       <tbody>
                         {targetData.length === 0 ? (
                           <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
-                        ) : targetData.map(td => {
+                        ) : targetData.filter(td => {
+                          if (!hideEmptyTargetRows) return true;
+                          const salesRow = commReport.byItem.find(r => r.name === td.itemName);
+                          const retRow   = commReturnsReport?.byItem.find(r => r.name === td.itemName);
+                          const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          return td.target > 0 || netQty !== 0;
+                        }).map(td => {
                           const salesRow  = commReport.byItem.find(r => r.name === td.itemName);
                           const retRow    = commReturnsReport?.byItem.find(r => r.name === td.itemName);
                           const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
@@ -2126,6 +2148,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {showTargets && (
                 targetsLoading ? <div style={{ textAlign: 'center', padding: 20 }}>جاري التحميل...</div> : (
                   <div className="table-wrapper">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <button
+                        onClick={() => setHideEmptyTargetRows(v => !v)}
+                        style={{
+                          padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                          background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9',
+                          color: hideEmptyTargetRows ? '#fff' : '#374151',
+                          display: 'flex', alignItems: 'center', gap: 5,
+                        }}
+                        title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت"
+                      >
+                        {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
+                      </button>
+                      {hideEmptyTargetRows && <span style={{ fontSize: 11, color: '#64748b' }}>الايتمات بدون مبيع وتارگت مخفية</span>}
+                    </div>
                     <table className="data-table" style={{ fontSize: 13 }}>
                       <thead>
                         <tr>
@@ -2138,7 +2175,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       <tbody>
                         {targetData.length === 0 ? (
                           <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
-                        ) : targetData.map(td => {
+                        ) : targetData.filter(td => {
+                          if (!hideEmptyTargetRows) return true;
+                          const salesRow = sciReport.byItem.find(r => r.name === td.itemName);
+                          const retRow   = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
+                          const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          return td.target > 0 || netQty !== 0;
+                        }).map(td => {
                           const salesRow  = sciReport.byItem.find(r => r.name === td.itemName);
                           const retRow    = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
                           const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
