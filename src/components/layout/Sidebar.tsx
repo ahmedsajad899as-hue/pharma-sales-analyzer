@@ -104,6 +104,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'distributor-sales', label: 'تحليل الموزعين',      icon: '📦', roles: [] },
     { id: 'file-filter',        label: 'تنقية الملفات',        icon: '🗂️', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'pharmacy-analysis', label: 'تحليل الصيدليات',     icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
+    { id: 'bonus-sales',       label: 'مبيعات البونص',       icon: '🎁', roles: ['admin','manager','company_manager','team_leader','commercial_team_leader','commercial_supervisor','office_manager','scientific_rep','commercial_rep'] },
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
     { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager'] },
@@ -121,6 +122,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     distributor_sales:  'distributor-sales',
     sales_data:         'sales-data',
     file_filter:        'file-filter',
+    bonus_sales:        'bonus-sales',
   };
 
   // empty roles array = visible to all; otherwise check role inclusion

@@ -41,6 +41,7 @@ import distributorSalesRoutes    from './modules/distributor-sales/distributor-s
 import doctorArchiveRoutes       from './modules/doctor-archive/doctor-archive.routes.js';
 import pharmacyAnalysisRoutes   from './modules/pharmacy-analysis/pharmacy-analysis.routes.js';
 import targetsRoutes              from './modules/targets/targets.routes.js';
+import bonusSalesRoutes           from './modules/bonus-sales/bonus-sales.routes.js';
 
 dotenv.config();
 
@@ -277,6 +278,7 @@ app.use('/api/distributor-sales',    distributorSalesRoutes);
 app.use('/api/doctor-archive',      doctorArchiveRoutes);
 app.use('/api/pharmacy-analysis',   pharmacyAnalysisRoutes);
 app.use('/api/targets',           targetsRoutes);
+app.use('/api/bonus-sales',       bonusSalesRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

@@ -86,6 +86,9 @@ model User {
   activityLogs        ActivityLog[]
   doctorArchiveEntries DoctorArchiveEntry[]
   doctorWishlists     DoctorWishlist[]
+  bonusSalesUploads   BonusSalesUpload[]
+  bonusCompUploads    BonusCompUpload[]
+  bonusDeliveries     BonusSalesRow[]     @relation("BonusDeliveryUser")
 
   @@index([officeId])
   @@map("users")
@@ -1265,6 +1268,103 @@ model ActivityLog {
   @@index([createdAt])
   @@index([action])
   @@map("activity_logs")
+}
+
+// ─── Bonus Sales Upload (ملف المبيعات الأساسي) ───────────────
+model BonusSalesUpload {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  rowCount     Int      @default(0)
+  uploadedAt   DateTime @default(now())
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id])
+
+  rows          BonusSalesRow[]
+  compUploads   BonusCompUpload[]
+
+  @@index([userId])
+  @@map("bonus_sales_uploads")
+}
+
+// ─── Bonus Sales Row (صف من ملف المبيعات) ────────────────────
+model BonusSalesRow {
+  id           Int              @id @default(autoincrement())
+  uploadId     Int
+  upload       BonusSalesUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  companyName  String?   // اسم الشركة
+  itemName     String?   // الايتم
+  invoiceDate  DateTime? // تاريخ الفاتورة
+  invoiceNo    String?   // رقم الفاتورة
+  quantity     Float?    // العدد/الكمية
+  price        Float?    // السعر
+  hasBonus     Boolean   @default(false) // هل الطلبية تحتوي على بونص أصلاً
+  bonusQty     Float?    // كمية البونص
+  bonusValue   Float?    // قيمة البونص
+  total        Float?    // المجموع
+  repName      String?   // اسم المندوب
+  pharmacyName String?   // اسم الصيدلية
+  warehouse    String?   // المذخر
+  extraData    String?   // JSON — أي أعمدة إضافية في الملف
+
+  // حالة التعويض — يتم تحديثها عند رفع ملف التعويضات
+  isCompensated     Boolean  @default(false)
+  compRowId         Int?     // id الصف المطابق في BonusCompRow (إن وجد)
+
+  // حالة التسليم — يؤشرها المندوب عند تسليم البونص للصيدلية
+  bonusDelivered    Boolean   @default(false)
+  deliveredAt       DateTime?
+  deliveredByUserId Int?
+  deliveredByUser   User?     @relation("BonusDeliveryUser", fields: [deliveredByUserId], references: [id])
+  deliveryNote      String?
+
+  @@index([uploadId])
+  @@index([deliveredByUserId])
+  @@map("bonus_sales_rows")
+}
+
+// ─── Bonus Comp Upload (ملف التعويضات) ───────────────────────
+model BonusCompUpload {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  rowCount     Int      @default(0)
+  uploadedAt   DateTime @default(now())
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id])
+
+  // ربط بملف المبيعات الأساسي الذي يُعوَّض عنه
+  salesUploadId Int?
+  salesUpload   BonusSalesUpload? @relation(fields: [salesUploadId], references: [id], onDelete: SetNull)
+
+  rows BonusCompRow[]
+
+  @@index([userId])
+  @@index([salesUploadId])
+  @@map("bonus_comp_uploads")
+}
+
+// ─── Bonus Comp Row (صف من ملف التعويضات) ────────────────────
+model BonusCompRow {
+  id           Int             @id @default(autoincrement())
+  uploadId     Int
+  upload       BonusCompUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  companyName  String?
+  itemName     String?
+  invoiceDate  DateTime?
+  invoiceNo    String?
+  quantity     Float?
+  price        Float?
+  bonusQty     Float?
+  bonusValue   Float?
+  total        Float?
+  repName      String?
+  pharmacyName String?
+  warehouse    String?
+  extraData    String?   // JSON
+
+  @@index([uploadId])
+  @@map("bonus_comp_rows")
 }
 
 

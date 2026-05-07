@@ -38,6 +38,7 @@ const _importSalesData       = () => import('./pages/SalesDataPage');
 const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 const _importFileFilter          = () => import('./pages/FileFilterPage');
 const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
+const _importBonusSales          = () => import('./pages/BonusSalesPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -56,6 +57,7 @@ const SalesDataPage           = lazyWithRetry(_importSalesData);
 const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
 const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
+const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -66,6 +68,7 @@ function preloadAllChunks() {
     _importMonthlyPlans(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
     _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis();
+    _importBonusSales();
   });
 }
 
@@ -103,7 +106,8 @@ export type PageId =
   | 'sales-data'
   | 'distributor-sales'
   | 'file-filter'
-  | 'pharmacy-analysis';
+  | 'pharmacy-analysis'
+  | 'bonus-sales';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -411,6 +415,7 @@ function AppInner() {
     { id: 'distributor-sales', node: <DistributorSalesPage /> },
     { id: 'file-filter',        node: <FileFilterPage /> },
     { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },
+    { id: 'bonus-sales',        node: <BonusSalesPage /> },
   ];
 
   return (
