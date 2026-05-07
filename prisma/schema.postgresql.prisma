@@ -96,6 +96,11 @@ model User {
   // Sales Data Files (uploaded Excel sheets — synced across devices)
   salesDataFiles           SalesDataFile[]
 
+  // Bonus Sales
+  bonusSalesUploads        BonusSalesUpload[]
+  bonusCompUploads         BonusCompUpload[]
+  bonusDeliveries          BonusSalesRow[]     @relation("BonusDeliveryUser")
+
   @@index([officeId])
   @@map("users")
 }
@@ -1320,4 +1325,98 @@ model DoctorWishlist {
   @@unique([userId, doctorId])
   @@index([userId])
   @@map("doctor_wishlists")
+}
+
+// ─── Bonus Sales Upload (ملف المبيعات الأساسي) ───────────────
+model BonusSalesUpload {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  rowCount     Int      @default(0)
+  uploadedAt   DateTime @default(now())
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id])
+
+  rows          BonusSalesRow[]
+  compUploads   BonusCompUpload[]
+
+  @@index([userId])
+  @@map("bonus_sales_uploads")
+}
+
+// ─── Bonus Sales Row (صف من ملف المبيعات) ────────────────────
+model BonusSalesRow {
+  id           Int              @id @default(autoincrement())
+  uploadId     Int
+  upload       BonusSalesUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  companyName  String?
+  itemName     String?
+  invoiceDate  DateTime?
+  invoiceNo    String?
+  quantity     Float?
+  price        Float?
+  hasBonus     Boolean   @default(false)
+  bonusQty     Float?
+  bonusValue   Float?
+  total        Float?
+  repName      String?
+  pharmacyName String?
+  warehouse    String?
+  extraData    String?
+
+  isCompensated     Boolean   @default(false)
+  compRowId         Int?
+
+  bonusDelivered    Boolean   @default(false)
+  deliveredAt       DateTime?
+  deliveredByUserId Int?
+  deliveredByUser   User?     @relation("BonusDeliveryUser", fields: [deliveredByUserId], references: [id])
+  deliveryNote      String?
+
+  @@index([uploadId])
+  @@index([deliveredByUserId])
+  @@map("bonus_sales_rows")
+}
+
+// ─── Bonus Comp Upload (ملف التعويضات) ───────────────────────
+model BonusCompUpload {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  rowCount     Int      @default(0)
+  uploadedAt   DateTime @default(now())
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id])
+
+  salesUploadId Int?
+  salesUpload   BonusSalesUpload? @relation(fields: [salesUploadId], references: [id], onDelete: SetNull)
+
+  rows BonusCompRow[]
+
+  @@index([userId])
+  @@index([salesUploadId])
+  @@map("bonus_comp_uploads")
+}
+
+// ─── Bonus Comp Row (صف من ملف التعويضات) ────────────────────
+model BonusCompRow {
+  id           Int             @id @default(autoincrement())
+  uploadId     Int
+  upload       BonusCompUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  companyName  String?
+  itemName     String?
+  invoiceDate  DateTime?
+  invoiceNo    String?
+  quantity     Float?
+  price        Float?
+  bonusQty     Float?
+  bonusValue   Float?
+  total        Float?
+  repName      String?
+  pharmacyName String?
+  warehouse    String?
+  extraData    String?
+
+  @@index([uploadId])
+  @@map("bonus_comp_rows")
 }
