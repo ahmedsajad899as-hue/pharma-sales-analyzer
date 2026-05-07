@@ -13,6 +13,7 @@ interface UploadedFile {
   currencyMode?: string;
   exchangeRate?: number;
   detectedCurrency?: string;
+  userId?: number | null;
   sharedWithRepId?: number | null;
   sharedWithRep?: { id: number; name: string } | null;
   _count?: { sales: number };

@@ -961,6 +961,7 @@ app.get('/api/files', async (req, res) => {
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
         currencyMode: true, exchangeRate: true, detectedCurrency: true,
+        userId: true,
         sharedWithRepId: true,
         sharedWithRep: { select: { id: true, name: true } },
         _count: { select: { sales: true } },
