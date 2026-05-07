@@ -75,8 +75,9 @@ export async function createCompUpload({ originalName, rowCount, userId, salesUp
 
 export async function bulkInsertCompRows(uploadId, rows) {
   if (!rows.length) return;
+  // Strip fields that belong only to BonusSalesRow (hasBonus is computed by parseFile but not in BonusCompRow schema)
   await prisma.bonusCompRow.createMany({
-    data: rows.map(r => ({ ...r, uploadId })),
+    data: rows.map(({ hasBonus: _h, ...r }) => ({ ...r, uploadId })),
     skipDuplicates: false,
   });
 }
