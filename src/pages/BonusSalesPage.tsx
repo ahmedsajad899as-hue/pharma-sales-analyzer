@@ -79,34 +79,38 @@ function CombinedStatus({ row, canManage, onDeliver, onUndeliver }: {
   onDeliver: (row: SalesRow) => void;
   onUndeliver: (id: number) => void;
 }) {
-  // Determine badge
-  let badge: { bg: string; color: string; label: string };
   if (row.bonusDelivered) {
-    badge = { bg: '#dbeafe', color: '#1e40af', label: '✓ تم التسليم' };
-  } else if (row.hasBonus) {
-    badge = { bg: '#dcfce7', color: '#15803d', label: 'لديه بونص' };
-  } else if (row.isCompensated) {
-    badge = { bg: '#dbeafe', color: '#1d4ed8', label: 'معوَّض' };
-  } else {
-    badge = { bg: '#fef9c3', color: '#854d0e', label: 'بدون بونص' };
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <span style={{ background: '#dbeafe', color: '#1e40af', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>✓ تم التسليم</span>
+        {canManage && (
+          <button onClick={() => onUndeliver(row.id)}
+            style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#dc2626', whiteSpace: 'nowrap' }}>
+            ✕ إلغاء
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (row.hasBonus || row.isCompensated) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        {row.isCompensated && !row.hasBonus && (
+          <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>معوَّض</span>
+        )}
+        {canManage && (
+          <button onClick={() => onDeliver(row)}
+            style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#15803d', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            ✓ تسليم
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-      <span style={{ background: badge.bg, color: badge.color, borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{badge.label}</span>
-      {canManage && (row.hasBonus || row.isCompensated) && !row.bonusDelivered && (
-        <button onClick={() => onDeliver(row)}
-          style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#15803d', fontWeight: 700, whiteSpace: 'nowrap' }}>
-          ✓ تسليم
-        </button>
-      )}
-      {canManage && row.bonusDelivered && (
-        <button onClick={() => onUndeliver(row.id)}
-          style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#dc2626', whiteSpace: 'nowrap' }}>
-          ✕ إلغاء
-        </button>
-      )}
-    </div>
+    <span style={{ background: '#fef9c3', color: '#854d0e', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>بدون بونص</span>
   );
 }
 
