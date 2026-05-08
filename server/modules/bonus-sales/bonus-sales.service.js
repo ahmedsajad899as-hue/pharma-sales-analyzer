@@ -59,15 +59,40 @@ function toFloat(val) {
 }
 
 function parseExcelDate(val) {
-  if (!val) return null;
+  if (val === null || val === undefined || val === '' || val === 0) return null;
   if (typeof val === 'number') {
     try {
       const d = XLSX.SSF.parse_date_code(val);
-      if (d) return new Date(d.y, d.m - 1, d.d);
+      if (d && d.y >= 2000) return new Date(d.y, d.m - 1, d.d);
     } catch (_) { /* ignore */ }
+    // Fallback: treat as milliseconds only if result is a reasonable year
+    const ms = new Date(val);
+    if (!isNaN(ms.getTime()) && ms.getFullYear() >= 2000) return ms;
+    return null;
   }
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // Handle DD/MM/YYYY or D/M/YYYY (common Iraqi/Arabic Excel format)
+  const dmyMatch = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (dmyMatch) {
+    const [, dd, mm, yyyy] = dmyMatch;
+    const d = new Date(+yyyy, +mm - 1, +dd);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+  }
+
+  // Handle YYYY/MM/DD or YYYY-MM-DD
+  const ymdMatch = str.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (ymdMatch) {
+    const [, yyyy, mm, dd] = ymdMatch;
+    const d = new Date(+yyyy, +mm - 1, +dd);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+  }
+
+  // ISO / standard parse
+  const d = new Date(str);
+  if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+  return null;
 }
 
 // ─── Parse a file buffer into row objects ─────────────────────

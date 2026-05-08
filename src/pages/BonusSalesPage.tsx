@@ -55,6 +55,7 @@ function fmtDate(str: string | null) {
   if (!str) return '—';
   const d = new Date(str);
   if (isNaN(d.getTime())) return str;
+  if (d.getFullYear() < 2000) return '—'; // guard against epoch / placeholder dates
   return d.toLocaleDateString('ar-IQ', { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
