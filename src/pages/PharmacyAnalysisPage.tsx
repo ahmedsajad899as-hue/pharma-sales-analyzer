@@ -77,6 +77,12 @@ export default function PharmacyAnalysisPage() {
   const [selectedPharma, setSelectedPharma] = useState<string | null>(null);
   const [expandedRows, setExpandedRows]     = useState<Set<string>>(new Set());
 
+  // Sort
+  const [pharmaSortCol, setPharmaSortCol] = useState<string | null>(null);
+  const [pharmaSortDir, setPharmaSortDir] = useState<'asc' | 'desc'>('asc');
+  const [itemSortCol, setItemSortCol]     = useState<string | null>(null);
+  const [itemSortDir, setItemSortDir]     = useState<'asc' | 'desc'>('asc');
+
   // Items
   const [items, setItems]               = useState<ItemSummary[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -200,12 +206,56 @@ export default function PharmacyAnalysisPage() {
     !alertSearch || a.pharmaName.includes(alertSearch) || a.itemName.includes(alertSearch) || a.areaName.includes(alertSearch)
   );
 
+  // ── Sort handlers ─────────────────────────────────────────────
+  const handlePharmaSort = (col: string) => {
+    if (pharmaSortCol === col) setPharmaSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setPharmaSortCol(col); setPharmaSortDir('asc'); }
+  };
+  const handleItemSort = (col: string) => {
+    if (itemSortCol === col) setItemSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setItemSortCol(col); setItemSortDir('asc'); }
+  };
+
+  const sortedPharmacies: PharmacySummary[] = (() => {
+    if (!pharmaSortCol) return pharmacies;
+    return [...pharmacies].sort((a, b) => {
+      let av: any, bv: any;
+      if      (pharmaSortCol === 'name')   { av = a.name;            bv = b.name; }
+      else if (pharmaSortCol === 'area')   { av = a.areaName || '';  bv = b.areaName || ''; }
+      else if (pharmaSortCol === 'orders') { av = a.totalOrders;     bv = b.totalOrders; }
+      else if (pharmaSortCol === 'qty')    { av = a.totalQty;        bv = b.totalQty; }
+      else if (pharmaSortCol === 'value')  { av = a.totalValue;      bv = b.totalValue; }
+      else if (pharmaSortCol === 'items')  { av = a.itemCount;       bv = b.itemCount; }
+      else if (pharmaSortCol === 'last')   { av = new Date(a.lastOrder).getTime(); bv = new Date(b.lastOrder).getTime(); }
+      else if (pharmaSortCol === 'days')   { av = a.daysSinceLast;   bv = b.daysSinceLast; }
+      else return 0;
+      if (typeof av === 'string') return pharmaSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
+      return pharmaSortDir === 'asc' ? av - bv : bv - av;
+    });
+  })();
+
+  const sortedItems: ItemSummary[] = (() => {
+    if (!itemSortCol) return items;
+    return [...items].sort((a, b) => {
+      let av: any, bv: any;
+      if      (itemSortCol === 'name')    { av = a.name;           bv = b.name; }
+      else if (itemSortCol === 'qty')    { av = a.totalQty;       bv = b.totalQty; }
+      else if (itemSortCol === 'value')  { av = a.totalValue;     bv = b.totalValue; }
+      else if (itemSortCol === 'pharmas'){ av = a.pharmacyCount;  bv = b.pharmacyCount; }
+      else if (itemSortCol === 'first')  { av = new Date(a.firstOrder).getTime(); bv = new Date(b.firstOrder).getTime(); }
+      else if (itemSortCol === 'last')   { av = new Date(a.lastOrder).getTime();  bv = new Date(b.lastOrder).getTime(); }
+      else return 0;
+      if (typeof av === 'string') return itemSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
+      return itemSortDir === 'asc' ? av - bv : bv - av;
+    });
+  })();
+
   // ── Group pharmacies ─────────────────────────────────────────
   type Group = { key: string; label: string; rows: PharmacySummary[] };
   const grouped: Group[] = (() => {
-    if (groupBy === 'none') return [{ key: '__all__', label: '', rows: pharmacies }];
+    if (groupBy === 'none') return [{ key: '__all__', label: '', rows: sortedPharmacies }];
     const map = new Map<string, PharmacySummary[]>();
-    for (const p of pharmacies) {
+    for (const p of sortedPharmacies) {
       let key: string;
       if (groupBy === 'area')   key = p.areaName?.trim() || 'غير محدد';
       else if (groupBy === 'rep')  key = p.repName?.trim() || 'غير محدد';
@@ -369,14 +419,14 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 160 }}>الصيدلية</th>
-                    <th style={TH}>المنطقة</th>
-                    <th style={TH}>الطلبيات</th>
-                    <th style={TH}>الكمية</th>
-                    <th style={TH}>القيمة ({currLabel})</th>
-                    <th style={TH}>الايتمات</th>
-                    <th style={TH}>آخر طلبية</th>
-                    <th style={TH}>الأيام</th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('name')}>الصيدلية <span style={{ opacity: pharmaSortCol === 'name' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'name' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('area')}>المنطقة <span style={{ opacity: pharmaSortCol === 'area' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'area' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('orders')}>الطلبيات <span style={{ opacity: pharmaSortCol === 'orders' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'orders' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('qty')}>الكمية <span style={{ opacity: pharmaSortCol === 'qty' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'qty' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('value')}>القيمة ({currLabel}) <span style={{ opacity: pharmaSortCol === 'value' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'value' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('items')}>الايتمات <span style={{ opacity: pharmaSortCol === 'items' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'items' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('last')}>آخر طلبية <span style={{ opacity: pharmaSortCol === 'last' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'last' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('days')}>الأيام <span style={{ opacity: pharmaSortCol === 'days' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'days' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
                     <th style={{ ...TH, width: 32 }}></th>
                   </tr>
                 </thead>
@@ -532,16 +582,16 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 180 }}>الايتم</th>
-                    <th style={TH}>الكمية</th>
-                    <th style={TH}>القيمة ({currLabel})</th>
-                    <th style={TH}>الصيدليات</th>
-                    <th style={TH}>أول طلبية</th>
-                    <th style={TH}>آخر طلبية</th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 180, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('name')}>الايتم <span style={{ opacity: itemSortCol === 'name' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'name' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('qty')}>الكمية <span style={{ opacity: itemSortCol === 'qty' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'qty' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('value')}>القيمة ({currLabel}) <span style={{ opacity: itemSortCol === 'value' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'value' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('pharmas')}>الصيدليات <span style={{ opacity: itemSortCol === 'pharmas' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'pharmas' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('first')}>أول طلبية <span style={{ opacity: itemSortCol === 'first' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'first' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('last')}>آخر طلبية <span style={{ opacity: itemSortCol === 'last' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'last' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it, i) => (
+                  {sortedItems.map((it, i) => (
                     <tr key={it.name} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', cursor: 'pointer' }}
                       onClick={() => openItem(it.name)}
                       onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
