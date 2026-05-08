@@ -47,30 +47,25 @@ function areaMatches(rowArea, repArea) {
 
 // ─── Get all scientific reps with their areas and linked user ids ──
 async function getAllRepsWithAreas(userId) {
-  // Only scientific reps managed by this userId, that have a linked user account
-  const sciReps = await prisma.scientificRepresentative.findMany({
-    where: { userId, linkedUsers: { some: {} } },
+  // Find all users with role 'scientific_rep' whose manager chain includes this userId
+  const reps = await prisma.user.findMany({
+    where: {
+      role: 'scientific_rep',
+      isActive: true,
+      managersOfUser: { some: { managerId: userId } },
+    },
     include: {
-      areas: { include: { area: { select: { name: true } } } },
-      linkedUsers: { select: { id: true, displayName: true, username: true } },
+      areaAssignments: { include: { area: { select: { name: true } } } },
     },
   });
 
-  const result = [];
-
-  for (const rep of sciReps) {
-    for (const linkedUser of rep.linkedUsers) {
-      result.push({
-        userId: linkedUser.id,
-        name: rep.name,
-        displayName: linkedUser.displayName || linkedUser.username || rep.name,
-        areas: rep.areas.map(a => a.area.name),
-        type: 'scientific',
-      });
-    }
-  }
-
-  return result;
+  return reps.map(rep => ({
+    userId: rep.id,
+    name: rep.displayName || rep.username,
+    displayName: rep.displayName || rep.username,
+    areas: rep.areaAssignments.map(a => a.area.name),
+    type: 'scientific',
+  }));
 }
 
 // ─── Auto-assign an upload's rows to reps by area fuzzy match ─
