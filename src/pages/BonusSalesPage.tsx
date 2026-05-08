@@ -110,11 +110,74 @@ function CombinedStatus({ row, canManage, onDeliver, onUndeliver }: {
   );
 }
 
-// Compact table cell style
-const TC: React.CSSProperties = {
-  padding: '6px 8px', borderBottom: '1px solid #f1f5f9', fontSize: 11,
-  color: '#374151', whiteSpace: 'nowrap', textAlign: 'center',
+// ── Style constants (PharmacyNet style) ───────────────────────
+const BCARD: React.CSSProperties = {
+  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+  padding: '12px 16px', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,.04)',
 };
+const BTN_PRI: React.CSSProperties = {
+  padding: '6px 18px', border: 'none', borderRadius: 6, background: '#1e40af',
+  color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+};
+const BTN_SEC: React.CSSProperties = {
+  padding: '5px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff',
+  color: '#374151', fontSize: 12, cursor: 'pointer', fontWeight: 500,
+};
+
+// ── Reusable KPI box ──────────────────────────────────────────
+function BKpi({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 14px' }}>
+      <div style={{ fontSize: 10, color: '#6b7280' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{value}</div>
+    </div>
+  );
+}
+
+// ── Loading spinner ───────────────────────────────────────────
+function BLoader() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 90, color: '#94a3b8', gap: 8 }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2.5px solid #dde3ef', borderTopColor: '#1e40af', animation: 'spin .7s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <span style={{ fontSize: 12 }}>جاري التحميل...</span>
+    </div>
+  );
+}
+
+// ── Delivery modal (shared) ───────────────────────────────────
+function BDeliveryModal({ deliveryModal, markingDelivery, onClose, onConfirm, onChange }: {
+  deliveryModal: { row: SalesRow; note: string } | null;
+  markingDelivery: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  onChange: (note: string) => void;
+}) {
+  if (!deliveryModal) return null;
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: 10, padding: '22px 24px', width: 400, maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,.12)' }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: '#1e293b' }}>تأشير تسليم البونص</h3>
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '10px 12px', marginBottom: 12, fontSize: 12, color: '#374151' }}>
+          <div><span style={{ color: '#6b7280' }}>الصيدلية:</span> {deliveryModal.row.pharmacyName}</div>
+          <div><span style={{ color: '#6b7280' }}>الايتم:</span> {deliveryModal.row.itemName}</div>
+          <div><span style={{ color: '#6b7280' }}>رقم الفاتورة:</span> {deliveryModal.row.invoiceNo}</div>
+          <div><span style={{ color: '#6b7280' }}>كمية البونص:</span> {deliveryModal.row.bonusQty ?? '—'}</div>
+        </div>
+        <label style={{ display: 'block', fontSize: 11, color: '#6b7280', marginBottom: 4, fontWeight: 600 }}>ملاحظة (اختيارية):</label>
+        <textarea value={deliveryModal.note} onChange={e => onChange(e.target.value)}
+          placeholder="أي ملاحظة عند التسليم..." rows={3}
+          style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 6, padding: '7px 10px', fontSize: 12, resize: 'vertical', boxSizing: 'border-box' }} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ ...BTN_SEC, padding: '7px 18px' }}>إلغاء</button>
+          <button onClick={onConfirm} disabled={markingDelivery} style={{ ...BTN_PRI, padding: '7px 22px', opacity: markingDelivery ? 0.7 : 1, cursor: markingDelivery ? 'not-allowed' : 'pointer' }}>
+            {markingDelivery ? '⏳ جاري...' : '✓ تأكيد التسليم'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Main Page ────────────────────────────────────────────────
 export default function BonusSalesPage() {
@@ -416,41 +479,39 @@ export default function BonusSalesPage() {
     const myDelivered  = myRows.filter(r => r.bonusDelivered).length;
     const myPending    = myRows.filter(r => !r.bonusDelivered).length;
     return (
-      <div dir="rtl" style={{ padding: '16px 20px', fontFamily: 'Cairo, Tahoma, sans-serif', minHeight: '100vh', background: '#f8fafc' }}>
-        <div style={{ marginBottom: 20 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1e293b' }}>🎁 بونصاتي</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>قائمة الصيدليات المعيَّنة لك لتسليم البونص</p>
+      <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🎁</div>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>بونصاتي</h1>
+            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>قائمة الصيدليات المعيَّنة لك لتسليم البونص</p>
+          </div>
         </div>
 
         {/* KPIs */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-          {[
-            { label: 'إجمالي المعيَّن لي', val: myTotal,    color: '#1a56db', bg: '#eff6ff' },
-            { label: 'تم التسليم',          val: myDelivered, color: '#15803d', bg: '#f0fdf4' },
-            { label: 'معلَّق',              val: myPending,   color: '#b45309', bg: '#fefce8' },
-          ].map(k => (
-            <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.color}22`, borderRadius: 10, padding: '10px 18px', minWidth: 110 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.val.toLocaleString('ar-IQ')}</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{k.label}</div>
-            </div>
-          ))}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          <BKpi label="إجمالي المعيَّن لي" value={myTotal.toLocaleString('ar-IQ')} />
+          <BKpi label="تم التسليم" value={myDelivered.toLocaleString('ar-IQ')} />
+          <BKpi label="معلَّق" value={myPending.toLocaleString('ar-IQ')} />
         </div>
 
         {/* Filters */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ ...BCARD, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <input value={mySearch} onChange={e => setMySearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && loadMyRows(1)}
-            placeholder="🔍 بحث بالصيدلية أو الايتم أو المنطقة..."
-            style={{ flex: 1, minWidth: 200, padding: '7px 12px', borderRadius: 6, border: '1.5px solid #e2e8f0', fontSize: 12, background: '#f8fafc' }} />
+            placeholder="بحث بالصيدلية أو الايتم أو المنطقة..."
+            style={{ flex: 1, minWidth: 200, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
           <select value={myFilterDelivered} onChange={e => setMyFilterDelivered(e.target.value)}
-            style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
+            style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
             <option value="">التسليم: الكل</option>
             <option value="false">لم يُسلَّم</option>
             <option value="true">تم التسليم</option>
           </select>
-          <button onClick={() => loadMyRows(1)} style={{ background: '#1e40af', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>بحث</button>
+          <button onClick={() => loadMyRows(1)} style={BTN_PRI}>بحث</button>
+          <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{myTotal} سجل</span>
         </div>
 
-        {myLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div> : (
+        {myLoading ? <BLoader /> : (
           <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
@@ -481,86 +542,57 @@ export default function BonusSalesPage() {
         )}
 
         {myTotal > 50 && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
-            <button disabled={myPage === 1} onClick={() => loadMyRows(myPage - 1)} style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: myPage === 1 ? 'not-allowed' : 'pointer', opacity: myPage === 1 ? 0.5 : 1 }}>◀ السابق</button>
-            <span style={{ padding: '6px 12px', fontSize: 13, color: '#64748b' }}>صفحة {myPage} / {Math.ceil(myTotal / 50)}</span>
-            <button disabled={myPage >= Math.ceil(myTotal / 50)} onClick={() => loadMyRows(myPage + 1)} style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: myPage >= Math.ceil(myTotal / 50) ? 'not-allowed' : 'pointer', opacity: myPage >= Math.ceil(myTotal / 50) ? 0.5 : 1 }}>التالي ▶</button>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 14 }}>
+            <button disabled={myPage === 1} onClick={() => loadMyRows(myPage - 1)} style={{ padding: '5px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: myPage === 1 ? 'not-allowed' : 'pointer', opacity: myPage === 1 ? 0.5 : 1, fontSize: 12 }}>◀ السابق</button>
+            <span style={{ padding: '5px 12px', fontSize: 12, color: '#64748b' }}>صفحة {myPage} / {Math.ceil(myTotal / 50)}</span>
+            <button disabled={myPage >= Math.ceil(myTotal / 50)} onClick={() => loadMyRows(myPage + 1)} style={{ padding: '5px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: myPage >= Math.ceil(myTotal / 50) ? 'not-allowed' : 'pointer', opacity: myPage >= Math.ceil(myTotal / 50) ? 0.5 : 1, fontSize: 12 }}>التالي ▶</button>
           </div>
         )}
 
-        {/* Delivery Modal */}
-        {deliveryModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDeliveryModal(null)}>
-            <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 400, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>✓ تأشير تسليم البونص</h3>
-              <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#475569' }}>
-                <div><strong>الصيدلية:</strong> {deliveryModal.row.pharmacyName}</div>
-                <div><strong>الايتم:</strong> {deliveryModal.row.itemName}</div>
-              </div>
-              <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6, fontWeight: 600 }}>ملاحظة (اختيارية):</label>
-              <textarea value={deliveryModal.note} onChange={e => setDeliveryModal(d => d ? { ...d, note: e.target.value } : d)}
-                rows={3} placeholder="أي ملاحظة عند التسليم..."
-                style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
-              <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-                <button onClick={() => setDeliveryModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
-                <button onClick={confirmDelivery} disabled={markingDelivery}
-                  style={{ background: '#15803d', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: markingDelivery ? 'not-allowed' : 'pointer', color: '#fff', opacity: markingDelivery ? 0.7 : 1 }}>
-                  {markingDelivery ? '⏳ جاري...' : '✓ تأكيد التسليم'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Delivery Modal (rep view) */}
+        <BDeliveryModal deliveryModal={deliveryModal} markingDelivery={markingDelivery} onClose={() => setDeliveryModal(null)} onConfirm={confirmDelivery} onChange={note => setDeliveryModal(d => d ? { ...d, note } : d)} />
       </div>
     );
   }
 
   // ─────────────────────────────────────────────────────────────
   return (
-    <div dir="rtl" style={{ padding: '16px 20px', fontFamily: 'Cairo, Tahoma, sans-serif', minHeight: '100vh', background: '#f8fafc' }}>
+    <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
       {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1e293b' }}>🎁 مبيعات البونص والتعويضات</h1>
-        <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>
-          رفع ملفات المبيعات ومقارنتها بملفات التعويضات — مع متابعة تسليم البونص للصيدليات
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🎁</div>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>مبيعات البونص والتعويضات</h1>
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>رفع ملفات المبيعات ومقارنتها بملفات التعويضات — مع متابعة تسليم البونص للصيدليات</p>
+        </div>
       </div>
 
       {/* Upload message */}
       {uploadMsg && (
-        <div style={{ background: uploadMsg.startsWith('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${uploadMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: uploadMsg.startsWith('✅') ? '#15803d' : '#991b1b' }}>
-          {uploadMsg}
-          <button onClick={() => setUploadMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, fontSize: 14 }}>✕</button>
+        <div style={{ background: '#f8fafc', border: `1px solid ${uploadMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 6, padding: '8px 14px', marginBottom: 12, fontSize: 12, color: uploadMsg.startsWith('✅') ? '#15803d' : '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1 }}>{uploadMsg}</span>
+          <button onClick={() => setUploadMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#94a3b8' }}>✕</button>
         </div>
       )}
 
       {/* Assignment message */}
       {assignMsg && (
-        <div style={{ background: assignMsg.startsWith('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${assignMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: assignMsg.startsWith('✅') ? '#15803d' : '#991b1b' }}>
-          {assignMsg}
-          <button onClick={() => setAssignMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, fontSize: 14 }}>✕</button>
+        <div style={{ background: '#f8fafc', border: `1px solid ${assignMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 6, padding: '8px 14px', marginBottom: 12, fontSize: 12, color: assignMsg.startsWith('✅') ? '#15803d' : '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1 }}>{assignMsg}</span>
+          <button onClick={() => setAssignMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#94a3b8' }}>✕</button>
         </div>
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
-        {([
-          { id: 'uploads',  label: '📁 الملفات'           },
-          { id: 'rows',     label: '📋 بيانات المبيعات'   },
-          { id: 'delivery', label: '🚚 تسليم البونص'      },
-        ] as { id: TabId; label: string }[]).map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: '9px 18px', border: 'none', borderRadius: '8px 8px 0 0',
-              background: tab === t.id ? '#1a56db' : 'transparent',
-              color: tab === t.id ? '#fff' : '#475569',
-              fontWeight: 700, fontSize: 13, cursor: 'pointer',
-              borderBottom: tab === t.id ? '2px solid #1a56db' : '2px solid transparent',
-              marginBottom: -2,
-            }}
-          >{t.label}</button>
+      <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+        {([['uploads','الملفات'],['rows','بيانات المبيعات'],['delivery','تسليم البونص']] as [TabId, string][]).map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{
+            padding: '8px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
+            background: tab === id ? '#fff' : 'transparent',
+            color: tab === id ? '#1e40af' : '#6b7280',
+            fontWeight: tab === id ? 700 : 500, fontSize: 13,
+            borderBottom: tab === id ? '2px solid #1e40af' : '2px solid transparent', marginBottom: -2,
+          }}>{label}</button>
         ))}
       </div>
 
@@ -581,64 +613,47 @@ export default function BonusSalesPage() {
           </div>
 
           {/* Sales uploads list */}
-          {loadingUploads ? (
-            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div>
-          ) : salesUploads.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>لا توجد ملفات مرفوعة بعد</div>
+          {loadingUploads ? <BLoader /> : salesUploads.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد ملفات مرفوعة بعد</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {salesUploads.map(upload => (
-                <div key={upload.id} style={{ background: '#fff', border: `2px solid ${selectedUpload?.id === upload.id ? '#1a56db' : '#e2e8f0'}`, borderRadius: 12, padding: 16, transition: 'border-color 0.2s' }}>
+                <div key={upload.id} style={{ ...BCARD, border: `1.5px solid ${selectedUpload?.id === upload.id ? '#1e40af' : '#e2e8f0'}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>📄 {upload.originalName}</div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{upload.originalName}</div>
+                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>
                         {upload.rowCount} سجل · رُفع {fmtDate(upload.uploadedAt)}
                       </div>
-                      {/* Comp uploads attached */}
                       {upload.compUploads && upload.compUploads.length > 0 && (
-                        <div style={{ marginTop: 6 }}>
+                        <div style={{ marginTop: 5 }}>
                           {upload.compUploads.map(cu => (
-                            <span key={cu.id} style={{ display: 'inline-block', background: '#dbeafe', color: '#1d4ed8', borderRadius: 6, padding: '2px 8px', fontSize: 11, marginLeft: 4, marginTop: 2 }}>
-                              🔗 {cu.originalName} ({cu.rowCount} صف)
+                            <span key={cu.id} style={{ display: 'inline-block', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 4, padding: '1px 8px', fontSize: 10, marginLeft: 4, marginTop: 2 }}>
+                              مرتبط: {cu.originalName} ({cu.rowCount})
                             </span>
                           ))}
                         </div>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button
-                        onClick={() => { setSelectedUpload(upload); setTab('rows'); loadRows(1); }}
-                        style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600, color: '#334155' }}
-                      >👁 عرض البيانات</button>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button onClick={() => { setSelectedUpload(upload); setTab('rows'); loadRows(1); }}
+                        style={BTN_SEC}>عرض البيانات</button>
 
-                      {/* Assign to reps */}
                       {isManager && (
                         upload.isAssigned
-                          ? <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', fontSize: 12, color: '#15803d', fontWeight: 700 }}>✓ موزَّع</span>
-                          : <button
-                              onClick={async () => {
-                                setSelectedUpload(upload);
-                                await loadAssignMeta(upload.id);
-                                setAssignModal({ mode: 'auto' });
-                              }}
-                              style={{ background: '#fef9c3', border: '1px solid #fbbf24', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 700, color: '#92400e' }}
-                            >📋 توزيع على المندوبين</button>
+                          ? <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '5px 12px', fontSize: 12, color: '#15803d', fontWeight: 600 }}>✓ موزَّع</span>
+                          : <button onClick={async () => { setSelectedUpload(upload); await loadAssignMeta(upload.id); setAssignModal({ mode: 'auto' }); }}
+                              style={BTN_SEC}>توزيع على المندوبين</button>
                       )}
 
-                      {/* Upload comp file for this sales upload */}
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: uploadingComp ? 'not-allowed' : 'pointer', color: '#15803d', fontWeight: 600 }}>
-                        {uploadingComp ? '⏳...' : '📎 رفع ملف التعويضات'}
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...BTN_SEC, cursor: uploadingComp ? 'not-allowed' : 'pointer', opacity: uploadingComp ? 0.6 : 1 }}>
+                        {uploadingComp ? '⏳...' : 'رفع التعويضات'}
                         <input ref={compFileRef} type="file" accept=".xlsx,.xls,.csv" hidden
-                          onChange={(e) => handleUploadComp(e, upload.id)}
-                          disabled={uploadingComp}
-                        />
+                          onChange={(e) => handleUploadComp(e, upload.id)} disabled={uploadingComp} />
                       </label>
 
-                      <button
-                        onClick={() => handleDeleteUpload(upload.id)}
-                        style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600, color: '#dc2626' }}
-                      >🗑 حذف</button>
+                      <button onClick={() => handleDeleteUpload(upload.id)}
+                        style={{ ...BTN_SEC, color: '#dc2626', border: '1px solid #fecaca', background: '#fff' }}>حذف</button>
                     </div>
                   </div>
                 </div>
@@ -653,15 +668,15 @@ export default function BonusSalesPage() {
         <div>
           {/* Upload selector */}
           {salesUploads.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>الملف:</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>الملف:</span>
               <select
                 value={selectedUpload?.id ?? ''}
                 onChange={e => {
                   const u = salesUploads.find(x => x.id === Number(e.target.value));
                   setSelectedUpload(u ?? null);
                 }}
-                style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 12px', fontSize: 13, background: '#fff' }}
+                style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', fontSize: 12, background: '#fff' }}
               >
                 <option value="">— اختر ملف —</option>
                 {salesUploads.map(u => <option key={u.id} value={u.id}>{u.originalName}</option>)}
@@ -670,33 +685,26 @@ export default function BonusSalesPage() {
           )}
 
           {!selectedUpload ? (
-            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 14 }}>اختر ملفاً من التبويب الأول لعرض بياناته</div>
+            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 13 }}>اختر ملفاً من التبويب الأول لعرض بياناته</div>
           ) : (
             <>
               {/* KPI cards */}
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                {[
-                  { label: 'إجمالي السجلات', val: total,       color: '#1a56db', bg: '#eff6ff' },
-                  { label: 'لديه بونص',       val: withBonus,  color: '#15803d', bg: '#f0fdf4' },
-                  { label: 'بدون بونص',       val: noBonus,    color: '#b45309', bg: '#fefce8' },
-                  { label: 'معوَّض',          val: compensated, color: '#6d28d9', bg: '#f5f3ff' },
-                  { label: 'تم التسليم',      val: delivered,   color: '#0f766e', bg: '#f0fdfa' },
-                ].map(k => (
-                  <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.color}22`, borderRadius: 10, padding: '10px 18px', minWidth: 110 }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: k.color }}>{k.val.toLocaleString('ar-IQ')}</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{k.label}</div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <BKpi label="إجمالي السجلات" value={total.toLocaleString('ar-IQ')} />
+                <BKpi label="لديه بونص" value={withBonus.toLocaleString('ar-IQ')} />
+                <BKpi label="بدون بونص" value={noBonus.toLocaleString('ar-IQ')} />
+                <BKpi label="معوَّض" value={compensated.toLocaleString('ar-IQ')} />
+                <BKpi label="تم التسليم" value={delivered.toLocaleString('ar-IQ')} />
               </div>
 
               {/* Smart search + filters */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ ...BCARD, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
                 <input
                   value={smartSearch}
                   onChange={e => setSmartSearch(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && loadRows(1)}
-                  placeholder="🔍  بحث بالصيدلية أو الايتم أو المنطقة أو المندوب أو المذخر..."
-                  style={{ flex: 1, minWidth: 220, padding: '7px 12px', borderRadius: 6, border: '1.5px solid #e2e8f0', fontSize: 12, background: '#f8fafc' }}
+                  placeholder="بحث بالصيدلية أو الايتم أو المنطقة أو المندوب أو المذخر..."
+                  style={{ flex: 1, minWidth: 220, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
                 />
                 {/* Icon toggle: Bonus */}
                 {(() => {
@@ -749,35 +757,27 @@ export default function BonusSalesPage() {
                     </button>
                   );
                 })()}
-                <button onClick={() => loadRows(1)} style={{ background: '#1e40af', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>بحث</button>
+                <button onClick={() => loadRows(1)} style={BTN_PRI}>بحث</button>
                 <button onClick={() => { setSmartSearch(''); setFilterHasBonus(''); setFilterCompensated(''); setFilterDelivered(''); setTimeout(() => loadRows(1), 50); }}
-                  style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#475569' }}>إعادة ضبط</button>
+                  style={BTN_SEC}>إعادة ضبط</button>
               </div>
 
               {/* Assignment toolbar (manager only) */}
               {isManager && (
-                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 14px', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>📋 التوزيع:</span>
+                <div style={{ ...BCARD, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>توزيع:</span>
                   <button onClick={async () => { if (selectedUpload) { await loadAssignMeta(selectedUpload.id); setAssignModal({ mode: 'auto' }); } }}
-                    style={{ background: '#fef9c3', border: '1px solid #fbbf24', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#92400e' }}>
-                    🤖 توزيع تلقائي بالمناطق
-                  </button>
+                    style={BTN_SEC}>توزيع تلقائي</button>
                   <button onClick={async () => { if (selectedUpload) { await loadAssignMeta(selectedUpload.id); setAssignModal({ mode: 'area', area: assignAreas[0] ?? '', userId: '' }); } }}
-                    style={{ background: '#e0f2fe', border: '1px solid #7dd3fc', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#075985' }}>
-                    🗺 تعيين منطقة لمندوب
-                  </button>
+                    style={BTN_SEC}>تعيين منطقة</button>
                   {selectedRowIds.size > 0 && (
                     <button onClick={async () => { if (selectedUpload) { await loadAssignMeta(selectedUpload.id); setAssignModal({ mode: 'bulk', rowIds: [...selectedRowIds], userId: '' }); } }}
-                      style={{ background: '#ede9fe', border: '1px solid #a78bfa', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#5b21b6' }}>
-                      ✅ تعيين {selectedRowIds.size} صف محدد
-                    </button>
+                      style={BTN_SEC}>تعيين {selectedRowIds.size} صف</button>
                   )}
                   {selectedRowIds.size > 0 && (
-                    <button onClick={() => setSelectedRowIds(new Set())}
-                      style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', color: '#64748b' }}>
-                      إلغاء التحديد
-                    </button>
+                    <button onClick={() => setSelectedRowIds(new Set())} style={BTN_SEC}>إلغاء التحديد</button>
                   )}
+                  <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{total} صف</span>
                 </div>
               )}
 
@@ -851,12 +851,12 @@ export default function BonusSalesPage() {
 
               {/* Pagination */}
               {total > PAGE_SIZE && (
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
                   <button disabled={page === 1} onClick={() => loadRows(page - 1)}
-                    style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? 0.5 : 1 }}>◀ السابق</button>
-                  <span style={{ padding: '6px 12px', fontSize: 13, color: '#64748b' }}>صفحة {page} / {Math.ceil(total / PAGE_SIZE)}</span>
+                    style={{ padding: '5px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: page === 1 ? 'not-allowed' : 'pointer', opacity: page === 1 ? 0.5 : 1, fontSize: 12 }}>◀ السابق</button>
+                  <span style={{ padding: '5px 12px', fontSize: 12, color: '#64748b' }}>صفحة {page} / {Math.ceil(total / PAGE_SIZE)}</span>
                   <button disabled={page >= Math.ceil(total / PAGE_SIZE)} onClick={() => loadRows(page + 1)}
-                    style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: page >= Math.ceil(total / PAGE_SIZE) ? 'not-allowed' : 'pointer', opacity: page >= Math.ceil(total / PAGE_SIZE) ? 0.5 : 1 }}>التالي ▶</button>
+                    style={{ padding: '5px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: page >= Math.ceil(total / PAGE_SIZE) ? 'not-allowed' : 'pointer', opacity: page >= Math.ceil(total / PAGE_SIZE) ? 0.5 : 1, fontSize: 12 }}>التالي ▶</button>
                 </div>
               )}
             </>
@@ -867,17 +867,13 @@ export default function BonusSalesPage() {
       {/* ── TAB: Delivery ─────────────────────────────────── */}
       {tab === 'delivery' && (
         <div>
-          {/* Upload selector */}
           {salesUploads.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>الملف:</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>الملف:</span>
               <select
                 value={selectedUpload?.id ?? ''}
-                onChange={e => {
-                  const u = salesUploads.find(x => x.id === Number(e.target.value));
-                  setSelectedUpload(u ?? null);
-                }}
-                style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 12px', fontSize: 13, background: '#fff' }}
+                onChange={e => { const u = salesUploads.find(x => x.id === Number(e.target.value)); setSelectedUpload(u ?? null); }}
+                style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 12px', fontSize: 12, background: '#fff' }}
               >
                 <option value="">— اختر ملف —</option>
                 {salesUploads.map(u => <option key={u.id} value={u.id}>{u.originalName}</option>)}
@@ -886,23 +882,14 @@ export default function BonusSalesPage() {
           )}
 
           {!selectedUpload ? (
-            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 14 }}>اختر ملفاً لعرض حالة التسليم</div>
-          ) : loadingRows ? (
-            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div>
-          ) : (
+            <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', fontSize: 13 }}>اختر ملفاً لعرض حالة التسليم</div>
+          ) : loadingRows ? <BLoader /> : (
             <>
               {/* Summary */}
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                {[
-                  { label: 'إجمالي فواتير البونص', val: deliveryRows.length, color: '#1a56db', bg: '#eff6ff' },
-                  { label: 'تم تسليمها',            val: deliveryRows.filter(r => r.bonusDelivered).length, color: '#15803d', bg: '#f0fdf4' },
-                  { label: 'لم تُسلَّم بعد',        val: deliveryRows.filter(r => !r.bonusDelivered).length, color: '#b45309', bg: '#fefce8' },
-                ].map(k => (
-                  <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.color}22`, borderRadius: 10, padding: '10px 18px', minWidth: 110 }}>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.val.toLocaleString('ar-IQ')}</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{k.label}</div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                <BKpi label="إجمالي فواتير البونص" value={deliveryRows.length.toLocaleString('ar-IQ')} />
+                <BKpi label="تم تسليمها" value={deliveryRows.filter(r => r.bonusDelivered).length.toLocaleString('ar-IQ')} />
+                <BKpi label="لم تُسلَّم بعد" value={deliveryRows.filter(r => !r.bonusDelivered).length.toLocaleString('ar-IQ')} />
               </div>
 
               <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
@@ -943,34 +930,7 @@ export default function BonusSalesPage() {
       )}
 
       {/* ── Delivery Modal ─────────────────────────────────── */}
-      {deliveryModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDeliveryModal(null)}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 400, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>✓ تأشير تسليم البونص</h3>
-            <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#475569' }}>
-              <div><strong>الصيدلية:</strong> {deliveryModal.row.pharmacyName}</div>
-              <div><strong>الايتم:</strong> {deliveryModal.row.itemName}</div>
-              <div><strong>رقم الفاتورة:</strong> {deliveryModal.row.invoiceNo}</div>
-              <div><strong>كمية البونص:</strong> {fmtNum(deliveryModal.row.bonusQty)}</div>
-            </div>
-            <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6, fontWeight: 600 }}>ملاحظة (اختيارية):</label>
-            <textarea
-              value={deliveryModal.note}
-              onChange={e => setDeliveryModal(d => d ? { ...d, note: e.target.value } : d)}
-              placeholder="أي ملاحظة عند التسليم..."
-              rows={3}
-              style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
-            />
-            <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button onClick={() => setDeliveryModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
-              <button onClick={confirmDelivery} disabled={markingDelivery}
-                style={{ background: '#15803d', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: markingDelivery ? 'not-allowed' : 'pointer', color: '#fff', opacity: markingDelivery ? 0.7 : 1 }}>
-                {markingDelivery ? '⏳ جاري...' : '✓ تأكيد التسليم'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <BDeliveryModal deliveryModal={deliveryModal} markingDelivery={markingDelivery} onClose={() => setDeliveryModal(null)} onConfirm={confirmDelivery} onChange={note => setDeliveryModal(d => d ? { ...d, note } : d)} />
 
       {/* ── Assignment Modals ──────────────────────────────── */}
       {assignModal && (
