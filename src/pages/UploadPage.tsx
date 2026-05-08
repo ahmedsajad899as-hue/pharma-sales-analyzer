@@ -156,7 +156,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [currencyModal, setCurrencyModal] = useState<UploadedFile | null>(null);
   const [currModalSource, setCurrModalSource] = useState<'IQD' | 'USD'>('IQD');
   const [currModalMode, setCurrModalMode] = useState<'IQD' | 'USD'>('IQD');
-  const [currModalRate, setCurrModalRate] = useState<string>('1500');
+  const [currModalRate, setCurrModalRate] = useState<string>('1470');
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currSaveMsg, setCurrSaveMsg] = useState('');
 
@@ -347,7 +347,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     setCurrencyModal(f);
     setCurrModalSource(f.detectedCurrency === 'USD' ? 'USD' : 'IQD');
     setCurrModalMode(f.currencyMode === 'USD' ? 'USD' : 'IQD');
-    setCurrModalRate(String(f.exchangeRate ?? 1500));
+    setCurrModalRate(String(f.exchangeRate ?? 1470));
     setCurrSaveMsg('');
   };
 

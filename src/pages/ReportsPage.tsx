@@ -490,7 +490,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // Currency conversion — loaded from active file settings
   const [fileCurrencyMode, setFileCurrencyMode] = useState<'IQD' | 'USD'>('IQD');
   const [fileSourceCurrency, setFileSourceCurrency] = useState<'IQD' | 'USD'>('IQD');
-  const [fileExchangeRate, setFileExchangeRate] = useState<number>(1500);
+  const [fileExchangeRate, setFileExchangeRate] = useState<number>(1470);
 
   // AI assistant page-action listener
   useEffect(() => {
@@ -528,7 +528,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setCommReps([]);
       setFileCurrencyMode('IQD');
       setFileSourceCurrency('IQD');
-      setFileExchangeRate(1500);
+      setFileExchangeRate(1470);
       return;
     }
     // Load currency settings from the first active file
@@ -556,11 +556,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         if (activeFile) {
           setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
           setFileSourceCurrency(activeFile.detectedCurrency === 'USD' ? 'USD' : 'IQD');
-          setFileExchangeRate(activeFile.exchangeRate || 1500);
+          setFileExchangeRate(activeFile.exchangeRate || 1470);
         } else {
           setFileCurrencyMode('IQD');
           setFileSourceCurrency('IQD');
-          setFileExchangeRate(1500);
+          setFileExchangeRate(1470);
         }
       }).catch(() => {});
 

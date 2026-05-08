@@ -1735,7 +1735,7 @@ app.post('/api/analyze', async (req, res) => {
     // جلب إعداد العملة للملف — خارج أي block حتى يكون متاحاً في الـ prompt
     let fileCurrencyMode   = 'IQD'; // العملة المراد عرضها (الهدف)
     let fileSourceCurrency = 'IQD'; // العملة الأصلية للملف
-    let fileExchangeRate   = 1500;
+    let fileExchangeRate   = 1470;
     if (fileId) {
       const fileInfo = await prisma.uploadedFile.findUnique({
         where: { id: Number(fileId) },
@@ -1743,7 +1743,7 @@ app.post('/api/analyze', async (req, res) => {
       });
       if (fileInfo) {
         fileCurrencyMode   = fileInfo.currencyMode     || 'IQD';
-        fileExchangeRate   = fileInfo.exchangeRate     || 1500;
+        fileExchangeRate   = fileInfo.exchangeRate     || 1470;
         fileSourceCurrency = fileInfo.detectedCurrency || 'IQD';
       }
     }
