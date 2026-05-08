@@ -356,10 +356,10 @@ export default function PharmacyAnalysisPage() {
                               <td style={TD} onClick={() => openPharma(p.name)}>{i + 1}</td>
                               <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }} onClick={() => openPharma(p.name)}>{p.name}</td>
                               <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.areaName || '—'}</td>
-                              <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
-                              <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
-                              <td style={{ ...TD, textAlign: 'center', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmt(Math.round(p.totalValue))}</td>
-                              <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>{p.itemCount}</td>
+                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
+                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
+                              <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmt(Math.round(p.totalValue))}</td>
+                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.itemCount}</td>
                               <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{fmtDate(p.lastOrder)}</td>
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>
                                 <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{p.daysSinceLast}</span>
@@ -429,8 +429,8 @@ export default function PharmacyAnalysisPage() {
                         {b.orders.map((o: any, i: number) => (
                           <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                             <td style={TD2}>{fmtDate(o.date)}</td>
-                            <td style={{ ...TD2, textAlign: 'center' }}>{fmt(o.qty)}</td>
-                            <td style={{ ...TD2, textAlign: 'center', color: '#047857' }}>{fmt(o.value)}</td>
+                            <td style={{ ...TD2, textAlign: 'right' }}>{fmt(o.qty)}</td>
+                            <td style={{ ...TD2, textAlign: 'right', color: '#047857' }}>{fmt(o.value)}</td>
                             <td style={TD2}>{o.rep || '—'}</td>
                             <td style={TD2}>
                               <span style={{ background: o.type === 'return' ? '#fee2e2' : '#dcfce7', color: o.type === 'return' ? '#dc2626' : '#15803d', borderRadius: 4, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
@@ -481,8 +481,8 @@ export default function PharmacyAnalysisPage() {
                     >
                       <td style={TD}>{i + 1}</td>
                       <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }}>{it.name}</td>
-                      <td style={{ ...TD, textAlign: 'center' }}>{fmt(it.totalQty)}</td>
-                      <td style={{ ...TD, textAlign: 'center', color: '#047857' }}>{fmt(Math.round(it.totalValue))}</td>
+                      <td style={{ ...TD, textAlign: 'right' }}>{fmt(it.totalQty)}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#047857' }}>{fmt(Math.round(it.totalValue))}</td>
                       <td style={{ ...TD, textAlign: 'center' }}>{it.pharmacyCount}</td>
                       <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.firstOrder)}</td>
                       <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.lastOrder)}</td>
@@ -522,7 +522,7 @@ export default function PharmacyAnalysisPage() {
                         <tr key={ph.name} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                           <td style={{ ...TD2, fontWeight: 600 }}>{ph.name}</td>
                           <td style={{ ...TD2, color: '#6b7280' }}>{ph.areaName || '—'}</td>
-                          <td style={{ ...TD2, textAlign: 'center' }}>{fmt(ph.totalQty)}</td>
+                          <td style={{ ...TD2, textAlign: 'right' }}>{fmt(ph.totalQty)}</td>
                           <td style={{ ...TD2, color: '#6b7280' }}>{fmtDate(ph.lastOrder)}</td>
                           <td style={{ ...TD2, textAlign: 'center' }}>
                             <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{days}</span>
@@ -624,7 +624,7 @@ const CARD: React.CSSProperties = {
   padding: '12px 16px', marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,.04)',
 };
 const TH: React.CSSProperties = {
-  padding: '9px 12px', textAlign: 'center', fontWeight: 600, fontSize: 12,
+  padding: '9px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12,
   whiteSpace: 'nowrap', borderLeft: '1px solid rgba(255,255,255,.15)',
 };
 const TD: React.CSSProperties = {
