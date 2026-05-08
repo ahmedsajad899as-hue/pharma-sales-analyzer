@@ -460,13 +460,29 @@ export default function PharmacyAnalysisPage() {
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
                   <KPI label="إجمالي الطلبيات" value={fmt(pharmaDetail.totalOrders)} />
                 </div>
-                {pharmaDetail.byItem.map(b => (
+                {pharmaDetail.byItem.map(b => {
+                  // آخر تاريخ بيع (غير مرتجع) لهذا الايتم
+                  const lastSaleOrder = b.orders
+                    .filter((o: any) => o.type !== 'return' && o.date)
+                    .map((o: any) => o.date)
+                    .sort()
+                    .at(-1);
+                  const itemDays = lastSaleOrder
+                    ? Math.floor((Date.now() - new Date(lastSaleOrder).getTime()) / 86400000)
+                    : null;
+                  const idc = itemDays !== null ? dayColor(itemDays) : null;
+                  return (
                   <div key={b.name} style={{ marginBottom: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: '#f1f5f9', borderRadius: '6px 6px 0 0', borderBottom: '1px solid #e2e8f0' }}>
                       <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{b.name}</span>
-                      <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+                      <div style={{ display: 'flex', gap: 16, fontSize: 12, alignItems: 'center' }}>
                         <span style={{ color: '#374151' }}>الكمية: <b>{fmt(b.totalQty)}</b></span>
                         <span style={{ color: '#047857' }}>القيمة: <b>{fmtV(b.totalValue)}</b></span>
+                        {idc !== null && itemDays !== null && (
+                          <span style={{ background: idc.bg, color: idc.color, borderRadius: 5, padding: '2px 9px', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }}>
+                            ⏱ {itemDays} يوم
+                          </span>
+                        )}
                       </div>
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -492,7 +508,8 @@ export default function PharmacyAnalysisPage() {
                       </tbody>
                     </table>
                   </div>
-                ))}
+                  );
+                })}
               </>
             )}
           </div>
