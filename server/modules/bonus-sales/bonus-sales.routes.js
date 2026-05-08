@@ -19,6 +19,12 @@ import {
   unmarkDelivered,
   listCompUploads,
   deleteCompUpload,
+  autoAssignUpload,
+  assignArea,
+  assignBulkRows,
+  unassignRow,
+  getAssignmentMeta,
+  getMyRows,
 } from './bonus-sales.controller.js';
 
 const router = Router();
@@ -46,5 +52,15 @@ router.delete('/comp/uploads/:id', deleteCompUpload);
 // ─── Delivery marking (تأشير التسليم) ────────────────────────
 router.patch('/rows/:id/deliver',   markDelivered);
 router.patch('/rows/:id/undeliver', unmarkDelivered);
+
+// ─── Assignment (توزيع البونص على المندوبين) ─────────────────
+router.post('/sales/uploads/:id/auto-assign',  autoAssignUpload);   // توزيع تلقائي بالمناطق
+router.post('/sales/uploads/:id/assign-area',  assignArea);         // تعيين منطقة كاملة لمندوب
+router.get('/sales/uploads/:id/assign-meta',   getAssignmentMeta);  // بيانات: قائمة المندوبين + المناطق
+router.post('/rows/assign-bulk',               assignBulkRows);     // تعيين صفوف محددة
+router.delete('/rows/:id/assign',              unassignRow);        // إلغاء تعيين صف لمندوب
+
+// ─── Rep: my assigned rows ────────────────────────────────────
+router.get('/my-rows', getMyRows);
 
 export default router;

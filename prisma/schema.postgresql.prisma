@@ -100,6 +100,7 @@ model User {
   bonusSalesUploads        BonusSalesUpload[]
   bonusCompUploads         BonusCompUpload[]
   bonusDeliveries          BonusSalesRow[]     @relation("BonusDeliveryUser")
+  bonusAssignments         BonusRowAssignment[] @relation("BonusAssignedUser")
 
   @@index([officeId])
   @@map("users")
@@ -1333,6 +1334,7 @@ model BonusSalesUpload {
   originalName String
   rowCount     Int      @default(0)
   uploadedAt   DateTime @default(now())
+  isAssigned   Boolean  @default(false)
   userId       Int?
   user         User?    @relation(fields: [userId], references: [id])
 
@@ -1374,9 +1376,28 @@ model BonusSalesRow {
   deliveredByUser   User?     @relation("BonusDeliveryUser", fields: [deliveredByUserId], references: [id])
   deliveryNote      String?
 
+  assignments  BonusRowAssignment[]
+
   @@index([uploadId])
   @@index([deliveredByUserId])
   @@map("bonus_sales_rows")
+}
+
+// ─── Bonus Row Assignment (تعيين صفوف البونص للمندوبين) ─────────────────────
+model BonusRowAssignment {
+  id          Int      @id @default(autoincrement())
+  bonusRowId  Int
+  userId      Int
+  assignedAt  DateTime @default(now())
+  note        String?
+
+  bonusRow BonusSalesRow @relation(fields: [bonusRowId], references: [id], onDelete: Cascade)
+  user     User          @relation("BonusAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([bonusRowId, userId])
+  @@index([userId])
+  @@index([bonusRowId])
+  @@map("bonus_row_assignments")
 }
 
 // ─── Bonus Comp Upload (ملف التعويضات) ───────────────────────

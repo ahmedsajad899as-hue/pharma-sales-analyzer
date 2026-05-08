@@ -71,6 +71,41 @@ export async function getSalesRowsPage({ uploadId, page, pageSize, filters }) {
       take: pageSize,
       include: {
         deliveredByUser: { select: { id: true, displayName: true, username: true } },
+        assignments: {
+          include: { user: { select: { id: true, displayName: true, username: true } } },
+        },
+      },
+    }),
+    prisma.bonusSalesRow.count({ where }),
+  ]);
+  return { rows, total };
+}
+
+// ─── Rep's assigned rows (paginated) ─────────────────────────
+export async function getMyBonusRows({ userId, page, pageSize, filters = {} }) {
+  const where = {
+    assignments: { some: { userId: Number(userId) } },
+  };
+
+  if (filters.search) {
+    where.OR = [
+      { pharmacyName: { contains: filters.search, mode: 'insensitive' } },
+      { itemName:     { contains: filters.search, mode: 'insensitive' } },
+      { areaName:     { contains: filters.search, mode: 'insensitive' } },
+    ];
+  }
+  if (filters.bonusDelivered !== undefined) where.bonusDelivered = filters.bonusDelivered;
+  if (filters.hasBonus !== undefined) where.hasBonus = filters.hasBonus;
+
+  const skip = (page - 1) * pageSize;
+  const [rows, total] = await Promise.all([
+    prisma.bonusSalesRow.findMany({
+      where,
+      orderBy: [{ invoiceDate: 'asc' }, { id: 'asc' }],
+      skip,
+      take: pageSize,
+      include: {
+        deliveredByUser: { select: { id: true, displayName: true, username: true } },
       },
     }),
     prisma.bonusSalesRow.count({ where }),

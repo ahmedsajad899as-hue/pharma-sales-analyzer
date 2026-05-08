@@ -9,6 +9,7 @@ interface SalesUpload {
   originalName: string;
   rowCount: number;
   uploadedAt: string;
+  isAssigned?: boolean;
   _count?: { rows: number };
   compUploads?: CompUpload[];
 }
@@ -18,6 +19,13 @@ interface CompUpload {
   originalName: string;
   rowCount: number;
   uploadedAt: string;
+}
+
+interface AssignmentRep {
+  userId: number;
+  name: string;
+  areas: string[];
+  type: 'medical' | 'scientific';
 }
 
 interface SalesRow {
@@ -41,6 +49,7 @@ interface SalesRow {
   deliveredAt: string | null;
   deliveryNote: string | null;
   deliveredByUser?: { id: number; displayName?: string; username: string } | null;
+  assignments?: { userId: number; user: { id: number; displayName?: string; username: string } }[];
 }
 
 type TabId = 'uploads' | 'rows' | 'delivery';
@@ -147,6 +156,28 @@ export default function BonusSalesPage() {
   // ── Delivery note modal ────────────────────────────────────
   const [deliveryModal, setDeliveryModal] = useState<{ row: SalesRow; note: string } | null>(null);
   const [markingDelivery, setMarkingDelivery] = useState(false);
+
+  // ── Assignment state ───────────────────────────────────────
+  const [assignReps, setAssignReps]           = useState<AssignmentRep[]>([]);
+  const [assignAreas, setAssignAreas]         = useState<string[]>([]);
+  const [assignModal, setAssignModal]         = useState<
+    | { mode: 'auto' }
+    | { mode: 'area'; area: string; userId: number | '' }
+    | { mode: 'bulk'; rowIds: number[]; userId: number | '' }
+    | { mode: 'row'; rowId: number; userId: number | '' }
+    | null
+  >(null);
+  const [assignLoading, setAssignLoading]     = useState(false);
+  const [assignMsg, setAssignMsg]             = useState('');
+  const [selectedRowIds, setSelectedRowIds]   = useState<Set<number>>(new Set());
+
+  // ── My rows (rep view) ─────────────────────────────────────
+  const [myRows, setMyRows]           = useState<SalesRow[]>([]);
+  const [myTotal, setMyTotal]         = useState(0);
+  const [myPage, setMyPage]           = useState(1);
+  const [mySearch, setMySearch]       = useState('');
+  const [myFilterDelivered, setMyFilterDelivered] = useState('');
+  const [myLoading, setMyLoading]     = useState(false);
 
   // ── Load uploads ───────────────────────────────────────────
   const loadUploads = useCallback(async () => {
@@ -268,10 +299,107 @@ export default function BonusSalesPage() {
     try {
       await axios.patch(`/api/bonus-sales/rows/${rowId}/undeliver`, {}, { headers: H() });
       loadRows(page);
+      loadMyRows(myPage);
     } catch (err: any) {
       alert(err.response?.data?.error ?? err.message);
     }
   };
+
+  // ── Load assignment meta (reps + areas) ────────────────────
+  const loadAssignMeta = useCallback(async (uploadId: number) => {
+    try {
+      const { data } = await axios.get(`/api/bonus-sales/sales/uploads/${uploadId}/assign-meta`, { headers: H() });
+      setAssignReps(data.reps ?? []);
+      setAssignAreas(data.areas ?? []);
+    } catch (_) {}
+  }, [H]);
+
+  // ── Auto-assign upload ─────────────────────────────────────
+  const handleAutoAssign = async () => {
+    if (!selectedUpload) return;
+    setAssignLoading(true);
+    try {
+      const { data } = await axios.post(`/api/bonus-sales/sales/uploads/${selectedUpload.id}/auto-assign`, {}, { headers: H() });
+      setAssignMsg(`✅ تم التوزيع — ${data.assigned} تعيين، ${data.unmatched} صف غير مطابق`);
+      await loadUploads();
+      loadRows(page);
+    } catch (err: any) {
+      setAssignMsg('❌ ' + (err.response?.data?.error ?? err.message));
+    } finally { setAssignLoading(false); setAssignModal(null); }
+  };
+
+  // ── Assign area to rep ─────────────────────────────────────
+  const handleAssignArea = async () => {
+    if (assignModal?.mode !== 'area' || !selectedUpload || !assignModal.userId) return;
+    setAssignLoading(true);
+    try {
+      const { data } = await axios.post(`/api/bonus-sales/sales/uploads/${selectedUpload.id}/assign-area`,
+        { areaName: assignModal.area, userId: assignModal.userId }, { headers: H() });
+      setAssignMsg(`✅ تم تعيين ${data.assigned} صف من منطقة "${assignModal.area}"`);
+      await loadUploads(); loadRows(page);
+    } catch (err: any) {
+      setAssignMsg('❌ ' + (err.response?.data?.error ?? err.message));
+    } finally { setAssignLoading(false); setAssignModal(null); }
+  };
+
+  // ── Assign bulk rows to rep ────────────────────────────────
+  const handleAssignBulk = async () => {
+    if (assignModal?.mode !== 'bulk' || !assignModal.userId) return;
+    setAssignLoading(true);
+    try {
+      const { data } = await axios.post('/api/bonus-sales/rows/assign-bulk',
+        { rowIds: assignModal.rowIds, userId: assignModal.userId }, { headers: H() });
+      setAssignMsg(`✅ تم تعيين ${data.assigned} صف`);
+      setSelectedRowIds(new Set()); loadRows(page);
+    } catch (err: any) {
+      setAssignMsg('❌ ' + (err.response?.data?.error ?? err.message));
+    } finally { setAssignLoading(false); setAssignModal(null); }
+  };
+
+  // ── Assign single row to rep ───────────────────────────────
+  const handleAssignRow = async () => {
+    if (assignModal?.mode !== 'row' || !assignModal.userId) return;
+    setAssignLoading(true);
+    try {
+      await axios.post('/api/bonus-sales/rows/assign-bulk',
+        { rowIds: [assignModal.rowId], userId: assignModal.userId }, { headers: H() });
+      setAssignMsg('✅ تم التعيين');
+      loadRows(page);
+    } catch (err: any) {
+      setAssignMsg('❌ ' + (err.response?.data?.error ?? err.message));
+    } finally { setAssignLoading(false); setAssignModal(null); }
+  };
+
+  // ── Remove single assignment ───────────────────────────────
+  const handleUnassignRow = async (rowId: number, userId: number) => {
+    if (!confirm('إلغاء تعيين هذا المندوب من الصف؟')) return;
+    try {
+      await axios.delete(`/api/bonus-sales/rows/${rowId}/assign`, {
+        headers: H(), data: { userId },
+      });
+      loadRows(page);
+    } catch (err: any) {
+      alert(err.response?.data?.error ?? err.message);
+    }
+  };
+
+  // ── Load my rows (rep view) ────────────────────────────────
+  const loadMyRows = useCallback(async (pg = 1) => {
+    setMyLoading(true);
+    try {
+      const params: Record<string, string> = { page: String(pg), pageSize: '50' };
+      if (mySearch) params.search = mySearch;
+      if (myFilterDelivered !== '') params.bonusDelivered = myFilterDelivered;
+      const { data } = await axios.get('/api/bonus-sales/my-rows', { headers: H(), params });
+      setMyRows(data.rows ?? []);
+      setMyTotal(data.total ?? 0);
+      setMyPage(pg);
+    } catch (_) {}
+    finally { setMyLoading(false); }
+  }, [H, mySearch, myFilterDelivered]);
+
+  const isRep = role === 'user' || role === 'scientific_rep';
+  useEffect(() => { if (isRep) loadMyRows(1); }, [isRep, loadMyRows]);
 
   // ── KPIs from rows ─────────────────────────────────────────
   const withBonus      = rows.filter(r => r.hasBonus).length;
@@ -281,6 +409,111 @@ export default function BonusSalesPage() {
 
   // ── Delivery tab rows (only compensated or with bonus, not yet delivered) ──
   const deliveryRows = rows.filter(r => (r.hasBonus || r.isCompensated));
+
+  // ─────────────────────────────────────────────────────────────
+  // Rep view: show simplified "My Bonus" page
+  if (isRep) {
+    const myDelivered  = myRows.filter(r => r.bonusDelivered).length;
+    const myPending    = myRows.filter(r => !r.bonusDelivered).length;
+    return (
+      <div dir="rtl" style={{ padding: '16px 20px', fontFamily: 'Cairo, Tahoma, sans-serif', minHeight: '100vh', background: '#f8fafc' }}>
+        <div style={{ marginBottom: 20 }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#1e293b' }}>🎁 بونصاتي</h1>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 13 }}>قائمة الصيدليات المعيَّنة لك لتسليم البونص</p>
+        </div>
+
+        {/* KPIs */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          {[
+            { label: 'إجمالي المعيَّن لي', val: myTotal,    color: '#1a56db', bg: '#eff6ff' },
+            { label: 'تم التسليم',          val: myDelivered, color: '#15803d', bg: '#f0fdf4' },
+            { label: 'معلَّق',              val: myPending,   color: '#b45309', bg: '#fefce8' },
+          ].map(k => (
+            <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.color}22`, borderRadius: 10, padding: '10px 18px', minWidth: 110 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.val.toLocaleString('ar-IQ')}</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{k.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input value={mySearch} onChange={e => setMySearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && loadMyRows(1)}
+            placeholder="🔍 بحث بالصيدلية أو الايتم أو المنطقة..."
+            style={{ flex: 1, minWidth: 200, padding: '7px 12px', borderRadius: 6, border: '1.5px solid #e2e8f0', fontSize: 12, background: '#f8fafc' }} />
+          <select value={myFilterDelivered} onChange={e => setMyFilterDelivered(e.target.value)}
+            style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
+            <option value="">التسليم: الكل</option>
+            <option value="false">لم يُسلَّم</option>
+            <option value="true">تم التسليم</option>
+          </select>
+          <button onClick={() => loadMyRows(1)} style={{ background: '#1e40af', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>بحث</button>
+        </div>
+
+        {myLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div> : (
+          <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#1e40af', color: '#fff' }}>
+                  {['الصيدلية','المنطقة','الايتم','كمية البونص','التاريخ','الحالة'].map(h => (
+                    <th key={h} style={{ padding: '9px 10px', fontWeight: 700, textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {myRows.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>لا توجد بونصات معيَّنة لك حتى الآن</td></tr>
+                ) : myRows.map((row, i) => (
+                  <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: row.bonusDelivered ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
+                    <td style={TC}>{row.pharmacyName ?? '—'}</td>
+                    <td style={TC}>{row.areaName ?? '—'}</td>
+                    <td style={{ ...TC, textAlign: 'right', minWidth: 150, fontWeight: 600, color: '#1e293b', whiteSpace: 'normal' }}>{row.itemName ?? '—'}</td>
+                    <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.bonusQty)}</td>
+                    <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
+                    <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
+                      <CombinedStatus row={row} canManage={true} onDeliver={openDeliveryModal} onUndeliver={unmarkDelivery} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {myTotal > 50 && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+            <button disabled={myPage === 1} onClick={() => loadMyRows(myPage - 1)} style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: myPage === 1 ? 'not-allowed' : 'pointer', opacity: myPage === 1 ? 0.5 : 1 }}>◀ السابق</button>
+            <span style={{ padding: '6px 12px', fontSize: 13, color: '#64748b' }}>صفحة {myPage} / {Math.ceil(myTotal / 50)}</span>
+            <button disabled={myPage >= Math.ceil(myTotal / 50)} onClick={() => loadMyRows(myPage + 1)} style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: myPage >= Math.ceil(myTotal / 50) ? 'not-allowed' : 'pointer', opacity: myPage >= Math.ceil(myTotal / 50) ? 0.5 : 1 }}>التالي ▶</button>
+          </div>
+        )}
+
+        {/* Delivery Modal */}
+        {deliveryModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDeliveryModal(null)}>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 400, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>✓ تأشير تسليم البونص</h3>
+              <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12, color: '#475569' }}>
+                <div><strong>الصيدلية:</strong> {deliveryModal.row.pharmacyName}</div>
+                <div><strong>الايتم:</strong> {deliveryModal.row.itemName}</div>
+              </div>
+              <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 6, fontWeight: 600 }}>ملاحظة (اختيارية):</label>
+              <textarea value={deliveryModal.note} onChange={e => setDeliveryModal(d => d ? { ...d, note: e.target.value } : d)}
+                rows={3} placeholder="أي ملاحظة عند التسليم..."
+                style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+              <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
+                <button onClick={() => setDeliveryModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
+                <button onClick={confirmDelivery} disabled={markingDelivery}
+                  style={{ background: '#15803d', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: markingDelivery ? 'not-allowed' : 'pointer', color: '#fff', opacity: markingDelivery ? 0.7 : 1 }}>
+                  {markingDelivery ? '⏳ جاري...' : '✓ تأكيد التسليم'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────
   return (
@@ -298,6 +531,14 @@ export default function BonusSalesPage() {
         <div style={{ background: uploadMsg.startsWith('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${uploadMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: uploadMsg.startsWith('✅') ? '#15803d' : '#991b1b' }}>
           {uploadMsg}
           <button onClick={() => setUploadMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, fontSize: 14 }}>✕</button>
+        </div>
+      )}
+
+      {/* Assignment message */}
+      {assignMsg && (
+        <div style={{ background: assignMsg.startsWith('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${assignMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: assignMsg.startsWith('✅') ? '#15803d' : '#991b1b' }}>
+          {assignMsg}
+          <button onClick={() => setAssignMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, fontSize: 14 }}>✕</button>
         </div>
       )}
 
@@ -370,6 +611,20 @@ export default function BonusSalesPage() {
                         onClick={() => { setSelectedUpload(upload); setTab('rows'); loadRows(1); }}
                         style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600, color: '#334155' }}
                       >👁 عرض البيانات</button>
+
+                      {/* Assign to reps */}
+                      {isManager && (
+                        upload.isAssigned
+                          ? <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', fontSize: 12, color: '#15803d', fontWeight: 700 }}>✓ موزَّع</span>
+                          : <button
+                              onClick={async () => {
+                                setSelectedUpload(upload);
+                                await loadAssignMeta(upload.id);
+                                setAssignModal({ mode: 'auto' });
+                              }}
+                              style={{ background: '#fef9c3', border: '1px solid #fbbf24', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 700, color: '#92400e' }}
+                            >📋 توزيع على المندوبين</button>
+                      )}
 
                       {/* Upload comp file for this sales upload */}
                       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', fontSize: 12, cursor: uploadingComp ? 'not-allowed' : 'pointer', color: '#15803d', fontWeight: 600 }}>
@@ -499,24 +754,58 @@ export default function BonusSalesPage() {
                   style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#475569' }}>إعادة ضبط</button>
               </div>
 
-              {/* Table */}
+              {/* Assignment toolbar (manager only) */}
+              {isManager && (
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 14px', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>📋 التوزيع:</span>
+                  <button onClick={async () => { if (selectedUpload) { await loadAssignMeta(selectedUpload.id); setAssignModal({ mode: 'auto' }); } }}
+                    style={{ background: '#fef9c3', border: '1px solid #fbbf24', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#92400e' }}>
+                    🤖 توزيع تلقائي بالمناطق
+                  </button>
+                  <button onClick={async () => { if (selectedUpload) { await loadAssignMeta(selectedUpload.id); setAssignModal({ mode: 'area', area: assignAreas[0] ?? '', userId: '' }); } }}
+                    style={{ background: '#e0f2fe', border: '1px solid #7dd3fc', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#075985' }}>
+                    🗺 تعيين منطقة لمندوب
+                  </button>
+                  {selectedRowIds.size > 0 && (
+                    <button onClick={async () => { if (selectedUpload) { await loadAssignMeta(selectedUpload.id); setAssignModal({ mode: 'bulk', rowIds: [...selectedRowIds], userId: '' }); } }}
+                      style={{ background: '#ede9fe', border: '1px solid #a78bfa', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#5b21b6' }}>
+                      ✅ تعيين {selectedRowIds.size} صف محدد
+                    </button>
+                  )}
+                  {selectedRowIds.size > 0 && (
+                    <button onClick={() => setSelectedRowIds(new Set())}
+                      style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', color: '#64748b' }}>
+                      إلغاء التحديد
+                    </button>
+                  )}
+                </div>
+              )}
+
               {loadingRows ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div>
               ) : (
-                <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
+              <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
                       <tr style={{ background: '#1e40af', color: '#fff' }}>
-                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','التاريخ','الرقم','العدد','البونص','الحالة'].map(h => (
+                        {isManager && <th style={{ padding: '8px 8px', width: 30 }}>
+                          <input type="checkbox" onChange={e => setSelectedRowIds(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())}
+                            checked={rows.length > 0 && selectedRowIds.size === rows.length} />
+                        </th>}
+                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','التاريخ','الرقم','العدد','البونص','المُعيَّنون','الحالة'].map(h => (
                           <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.length === 0 ? (
-                        <tr><td colSpan={11} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
+                        <tr><td colSpan={isManager ? 13 : 12} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
                       ) : rows.map((row, i) => (
-                        <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                        <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedRowIds.has(row.id) ? '#eff6ff' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
+                          {isManager && <td style={TC}>
+                            <input type="checkbox" checked={selectedRowIds.has(row.id)}
+                              onChange={e => setSelectedRowIds(prev => { const s = new Set(prev); e.target.checked ? s.add(row.id) : s.delete(row.id); return s; })} />
+                          </td>}
                           <td style={TC}>{row.companyName ?? '—'}</td>
                           <td style={{ ...TC, textAlign: 'right', minWidth: 160, whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
                           <td style={TC}>{row.pharmacyName ?? '—'}</td>
@@ -527,6 +816,29 @@ export default function BonusSalesPage() {
                           <td style={TC}>{row.invoiceNo ?? '—'}</td>
                           <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.quantity)}</td>
                           <td style={{ ...TC, textAlign: 'center' }}>{row.hasBonus ? fmtNum(row.bonusQty) : '—'}</td>
+                          {/* Assigned reps column */}
+                          <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
+                            {row.assignments && row.assignments.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                                {row.assignments.map(a => (
+                                  <div key={a.userId} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                    <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                      {a.user.displayName || a.user.username}
+                                    </span>
+                                    {isManager && <button onClick={() => handleUnassignRow(row.id, a.userId)}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 10, padding: '0 2px', lineHeight: 1 }} title="إلغاء التعيين">✕</button>}
+                                  </div>
+                                ))}
+                                {isManager && <button onClick={async () => { await loadAssignMeta(selectedUpload!.id); setAssignModal({ mode: 'row', rowId: row.id, userId: '' }); }}
+                                  style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 3, padding: '1px 6px', fontSize: 9, cursor: 'pointer', color: '#15803d', marginTop: 2 }}>+ إضافة</button>}
+                              </div>
+                            ) : (
+                              isManager
+                                ? <button onClick={async () => { await loadAssignMeta(selectedUpload!.id); setAssignModal({ mode: 'row', rowId: row.id, userId: '' }); }}
+                                    style={{ background: '#fef9c3', border: '1px solid #fbbf24', borderRadius: 4, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#92400e', fontWeight: 700 }}>تعيين</button>
+                                : <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>
+                            )}
+                          </td>
                           <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
                             <CombinedStatus row={row} canManage={canManageDelivery} onDeliver={openDeliveryModal} onUndeliver={unmarkDelivery} />
                           </td>
@@ -659,6 +971,111 @@ export default function BonusSalesPage() {
           </div>
         </div>
       )}
+
+      {/* ── Assignment Modals ──────────────────────────────── */}
+      {assignModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setAssignModal(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 440, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+
+            {/* AUTO mode */}
+            {assignModal.mode === 'auto' && (
+              <>
+                <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>🤖 توزيع تلقائي على المندوبين</h3>
+                <p style={{ fontSize: 13, color: '#475569', margin: '0 0 16px' }}>
+                  سيتم مطابقة مناطق الصفوف مع مناطق المندوبين تلقائياً وتعيين كل صف للمندوبين المختصين بتلك المنطقة.
+                </p>
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 10, marginBottom: 16, fontSize: 12, color: '#1d4ed8' }}>
+                  <strong>عدد المندوبين المتاحين:</strong> {assignReps.length} &nbsp;|&nbsp; <strong>المناطق:</strong> {assignAreas.length}
+                </div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setAssignModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
+                  <button onClick={handleAutoAssign} disabled={assignLoading}
+                    style={{ background: '#1e40af', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: assignLoading ? 'not-allowed' : 'pointer', color: '#fff', opacity: assignLoading ? 0.7 : 1 }}>
+                    {assignLoading ? '⏳ جاري...' : '🤖 بدء التوزيع التلقائي'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* AREA mode */}
+            {assignModal.mode === 'area' && (
+              <>
+                <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>🗺 تعيين منطقة لمندوب</h3>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 4, fontWeight: 600 }}>المنطقة:</label>
+                <select value={assignModal.area}
+                  onChange={e => setAssignModal({ mode: 'area', area: e.target.value, userId: assignModal.userId })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, marginBottom: 12, background: '#fff' }}>
+                  <option value="">-- اختر منطقة --</option>
+                  {assignAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 4, fontWeight: 600 }}>المندوب:</label>
+                <select value={assignModal.userId}
+                  onChange={e => setAssignModal({ mode: 'area', area: assignModal.area, userId: Number(e.target.value) || '' })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, marginBottom: 16, background: '#fff' }}>
+                  <option value="">-- اختر مندوب --</option>
+                  {assignReps.map(r => (
+                    <option key={r.userId} value={r.userId}>{r.name} ({r.type === 'medical' ? 'طبي' : 'علمي'}) — {r.areas.slice(0,3).join('، ')}{r.areas.length > 3 ? '...' : ''}</option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setAssignModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
+                  <button onClick={handleAssignArea} disabled={assignLoading || !assignModal.area || !assignModal.userId}
+                    style={{ background: '#075985', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: (assignLoading || !assignModal.area || !assignModal.userId) ? 'not-allowed' : 'pointer', color: '#fff', opacity: (assignLoading || !assignModal.area || !assignModal.userId) ? 0.6 : 1 }}>
+                    {assignLoading ? '⏳ جاري...' : '✅ تعيين المنطقة'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* BULK mode */}
+            {assignModal.mode === 'bulk' && (
+              <>
+                <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>✅ تعيين {assignModal.rowIds.length} صف لمندوب</h3>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 4, fontWeight: 600 }}>اختر المندوب:</label>
+                <select value={assignModal.userId}
+                  onChange={e => setAssignModal({ mode: 'bulk', rowIds: assignModal.rowIds, userId: Number(e.target.value) || '' })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, marginBottom: 16, background: '#fff' }}>
+                  <option value="">-- اختر مندوب --</option>
+                  {assignReps.map(r => (
+                    <option key={r.userId} value={r.userId}>{r.name} ({r.type === 'medical' ? 'طبي' : 'علمي'})</option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setAssignModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
+                  <button onClick={handleAssignBulk} disabled={assignLoading || !assignModal.userId}
+                    style={{ background: '#5b21b6', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: (assignLoading || !assignModal.userId) ? 'not-allowed' : 'pointer', color: '#fff', opacity: (assignLoading || !assignModal.userId) ? 0.6 : 1 }}>
+                    {assignLoading ? '⏳ جاري...' : `✅ تعيين ${assignModal.rowIds.length} صف`}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ROW mode */}
+            {assignModal.mode === 'row' && (
+              <>
+                <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>👤 تعيين صف لمندوب</h3>
+                <label style={{ display: 'block', fontSize: 12, color: '#475569', marginBottom: 4, fontWeight: 600 }}>اختر المندوب:</label>
+                <select value={assignModal.userId}
+                  onChange={e => setAssignModal({ mode: 'row', rowId: assignModal.rowId, userId: Number(e.target.value) || '' })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, marginBottom: 16, background: '#fff' }}>
+                  <option value="">-- اختر مندوب --</option>
+                  {assignReps.map(r => (
+                    <option key={r.userId} value={r.userId}>{r.name} ({r.type === 'medical' ? 'طبي' : 'علمي'})</option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setAssignModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, cursor: 'pointer', color: '#475569' }}>إلغاء</button>
+                  <button onClick={handleAssignRow} disabled={assignLoading || !assignModal.userId}
+                    style={{ background: '#15803d', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 700, cursor: (assignLoading || !assignModal.userId) ? 'not-allowed' : 'pointer', color: '#fff', opacity: (assignLoading || !assignModal.userId) ? 0.6 : 1 }}>
+                    {assignLoading ? '⏳ جاري...' : '✅ تعيين'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

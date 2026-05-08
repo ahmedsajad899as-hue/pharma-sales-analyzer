@@ -97,6 +97,9 @@ const FEATURE_TREE: FeatureNode[] = [
       { key: 'bonus_sales_upload',   label: 'رفع ملف المبيعات',       icon: '📤', desc: 'رفع ملف Excel للمبيعات الأساسي' },
       { key: 'bonus_comp_upload',    label: 'رفع ملف التعويضات',      icon: '📎', desc: 'رفع ملف التعويضات ومطابقته مع المبيعات' },
       { key: 'bonus_delivery_mark',  label: 'تأشير تسليم البونص',     icon: '✓',  desc: 'تأشير تسليم البونص للصيدلية من قبل المندوب' },
+      { key: 'bonus_assign_auto',    label: 'توزيع بونص تلقائي',      icon: '🤖', desc: 'توزيع صفوف البونص تلقائياً على المندوبين بحسب المناطق' },
+      { key: 'bonus_assign_manual',  label: 'توزيع بونص يدوي',        icon: '🗂', desc: 'تعيين صفوف أو مناطق بونص يدوياً لمندوب محدد' },
+      { key: 'bonus_my_rows',        label: 'بونصاتي (مندوب)',        icon: '🎁', desc: 'عرض قائمة البونصات المعيَّنة للمندوب الحالي' },
     ],
   },
   // ── 9. بيانات المبيعات (Sales Data — ستوك المخازن)

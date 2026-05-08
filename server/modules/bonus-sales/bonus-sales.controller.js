@@ -5,12 +5,21 @@
 
 import { parseFile, buildMatchKey } from './bonus-sales.service.js';
 import {
+  assignUploadToReps,
+  assignAreaToRep,
+  assignRowsToRep,
+  removeRowAssignment,
+  getRepsForAssignment,
+  getUploadAreas,
+} from './bonus-assign.service.js';
+import {
   createSalesUpload,
   bulkInsertSalesRows,
   getSalesUploads,
   getSalesUploadById,
   deleteSalesUploadById,
   getSalesRowsPage,
+  getMyBonusRows,
   createCompUpload,
   bulkInsertCompRows,
   getCompRowsByUpload,
@@ -193,6 +202,92 @@ export async function unmarkDelivered(req, res) {
   try {
     const row = await setSalesRowDelivery(req.params.id, { delivered: false, userId: null, note: null });
     return res.json({ success: true, row });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Assignment: auto-assign upload to reps by area ──────────
+export async function autoAssignUpload(req, res) {
+  try {
+    const userId = req.user?.id ?? null;
+    const upload = await getSalesUploadById(req.params.id, userId);
+    if (!upload) return res.status(404).json({ error: 'الملف غير موجود' });
+    const result = await assignUploadToReps(req.params.id, userId);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[bonus-assign] autoAssignUpload:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Assignment: assign all rows of an area to a rep ─────────
+export async function assignArea(req, res) {
+  try {
+    const { areaName, userId: targetUserId } = req.body;
+    if (!areaName || !targetUserId) return res.status(400).json({ error: 'areaName و userId مطلوبان' });
+    const result = await assignAreaToRep(req.params.id, areaName, targetUserId);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Assignment: assign specific row ids (bulk) ───────────────
+export async function assignBulkRows(req, res) {
+  try {
+    const { rowIds, userId: targetUserId } = req.body;
+    if (!Array.isArray(rowIds) || !targetUserId) return res.status(400).json({ error: 'rowIds[] و userId مطلوبان' });
+    const result = await assignRowsToRep(rowIds, targetUserId);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Assignment: remove a single row assignment ───────────────
+export async function unassignRow(req, res) {
+  try {
+    const { userId: targetUserId } = req.body;
+    if (!targetUserId) return res.status(400).json({ error: 'userId مطلوب' });
+    await removeRowAssignment(req.params.id, targetUserId);
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── Assignment: get reps list + upload areas for frontend ────
+export async function getAssignmentMeta(req, res) {
+  try {
+    const userId = req.user?.id ?? null;
+    const [reps, areas] = await Promise.all([
+      getRepsForAssignment(userId),
+      getUploadAreas(req.params.id),
+    ]);
+    return res.json({ success: true, reps, areas });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ─── My rows (for rep role) ───────────────────────────────────
+export async function getMyRows(req, res) {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+    const { page = 1, pageSize = 50, search, bonusDelivered, hasBonus } = req.query;
+    const filters = {};
+    if (search) filters.search = search;
+    if (bonusDelivered !== undefined && bonusDelivered !== '') filters.bonusDelivered = bonusDelivered === 'true';
+    if (hasBonus !== undefined && hasBonus !== '') filters.hasBonus = hasBonus === 'true';
+    const result = await getMyBonusRows({
+      userId,
+      page: Number(page),
+      pageSize: Math.min(Number(pageSize), 200),
+      filters,
+    });
+    return res.json({ success: true, ...result });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
