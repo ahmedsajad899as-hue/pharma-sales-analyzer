@@ -7,7 +7,7 @@ const API = import.meta.env.VITE_API_URL || '';
 interface UpFile { id: number; originalName: string; uploadedAt: string; rowCount: number; }
 
 interface PharmacySummary {
-  name: string; areaName: string;
+  name: string; areaName: string; repName: string;
   totalOrders: number; totalQty: number; totalValue: number;
   firstOrder: string; lastOrder: string; itemCount: number; daysSinceLast: number;
   topItems: { name: string; qty: number; value: number; count: number }[];
@@ -54,7 +54,7 @@ const TABS = [
   { id: 'alerts',     label: 'التنبيهات',  icon: '🔔' },
 ] as const;
 type Tab = typeof TABS[number]['id'];
-type GroupBy = 'none' | 'area' | 'rep';
+type GroupBy = 'none' | 'area' | 'rep' | 'item' | 'date';
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function PharmacyAnalysisPage() {
@@ -206,9 +206,12 @@ export default function PharmacyAnalysisPage() {
     if (groupBy === 'none') return [{ key: '__all__', label: '', rows: pharmacies }];
     const map = new Map<string, PharmacySummary[]>();
     for (const p of pharmacies) {
-      const key = groupBy === 'area'
-        ? (p.areaName?.trim() || 'غير محدد')
-        : (((p as any).repName as string)?.trim() || 'غير محدد');
+      let key: string;
+      if (groupBy === 'area')   key = p.areaName?.trim() || 'غير محدد';
+      else if (groupBy === 'rep')  key = p.repName?.trim() || 'غير محدد';
+      else if (groupBy === 'item') key = p.topItems[0]?.name?.trim() || 'غير محدد';
+      else if (groupBy === 'date') key = p.lastOrder ? new Date(p.lastOrder).toLocaleDateString('ar-IQ', { year: 'numeric', month: 'long' }) : 'غير محدد';
+      else key = 'غير محدد';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
@@ -345,7 +348,7 @@ export default function PharmacyAnalysisPage() {
             {/* Group by */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 4px' }}>
               <span style={{ fontSize: 11, color: '#6b7280', padding: '0 6px' }}>تجميع:</span>
-              {([['none','بدون'],['area','المنطقة'],['rep','المندوب']] as [GroupBy,string][]).map(([v, label]) => (
+              {([['none','بدون'],['area','المنطقة'],['rep','المندوب'],['item','الايتم'],['date','التاريخ']] as [GroupBy,string][]).map(([v, label]) => (
                 <button key={v} onClick={() => setGroupBy(v)} style={{
                   padding: '4px 10px', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
                   background: groupBy === v ? '#1e40af' : 'transparent',

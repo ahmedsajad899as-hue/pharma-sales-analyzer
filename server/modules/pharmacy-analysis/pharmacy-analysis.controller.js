@@ -47,6 +47,7 @@ export async function listPharmacies(req, res, next) {
         customer:     { select: { id: true, name: true } },
         area:         { select: { id: true, name: true } },
         item:         { select: { id: true, name: true } },
+        representative: { select: { id: true, name: true } },
         uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
         rawData:  true,
       },
@@ -82,6 +83,7 @@ export async function listPharmacies(req, res, next) {
         map.set(pharmaName, {
           name: pharmaName,
           areaName,
+          repName: s.representative?.name || '',
           totalOrders: 0,
           totalQty: 0,
           totalValue: 0,
@@ -98,6 +100,7 @@ export async function listPharmacies(req, res, next) {
       if (new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
       if (new Date(s.saleDate) > new Date(p.lastOrder))  p.lastOrder  = s.saleDate;
       if (!p.areaName && areaName) p.areaName = areaName;
+      if (!p.repName && s.representative?.name) p.repName = s.representative.name;
 
       const iName = s.item?.name || 'غير محدد';
       if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
@@ -110,6 +113,7 @@ export async function listPharmacies(req, res, next) {
     const result = [...map.values()].map(p => ({
       name:        p.name,
       areaName:    p.areaName,
+      repName:     p.repName || '',
       totalOrders: p.totalOrders,
       totalQty:    p.totalQty,
       totalValue:  Math.round(p.totalValue),
