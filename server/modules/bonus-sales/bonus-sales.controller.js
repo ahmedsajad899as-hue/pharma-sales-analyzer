@@ -94,7 +94,7 @@ export async function getSalesRows(req, res) {
     const result = await getSalesRowsPage({
       uploadId,
       page: Number(page),
-      pageSize: Math.min(Number(pageSize), 200),
+      pageSize: Math.min(Number(pageSize), 5000),
       filters,
     });
     return res.json({ success: true, ...result });
@@ -284,7 +284,7 @@ export async function getMyRows(req, res) {
     const result = await getMyBonusRows({
       userId,
       page: Number(page),
-      pageSize: Math.min(Number(pageSize), 200),
+      pageSize: Math.min(Number(pageSize), 5000),
       filters,
     });
     return res.json({ success: true, ...result });

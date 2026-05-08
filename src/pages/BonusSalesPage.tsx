@@ -209,7 +209,7 @@ export default function BonusSalesPage() {
   const [rows, setRows]         = useState<SalesRow[]>([]);
   const [total, setTotal]       = useState(0);
   const [page, setPage]         = useState(1);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 5000;
   const [loadingRows, setLoadingRows] = useState(false);
 
   // ── Filters ────────────────────────────────────────────────
