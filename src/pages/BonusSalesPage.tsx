@@ -28,13 +28,12 @@ interface SalesRow {
   invoiceDate: string | null;
   invoiceNo: string | null;
   quantity: number | null;
-  price: number | null;
   hasBonus: boolean;
   bonusQty: number | null;
   bonusValue: number | null;
-  total: number | null;
   repName: string | null;
   pharmacyName: string | null;
+  areaName: string | null;
   warehouse: string | null;
   isCompensated: boolean;
   compRowId: number | null;
@@ -64,33 +63,48 @@ function fmtNum(n: number | null) {
   return n.toLocaleString('ar-IQ');
 }
 
-const STATUS_COLORS = {
-  withBonus:        { bg: '#dcfce7', color: '#15803d', label: 'لديه بونص' },
-  compensated:      { bg: '#dbeafe', color: '#1d4ed8', label: 'معوَّض' },
-  noBonus:          { bg: '#fef9c3', color: '#854d0e', label: 'بدون بونص' },
-  delivered:        { bg: '#f0fdf4', color: '#166534', label: 'تم التسليم' },
-  notDelivered:     { bg: '#fef2f2', color: '#991b1b', label: 'لم يُسلَّم' },
-};
-
-function BonusStatusBadge({ row }: { row: SalesRow }) {
-  if (row.hasBonus) {
-    const s = STATUS_COLORS.withBonus;
-    return <span style={{ background: s.bg, color: s.color, borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>{s.label}</span>;
-  }
-  if (row.isCompensated) {
-    const s = STATUS_COLORS.compensated;
-    return <span style={{ background: s.bg, color: s.color, borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>{s.label}</span>;
-  }
-  const s = STATUS_COLORS.noBonus;
-  return <span style={{ background: s.bg, color: s.color, borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>{s.label}</span>;
-}
-
-function DeliveryBadge({ row }: { row: SalesRow }) {
+function CombinedStatus({ row, canManage, onDeliver, onUndeliver }: {
+  row: SalesRow;
+  canManage: boolean;
+  onDeliver: (row: SalesRow) => void;
+  onUndeliver: (id: number) => void;
+}) {
+  // Determine badge
+  let badge: { bg: string; color: string; label: string };
   if (row.bonusDelivered) {
-    return <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>✓ تم التسليم</span>;
+    badge = { bg: '#dcfce7', color: '#15803d', label: '✓ تم التسليم' };
+  } else if (row.hasBonus) {
+    badge = { bg: '#dcfce7', color: '#15803d', label: 'لديه بونص' };
+  } else if (row.isCompensated) {
+    badge = { bg: '#dbeafe', color: '#1d4ed8', label: 'معوَّض' };
+  } else {
+    badge = { bg: '#fef9c3', color: '#854d0e', label: 'بدون بونص' };
   }
-  return <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>⏳ لم يُسلَّم</span>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <span style={{ background: badge.bg, color: badge.color, borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{badge.label}</span>
+      {canManage && (row.hasBonus || row.isCompensated) && !row.bonusDelivered && (
+        <button onClick={() => onDeliver(row)}
+          style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#15803d', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          ✓ تسليم
+        </button>
+      )}
+      {canManage && row.bonusDelivered && (
+        <button onClick={() => onUndeliver(row.id)}
+          style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: '#dc2626', whiteSpace: 'nowrap' }}>
+          ✕ إلغاء
+        </button>
+      )}
+    </div>
+  );
 }
+
+// Compact table cell style
+const TC: React.CSSProperties = {
+  padding: '6px 8px', borderBottom: '1px solid #f1f5f9', fontSize: 11,
+  color: '#374151', whiteSpace: 'nowrap', textAlign: 'center',
+};
 
 // ─── Main Page ────────────────────────────────────────────────
 export default function BonusSalesPage() {
@@ -117,9 +131,7 @@ export default function BonusSalesPage() {
   const [loadingRows, setLoadingRows] = useState(false);
 
   // ── Filters ────────────────────────────────────────────────
-  const [filterPharmacy,     setFilterPharmacy]     = useState('');
-  const [filterRep,          setFilterRep]          = useState('');
-  const [filterItem,         setFilterItem]         = useState('');
+  const [smartSearch,        setSmartSearch]        = useState('');
   const [filterHasBonus,     setFilterHasBonus]     = useState('');
   const [filterCompensated,  setFilterCompensated]  = useState('');
   const [filterDelivered,    setFilterDelivered]    = useState('');
@@ -157,9 +169,7 @@ export default function BonusSalesPage() {
         page: String(pg),
         pageSize: String(PAGE_SIZE),
       };
-      if (filterPharmacy)    params.pharmacyName    = filterPharmacy;
-      if (filterRep)         params.repName         = filterRep;
-      if (filterItem)        params.itemName        = filterItem;
+      if (smartSearch)       params.search         = smartSearch;
       if (filterHasBonus    !== '') params.hasBonus      = filterHasBonus;
       if (filterCompensated !== '') params.isCompensated = filterCompensated;
       if (filterDelivered   !== '') params.bonusDelivered = filterDelivered;
@@ -170,7 +180,7 @@ export default function BonusSalesPage() {
       setPage(pg);
     } catch (_) { /* ignore */ }
     finally { setLoadingRows(false); }
-  }, [selectedUpload, filterPharmacy, filterRep, filterItem, filterHasBonus, filterCompensated, filterDelivered, H]);
+  }, [selectedUpload, smartSearch, filterHasBonus, filterCompensated, filterDelivered, H]);
 
   useEffect(() => {
     if (selectedUpload && tab === 'rows') loadRows(1);
@@ -423,99 +433,68 @@ export default function BonusSalesPage() {
                 ))}
               </div>
 
-              {/* Filters */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>الصيدلية</div>
-                  <input value={filterPharmacy} onChange={e => setFilterPharmacy(e.target.value)}
-                    placeholder="بحث..." style={{ border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', fontSize: 12, width: 130 }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>المندوب</div>
-                  <input value={filterRep} onChange={e => setFilterRep(e.target.value)}
-                    placeholder="بحث..." style={{ border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', fontSize: 12, width: 130 }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>الايتم</div>
-                  <input value={filterItem} onChange={e => setFilterItem(e.target.value)}
-                    placeholder="بحث..." style={{ border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', fontSize: 12, width: 130 }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>البونص</div>
-                  <select value={filterHasBonus} onChange={e => setFilterHasBonus(e.target.value)}
-                    style={{ border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', fontSize: 12 }}>
-                    <option value="">الكل</option>
-                    <option value="true">لديه بونص</option>
-                    <option value="false">بدون بونص</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>التعويض</div>
-                  <select value={filterCompensated} onChange={e => setFilterCompensated(e.target.value)}
-                    style={{ border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', fontSize: 12 }}>
-                    <option value="">الكل</option>
-                    <option value="true">معوَّض</option>
-                    <option value="false">غير معوَّض</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>التسليم</div>
-                  <select value={filterDelivered} onChange={e => setFilterDelivered(e.target.value)}
-                    style={{ border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', fontSize: 12 }}>
-                    <option value="">الكل</option>
-                    <option value="true">تم التسليم</option>
-                    <option value="false">لم يُسلَّم</option>
-                  </select>
-                </div>
-                <button onClick={() => loadRows(1)} style={{ background: '#1a56db', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🔍 بحث</button>
-                <button onClick={() => { setFilterPharmacy(''); setFilterRep(''); setFilterItem(''); setFilterHasBonus(''); setFilterCompensated(''); setFilterDelivered(''); setTimeout(() => loadRows(1), 50); }}
-                  style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 14px', fontSize: 12, cursor: 'pointer', color: '#475569' }}>إعادة ضبط</button>
+              {/* Smart search + filters */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  value={smartSearch}
+                  onChange={e => setSmartSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && loadRows(1)}
+                  placeholder="🔍  بحث بالصيدلية أو الايتم أو المنطقة أو المندوب أو المذخر..."
+                  style={{ flex: 1, minWidth: 220, padding: '7px 12px', borderRadius: 6, border: '1.5px solid #e2e8f0', fontSize: 12, background: '#f8fafc' }}
+                />
+                <select value={filterHasBonus} onChange={e => setFilterHasBonus(e.target.value)}
+                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
+                  <option value="">البونص: الكل</option>
+                  <option value="true">لديه بونص</option>
+                  <option value="false">بدون بونص</option>
+                </select>
+                <select value={filterCompensated} onChange={e => setFilterCompensated(e.target.value)}
+                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
+                  <option value="">التعويض: الكل</option>
+                  <option value="true">معوَّض</option>
+                  <option value="false">غير معوَّض</option>
+                </select>
+                <select value={filterDelivered} onChange={e => setFilterDelivered(e.target.value)}
+                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
+                  <option value="">التسليم: الكل</option>
+                  <option value="true">تم التسليم</option>
+                  <option value="false">لم يُسلَّم</option>
+                </select>
+                <button onClick={() => loadRows(1)} style={{ background: '#1e40af', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>بحث</button>
+                <button onClick={() => { setSmartSearch(''); setFilterHasBonus(''); setFilterCompensated(''); setFilterDelivered(''); setTimeout(() => loadRows(1), 50); }}
+                  style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#475569' }}>إعادة ضبط</button>
               </div>
 
               {/* Table */}
               {loadingRows ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div>
               ) : (
-                <div style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        {['الشركة','الايتم','الصيدلية','المذخر','المندوب','التاريخ','الرقم','العدد','السعر','المجموع','البونص','حالة البونص','التسليم','إجراء'].map(h => (
-                          <th key={h} style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
+                      <tr style={{ background: '#1e40af', color: '#fff' }}>
+                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','التاريخ','الرقم','العدد','البونص','الحالة'].map(h => (
+                          <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.length === 0 ? (
-                        <tr><td colSpan={14} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
+                        <tr><td colSpan={11} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
                       ) : rows.map((row, i) => (
-                        <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafbfc' }}>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{row.companyName ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.itemName ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.pharmacyName ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{row.warehouse ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{row.repName ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{row.invoiceNo ?? '—'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>{fmtNum(row.quantity)}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>{fmtNum(row.price)}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>{fmtNum(row.total)}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>{row.hasBonus ? fmtNum(row.bonusQty) : '—'}</td>
-                          <td style={{ padding: '8px 10px' }}><BonusStatusBadge row={row} /></td>
-                          <td style={{ padding: '8px 10px' }}><DeliveryBadge row={row} /></td>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                            {canManageDelivery && (row.hasBonus || row.isCompensated) && !row.bonusDelivered && (
-                              <button onClick={() => openDeliveryModal(row)}
-                                style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: '#15803d', fontWeight: 700 }}>
-                                ✓ تسليم
-                              </button>
-                            )}
-                            {canManageDelivery && row.bonusDelivered && (
-                              <button onClick={() => unmarkDelivery(row.id)}
-                                style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: '#dc2626' }}>
-                                ✕ إلغاء
-                              </button>
-                            )}
+                        <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                          <td style={TC}>{row.companyName ?? '—'}</td>
+                          <td style={{ ...TC, textAlign: 'right', minWidth: 160, whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
+                          <td style={TC}>{row.pharmacyName ?? '—'}</td>
+                          <td style={TC}>{row.areaName ?? '—'}</td>
+                          <td style={TC}>{row.warehouse ?? '—'}</td>
+                          <td style={TC}>{row.repName ?? '—'}</td>
+                          <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
+                          <td style={TC}>{row.invoiceNo ?? '—'}</td>
+                          <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.quantity)}</td>
+                          <td style={{ ...TC, textAlign: 'center' }}>{row.hasBonus ? fmtNum(row.bonusQty) : '—'}</td>
+                          <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
+                            <CombinedStatus row={row} canManage={canManageDelivery} onDeliver={openDeliveryModal} onUndeliver={unmarkDelivery} />
                           </td>
                         </tr>
                       ))}
@@ -580,47 +559,33 @@ export default function BonusSalesPage() {
                 ))}
               </div>
 
-              <div style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      {['الصيدلية','الايتم','المندوب','التاريخ','الرقم','كمية البونص','نوع البونص','حالة التسليم','تسلَّم بواسطة','تاريخ التسليم','ملاحظة','إجراء'].map(h => (
-                        <th key={h} style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
+                    <tr style={{ background: '#1e40af', color: '#fff' }}>
+                      {['الصيدلية','المنطقة','الايتم','المندوب','التاريخ','الرقم','كمية البونص','الحالة','تسلَّم بواسطة','تاريخ التسليم','ملاحظة'].map(h => (
+                        <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {deliveryRows.length === 0 ? (
-                      <tr><td colSpan={12} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد فواتير بونص في هذا الملف</td></tr>
+                      <tr><td colSpan={11} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد فواتير بونص في هذا الملف</td></tr>
                     ) : deliveryRows.map((row, i) => (
-                      <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: row.bonusDelivered ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#fafbfc') }}>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.pharmacyName ?? '—'}</td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.itemName ?? '—'}</td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{row.repName ?? '—'}</td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{row.invoiceNo ?? '—'}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>{fmtNum(row.bonusQty)}</td>
-                        <td style={{ padding: '8px 10px' }}><BonusStatusBadge row={row} /></td>
-                        <td style={{ padding: '8px 10px' }}><DeliveryBadge row={row} /></td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                          {row.deliveredByUser ? (row.deliveredByUser.displayName ?? row.deliveredByUser.username) : '—'}
+                      <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: row.bonusDelivered ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
+                        <td style={TC}>{row.pharmacyName ?? '—'}</td>
+                        <td style={TC}>{row.areaName ?? '—'}</td>
+                        <td style={{ ...TC, textAlign: 'right', minWidth: 160, whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
+                        <td style={TC}>{row.repName ?? '—'}</td>
+                        <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
+                        <td style={TC}>{row.invoiceNo ?? '—'}</td>
+                        <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.bonusQty)}</td>
+                        <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
+                          <CombinedStatus row={row} canManage={canManageDelivery} onDeliver={openDeliveryModal} onUndeliver={unmarkDelivery} />
                         </td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtDate(row.deliveredAt)}</td>
-                        <td style={{ padding: '8px 10px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.deliveryNote ?? '—'}</td>
-                        <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
-                          {canManageDelivery && !row.bonusDelivered && (
-                            <button onClick={() => openDeliveryModal(row)}
-                              style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '5px 12px', fontSize: 11, cursor: 'pointer', color: '#15803d', fontWeight: 700 }}>
-                              ✓ تأشير التسليم
-                            </button>
-                          )}
-                          {canManageDelivery && row.bonusDelivered && (
-                            <button onClick={() => unmarkDelivery(row.id)}
-                              style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', color: '#dc2626' }}>
-                              ✕ إلغاء
-                            </button>
-                          )}
-                        </td>
+                        <td style={TC}>{row.deliveredByUser ? (row.deliveredByUser.displayName ?? row.deliveredByUser.username) : '—'}</td>
+                        <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.deliveredAt)}</td>
+                        <td style={{ ...TC, maxWidth: 100 }}>{row.deliveryNote ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>

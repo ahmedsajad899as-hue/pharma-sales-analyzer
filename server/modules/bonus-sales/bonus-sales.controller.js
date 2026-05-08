@@ -70,10 +70,11 @@ export async function deleteSalesUpload(req, res) {
 // ─── Get paginated sales rows ─────────────────────────────────
 export async function getSalesRows(req, res) {
   try {
-    const { uploadId, page = 1, pageSize = 50, pharmacyName, repName, itemName, hasBonus, isCompensated, bonusDelivered } = req.query;
+    const { uploadId, page = 1, pageSize = 50, search, pharmacyName, repName, itemName, hasBonus, isCompensated, bonusDelivered } = req.query;
     if (!uploadId) return res.status(400).json({ error: 'uploadId مطلوب' });
 
     const filters = {};
+    if (search)       filters.search       = search;
     if (pharmacyName) filters.pharmacyName = pharmacyName;
     if (repName)      filters.repName      = repName;
     if (itemName)     filters.itemName     = itemName;

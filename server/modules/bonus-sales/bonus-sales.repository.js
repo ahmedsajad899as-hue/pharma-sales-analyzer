@@ -43,6 +43,18 @@ export async function deleteSalesUploadById(id) {
 
 export async function getSalesRowsPage({ uploadId, page, pageSize, filters }) {
   const where = { uploadId: Number(uploadId) };
+
+  // Smart search: OR across pharmacy, item, area, rep, warehouse
+  if (filters.search) {
+    where.OR = [
+      { pharmacyName: { contains: filters.search, mode: 'insensitive' } },
+      { itemName:     { contains: filters.search, mode: 'insensitive' } },
+      { areaName:     { contains: filters.search, mode: 'insensitive' } },
+      { repName:      { contains: filters.search, mode: 'insensitive' } },
+      { warehouse:    { contains: filters.search, mode: 'insensitive' } },
+    ];
+  }
+
   if (filters.pharmacyName) where.pharmacyName = { contains: filters.pharmacyName, mode: 'insensitive' };
   if (filters.repName)      where.repName      = { contains: filters.repName,      mode: 'insensitive' };
   if (filters.itemName)     where.itemName     = { contains: filters.itemName,     mode: 'insensitive' };

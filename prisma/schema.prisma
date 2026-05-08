@@ -1304,6 +1304,7 @@ model BonusSalesRow {
   total        Float?    // المجموع
   repName      String?   // اسم المندوب
   pharmacyName String?   // اسم الصيدلية
+  areaName     String?   // المنطقة
   warehouse    String?   // المذخر
   extraData    String?   // JSON — أي أعمدة إضافية في الملف
 

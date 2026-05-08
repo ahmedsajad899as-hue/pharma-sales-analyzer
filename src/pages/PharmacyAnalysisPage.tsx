@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Types ─────────────────────────────────────────────────────
 interface UpFile { id: number; originalName: string; uploadedAt: string; rowCount: number; }
 
 interface PharmacySummary {
@@ -35,7 +35,7 @@ interface PharmacyDetail {
   byItem: { name: string; orders: any[]; totalQty: number; totalValue: number }[];
 }
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ───────────────────────────────────────────────────
 function fmt(n: number) { return n.toLocaleString('ar-IQ'); }
 function fmtDate(d: string) {
   try { return new Date(d).toLocaleDateString('ar-IQ', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
@@ -49,14 +49,14 @@ function dayColor(d: number): { bg: string; color: string } {
 }
 
 const TABS = [
-  { id: 'pharmacies', label: 'Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ§Øª',  icon: 'ðŸª' },
-  { id: 'items',      label: 'Ø§Ù„Ø§ÙŠØªÙ…Ø§Øª',   icon: 'ðŸ’Š' },
-  { id: 'alerts',     label: 'Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡Ø§Øª',  icon: 'ðŸ””' },
+  { id: 'pharmacies', label: 'الصيدليات',  icon: '🏪' },
+  { id: 'items',      label: 'الايتمات',   icon: '💊' },
+  { id: 'alerts',     label: 'التنبيهات',  icon: '🔔' },
 ] as const;
 type Tab = typeof TABS[number]['id'];
 type GroupBy = 'none' | 'area' | 'rep';
 
-// â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main Page ─────────────────────────────────────────────────
 export default function PharmacyAnalysisPage() {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
@@ -100,22 +100,22 @@ export default function PharmacyAnalysisPage() {
   const searchTimer    = useRef<ReturnType<typeof setTimeout>>();
 
   const uploadFile = useCallback(async (file: File) => {
-    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { setUploadMsg({ ok: false, text: 'ÙŠÙØ³Ù…Ø­ ÙÙ‚Ø· Ø¨Ù€ Excel Ø£Ùˆ CSV' }); return; }
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { setUploadMsg({ ok: false, text: 'يُسمح فقط بـ Excel أو CSV' }); return; }
     setUploading(true); setUploadMsg(null);
     const fd = new FormData(); fd.append('file', file); fd.append('fileType', 'sales');
     try {
       const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || 'ÙØ´Ù„ Ø§Ù„Ø±ÙØ¹');
+      if (!res.ok) throw new Error(data.message || data.error || 'فشل الرفع');
       const newId = data.data?.uploadedFile?.id ?? data.uploadedFile?.id;
-      setUploadMsg({ ok: true, text: `ØªÙ… Ø±ÙØ¹ ${file.name} â€” ${data.data?.rowCount ?? ''} Ø³Ø¬Ù„` });
+      setUploadMsg({ ok: true, text: `تم رفع ${file.name} — ${data.data?.rowCount ?? ''} سجل` });
       const r2 = await fetch(`${API}/api/files`, { headers: { Authorization: `Bearer ${token}` } });
       const d2 = await r2.json();
       const all: UpFile[] = Array.isArray(d2.data) ? d2.data : [];
       setFiles(all);
       setSelFiles(prev => { const s = new Set(prev); if (newId) s.add(newId); return s; });
       setTimeout(() => setUploadMsg(null), 7000);
-    } catch (e: any) { setUploadMsg({ ok: false, text: e.message || 'Ø­Ø¯Ø« Ø®Ø·Ø£' }); }
+    } catch (e: any) { setUploadMsg({ ok: false, text: e.message || 'حدث خطأ' }); }
     finally { setUploading(false); }
   }, [token]);
 
@@ -188,43 +188,43 @@ export default function PharmacyAnalysisPage() {
     !alertSearch || a.pharmaName.includes(alertSearch) || a.itemName.includes(alertSearch) || a.areaName.includes(alertSearch)
   );
 
-  // â”€â”€ Group pharmacies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Group pharmacies ─────────────────────────────────────────
   type Group = { key: string; label: string; rows: PharmacySummary[] };
   const grouped: Group[] = (() => {
     if (groupBy === 'none') return [{ key: '__all__', label: '', rows: pharmacies }];
     const map = new Map<string, PharmacySummary[]>();
     for (const p of pharmacies) {
       const key = groupBy === 'area'
-        ? (p.areaName?.trim() || 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯')
-        : (((p as any).repName as string)?.trim() || 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯');
+        ? (p.areaName?.trim() || 'غير محدد')
+        : (((p as any).repName as string)?.trim() || 'غير محدد');
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([k, rows]) => ({ key: k, label: k, rows }));
   })();
 
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─────────────────────────────────────────────────────────────
   return (
     <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
 
-      {/* â”€â”€ Page Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Page Header ────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>ðŸ”¬</div>
+        <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🔬</div>
         <div>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>ØªØ­Ù„ÙŠÙ„ Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ§Øª ÙˆØ§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª</h1>
-          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>ØªØ­Ù„ÙŠÙ„ Ø´Ø§Ù…Ù„ Ø¹Ø¨Ø± Ø§Ù„Ù…Ù„ÙØ§Øª Ø§Ù„Ù…Ø±ÙÙˆØ¹Ø©</p>
+          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>تحليل الصيدليات والمبيعات</h1>
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>تحليل شامل عبر الملفات المرفوعة</p>
         </div>
       </div>
 
-      {/* â”€â”€ File Selector card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── File Selector card ──────────────────────────────── */}
       <div style={CARD}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>Ø§Ù„Ù…Ù„ÙØ§Øª:</span>
-          <button onClick={() => setSelFiles(new Set(files.map(f => f.id)))} style={PILL_BTN('#eff6ff','#1d4ed8')}>ØªØ­Ø¯ÙŠØ¯ Ø§Ù„ÙƒÙ„</button>
-          <button onClick={() => setSelFiles(new Set())}                     style={PILL_BTN('#f1f5f9','#64748b')}>Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ÙƒÙ„</button>
-          <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{selFiles.size} / {files.length} Ù…Ù„Ù</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>الملفات:</span>
+          <button onClick={() => setSelFiles(new Set(files.map(f => f.id)))} style={PILL_BTN('#eff6ff','#1d4ed8')}>تحديد الكل</button>
+          <button onClick={() => setSelFiles(new Set())}                     style={PILL_BTN('#f1f5f9','#64748b')}>إلغاء الكل</button>
+          <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{selFiles.size} / {files.length} ملف</span>
         </div>
-        {filesLoading ? <span style={{ fontSize: 12, color: '#94a3b8' }}>Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</span> : (
+        {filesLoading ? <span style={{ fontSize: 12, color: '#94a3b8' }}>جاري التحميل...</span> : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {files.map(f => (
               <div key={f.id} onClick={() => toggleFile(f.id)} style={{
@@ -234,11 +234,11 @@ export default function PharmacyAnalysisPage() {
                 color: selFiles.has(f.id) ? '#1e40af' : '#6b7280',
                 fontWeight: selFiles.has(f.id) ? 600 : 400,
               }}>
-                {selFiles.has(f.id) ? 'âœ“ ' : ''}{f.originalName}
+                {selFiles.has(f.id) ? '✓ ' : ''}{f.originalName}
                 <span style={{ opacity: .55, marginRight: 4 }}>({f.rowCount})</span>
               </div>
             ))}
-            {files.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù„ÙØ§Øª</span>}
+            {files.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد ملفات</span>}
           </div>
         )}
 
@@ -246,7 +246,7 @@ export default function PharmacyAnalysisPage() {
         <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 10, paddingTop: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={() => setShowUpload(v => !v)} style={{ ...PILL_BTN('#f5f3ff','#6d28d9'), border: '1.5px dashed #a5b4fc' }}>
-              {showUpload ? 'âœ• Ø¥Ø®ÙØ§Ø¡' : 'â¬† Ø±ÙØ¹ Ù…Ù„Ù Ø¬Ø¯ÙŠØ¯'}
+              {showUpload ? '✕ إخفاء' : '⬆ رفع ملف جديد'}
             </button>
             {uploadMsg && <span style={{ fontSize: 12, color: uploadMsg.ok ? '#16a34a' : '#dc2626' }}>{uploadMsg.text}</span>}
           </div>
@@ -260,15 +260,15 @@ export default function PharmacyAnalysisPage() {
               <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) { uploadFile(f); e.target.value = ''; } }} />
               {uploading
-                ? <span style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>â³ Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø±ÙØ¹...</span>
-                : <><div style={{ fontSize: 11, fontWeight: 600, color: '#4f46e5' }}>Ø§Ø³Ø­Ø¨ ÙˆØ£ÙÙ„Øª Ø£Ùˆ Ø§Ø¶ØºØ· Ù„Ù„Ø§Ø®ØªÙŠØ§Ø±</div><div style={{ fontSize: 10, color: '#94a3b8' }}>.xlsx / .xls / .csv</div></>
+                ? <span style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>⏳ جاري الرفع...</span>
+                : <><div style={{ fontSize: 11, fontWeight: 600, color: '#4f46e5' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: '#94a3b8' }}>.xlsx / .xls / .csv</div></>
               }
             </div>
           )}
         </div>
       </div>
 
-      {/* â”€â”€ Tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Tabs ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0' }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setSelectedPharma(null); setSelectedItem(null); }} style={{
@@ -286,19 +286,19 @@ export default function PharmacyAnalysisPage() {
         ))}
       </div>
 
-      {/* â•â•â•â•â•â•â•â• PHARMACIES TAB â•â•â•â•â•â•â•â• */}
+      {/* ════════ PHARMACIES TAB ════════ */}
       {tab === 'pharmacies' && !selectedPharma && (
         <div>
           {/* Toolbar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}
-              placeholder="Ø¨Ø­Ø« Ø¨Ø§Ø³Ù… Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ© Ø£Ùˆ Ø§Ù„Ù…Ù†Ø·Ù‚Ø©..."
+              placeholder="بحث باسم الصيدلية أو المنطقة..."
               style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
 
             {/* Group by */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 4px' }}>
-              <span style={{ fontSize: 11, color: '#6b7280', padding: '0 6px' }}>ØªØ¬Ù…ÙŠØ¹:</span>
-              {([['none','Ø¨Ø¯ÙˆÙ†'],['area','Ø§Ù„Ù…Ù†Ø·Ù‚Ø©'],['rep','Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨']] as [GroupBy,string][]).map(([v, label]) => (
+              <span style={{ fontSize: 11, color: '#6b7280', padding: '0 6px' }}>تجميع:</span>
+              {([['none','بدون'],['area','المنطقة'],['rep','المندوب']] as [GroupBy,string][]).map(([v, label]) => (
                 <button key={v} onClick={() => setGroupBy(v)} style={{
                   padding: '4px 10px', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
                   background: groupBy === v ? '#1e40af' : 'transparent',
@@ -307,8 +307,8 @@ export default function PharmacyAnalysisPage() {
               ))}
             </div>
 
-            <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#374151' }}>â†» ØªØ­Ø¯ÙŠØ«</button>
-            <span style={{ fontSize: 12, color: '#6b7280' }}>{pharmacies.length} ØµÙŠØ¯Ù„ÙŠØ©</span>
+            <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#374151' }}>↻ تحديث</button>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>{pharmacies.length} صيدلية</span>
           </div>
 
           {pharmaLoading ? <Loader /> : (
@@ -318,14 +318,14 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 160 }}>Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ©</th>
-                    <th style={TH}>Ø§Ù„Ù…Ù†Ø·Ù‚Ø©</th>
-                    <th style={TH}>Ø§Ù„Ø·Ù„Ø¨ÙŠØ§Øª</th>
-                    <th style={TH}>Ø§Ù„ÙƒÙ…ÙŠØ©</th>
-                    <th style={TH}>Ø§Ù„Ù‚ÙŠÙ…Ø© (Ø¯.Ø¹)</th>
-                    <th style={TH}>Ø§Ù„Ø§ÙŠØªÙ…Ø§Øª</th>
-                    <th style={TH}>Ø¢Ø®Ø± Ø·Ù„Ø¨ÙŠØ©</th>
-                    <th style={TH}>Ø§Ù„Ø£ÙŠØ§Ù…</th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 160 }}>الصيدلية</th>
+                    <th style={TH}>المنطقة</th>
+                    <th style={TH}>الطلبيات</th>
+                    <th style={TH}>الكمية</th>
+                    <th style={TH}>القيمة (د.ع)</th>
+                    <th style={TH}>الايتمات</th>
+                    <th style={TH}>آخر طلبية</th>
+                    <th style={TH}>الأيام</th>
                     <th style={{ ...TH, width: 32 }}></th>
                   </tr>
                 </thead>
@@ -336,9 +336,9 @@ export default function PharmacyAnalysisPage() {
                       {groupBy !== 'none' && (
                         <tr key={`gh-${g.key}`} style={{ background: '#e8f0fe', cursor: 'pointer' }} onClick={() => toggleGroup(g.key)}>
                           <td colSpan={10} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: '#1e40af' }}>
-                            {collapsedGroups.has(g.key) ? 'â–¶' : 'â–¼'}&nbsp;
+                            {collapsedGroups.has(g.key) ? '▶' : '▼'}&nbsp;
                             {g.label}
-                            <span style={{ fontWeight: 400, color: '#6b7280', marginRight: 8, fontSize: 11 }}>({g.rows.length} ØµÙŠØ¯Ù„ÙŠØ©)</span>
+                            <span style={{ fontWeight: 400, color: '#6b7280', marginRight: 8, fontSize: 11 }}>({g.rows.length} صيدلية)</span>
                           </td>
                         </tr>
                       )}
@@ -355,7 +355,7 @@ export default function PharmacyAnalysisPage() {
                             >
                               <td style={TD} onClick={() => openPharma(p.name)}>{i + 1}</td>
                               <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }} onClick={() => openPharma(p.name)}>{p.name}</td>
-                              <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.areaName || 'â€”'}</td>
+                              <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.areaName || '—'}</td>
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
                               <td style={{ ...TD, textAlign: 'center', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmt(Math.round(p.totalValue))}</td>
@@ -365,7 +365,7 @@ export default function PharmacyAnalysisPage() {
                                 <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{p.daysSinceLast}</span>
                               </td>
                               <td style={{ ...TD, textAlign: 'center' }} onClick={() => toggleRow(p.name)}>
-                                <span style={{ fontSize: 10, color: '#94a3b8', cursor: 'pointer' }}>{expanded ? 'â–²' : 'â–¼'}</span>
+                                <span style={{ fontSize: 10, color: '#94a3b8', cursor: 'pointer' }}>{expanded ? '▲' : '▼'}</span>
                               </td>
                             </tr>
                             {/* Expanded: top items as small chips */}
@@ -373,13 +373,13 @@ export default function PharmacyAnalysisPage() {
                               <tr key={`exp-${p.name}`} style={{ background: '#f8fafc' }}>
                                 <td colSpan={10} style={{ padding: '8px 16px', borderBottom: '1px solid #e2e8f0' }}>
                                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Ø§Ù„Ø§ÙŠØªÙ…Ø§Øª:</span>
+                                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>الايتمات:</span>
                                     {p.topItems.map(it => (
                                       <span key={it.name} style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 4, padding: '2px 8px', fontSize: 11 }}>
-                                        {it.name}&nbsp;<b>Ã—{it.qty}</b>
+                                        {it.name}&nbsp;<b>×{it.qty}</b>
                                       </span>
                                     ))}
-                                    {p.topItems.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>â€”</span>}
+                                    {p.topItems.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>}
                                   </div>
                                 </td>
                               </tr>
@@ -390,7 +390,7 @@ export default function PharmacyAnalysisPage() {
                     </>
                   ))}
                   {pharmacies.length === 0 && (
-                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª. Ø§Ø±ÙØ¹ Ù…Ù„ÙØ§Øª Ù…Ø¨ÙŠØ¹Ø§Øª Ø£ÙˆÙ„Ø§Ù‹.</td></tr>
+                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات. ارفع ملفات مبيعات أولاً.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -399,30 +399,30 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* â”€â”€ Pharmacy Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Pharmacy Detail ───────────────────────────────── */}
       {tab === 'pharmacies' && selectedPharma && (
         <div>
-          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); }} style={BACK_BTN}>â† Ø±Ø¬ÙˆØ¹</button>
+          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); }} style={BACK_BTN}>← رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
             <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{selectedPharma}</h2>
             {pharmaDetailLoading ? <Loader /> : pharmaDetail && (
               <>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                  <KPI label="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨ÙŠØ§Øª" value={fmt(pharmaDetail.totalOrders)} />
+                  <KPI label="إجمالي الطلبيات" value={fmt(pharmaDetail.totalOrders)} />
                 </div>
                 {pharmaDetail.byItem.map(b => (
                   <div key={b.name} style={{ marginBottom: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: '#f1f5f9', borderRadius: '6px 6px 0 0', borderBottom: '1px solid #e2e8f0' }}>
                       <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{b.name}</span>
                       <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
-                        <span style={{ color: '#374151' }}>Ø§Ù„ÙƒÙ…ÙŠØ©: <b>{fmt(b.totalQty)}</b></span>
-                        <span style={{ color: '#047857' }}>Ø§Ù„Ù‚ÙŠÙ…Ø©: <b>{fmt(Math.round(b.totalValue))}</b></span>
+                        <span style={{ color: '#374151' }}>الكمية: <b>{fmt(b.totalQty)}</b></span>
+                        <span style={{ color: '#047857' }}>القيمة: <b>{fmt(Math.round(b.totalValue))}</b></span>
                       </div>
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: '#f8fafc' }}>
-                          {['Ø§Ù„ØªØ§Ø±ÙŠØ®','Ø§Ù„ÙƒÙ…ÙŠØ©','Ø§Ù„Ù‚ÙŠÙ…Ø©','Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨','Ø§Ù„Ù†ÙˆØ¹'].map(h => <th key={h} style={TH2}>{h}</th>)}
+                          {['التاريخ','الكمية','القيمة','المندوب','النوع'].map(h => <th key={h} style={TH2}>{h}</th>)}
                         </tr>
                       </thead>
                       <tbody>
@@ -431,10 +431,10 @@ export default function PharmacyAnalysisPage() {
                             <td style={TD2}>{fmtDate(o.date)}</td>
                             <td style={{ ...TD2, textAlign: 'center' }}>{fmt(o.qty)}</td>
                             <td style={{ ...TD2, textAlign: 'center', color: '#047857' }}>{fmt(o.value)}</td>
-                            <td style={TD2}>{o.rep || 'â€”'}</td>
+                            <td style={TD2}>{o.rep || '—'}</td>
                             <td style={TD2}>
                               <span style={{ background: o.type === 'return' ? '#fee2e2' : '#dcfce7', color: o.type === 'return' ? '#dc2626' : '#15803d', borderRadius: 4, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
-                                {o.type === 'return' ? 'Ù…Ø±ØªØ¬Ø¹' : 'Ø¨ÙŠØ¹'}
+                                {o.type === 'return' ? 'مرتجع' : 'بيع'}
                               </span>
                             </td>
                           </tr>
@@ -449,14 +449,14 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â• ITEMS TAB â•â•â•â•â•â•â•â• */}
+      {/* ════════ ITEMS TAB ════════ */}
       {tab === 'items' && !selectedItem && (
         <div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input value={itemSearch} onChange={e => onItemSearch(e.target.value)} placeholder="Ø¨Ø­Ø« Ø¨Ø§Ø³Ù… Ø§Ù„Ø§ÙŠØªÙ…..."
+            <input value={itemSearch} onChange={e => onItemSearch(e.target.value)} placeholder="بحث باسم الايتم..."
               style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
-            <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>â†» ØªØ­Ø¯ÙŠØ«</button>
-            <span style={{ fontSize: 12, color: '#6b7280' }}>{items.length} Ø§ÙŠØªÙ…</span>
+            <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻ تحديث</button>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>{items.length} ايتم</span>
           </div>
           {itemsLoading ? <Loader /> : (
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
@@ -464,12 +464,12 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 180 }}>Ø§Ù„Ø§ÙŠØªÙ…</th>
-                    <th style={TH}>Ø§Ù„ÙƒÙ…ÙŠØ©</th>
-                    <th style={TH}>Ø§Ù„Ù‚ÙŠÙ…Ø© (Ø¯.Ø¹)</th>
-                    <th style={TH}>Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ§Øª</th>
-                    <th style={TH}>Ø£ÙˆÙ„ Ø·Ù„Ø¨ÙŠØ©</th>
-                    <th style={TH}>Ø¢Ø®Ø± Ø·Ù„Ø¨ÙŠØ©</th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 180 }}>الايتم</th>
+                    <th style={TH}>الكمية</th>
+                    <th style={TH}>القيمة (د.ع)</th>
+                    <th style={TH}>الصيدليات</th>
+                    <th style={TH}>أول طلبية</th>
+                    <th style={TH}>آخر طلبية</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -488,7 +488,7 @@ export default function PharmacyAnalysisPage() {
                       <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.lastOrder)}</td>
                     </tr>
                   ))}
-                  {items.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª.</td></tr>}
+                  {items.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -496,22 +496,22 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* â”€â”€ Item Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Item Detail ───────────────────────────────────── */}
       {tab === 'items' && selectedItem && (
         <div>
-          <button onClick={() => { setSelectedItem(null); setItemDetail(null); }} style={BACK_BTN}>â† Ø±Ø¬ÙˆØ¹</button>
+          <button onClick={() => { setSelectedItem(null); setItemDetail(null); }} style={BACK_BTN}>← رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
             <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{selectedItem}</h2>
             {itemDetailLoading ? <Loader /> : itemDetail && (
               <>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                  <KPI label="Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ§Øª" value={fmt(itemDetail.pharmacies?.length || 0)} />
-                  <KPI label="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø·Ù„Ø¨ÙŠØ§Øª" value={fmt(itemDetail.totalOrders || 0)} />
+                  <KPI label="الصيدليات" value={fmt(itemDetail.pharmacies?.length || 0)} />
+                  <KPI label="إجمالي الطلبيات" value={fmt(itemDetail.totalOrders || 0)} />
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: '#f1f5f9' }}>
-                      {['Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ©','Ø§Ù„Ù…Ù†Ø·Ù‚Ø©','Ø§Ù„ÙƒÙ…ÙŠØ©','Ø¢Ø®Ø± Ø·Ù„Ø¨ÙŠØ©','Ø§Ù„Ø£ÙŠØ§Ù…'].map(h => <th key={h} style={TH2}>{h}</th>)}
+                      {['الصيدلية','المنطقة','الكمية','آخر طلبية','الأيام'].map(h => <th key={h} style={TH2}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -521,7 +521,7 @@ export default function PharmacyAnalysisPage() {
                       return (
                         <tr key={ph.name} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                           <td style={{ ...TD2, fontWeight: 600 }}>{ph.name}</td>
-                          <td style={{ ...TD2, color: '#6b7280' }}>{ph.areaName || 'â€”'}</td>
+                          <td style={{ ...TD2, color: '#6b7280' }}>{ph.areaName || '—'}</td>
                           <td style={{ ...TD2, textAlign: 'center' }}>{fmt(ph.totalQty)}</td>
                           <td style={{ ...TD2, color: '#6b7280' }}>{fmtDate(ph.lastOrder)}</td>
                           <td style={{ ...TD2, textAlign: 'center' }}>
@@ -538,25 +538,25 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â• ALERTS TAB â•â•â•â•â•â•â•â• */}
+      {/* ════════ ALERTS TAB ════════ */}
       {tab === 'alerts' && (
         <div>
           {/* Alert controls */}
           <div style={{ ...CARD, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Ø­Ø¯ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡:</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>حد التنبيه:</span>
             {[14, 30, 60, 90].map(d => (
               <button key={d} onClick={() => setAlertDays(d)} style={{
                 padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12,
                 background: alertDays === d ? '#1e40af' : '#f1f5f9',
                 color: alertDays === d ? '#fff' : '#374151', fontWeight: alertDays === d ? 700 : 500,
-              }}>{d} ÙŠÙˆÙ…</button>
+              }}>{d} يوم</button>
             ))}
             <input type="number" value={alertDays} min={1} max={365} onChange={e => setAlertDays(Number(e.target.value))}
               style={{ width: 64, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center' }} />
-            <input value={alertSearch} onChange={e => setAlertSearch(e.target.value)} placeholder="Ø¨Ø­Ø«..."
+            <input value={alertSearch} onChange={e => setAlertSearch(e.target.value)} placeholder="بحث..."
               style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, marginRight: 'auto' }} />
-            <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>â†»</button>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{filteredAlerts.length} ØªÙ†Ø¨ÙŠÙ‡</span>
+            <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻</button>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>{filteredAlerts.length} تنبيه</span>
           </div>
 
           {alertsLoading ? <Loader /> : (
@@ -564,7 +564,7 @@ export default function PharmacyAnalysisPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
-                    {['Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ©','Ø§Ù„Ø§ÙŠØªÙ…','Ø§Ù„Ù…Ù†Ø·Ù‚Ø©','Ø§Ù„ÙƒÙ…ÙŠØ© Ø§Ù„Ø³Ø§Ø¨Ù‚Ø©','Ø§Ù„Ø·Ù„Ø¨ÙŠØ§Øª','Ø¢Ø®Ø± Ø·Ù„Ø¨ÙŠØ©','Ø§Ù„Ø£ÙŠØ§Ù…'].map(h => <th key={h} style={TH}>{h}</th>)}
+                    {['الصيدلية','الايتم','المنطقة','الكمية السابقة','الطلبيات','آخر طلبية','الأيام'].map(h => <th key={h} style={TH}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -574,7 +574,7 @@ export default function PharmacyAnalysisPage() {
                       <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                         <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }}>{a.pharmaName}</td>
                         <td style={TD}>{a.itemName}</td>
-                        <td style={{ ...TD, color: '#6b7280' }}>{a.areaName || 'â€”'}</td>
+                        <td style={{ ...TD, color: '#6b7280' }}>{a.areaName || '—'}</td>
                         <td style={{ ...TD, textAlign: 'center' }}>{fmt(a.totalQty)}</td>
                         <td style={{ ...TD, textAlign: 'center' }}>{a.orderCount}</td>
                         <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(a.lastOrder)}</td>
@@ -586,7 +586,7 @@ export default function PharmacyAnalysisPage() {
                   })}
                   {filteredAlerts.length === 0 && (
                     <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>
-                      {alertSearch ? 'Ù„Ø§ ÙŠÙˆØ¬Ø¯ ØªÙ†Ø¨ÙŠÙ‡ ÙŠØ·Ø§Ø¨Ù‚ Ø§Ù„Ø¨Ø­Ø«.' : `Ù„Ø§ ØªÙˆØ¬Ø¯ ØµÙŠØ¯Ù„ÙŠØ© Ù…ØªØ£Ø®Ø±Ø© Ø¹Ù† ${alertDays} ÙŠÙˆÙ…. âœ…`}
+                      {alertSearch ? 'لا يوجد تنبيه يطابق البحث.' : `لا توجد صيدلية متأخرة عن ${alertDays} يوم. ✅`}
                     </td></tr>
                   )}
                 </tbody>
@@ -599,7 +599,7 @@ export default function PharmacyAnalysisPage() {
   );
 }
 
-// â”€â”€ Small reusable components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Small reusable components ─────────────────────────────────
 function KPI({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 14px' }}>
@@ -613,12 +613,12 @@ function Loader() {
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 100, color: '#94a3b8', gap: 8 }}>
       <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2.5px solid #dde3ef', borderTopColor: '#1e40af', animation: 'spin .7s linear infinite' }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <span style={{ fontSize: 13 }}>Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...</span>
+      <span style={{ fontSize: 13 }}>جاري التحميل...</span>
     </div>
   );
 }
 
-// â”€â”€ Style constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Style constants ───────────────────────────────────────────
 const CARD: React.CSSProperties = {
   background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
   padding: '12px 16px', marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,.04)',

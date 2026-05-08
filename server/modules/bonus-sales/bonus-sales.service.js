@@ -38,6 +38,7 @@ const COL_ALIASES = {
   total:        ['المجموع', 'total', 'مجموع', 'الإجمالي', 'اجمالي', 'المبلغ'],
   repName:      ['المندوب', 'rep', 'مندوب', 'اسم المندوب', 'rep name', 'sales rep'],
   pharmacyName: ['الصيدلية', 'pharmacy', 'صيدلية', 'صيدليه', 'اسم الصيدلية', 'pharmacy name', 'customer'],
+  areaName:     ['المنطقة', 'منطقة', 'area', 'region', 'المنطقه', 'الحي', 'منطقة العمل'],
   warehouse:    ['المذخر', 'مذخر', 'warehouse', 'مستودع', 'depot', 'مخزن'],
 };
 
@@ -135,6 +136,7 @@ export function parseFile(buffer, originalName) {
       total:        toFloat(get('total')),
       repName:      String(get('repName')      ?? '').trim() || null,
       pharmacyName: String(get('pharmacyName') ?? '').trim() || null,
+      areaName:     String(get('areaName')     ?? '').trim() || null,
       warehouse:    String(get('warehouse')    ?? '').trim() || null,
       extraData:    Object.keys(extra).length ? JSON.stringify(extra) : null,
     });

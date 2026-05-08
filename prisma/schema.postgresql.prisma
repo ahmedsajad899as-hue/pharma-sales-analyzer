@@ -1361,6 +1361,7 @@ model BonusSalesRow {
   total        Float?
   repName      String?
   pharmacyName String?
+  areaName     String?
   warehouse    String?
   extraData    String?
 
