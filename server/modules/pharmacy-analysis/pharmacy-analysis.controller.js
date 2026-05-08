@@ -22,6 +22,14 @@ function buildUserFilter(userId) {
   return userId ? { userId } : {};
 }
 
+// Convert stored value to IQD (multiply by exchangeRate if file currency is USD)
+function toIQD(value, uploadedFile) {
+  if (!uploadedFile) return value || 0;
+  const rate = uploadedFile.exchangeRate || 1500;
+  const mode = uploadedFile.currencyMode || uploadedFile.detectedCurrency || 'IQD';
+  return mode === 'USD' ? (value || 0) * rate : (value || 0);
+}
+
 // ── GET /api/pharmacy-analysis/pharmacies ─────────────────────
 export async function listPharmacies(req, res, next) {
   try {
@@ -36,9 +44,10 @@ export async function listPharmacies(req, res, next) {
         quantity: true,
         totalValue: true,
         saleDate: true,
-        customer: { select: { id: true, name: true } },
-        area:     { select: { id: true, name: true } },
-        item:     { select: { id: true, name: true } },
+        customer:     { select: { id: true, name: true } },
+        area:         { select: { id: true, name: true } },
+        item:         { select: { id: true, name: true } },
+        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
         rawData:  true,
       },
     });
@@ -82,9 +91,10 @@ export async function listPharmacies(req, res, next) {
         });
       }
       const p = map.get(pharmaName);
+      const iqd = toIQD(s.totalValue, s.uploadedFile);
       p.totalOrders++;
       p.totalQty   += s.quantity;
-      p.totalValue += s.totalValue;
+      p.totalValue += iqd;
       if (new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
       if (new Date(s.saleDate) > new Date(p.lastOrder))  p.lastOrder  = s.saleDate;
       if (!p.areaName && areaName) p.areaName = areaName;
@@ -93,7 +103,7 @@ export async function listPharmacies(req, res, next) {
       if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
       const ip = p.items.get(iName);
       ip.qty   += s.quantity;
-      ip.value += s.totalValue;
+      ip.value += iqd;
       ip.count++;
     }
 
@@ -129,10 +139,11 @@ export async function pharmacyDetail(req, res, next) {
       where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
-        customer: { select: { id: true, name: true } },
-        area:     { select: { id: true, name: true } },
-        item:     { select: { id: true, name: true } },
+        customer:     { select: { id: true, name: true } },
+        area:         { select: { id: true, name: true } },
+        item:         { select: { id: true, name: true } },
         representative: { select: { id: true, name: true } },
+        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
         rawData: true,
       },
       orderBy: { saleDate: 'desc' },
@@ -167,7 +178,7 @@ export async function pharmacyDetail(req, res, next) {
         areaName:   s.area?.name || '',
         repName:    s.representative?.name || '',
         quantity:   s.quantity,
-        totalValue: Math.round(s.totalValue),
+        totalValue: Math.round(toIQD(s.totalValue, s.uploadedFile)),
         saleDate:   s.saleDate,
         recordType: s.recordType,
       };
@@ -211,9 +222,10 @@ export async function listItems(req, res, next) {
       where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
       select: {
         quantity: true, totalValue: true, saleDate: true,
-        item:     { select: { id: true, name: true } },
-        customer: { select: { id: true, name: true } },
-        area:     { select: { id: true, name: true } },
+        item:         { select: { id: true, name: true } },
+        customer:     { select: { id: true, name: true } },
+        area:         { select: { id: true, name: true } },
+        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
         rawData:  true,
       },
     });
@@ -231,10 +243,11 @@ export async function listItems(req, res, next) {
       if (seenItemSales.has(dedupKey)) continue;
       seenItemSales.add(dedupKey);
 
+      const iqdVal = toIQD(s.totalValue, s.uploadedFile);
       if (!map.has(iName)) map.set(iName, { name: iName, pharmacies: new Map(), totalQty: 0, totalValue: 0, firstOrder: s.saleDate, lastOrder: s.saleDate });
       const it = map.get(iName);
       it.totalQty   += s.quantity;
-      it.totalValue += s.totalValue;
+      it.totalValue += iqdVal;
       if (new Date(s.saleDate) < new Date(it.firstOrder)) it.firstOrder = s.saleDate;
       if (new Date(s.saleDate) > new Date(it.lastOrder))  it.lastOrder  = s.saleDate;
 
@@ -250,7 +263,7 @@ export async function listItems(req, res, next) {
       if (!it.pharmacies.has(pharmaName)) it.pharmacies.set(pharmaName, { name: pharmaName, areaName: s.area?.name || '', qty: 0, value: 0 });
       const ph = it.pharmacies.get(pharmaName);
       ph.qty   += s.quantity;
-      ph.value += s.totalValue;
+      ph.value += iqdVal;
     }
 
     const result = [...map.values()].map(it => ({
@@ -282,6 +295,7 @@ export async function itemDetail(req, res, next) {
         customer:       { select: { id: true, name: true } },
         area:           { select: { id: true, name: true } },
         representative: { select: { id: true, name: true } },
+        uploadedFile:   { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
         rawData: true,
       },
       orderBy: { saleDate: 'desc' },
@@ -323,9 +337,10 @@ export async function itemDetail(req, res, next) {
         });
       }
       const p = byPharma.get(pharmaName);
-      p.orders.push({ date: s.saleDate, qty: s.quantity, value: Math.round(s.totalValue), rep: s.representative?.name || '', type: s.recordType });
+      const iqd2 = Math.round(toIQD(s.totalValue, s.uploadedFile));
+      p.orders.push({ date: s.saleDate, qty: s.quantity, value: iqd2, rep: s.representative?.name || '', type: s.recordType });
       p.totalQty   += s.quantity;
-      p.totalValue += Math.round(s.totalValue);
+      p.totalValue += iqd2;
       if (new Date(s.saleDate) > new Date(p.lastOrder)) p.lastOrder = s.saleDate;
     }
 
@@ -348,9 +363,10 @@ export async function getAlerts(req, res, next) {
       where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
       select: {
         quantity: true, totalValue: true, saleDate: true,
-        item:     { select: { name: true } },
-        customer: { select: { name: true } },
-        area:     { select: { name: true } },
+        item:         { select: { name: true } },
+        customer:     { select: { name: true } },
+        area:         { select: { name: true } },
+        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
         rawData:  true,
       },
     });
