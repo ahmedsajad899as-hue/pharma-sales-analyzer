@@ -797,7 +797,7 @@ export default function BonusSalesPage() {
                           <input type="checkbox" onChange={e => setSelectedRowIds(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())}
                             checked={rows.length > 0 && selectedRowIds.size === rows.length} />
                         </th>}
-                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','التاريخ','الرقم','العدد','البونص','المُعيَّنون','الحالة'].map(h => (
+                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','العدد','البونص','التاريخ','الرقم','المُعيَّنون','الحالة'].map(h => (
                           <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
                         ))}
                       </tr>
@@ -817,10 +817,10 @@ export default function BonusSalesPage() {
                           <td style={TC}>{row.areaName ?? '—'}</td>
                           <td style={TC}>{row.warehouse ?? '—'}</td>
                           <td style={TC}>{row.repName ?? '—'}</td>
-                          <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
-                          <td style={TC}>{row.invoiceNo ?? '—'}</td>
                           <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.quantity)}</td>
                           <td style={{ ...TC, textAlign: 'center' }}>{row.hasBonus ? fmtNum(row.bonusQty) : '—'}</td>
+                          <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
+                          <td style={TC}>{row.invoiceNo ?? '—'}</td>
                           {/* Assigned reps column */}
                           <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
                             {row.assignments && row.assignments.length > 0 ? (

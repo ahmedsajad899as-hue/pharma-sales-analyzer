@@ -61,13 +61,17 @@ function toFloat(val) {
 function parseExcelDate(val) {
   if (val === null || val === undefined || val === '' || val === 0) return null;
   if (typeof val === 'number') {
+    // Excel date serial numbers: days since Jan 0, 1900 (with Excel's intentional 1900 leap-year bug)
+    // 25569 = days from Excel epoch (1900-01-01) to Unix epoch (1970-01-01)
+    if (val > 25569 && val < 100000) {
+      const d = new Date(Math.round((val - 25569) * 86400000));
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+    }
+    // Fallback: try XLSX SSF if available
     try {
       const d = XLSX.SSF.parse_date_code(val);
       if (d && d.y >= 2000) return new Date(d.y, d.m - 1, d.d);
     } catch (_) { /* ignore */ }
-    // Fallback: treat as milliseconds only if result is a reasonable year
-    const ms = new Date(val);
-    if (!isNaN(ms.getTime()) && ms.getFullYear() >= 2000) return ms;
     return null;
   }
   const str = String(val).trim();
@@ -146,13 +150,20 @@ export function parseFile(buffer, originalName) {
 
     const bonusRaw = get('bonusQty');
     const bonusQty = toFloat(bonusRaw);
+    // If explicit bonusQty column not found, check if a numeric total looks like bonus
     const hasBonus = bonusQty !== null && bonusQty > 0;
+
+    // Invoice number: may be stored as a number in Excel (e.g. 12345 → "12345")
+    const rawInvoiceNo = get('invoiceNo');
+    const invoiceNo = rawInvoiceNo !== null && rawInvoiceNo !== undefined && String(rawInvoiceNo).trim()
+      ? String(rawInvoiceNo).trim()
+      : null;
 
     rows.push({
       companyName:  String(get('companyName') ?? '').trim() || null,
       itemName:     String(get('itemName')    ?? '').trim() || null,
       invoiceDate:  parseExcelDate(get('invoiceDate')),
-      invoiceNo:    String(get('invoiceNo')   ?? '').trim() || null,
+      invoiceNo,
       quantity:     toFloat(get('quantity')),
       price:        toFloat(get('price')),
       hasBonus,
