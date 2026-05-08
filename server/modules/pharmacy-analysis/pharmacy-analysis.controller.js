@@ -46,6 +46,9 @@ export async function listPharmacies(req, res, next) {
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
 
+    // Deduplicate: same row appearing in multiple uploaded files
+    const seenSales = new Set();
+
     for (const s of sales) {
       // Resolve pharmacy name: customer.name → rawData.pharmacyName → rawData.customer
       let pharmaName = s.customer?.name;
@@ -56,6 +59,11 @@ export async function listPharmacies(req, res, next) {
         } catch {}
       }
       if (!pharmaName) continue;
+
+      // Skip duplicates from overlapping uploaded files
+      const dedupKey = [norm(pharmaName), norm(s.item?.name || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue].join('|');
+      if (seenSales.has(dedupKey)) continue;
+      seenSales.add(dedupKey);
 
       const areaName = s.area?.name || '';
 
@@ -167,7 +175,15 @@ export async function pharmacyDetail(req, res, next) {
 
     // Group by item
     const byItem = new Map();
-    for (const r of rows) {
+    // Deduplicate rows from multiple overlapping uploaded files
+    const seenRows = new Set();
+    const dedupedRows = rows.filter(r => {
+      const k = [norm(r.pharmaName), norm(r.itemName), r.saleDate ? new Date(r.saleDate).toISOString().slice(0, 10) : '', r.quantity, r.totalValue, r.recordType, norm(r.repName)].join('|');
+      if (seenRows.has(k)) return false;
+      seenRows.add(k);
+      return true;
+    });
+    for (const r of dedupedRows) {
       if (!byItem.has(r.itemName)) byItem.set(r.itemName, { name: r.itemName, orders: [], totalQty: 0, totalValue: 0 });
       const b = byItem.get(r.itemName);
       b.orders.push({ date: r.saleDate, qty: r.quantity, value: r.totalValue, rep: r.repName, type: r.recordType });
@@ -177,8 +193,8 @@ export async function pharmacyDetail(req, res, next) {
 
     res.json({
       pharmacyName: req.params.name,
-      totalOrders: rows.length,
-      orders: rows,
+      totalOrders: dedupedRows.length,
+      orders: dedupedRows,
       byItem: [...byItem.values()].sort((a, b) => b.totalQty - a.totalQty),
     });
   } catch (e) { next(e); }
@@ -203,9 +219,17 @@ export async function listItems(req, res, next) {
     });
 
     const map = new Map(); // itemName → { pharmacies, totalQty, totalValue, ... }
+    const seenItemSales = new Set();
     for (const s of sales) {
       const iName = s.item?.name || 'غير محدد';
       if (search && !norm(iName).includes(search)) continue;
+
+      // Deduplicate rows from overlapping uploaded files
+      let _pharmaDedup = s.customer?.name;
+      if (!_pharmaDedup && s.rawData) { try { const _r = JSON.parse(s.rawData); _pharmaDedup = _r.pharmacyName || _r.pharmacy || _r.customer || _r.Customer || _r['اسم الصيدلية'] || _r['الصيدلية'] || _r['العميل'] || null; } catch {} }
+      const dedupKey = [norm(iName), norm(_pharmaDedup || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue].join('|');
+      if (seenItemSales.has(dedupKey)) continue;
+      seenItemSales.add(dedupKey);
 
       if (!map.has(iName)) map.set(iName, { name: iName, pharmacies: new Map(), totalQty: 0, totalValue: 0, firstOrder: s.saleDate, lastOrder: s.saleDate });
       const it = map.get(iName);
@@ -263,7 +287,18 @@ export async function itemDetail(req, res, next) {
       orderBy: { saleDate: 'desc' },
     });
 
-    const rows = sales.filter(s => norm(s.item?.name || '').includes(itemQuery));
+    const filteredRows = sales.filter(s => norm(s.item?.name || '').includes(itemQuery));
+
+    // Deduplicate rows from overlapping uploaded files
+    const seenItemDetail = new Set();
+    const rows = filteredRows.filter(s => {
+      let _pn = s.customer?.name;
+      if (!_pn && s.rawData) { try { const _r = JSON.parse(s.rawData); _pn = _r.pharmacyName || _r.pharmacy || _r.customer || _r.Customer || _r['اسم الصيدلية'] || _r['الصيدلية'] || _r['العميل'] || null; } catch {} }
+      const k = [norm(s.item?.name || ''), norm(_pn || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue, s.recordType, norm(s.representative?.name || '')].join('|');
+      if (seenItemDetail.has(k)) return false;
+      seenItemDetail.add(k);
+      return true;
+    });
 
     // Group by pharmacy
     const byPharma = new Map();
@@ -322,6 +357,7 @@ export async function getAlerts(req, res, next) {
 
     // For each pharmacy × item pair, find last order date
     const map = new Map(); // `pharma|||item` → { pharmaName, itemName, areaName, lastOrder, totalQty, orderCount }
+    const seenAlerts = new Set();
     for (const s of sales) {
       const iName = s.item?.name || 'غير محدد';
       let pharmaName = s.customer?.name;
@@ -332,6 +368,11 @@ export async function getAlerts(req, res, next) {
         } catch {}
       }
       if (!pharmaName) continue;
+
+      // Deduplicate rows from overlapping uploaded files
+      const dedupKey = [norm(pharmaName), norm(iName), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue].join('|');
+      if (seenAlerts.has(dedupKey)) continue;
+      seenAlerts.add(dedupKey);
 
       const key = `${pharmaName}|||${iName}`;
       if (!map.has(key)) {
