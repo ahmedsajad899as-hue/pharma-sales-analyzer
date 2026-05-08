@@ -323,15 +323,16 @@ export default function PharmacyAnalysisPage() {
           <button
             onClick={() => setDispCurrency(v => v === 'IQD' ? 'USD' : 'IQD')}
             style={{
-              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px',
-              borderRadius: 6, border: `1.5px solid ${dispCurrency === 'USD' ? '#f59e0b' : '#1e40af'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 42, height: 30, borderRadius: 6,
+              border: `1.5px solid ${dispCurrency === 'USD' ? '#f59e0b' : '#1e40af'}`,
               background: dispCurrency === 'USD' ? '#fffbeb' : '#eff6ff',
               color: dispCurrency === 'USD' ? '#b45309' : '#1e40af',
-              fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+              fontSize: 13, fontWeight: 800, cursor: 'pointer',
             }}
             title={dispCurrency === 'IQD' ? 'التحويل إلى دولار' : 'التحويل إلى دينار عراقي'}
           >
-            {dispCurrency === 'IQD' ? '💵 عرض بالدولار' : '🪙 عرض بالدينار'}
+            {dispCurrency === 'IQD' ? '$' : 'IQ'}
           </button>
         </div>
       </div>
