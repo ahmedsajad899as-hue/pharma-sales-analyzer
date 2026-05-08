@@ -758,17 +758,50 @@ export default function SalesDataPage() {
         const wb = XLSX.read(e.target?.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' });
+        if (!rows.length) { setClassifyUploadMsg('⚠ الملف فارغ.'); return; }
+
+        // Smart column detection: find the key in first row that best matches each field
+        const firstRow = rows[0] as Record<string, unknown>;
+        const keys = Object.keys(firstRow);
+
+        const findKey = (patterns: string[]): string | null => {
+          for (const p of patterns) {
+            const k = keys.find(k => k.trim().toLowerCase() === p.toLowerCase());
+            if (k) return k;
+          }
+          // Fuzzy: check if key contains any pattern
+          for (const p of patterns) {
+            const k = keys.find(k => k.trim().toLowerCase().includes(p.toLowerCase()));
+            if (k) return k;
+          }
+          return null;
+        };
+
+        const regionKey    = findKey(['المنطقة', 'منطقة', 'region', 'location', 'موقع', 'location name']);
+        const warehouseKey = findKey(['المخزن', 'مخزن', 'اسم المخزن', 'warehouse', 'client', 'عميل', 'اسم العميل', 'client name']);
+        // For category: look for exact A/B/C keys, or column named كلاس/class/تصنيف
+        // Also try auto-detect: any column whose values are all A/B/C
+        let categoryKey    = findKey(['التصنيف', 'الفئة', 'category', 'تصنيف', 'كلاس', 'class', 'classification']);
+        if (!categoryKey) {
+          // auto-detect: find any column where most values are A, B, or C
+          categoryKey = keys.find(k => {
+            const vals = rows.slice(0, 20).map((r: any) => String(r[k] ?? '').trim().toUpperCase());
+            const abc = vals.filter(v => ['A','B','C'].includes(v));
+            return abc.length > 0 && abc.length >= vals.filter(v => v !== '').length * 0.6;
+          }) ?? null;
+        }
+
         const parsed: WarehouseClass[] = [];
         for (const r of rows) {
-          const region    = String(r['المنطقة'] ?? r['منطقة'] ?? r['region'] ?? r['Region'] ?? '').trim();
-          const warehouse = String(r['المخزن'] ?? r['مخزن'] ?? r['اسم المخزن'] ?? r['warehouse'] ?? r['Warehouse'] ?? '').trim();
-          const catRaw    = String(r['التصنيف'] ?? r['الفئة'] ?? r['category'] ?? r['Category'] ?? '').trim().toUpperCase();
+          const region    = String(regionKey    ? (r[regionKey]    ?? '') : (r['المنطقة'] ?? r['منطقة'] ?? r['region'] ?? r['Region'] ?? '')).trim();
+          const warehouse = String(warehouseKey ? (r[warehouseKey] ?? '') : (r['المخزن']  ?? r['مخزن']  ?? r['warehouse'] ?? r['Warehouse'] ?? '')).trim();
+          const catRaw    = String(categoryKey  ? (r[categoryKey]  ?? '') : (r['التصنيف'] ?? r['الفئة'] ?? r['category'] ?? r['Category'] ?? '')).trim().toUpperCase();
           if (!warehouse) continue;
           if (!['A', 'B', 'C'].includes(catRaw)) continue;
           parsed.push({ region, warehouse, category: catRaw as WarehouseCategory });
         }
         if (parsed.length === 0) {
-          setClassifyUploadMsg('⚠ لم يتم العثور على بيانات صالحة. تأكد من الأعمدة: المنطقة / المخزن / التصنيف (A أو B أو C).');
+          setClassifyUploadMsg('⚠ لم يتم العثور على بيانات صالحة. يُقبل أي ملف يحتوي أعمدة: المخزن/Client + التصنيف/كلاس/Class (A أو B أو C) + المنطقة/Location (اختياري).');
           return;
         }
         setWarehouseClasses(parsed);
@@ -2427,7 +2460,7 @@ table{border-collapse:collapse;width:100%}
             )}
 
             <div style={{ padding: '12px 18px', borderBottom: '1px solid #e2e8f0', fontSize: 11, color: '#64748b' }}>
-              الأعمدة المطلوبة في الملف: <strong>المنطقة</strong> · <strong>المخزن</strong> · <strong>التصنيف</strong> (A أو B أو C).
+              الأعمدة المطلوبة في الملف: <strong>المنطقة</strong> أو <strong>Location</strong> · <strong>المخزن</strong> أو <strong>Client</strong> · <strong>التصنيف</strong> أو <strong>كلاس/Class</strong> (A أو B أو C).
               المطابقة تتم بحسب الاسم بعد تجاهل الفراغات وحالة الأحرف.
             </div>
 
