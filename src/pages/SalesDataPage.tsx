@@ -779,16 +779,24 @@ export default function SalesDataPage() {
 
         const regionKey    = findKey(['المنطقة', 'منطقة', 'region', 'location', 'موقع', 'location name']);
         const warehouseKey = findKey(['المخزن', 'مخزن', 'اسم المخزن', 'warehouse', 'client', 'عميل', 'اسم العميل', 'client name']);
-        // For category: look for exact A/B/C keys, or column named كلاس/class/تصنيف
-        // Also try auto-detect: any column whose values are all A/B/C
-        let categoryKey    = findKey(['التصنيف', 'الفئة', 'category', 'تصنيف', 'كلاس', 'class', 'classification']);
+
+        // For category: find column whose values are actually A/B/C (not generic category text)
+        const isAbcColumn = (key: string) => {
+          const vals = rows.slice(0, 20).map((r: any) => String(r[key] ?? '').trim().toUpperCase());
+          const nonEmpty = vals.filter(v => v !== '');
+          const abc = nonEmpty.filter(v => ['A','B','C'].includes(v));
+          return nonEmpty.length > 0 && abc.length >= nonEmpty.length * 0.5;
+        };
+        // Try known Arabic/English class column names first, but VERIFY values are A/B/C
+        let categoryKey: string | null = null;
+        const categoryNameCandidates = ['التصنيف', 'الفئة', 'تصنيف', 'كلاس', 'class', 'classification', 'category'];
+        for (const p of categoryNameCandidates) {
+          const k = findKey([p]);
+          if (k && isAbcColumn(k)) { categoryKey = k; break; }
+        }
         if (!categoryKey) {
           // auto-detect: find any column where most values are A, B, or C
-          categoryKey = keys.find(k => {
-            const vals = rows.slice(0, 20).map((r: any) => String(r[k] ?? '').trim().toUpperCase());
-            const abc = vals.filter(v => ['A','B','C'].includes(v));
-            return abc.length > 0 && abc.length >= vals.filter(v => v !== '').length * 0.6;
-          }) ?? null;
+          categoryKey = keys.find(k => isAbcColumn(k)) ?? null;
         }
 
         const parsed: WarehouseClass[] = [];
