@@ -92,6 +92,18 @@ export default function PharmacyAnalysisPage() {
   const [alertSearch, setAlertSearch]   = useState('');
 
   // Upload
+  // Currency display toggle
+  const [dispCurrency, setDispCurrency] = useState<'IQD' | 'USD'>('IQD');
+  const [dispRate, setDispRate]         = useState<number>(1470);
+  const [showRateEdit, setShowRateEdit] = useState(false);
+  const [rateInput, setRateInput]       = useState('1470');
+  // cv: convert IQD value for display
+  const cv = (v: number) => dispCurrency === 'USD' ? v / dispRate : v;
+  const fmtV = (v: number) => dispCurrency === 'USD'
+    ? (v / dispRate).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+    : fmt(Math.round(v));
+  const currLabel = dispCurrency === 'IQD' ? 'د.ع' : '$';
+
   const [uploading, setUploading]       = useState(false);
   const [uploadMsg, setUploadMsg]       = useState<{ ok: boolean; text: string } | null>(null);
   const [dragOver, setDragOver]         = useState(false);
@@ -269,7 +281,7 @@ export default function PharmacyAnalysisPage() {
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0' }}>
+      <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setSelectedPharma(null); setSelectedItem(null); }} style={{
             padding: '8px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
@@ -284,6 +296,41 @@ export default function PharmacyAnalysisPage() {
             )}
           </button>
         ))}
+        {/* Currency toggle — pinned to left */}
+        <div style={{ marginRight: 'auto', marginBottom: -2, display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 6 }}>
+          {showRateEdit && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 11, color: '#64748b' }}>سعر الصرف:</span>
+              <input
+                value={rateInput}
+                onChange={e => setRateInput(e.target.value)}
+                onBlur={() => { const r = parseFloat(rateInput); if (r > 0) { setDispRate(r); } setShowRateEdit(false); }}
+                onKeyDown={e => { if (e.key === 'Enter') { const r = parseFloat(rateInput); if (r > 0) { setDispRate(r); } setShowRateEdit(false); } }}
+                autoFocus
+                style={{ width: 72, padding: '3px 7px', borderRadius: 5, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }}
+              />
+            </div>
+          )}
+          {!showRateEdit && dispCurrency === 'USD' && (
+            <button onClick={() => { setRateInput(String(dispRate)); setShowRateEdit(true); }}
+              style={{ fontSize: 10, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}
+              title="تعديل سعر الصرف"
+            >✏ {dispRate}</button>
+          )}
+          <button
+            onClick={() => setDispCurrency(v => v === 'IQD' ? 'USD' : 'IQD')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px',
+              borderRadius: 6, border: `1.5px solid ${dispCurrency === 'USD' ? '#f59e0b' : '#1e40af'}`,
+              background: dispCurrency === 'USD' ? '#fffbeb' : '#eff6ff',
+              color: dispCurrency === 'USD' ? '#b45309' : '#1e40af',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+            title={dispCurrency === 'IQD' ? 'التحويل إلى دولار' : 'التحويل إلى دينار عراقي'}
+          >
+            {dispCurrency === 'IQD' ? '💵 عرض بالدولار' : '🪙 عرض بالدينار'}
+          </button>
+        </div>
       </div>
 
       {/* ════════ PHARMACIES TAB ════════ */}
@@ -322,7 +369,7 @@ export default function PharmacyAnalysisPage() {
                     <th style={TH}>المنطقة</th>
                     <th style={TH}>الطلبيات</th>
                     <th style={TH}>الكمية</th>
-                    <th style={TH}>القيمة (د.ع)</th>
+                    <th style={TH}>القيمة ({currLabel})</th>
                     <th style={TH}>الايتمات</th>
                     <th style={TH}>آخر طلبية</th>
                     <th style={TH}>الأيام</th>
@@ -358,7 +405,7 @@ export default function PharmacyAnalysisPage() {
                               <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.areaName || '—'}</td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
-                              <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmt(Math.round(p.totalValue))}</td>
+                              <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmtV(p.totalValue)}</td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.itemCount}</td>
                               <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{fmtDate(p.lastOrder)}</td>
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>
@@ -416,13 +463,13 @@ export default function PharmacyAnalysisPage() {
                       <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{b.name}</span>
                       <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
                         <span style={{ color: '#374151' }}>الكمية: <b>{fmt(b.totalQty)}</b></span>
-                        <span style={{ color: '#047857' }}>القيمة: <b>{fmt(Math.round(b.totalValue))}</b></span>
+                        <span style={{ color: '#047857' }}>القيمة: <b>{fmtV(b.totalValue)}</b></span>
                       </div>
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: '#f8fafc' }}>
-                          {['التاريخ','الكمية','القيمة','المندوب','النوع'].map(h => <th key={h} style={TH2}>{h}</th>)}
+                          {['التاريخ','الكمية',`القيمة (${currLabel})`,'المندوب','النوع'].map(h => <th key={h} style={TH2}>{h}</th>)}
                         </tr>
                       </thead>
                       <tbody>
@@ -430,7 +477,7 @@ export default function PharmacyAnalysisPage() {
                           <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                             <td style={TD2}>{fmtDate(o.date)}</td>
                             <td style={{ ...TD2, textAlign: 'right' }}>{fmt(o.qty)}</td>
-                            <td style={{ ...TD2, textAlign: 'right', color: '#047857' }}>{fmt(o.value)}</td>
+                            <td style={{ ...TD2, textAlign: 'right', color: '#047857' }}>{fmtV(o.value)}</td>
                             <td style={TD2}>{o.rep || '—'}</td>
                             <td style={TD2}>
                               <span style={{ background: o.type === 'return' ? '#fee2e2' : '#dcfce7', color: o.type === 'return' ? '#dc2626' : '#15803d', borderRadius: 4, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
@@ -466,7 +513,7 @@ export default function PharmacyAnalysisPage() {
                     <th style={TH}>#</th>
                     <th style={{ ...TH, textAlign: 'right', minWidth: 180 }}>الايتم</th>
                     <th style={TH}>الكمية</th>
-                    <th style={TH}>القيمة (د.ع)</th>
+                    <th style={TH}>القيمة ({currLabel})</th>
                     <th style={TH}>الصيدليات</th>
                     <th style={TH}>أول طلبية</th>
                     <th style={TH}>آخر طلبية</th>
@@ -482,7 +529,7 @@ export default function PharmacyAnalysisPage() {
                       <td style={TD}>{i + 1}</td>
                       <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }}>{it.name}</td>
                       <td style={{ ...TD, textAlign: 'right' }}>{fmt(it.totalQty)}</td>
-                      <td style={{ ...TD, textAlign: 'right', color: '#047857' }}>{fmt(Math.round(it.totalValue))}</td>
+                      <td style={{ ...TD, textAlign: 'right', color: '#047857' }}>{fmtV(it.totalValue)}</td>
                       <td style={{ ...TD, textAlign: 'center' }}>{it.pharmacyCount}</td>
                       <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.firstOrder)}</td>
                       <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.lastOrder)}</td>
