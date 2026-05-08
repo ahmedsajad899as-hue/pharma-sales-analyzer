@@ -72,7 +72,7 @@ function CombinedStatus({ row, canManage, onDeliver, onUndeliver }: {
   // Determine badge
   let badge: { bg: string; color: string; label: string };
   if (row.bonusDelivered) {
-    badge = { bg: '#dcfce7', color: '#15803d', label: '✓ تم التسليم' };
+    badge = { bg: '#dbeafe', color: '#1e40af', label: '✓ تم التسليم' };
   } else if (row.hasBonus) {
     badge = { bg: '#dcfce7', color: '#15803d', label: 'لديه بونص' };
   } else if (row.isCompensated) {
