@@ -129,7 +129,7 @@ const BTN_SEC: React.CSSProperties = {
 };
 // Compact table cell style
 const TC: React.CSSProperties = {
-  padding: '6px 8px', borderBottom: '1px solid #f1f5f9', fontSize: 11,
+  padding: '5px 5px', borderBottom: '1px solid #f1f5f9', fontSize: 10,
   color: '#374151', whiteSpace: 'nowrap', textAlign: 'center',
 };
 
@@ -794,35 +794,45 @@ export default function BonusSalesPage() {
                 <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري التحميل...</div>
               ) : (
               <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, tableLayout: 'fixed' }}>
                     <thead>
                       <tr style={{ background: '#1e40af', color: '#fff' }}>
-                        {isManager && <th style={{ padding: '8px 8px', width: 30 }}>
+                        {isManager && <th style={{ padding: '7px 4px', width: 28 }}>
                           <input type="checkbox" onChange={e => setSelectedRowIds(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())}
                             checked={rows.length > 0 && selectedRowIds.size === rows.length} />
                         </th>}
-                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','العدد','البونص','التاريخ','الرقم','المُعيَّنون','الحالة'].map(h => (
-                          <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
+                        {[
+                          { label: 'الايتم',      w: '16%' },
+                          { label: 'الصيدلية',    w: '12%' },
+                          { label: 'المنطقة',     w: '9%'  },
+                          { label: 'المندوب',     w: '8%'  },
+                          { label: 'عدد/بونص',   w: '7%'  },
+                          { label: 'التاريخ',     w: '8%'  },
+                          { label: 'الرقم',       w: '6%'  },
+                          { label: 'المُعيَّنون', w: '12%' },
+                          { label: 'الحالة',      w: '10%' },
+                        ].map(h => (
+                          <th key={h.label} style={{ padding: '7px 5px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h.label === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)', width: h.w }}>{h.label}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.length === 0 ? (
-                        <tr><td colSpan={isManager ? 13 : 12} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
+                        <tr><td colSpan={isManager ? 10 : 9} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
                       ) : rows.map((row, i) => (
                         <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedRowIds.has(row.id) ? '#eff6ff' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
                           {isManager && <td style={TC}>
                             <input type="checkbox" checked={selectedRowIds.has(row.id)}
                               onChange={e => setSelectedRowIds(prev => { const s = new Set(prev); e.target.checked ? s.add(row.id) : s.delete(row.id); return s; })} />
                           </td>}
-                          <td style={TC}>{row.companyName ?? '—'}</td>
-                          <td style={{ ...TC, textAlign: 'right', minWidth: 160, whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
-                          <td style={TC}>{row.pharmacyName ?? '—'}</td>
+                          <td style={{ ...TC, textAlign: 'right', whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
+                          <td style={{ ...TC, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.pharmacyName ?? '—'}</td>
                           <td style={TC}>{row.areaName ?? '—'}</td>
-                          <td style={TC}>{row.warehouse ?? '—'}</td>
                           <td style={TC}>{row.repName ?? '—'}</td>
-                          <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.quantity)}</td>
-                          <td style={{ ...TC, textAlign: 'center' }}>{row.hasBonus ? fmtNum(row.bonusQty) : '—'}</td>
+                          <td style={{ ...TC, textAlign: 'center' }}>
+                            <span>{fmtNum(row.quantity)}</span>
+                            {row.hasBonus && <><span style={{ color: '#9ca3af', margin: '0 2px' }}>/</span><span style={{ color: '#15803d', fontWeight: 700 }}>{fmtNum(row.bonusQty)}</span></>}
+                          </td>
                           <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
                           <td style={TC}>{row.invoiceNo ?? '—'}</td>
                           {/* Assigned reps column */}
@@ -902,32 +912,42 @@ export default function BonusSalesPage() {
               </div>
 
               <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, tableLayout: 'fixed' }}>
                   <thead>
                     <tr style={{ background: '#1e40af', color: '#fff' }}>
-                      {['الصيدلية','المنطقة','الايتم','المندوب','التاريخ','الرقم','كمية البونص','الحالة','تسلَّم بواسطة','تاريخ التسليم','ملاحظة'].map(h => (
-                        <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
+                      {[
+                        { label: 'الصيدلية',       w: '14%' },
+                        { label: 'المنطقة',         w: '9%'  },
+                        { label: 'الايتم',          w: '16%' },
+                        { label: 'المندوب',         w: '8%'  },
+                        { label: 'التاريخ',         w: '8%'  },
+                        { label: 'بونص',            w: '5%'  },
+                        { label: 'الحالة',          w: '9%'  },
+                        { label: 'تسلَّم بواسطة',  w: '9%'  },
+                        { label: 'تاريخ التسليم',   w: '8%'  },
+                        { label: 'ملاحظة',          w: '10%' },
+                      ].map(h => (
+                        <th key={h.label} style={{ padding: '7px 5px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h.label === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)', width: h.w }}>{h.label}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {deliveryRows.length === 0 ? (
-                      <tr><td colSpan={11} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد فواتير بونص في هذا الملف</td></tr>
+                      <tr><td colSpan={10} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد فواتير بونص في هذا الملف</td></tr>
                     ) : deliveryRows.map((row, i) => (
                       <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: row.bonusDelivered ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
-                        <td style={TC}>{row.pharmacyName ?? '—'}</td>
+                        <td style={{ ...TC, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.pharmacyName ?? '—'}</td>
                         <td style={TC}>{row.areaName ?? '—'}</td>
-                        <td style={{ ...TC, textAlign: 'right', minWidth: 160, whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
+                        <td style={{ ...TC, textAlign: 'right', whiteSpace: 'normal', wordBreak: 'break-word', fontWeight: 600, color: '#1e293b' }}>{row.itemName ?? '—'}</td>
                         <td style={TC}>{row.repName ?? '—'}</td>
                         <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.invoiceDate)}</td>
-                        <td style={TC}>{row.invoiceNo ?? '—'}</td>
                         <td style={{ ...TC, textAlign: 'center' }}>{fmtNum(row.bonusQty)}</td>
-                        <td style={{ ...TC, textAlign: 'center', minWidth: 110 }}>
+                        <td style={{ ...TC, textAlign: 'center' }}>
                           <CombinedStatus row={row} canManage={canManageDelivery} onDeliver={openDeliveryModal} onUndeliver={unmarkDelivery} />
                         </td>
                         <td style={TC}>{row.deliveredByUser ? (row.deliveredByUser.displayName ?? row.deliveredByUser.username) : '—'}</td>
                         <td style={{ ...TC, whiteSpace: 'nowrap' }}>{fmtDate(row.deliveredAt)}</td>
-                        <td style={{ ...TC, maxWidth: 100 }}>{row.deliveryNote ?? '—'}</td>
+                        <td style={{ ...TC, whiteSpace: 'normal', wordBreak: 'break-word' }}>{row.deliveryNote ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
