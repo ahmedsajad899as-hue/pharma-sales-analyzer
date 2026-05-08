@@ -419,14 +419,14 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('name')}>الصيدلية <span style={{ opacity: pharmaSortCol === 'name' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'name' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('area')}>المنطقة <span style={{ opacity: pharmaSortCol === 'area' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'area' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('orders')}>الطلبيات <span style={{ opacity: pharmaSortCol === 'orders' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'orders' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('qty')}>الكمية <span style={{ opacity: pharmaSortCol === 'qty' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'qty' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('value')}>القيمة ({currLabel}) <span style={{ opacity: pharmaSortCol === 'value' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'value' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('items')}>الايتمات <span style={{ opacity: pharmaSortCol === 'items' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'items' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('last')}>آخر طلبية <span style={{ opacity: pharmaSortCol === 'last' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'last' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('days')}>الأيام <span style={{ opacity: pharmaSortCol === 'days' ? 1 : 0.35, fontSize: 9 }}>{pharmaSortCol === 'days' ? (pharmaSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('name')}>الصيدلية</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('area')}>المنطقة</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('orders')}>الطلبيات</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('qty')}>الكمية</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('value')}>القيمة ({currLabel})</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('items')}>الايتمات</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('last')}>آخر طلبية</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('days')}>الأيام</th>
                     <th style={{ ...TH, width: 32 }}></th>
                   </tr>
                 </thead>
@@ -582,12 +582,12 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 180, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('name')}>الايتم <span style={{ opacity: itemSortCol === 'name' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'name' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('qty')}>الكمية <span style={{ opacity: itemSortCol === 'qty' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'qty' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('value')}>القيمة ({currLabel}) <span style={{ opacity: itemSortCol === 'value' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'value' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('pharmas')}>الصيدليات <span style={{ opacity: itemSortCol === 'pharmas' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'pharmas' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('first')}>أول طلبية <span style={{ opacity: itemSortCol === 'first' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'first' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('last')}>آخر طلبية <span style={{ opacity: itemSortCol === 'last' ? 1 : 0.35, fontSize: 9 }}>{itemSortCol === 'last' ? (itemSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span></th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 180, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('name')}>الايتم</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('qty')}>الكمية</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('value')}>القيمة ({currLabel})</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('pharmas')}>الصيدليات</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('first')}>أول طلبية</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('last')}>آخر طلبية</th>
                   </tr>
                 </thead>
                 <tbody>
