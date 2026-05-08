@@ -243,6 +243,20 @@ export default function BonusSalesPage() {
   const [assignMsg, setAssignMsg]             = useState('');
   const [selectedRowIds, setSelectedRowIds]   = useState<Set<number>>(new Set());
 
+  // ── Sort state ─────────────────────────────────────────────
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  function handleSort(col: string) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  }
+  const sortedRows = sortCol ? [...rows].sort((a: any, b: any) => {
+    let av = a[sortCol], bv = b[sortCol];
+    if (av == null) av = ''; if (bv == null) bv = '';
+    const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv), 'ar');
+    return sortDir === 'asc' ? cmp : -cmp;
+  }) : rows;
+
   // ── My rows (rep view) ─────────────────────────────────────
   const [myRows, setMyRows]           = useState<SalesRow[]>([]);
   const [myTotal, setMyTotal]         = useState(0);
@@ -801,15 +815,31 @@ export default function BonusSalesPage() {
                           <input type="checkbox" onChange={e => setSelectedRowIds(e.target.checked ? new Set(rows.map(r => r.id)) : new Set())}
                             checked={rows.length > 0 && selectedRowIds.size === rows.length} />
                         </th>}
-                        {['الشركة','الايتم','الصيدلية','المنطقة','المذخر','المندوب','العدد','البونص','التاريخ','الرقم','المُعيَّنون','الحالة'].map(h => (
-                          <th key={h} style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)' }}>{h}</th>
+                        {[
+                          { label: 'الشركة',    col: 'companyName' },
+                          { label: 'الايتم',    col: 'itemName' },
+                          { label: 'الصيدلية',  col: 'pharmacyName' },
+                          { label: 'المنطقة',   col: 'areaName' },
+                          { label: 'المذخر',    col: 'warehouse' },
+                          { label: 'المندوب',   col: 'repName' },
+                          { label: 'العدد',     col: 'quantity' },
+                          { label: 'البونص',    col: 'bonusQty' },
+                          { label: 'التاريخ',   col: 'invoiceDate' },
+                          { label: 'الرقم',     col: 'invoiceNo' },
+                          { label: 'المُعيَّنون', col: null },
+                          { label: 'الحالة',    col: null },
+                        ].map(h => (
+                          <th key={h.label} onClick={h.col ? () => handleSort(h.col!) : undefined}
+                            style={{ padding: '8px 8px', fontWeight: 600, whiteSpace: 'nowrap', textAlign: h.label === 'الايتم' ? 'right' : 'center', borderLeft: '1px solid rgba(255,255,255,.15)', cursor: h.col ? 'pointer' : 'default', userSelect: 'none' }}>
+                            {h.label}
+                          </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.length === 0 ? (
                         <tr><td colSpan={isManager ? 13 : 12} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد سجلات</td></tr>
-                      ) : rows.map((row, i) => (
+                      ) : sortedRows.map((row, i) => (
                         <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedRowIds.has(row.id) ? '#eff6ff' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
                           {isManager && <td style={TC}>
                             <input type="checkbox" checked={selectedRowIds.has(row.id)}
