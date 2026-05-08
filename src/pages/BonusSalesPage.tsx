@@ -123,6 +123,11 @@ const BTN_SEC: React.CSSProperties = {
   padding: '5px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff',
   color: '#374151', fontSize: 12, cursor: 'pointer', fontWeight: 500,
 };
+// Compact table cell style
+const TC: React.CSSProperties = {
+  padding: '6px 8px', borderBottom: '1px solid #f1f5f9', fontSize: 11,
+  color: '#374151', whiteSpace: 'nowrap', textAlign: 'center',
+};
 
 // ── Reusable KPI box ──────────────────────────────────────────
 function BKpi({ label, value }: { label: string; value: string }) {
