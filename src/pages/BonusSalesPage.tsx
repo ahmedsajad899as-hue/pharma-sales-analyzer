@@ -442,24 +442,57 @@ export default function BonusSalesPage() {
                   placeholder="🔍  بحث بالصيدلية أو الايتم أو المنطقة أو المندوب أو المذخر..."
                   style={{ flex: 1, minWidth: 220, padding: '7px 12px', borderRadius: 6, border: '1.5px solid #e2e8f0', fontSize: 12, background: '#f8fafc' }}
                 />
-                <select value={filterHasBonus} onChange={e => setFilterHasBonus(e.target.value)}
-                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
-                  <option value="">البونص: الكل</option>
-                  <option value="true">لديه بونص</option>
-                  <option value="false">بدون بونص</option>
-                </select>
-                <select value={filterCompensated} onChange={e => setFilterCompensated(e.target.value)}
-                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
-                  <option value="">التعويض: الكل</option>
-                  <option value="true">معوَّض</option>
-                  <option value="false">غير معوَّض</option>
-                </select>
-                <select value={filterDelivered} onChange={e => setFilterDelivered(e.target.value)}
-                  style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, background: '#fff' }}>
-                  <option value="">التسليم: الكل</option>
-                  <option value="true">تم التسليم</option>
-                  <option value="false">لم يُسلَّم</option>
-                </select>
+                {/* Icon toggle: Bonus */}
+                {(() => {
+                  const states: {v:string; icon:string; title:string; bg:string; border:string; color:string}[] = [
+                    { v: '',      icon: '🎁', title: 'البونص: الكل',  bg: '#fff',    border: '#e2e8f0', color: '#64748b' },
+                    { v: 'true',  icon: '🎁', title: 'لديه بونص',    bg: '#f0fdf4', border: '#16a34a', color: '#16a34a' },
+                    { v: 'false', icon: '🎁', title: 'بدون بونص',    bg: '#fef2f2', border: '#dc2626', color: '#dc2626' },
+                  ];
+                  const cur = states.find(s => s.v === filterHasBonus) ?? states[0];
+                  const next = states[(states.indexOf(cur) + 1) % states.length];
+                  return (
+                    <button onClick={() => setFilterHasBonus(next.v)} title={cur.title}
+                      style={{ border: `1.5px solid ${cur.border}`, borderRadius: 6, padding: '5px 9px', fontSize: 15, background: cur.bg, cursor: 'pointer', lineHeight: 1, display: 'flex', alignItems: 'center', gap: 3, color: cur.color, fontWeight: 700, position: 'relative' }}>
+                      {cur.icon}
+                      {cur.v !== '' && <span style={{ fontSize: 9, fontWeight: 800, lineHeight: 1 }}>{cur.v === 'true' ? '✓' : '✗'}</span>}
+                    </button>
+                  );
+                })()}
+                {/* Icon toggle: Compensation */}
+                {(() => {
+                  const states: {v:string; icon:string; title:string; bg:string; border:string; color:string}[] = [
+                    { v: '',      icon: '💰', title: 'التعويض: الكل', bg: '#fff',    border: '#e2e8f0', color: '#64748b' },
+                    { v: 'true',  icon: '💰', title: 'معوَّض',         bg: '#f0fdf4', border: '#16a34a', color: '#16a34a' },
+                    { v: 'false', icon: '💰', title: 'غير معوَّض',     bg: '#fef2f2', border: '#dc2626', color: '#dc2626' },
+                  ];
+                  const cur = states.find(s => s.v === filterCompensated) ?? states[0];
+                  const next = states[(states.indexOf(cur) + 1) % states.length];
+                  return (
+                    <button onClick={() => setFilterCompensated(next.v)} title={cur.title}
+                      style={{ border: `1.5px solid ${cur.border}`, borderRadius: 6, padding: '5px 9px', fontSize: 15, background: cur.bg, cursor: 'pointer', lineHeight: 1, display: 'flex', alignItems: 'center', gap: 3, color: cur.color, fontWeight: 700 }}>
+                      {cur.icon}
+                      {cur.v !== '' && <span style={{ fontSize: 9, fontWeight: 800, lineHeight: 1 }}>{cur.v === 'true' ? '✓' : '✗'}</span>}
+                    </button>
+                  );
+                })()}
+                {/* Icon toggle: Delivery */}
+                {(() => {
+                  const states: {v:string; icon:string; title:string; bg:string; border:string; color:string}[] = [
+                    { v: '',      icon: '🚚', title: 'التسليم: الكل', bg: '#fff',    border: '#e2e8f0', color: '#64748b' },
+                    { v: 'true',  icon: '🚚', title: 'تم التسليم',    bg: '#f0fdf4', border: '#16a34a', color: '#16a34a' },
+                    { v: 'false', icon: '🚚', title: 'لم يُسلَّم',    bg: '#fef2f2', border: '#dc2626', color: '#dc2626' },
+                  ];
+                  const cur = states.find(s => s.v === filterDelivered) ?? states[0];
+                  const next = states[(states.indexOf(cur) + 1) % states.length];
+                  return (
+                    <button onClick={() => setFilterDelivered(next.v)} title={cur.title}
+                      style={{ border: `1.5px solid ${cur.border}`, borderRadius: 6, padding: '5px 9px', fontSize: 15, background: cur.bg, cursor: 'pointer', lineHeight: 1, display: 'flex', alignItems: 'center', gap: 3, color: cur.color, fontWeight: 700 }}>
+                      {cur.icon}
+                      {cur.v !== '' && <span style={{ fontSize: 9, fontWeight: 800, lineHeight: 1 }}>{cur.v === 'true' ? '✓' : '✗'}</span>}
+                    </button>
+                  );
+                })()}
                 <button onClick={() => loadRows(1)} style={{ background: '#1e40af', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>بحث</button>
                 <button onClick={() => { setSmartSearch(''); setFilterHasBonus(''); setFilterCompensated(''); setFilterDelivered(''); setTimeout(() => loadRows(1), 50); }}
                   style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#475569' }}>إعادة ضبط</button>
