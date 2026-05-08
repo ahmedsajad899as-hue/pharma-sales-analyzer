@@ -734,6 +734,7 @@ export default function SalesDataPage() {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const exportViewRef     = useRef<HTMLDivElement>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [showItemPanel, setShowItemPanel]   = useState(false);
 
   const normName = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const classifyMap = useMemo(() => {
@@ -1794,7 +1795,7 @@ table{border-collapse:collapse;width:100%}
               </div>
             )}
 
-            {/* Items — inline pills like regions/companies */}
+            {/* Items — collapsible pills */}
             {activeFile && itemNameCol && (() => {
               let sourceRows = activeFile.rows;
               if (regionFilter !== 'all') {
@@ -1816,8 +1817,26 @@ table{border-collapse:collapse;width:100%}
               const allSelected = selectedItems.length === 0;
               return (
                 <div style={{ marginBottom: 4 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span>💊 الايتمات <span style={{ color: '#94a3b8', fontWeight: 600 }}>({allItems.length})</span></span>
+                  {/* Toggle button row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setShowItemPanel(v => !v)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
+                        borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        border: `1.5px solid ${showItemPanel || hasActive ? '#6366f1' : '#e2e8f0'}`,
+                        background: showItemPanel || hasActive ? '#eef2ff' : '#f8fafc',
+                        color: showItemPanel || hasActive ? '#4338ca' : '#64748b',
+                        boxShadow: showItemPanel ? '0 0 0 3px rgba(99,102,241,0.10)' : 'none',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <span>💊 الايتمات</span>
+                      {hasActive
+                        ? <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{selectedItems.length}</span>
+                        : <span style={{ fontSize: 10 }}>{showItemPanel ? '▲' : '▼'}</span>
+                      }
+                    </button>
                     {hasActive && (
                       <button
                         onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }}
@@ -1828,19 +1847,22 @@ table{border-collapse:collapse;width:100%}
                       <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>✓ {filteredRows.length} صف</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button onClick={() => { setSelectedItems([]); setPage(1); }} style={fp(allSelected)}>الكل</button>
-                    {visibleItems.map(name => (
-                      <button
-                        key={name}
-                        onClick={() => { setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]); setPage(1); }}
-                        style={fp(selectedItems.includes(name))}
-                      >{name}</button>
-                    ))}
-                    {visibleItems.length === 0 && (
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد نتائج</span>
-                    )}
-                  </div>
+                  {/* Expandable pills */}
+                  {showItemPanel && (
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => { setSelectedItems([]); setPage(1); }} style={fp(allSelected)}>الكل</button>
+                      {visibleItems.map(name => (
+                        <button
+                          key={name}
+                          onClick={() => { setSelectedItems(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]); setPage(1); }}
+                          style={fp(selectedItems.includes(name))}
+                        >{name}</button>
+                      ))}
+                      {visibleItems.length === 0 && (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد نتائج</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
