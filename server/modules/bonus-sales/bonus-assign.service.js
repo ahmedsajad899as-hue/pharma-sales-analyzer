@@ -45,48 +45,29 @@ function areaMatches(rowArea, repArea) {
   return shorter.every(w => longer.some(l => l.includes(w) || w.includes(l)));
 }
 
-// ─── Get all reps with their areas and linked user ids ────────
+// ─── Get all scientific reps with their areas and linked user ids ──
 async function getAllRepsWithAreas(userId) {
-  // Medical reps with areas
-  const medReps = await prisma.medicalRepresentative.findMany({
-    where: { userId, user: { isNot: null } },
-    include: {
-      areas: { include: { area: { select: { name: true } } } },
-      user: { select: { id: true, displayName: true, username: true } },
-    },
-  });
-
-  // Scientific reps with areas
+  // Only scientific reps managed by this userId, that have a linked user account
   const sciReps = await prisma.scientificRepresentative.findMany({
-    where: { userId, user: { isNot: null } },
+    where: { userId, linkedUsers: { some: {} } },
     include: {
       areas: { include: { area: { select: { name: true } } } },
-      user: { select: { id: true, displayName: true, username: true } },
+      linkedUsers: { select: { id: true, displayName: true, username: true } },
     },
   });
 
   const result = [];
 
-  for (const rep of medReps) {
-    if (!rep.user) continue;
-    result.push({
-      userId: rep.user.id,
-      name: rep.name,
-      displayName: rep.user.displayName || rep.user.username || rep.name,
-      areas: rep.areas.map(a => a.area.name),
-      type: 'medical',
-    });
-  }
-
   for (const rep of sciReps) {
-    if (!rep.user) continue;
-    result.push({
-      userId: rep.user.id,
-      name: rep.name,
-      displayName: rep.user.displayName || rep.user.username || rep.name,
-      areas: rep.areas.map(a => a.area.name),
-      type: 'scientific',
-    });
+    for (const linkedUser of rep.linkedUsers) {
+      result.push({
+        userId: linkedUser.id,
+        name: rep.name,
+        displayName: linkedUser.displayName || linkedUser.username || rep.name,
+        areas: rep.areas.map(a => a.area.name),
+        type: 'scientific',
+      });
+    }
   }
 
   return result;
