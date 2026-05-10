@@ -88,51 +88,51 @@ const DEF_META = { label: 'مستخدم', color: '#64748b', bg: '#f8fafc', icon:
 // IMPORTANT: direction:ltr is forced on tree containers so RTL page layout
 // doesn't reverse flex order and break :first-child/:last-child corner styles.
 const ORG_CSS = `
-  .otree-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:8px 16px 24px; }
+  .otree-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:4px 8px 12px; }
   .otree-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:center; direction:ltr; }
   .otree-ul   {
     list-style:none; margin:0; padding:0;
     display:flex; flex-wrap:nowrap; justify-content:center;
-    padding-top:30px; position:relative; direction:ltr;
+    padding-top:16px; position:relative; direction:ltr;
   }
   .otree-ul::before {
     content:''; position:absolute; top:0; left:50%;
     transform:translateX(-50%);
-    border-left:2px solid #94a3b8; width:0; height:30px;
+    border-left:1.5px solid #94a3b8; width:0; height:16px;
   }
   .otree-li {
     display:inline-flex; flex-direction:column; align-items:center;
-    position:relative; padding:30px 10px 0; text-align:center;
+    position:relative; padding:16px 4px 0; text-align:center;
   }
   .otree-li::before, .otree-li::after {
     content:''; position:absolute; top:0;
-    border-top:2px solid #94a3b8; width:50%; height:30px;
+    border-top:1.5px solid #94a3b8; width:50%; height:16px;
   }
   .otree-li::before { right:50%; }
-  .otree-li::after  { left:50%; border-left:2px solid #94a3b8; }
+  .otree-li::after  { left:50%; border-left:1.5px solid #94a3b8; }
   .otree-li:only-child::before, .otree-li:only-child::after { display:none; }
   .otree-li:only-child { padding-top:0; }
   .otree-li:first-child::before, .otree-li:last-child::after { border:0 none; }
-  .otree-li:last-child::before  { border-right:2px solid #94a3b8; border-radius:0 6px 0 0; }
-  .otree-li:first-child::after  { border-radius:6px 0 0 0; }
+  .otree-li:last-child::before  { border-right:1.5px solid #94a3b8; border-radius:0 4px 0 0; }
+  .otree-li:first-child::after  { border-radius:4px 0 0 0; }
   .otree-card {
     position:relative; direction:rtl;
-    background:#fff; border-radius:12px;
-    padding:12px 14px; min-width:148px; max-width:192px;
-    box-shadow:0 2px 8px rgba(0,0,0,0.08), 0 0 0 1.5px rgba(0,0,0,0.06);
+    background:#fff; border-radius:8px;
+    padding:5px 7px; min-width:82px; max-width:108px;
+    box-shadow:0 1px 5px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
     cursor:pointer; transition:transform .15s, box-shadow .15s;
-    display:flex; flex-direction:column; align-items:center; gap:4px;
+    display:flex; flex-direction:column; align-items:center; gap:2px;
   }
-  .otree-card:hover { transform:translateY(-3px); box-shadow:0 6px 20px rgba(0,0,0,0.13); }
+  .otree-card:hover { transform:translateY(-2px); box-shadow:0 4px 14px rgba(0,0,0,0.11); }
   .otree-card-icon {
-    width:40px; height:40px; border-radius:12px;
+    width:26px; height:26px; border-radius:7px;
     display:flex; align-items:center; justify-content:center;
-    font-size:20px; margin-bottom:2px; flex-shrink:0;
+    font-size:12px; margin-bottom:1px; flex-shrink:0;
   }
-  .otree-card-name  { font-weight:700; font-size:12.5px; color:#1e293b; line-height:1.35; }
-  .otree-card-badge { font-size:10px; font-weight:600; border-radius:20px; padding:2px 9px; white-space:nowrap; }
-  .otree-card-phone { font-size:10px; color:#94a3b8; }
-  .otree-card-off   { font-size:9px; color:#dc2626; font-weight:700; }
+  .otree-card-name  { font-weight:700; font-size:9.5px; color:#1e293b; line-height:1.3; }
+  .otree-card-badge { font-size:7.5px; font-weight:600; border-radius:20px; padding:1px 5px; white-space:nowrap; }
+  .otree-card-phone { font-size:7.5px; color:#94a3b8; }
+  .otree-card-off   { font-size:7px; color:#dc2626; font-weight:700; }
 `;
 
 // ─── Single node card ─────────────────────────────────────────────────────
@@ -160,17 +160,47 @@ function OrgCard({ u, onSelect }: { u: OrgUser; onSelect?: (u: OrgUser) => void 
   );
 }
 
+// ─── Canonical-parent helpers ─────────────────────────────────────────────
+// When a user has multiple managers (e.g. both company_manager and team_leader),
+// we only render them under their DEEPEST / most-direct manager so the tree
+// stays a clean top-down hierarchy without duplicate branches.
+function _orgIsAncestor(ancestorId: number, userId: number, userMap: Map<number, OrgUser>, visited = new Set<number>()): boolean {
+  if (visited.has(userId)) return false;
+  visited.add(userId);
+  const u = userMap.get(userId);
+  if (!u) return false;
+  if (u.managerIds.includes(ancestorId)) return true;
+  return u.managerIds.some(mid => _orgIsAncestor(ancestorId, mid, userMap, visited));
+}
+function buildCanonicalParentMap(users: OrgUser[]): Map<number, number | null> {
+  const userMap = new Map(users.map(u => [u.id, u]));
+  const result  = new Map<number, number | null>();
+  for (const u of users) {
+    if (u.managerIds.length === 0) { result.set(u.id, null); continue; }
+    if (u.managerIds.length === 1) { result.set(u.id, u.managerIds[0]); continue; }
+    // Find the manager whose ALL other managers are ancestors of (i.e. the deepest one)
+    const deepest = u.managerIds.find(mid =>
+      u.managerIds.filter(id => id !== mid).every(otherId => _orgIsAncestor(otherId, mid, userMap))
+    );
+    result.set(u.id, deepest ?? u.managerIds[0]);
+  }
+  return result;
+}
+
 // ─── Recursive branch ─────────────────────────────────────────────────────
-function OrgBranch({ u, all, visited, onSelect }: { u: OrgUser; all: OrgUser[]; visited: Set<number>; onSelect?: (u: OrgUser) => void }) {
+function OrgBranch({ u, all, canonicalParents, visited, onSelect }: {
+  u: OrgUser; all: OrgUser[]; canonicalParents: Map<number, number | null>;
+  visited: Set<number>; onSelect?: (u: OrgUser) => void
+}) {
   if (visited.has(u.id)) return null;
   const next = new Set(visited); next.add(u.id);
-  const children = all.filter(c => c.managerIds.includes(u.id) && !next.has(c.id));
+  const children = all.filter(c => canonicalParents.get(c.id) === u.id && !next.has(c.id));
   return (
     <li className="otree-li">
       <OrgCard u={u} onSelect={onSelect} />
       {children.length > 0 && (
         <ul className="otree-ul">
-          {children.map(c => <OrgBranch key={c.id} u={c} all={all} visited={next} onSelect={onSelect} />)}
+          {children.map(c => <OrgBranch key={c.id} u={c} all={all} canonicalParents={canonicalParents} visited={next} onSelect={onSelect} />)}
         </ul>
       )}
     </li>
@@ -184,14 +214,15 @@ function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: OrgUser
       لا يوجد مستخدمون مضافون لهذه الشركة بعد
     </div>
   );
-  const roots = users.filter(u => u.managerIds.length === 0);
+  const canonicalParents = buildCanonicalParentMap(users);
+  const roots = users.filter(u => canonicalParents.get(u.id) === null);
   const startNodes = roots.length > 0 ? roots : users;
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: ORG_CSS }} />
       <div className="otree-wrap">
         <ul className="otree-root">
-          {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} visited={new Set()} onSelect={onSelect} />)}
+          {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} canonicalParents={canonicalParents} visited={new Set()} onSelect={onSelect} />)}
         </ul>
       </div>
     </>
