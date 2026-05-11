@@ -2508,18 +2508,41 @@ table{border-collapse:collapse;width:100%}
                 };
                 const renderSelect = (region: string, warehouse: string) => {
                   const cur = getCategory(region, warehouse) ?? '';
-                  const c = catColors[cur as WarehouseCategory | ''];
+                  const fc = catColors[cur as WarehouseCategory | ''];
                   return (
-                    <select
-                      value={cur}
-                      onChange={e => setCat(region, warehouse, (e.target.value || null) as WarehouseCategory | null)}
-                      style={{ background: c.bg, color: c.fg, fontWeight: 700, border: `1px solid ${c.br}`, borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', minWidth: 70 }}
-                    >
-                      <option value="">— غير مصنّف</option>
-                      <option value="A">A — مفتوح</option>
-                      <option value="B">B — يحتاج موافقة</option>
-                      <option value="C">C — لا يجهز</option>
-                    </select>
+                    <div style={{
+                      display: 'inline-flex', gap: 4, alignItems: 'center',
+                      padding: '3px 6px', borderRadius: 8,
+                      border: `1px solid ${cur ? fc.br : '#e2e8f0'}`,
+                      background: cur ? fc.bg : '#f8fafc',
+                      boxShadow: cur ? `0 0 8px 2px ${fc.br}` : 'none',
+                      transition: 'all 0.2s',
+                    }}>
+                      {(['A', 'B', 'C'] as WarehouseCategory[]).map(cat => {
+                        const isSelected = cur === cat;
+                        const cc = catColors[cat];
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => setCat(region, warehouse, isSelected ? null : cat)}
+                            title={cat === 'A' ? 'مفتوح' : cat === 'B' ? 'يحتاج موافقة' : 'لا يجهز'}
+                            style={{
+                              width: 28, height: 26, borderRadius: 5,
+                              border: `1px solid ${isSelected ? cc.br : '#d1d5db'}`,
+                              background: isSelected ? cc.bg : 'transparent',
+                              color: isSelected ? cc.fg : '#9ca3af',
+                              fontWeight: 800, cursor: 'pointer', fontSize: 13,
+                              boxShadow: isSelected ? `0 0 6px 3px ${cc.br}` : 'none',
+                              transition: 'all 0.15s',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              lineHeight: 1,
+                            }}
+                          >
+                            {cat}
+                          </button>
+                        );
+                      })}
+                    </div>
                   );
                 };
 
@@ -2554,12 +2577,16 @@ table{border-collapse:collapse;width:100%}
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                           <tbody>
-                            {list.map(w => (
-                              <tr key={`${w.region}__${w.warehouse}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{w.warehouse}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'left', width: 200 }}>{renderSelect(w.region, w.warehouse)}</td>
-                              </tr>
-                            ))}
+                            {list.map(w => {
+                              const wCur = getCategory(w.region, w.warehouse) ?? '';
+                              const wC = catColors[wCur as WarehouseCategory | ''];
+                              return (
+                                <tr key={`${w.region}__${w.warehouse}`} style={{ borderBottom: `1px solid ${wCur ? wC.br : '#f1f5f9'}`, background: wCur ? wC.bg : 'transparent', transition: 'background 0.2s' }}>
+                                  <td style={{ padding: '8px 12px', fontWeight: 600, color: wCur ? wC.fg : '#1e293b' }}>{w.warehouse}</td>
+                                  <td style={{ padding: '8px 12px', textAlign: 'left', width: 160 }}>{renderSelect(w.region, w.warehouse)}</td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -2573,17 +2600,21 @@ table{border-collapse:collapse;width:100%}
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                           <tbody>
-                            {unmatchedClasses.map((c, i) => (
-                              <tr key={`${c.region}-${c.warehouse}-${i}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            {unmatchedClasses.map((c, i) => {
+                              const uCur = getCategory(c.region, c.warehouse) ?? '';
+                              const uC = catColors[uCur as WarehouseCategory | ''];
+                              return (
+                              <tr key={`${c.region}-${c.warehouse}-${i}`} style={{ borderBottom: `1px solid ${uCur ? uC.br : '#f1f5f9'}`, background: uCur ? uC.bg : 'transparent', transition: 'background 0.2s' }}>
                                 <td style={{ padding: '8px 12px', color: '#475569', width: 140 }}>{c.region || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{c.warehouse}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'left', width: 200 }}>{renderSelect(c.region, c.warehouse)}</td>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: uCur ? uC.fg : '#1e293b' }}>{c.warehouse}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'left', width: 160 }}>{renderSelect(c.region, c.warehouse)}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'center', width: 50 }}>
                                   <button onClick={() => setWarehouseClasses(prev => prev.filter(x => !(normName(x.warehouse) === normName(c.warehouse) && normName(x.region) === normName(c.region))))}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 14 }} title="حذف">🗑</button>
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
