@@ -1044,9 +1044,19 @@ table{border-collapse:collapse;width:100%}
       }));
     }
     const colsInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
-    if (warehouseKeys.size > 0) return colsInRegion.filter(ac => warehouseKeys.has(ac.key));
-    return colsInRegion;
-  }, [activeFile, regionFilter, warehouseKeys]);
+    const applySort = (cols: ColMeta[]) => {
+      if (!sortAFirst) return cols;
+      return [...cols].sort((a, b) => {
+        const catA = getCategory(a.region, a.label);
+        const catB = getCategory(b.region, b.label);
+        if (catA === 'A' && catB !== 'A') return -1;
+        if (catB === 'A' && catA !== 'A') return 1;
+        return 0;
+      });
+    };
+    if (warehouseKeys.size > 0) return applySort(colsInRegion.filter(ac => warehouseKeys.has(ac.key)));
+    return applySort(colsInRegion);
+  }, [activeFile, regionFilter, warehouseKeys, sortAFirst, getCategory]);
 
   // Auto-detect company column
   const companyCol = useMemo(() => {
