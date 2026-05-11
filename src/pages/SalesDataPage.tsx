@@ -731,6 +731,7 @@ export default function SalesDataPage() {
   const [classifyUploadMsg, setClassifyUploadMsg] = useState('');
   const classifyFileRef = useRef<HTMLInputElement>(null);
   const [focusCategoryA, setFocusCategoryA] = useState(false);
+  const [sortAFirst, setSortAFirst] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const exportViewRef     = useRef<HTMLDivElement>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -2467,6 +2468,18 @@ table{border-collapse:collapse;width:100%}
                 }}>
                 🎯 تركيز على A {focusCategoryA ? '✓' : ''}
               </button>
+              <button
+                onClick={() => setSortAFirst(v => !v)}
+                title="ترتيب مذاخر التصنيف A في أعلى كل منطقة"
+                style={{
+                  padding: '6px 14px', borderRadius: 8,
+                  border: `1.5px solid ${sortAFirst ? '#0ea5e9' : '#bae6fd'}`,
+                  background: sortAFirst ? '#0ea5e9' : '#f0f9ff',
+                  color: sortAFirst ? '#fff' : '#0369a1',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                }}>
+                🔼 A أولاً {sortAFirst ? '✓' : ''}
+              </button>
               {warehouseClasses.length > 0 && (
                 <button onClick={() => { if (confirm('مسح كل التصنيفات؟')) { setWarehouseClasses([]); setClassifyUploadMsg(''); } }}
                   style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginInlineStart: 'auto' }}>
@@ -2567,7 +2580,17 @@ table{border-collapse:collapse;width:100%}
                     </div>
 
                     {/* Regions & warehouses */}
-                    {Object.entries(byRegion).map(([region, list]) => (
+                    {Object.entries(byRegion).map(([region, list]) => {
+                      const sortedList = sortAFirst
+                        ? [...list].sort((a, b) => {
+                            const catA = getCategory(a.region, a.warehouse);
+                            const catB = getCategory(b.region, b.warehouse);
+                            if (catA === 'A' && catB !== 'A') return -1;
+                            if (catB === 'A' && catA !== 'A') return 1;
+                            return 0;
+                          })
+                        : list;
+                      return (
                       <div key={region} style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
                         <div style={{ background: '#f8fafc', padding: '8px 12px', fontSize: 13, fontWeight: 800, color: '#1e293b', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <span>📍 {region} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginInlineStart: 6 }}>({list.length} مخزن)</span></span>
@@ -2588,7 +2611,7 @@ table{border-collapse:collapse;width:100%}
                         </div>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                           <tbody>
-                            {list.map(w => {
+                            {sortedList.map(w => {
                               const wCur = getCategory(w.region, w.warehouse) ?? '';
                               const wChip = wCur ? catChip[wCur as WarehouseCategory] : null;
                               return (
@@ -2601,7 +2624,8 @@ table{border-collapse:collapse;width:100%}
                           </tbody>
                         </table>
                       </div>
-                    ))}
+                      );
+                    })}
 
                     {/* Extra entries from uploaded file (not in active stock) */}
                     {unmatchedClasses.length > 0 && (
