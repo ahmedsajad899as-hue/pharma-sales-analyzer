@@ -16,8 +16,8 @@ interface UploadedFile {
   userId?: number | null;
   sharedWithRepId?: number | null;
   sharedWithRep?: { id: number; name: string } | null;
-  sharedWithUserId?: number | null;
-  sharedWithUser?: { id: number; displayName?: string; username: string } | null;
+  // Multi-user sharing via junction table
+  fileShares?: Array<{ userId: number; user: { id: number; displayName?: string; username: string } }>;
   _count?: { sales: number };
 }
 
@@ -167,18 +167,19 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [sciReps, setSciReps] = useState<{ id: number; name: string }[]>([]);
   const [sciRepsLoading, setSciRepsLoading] = useState(false);
   const [selectedRepId, setSelectedRepId] = useState<number | null>(null);
-  // File-user sharing state (new: User account with area assignments)
+  // File-user sharing state (new: multi-user via junction table)
   const [linkedUsers, setLinkedUsers] = useState<{ id: number; name: string; role: string; areaCount: number; areas: string[] }[]>([]);
   const [linkedUsersLoading, setLinkedUsersLoading] = useState(false);
-  const [selectedLinkedUserId, setSelectedLinkedUserId] = useState<number | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [shareMsg, setShareMsg] = useState('');
 
   const openShareModal = async (f: UploadedFile) => {
     setShareModalFile(f);
-    setSelectedLinkedUserId(f.sharedWithUserId ?? null);
+    // Pre-select users that are already shared
+    const already = new Set((f.fileShares ?? []).map(s => s.userId));
+    setSelectedUserIds(already);
     setShareMsg('');
-    // Load linked users (subordinates of this manager)
     setLinkedUsersLoading(true);
     try {
       const res  = await fetch(`${API}/api/files/linked-users`, { headers: { Authorization: `Bearer ${token}` } });
@@ -188,26 +189,33 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     finally { setLinkedUsersLoading(false); }
   };
 
+  const toggleSelectUser = (uid: number) => {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid); else next.add(uid);
+      return next;
+    });
+  };
+
+  const selectAllUsers = () => {
+    setSelectedUserIds(new Set(linkedUsers.map(u => u.id)));
+  };
+
   const confirmShare = async () => {
     if (!shareModalFile) return;
-    // Guard: if file already has a linked user and user is trying to unlink, require explicit confirmation
-    if (selectedLinkedUserId === null && shareModalFile.sharedWithUserId !== null) {
-      const currentName = shareModalFile.sharedWithUser?.displayName || shareModalFile.sharedWithUser?.username || 'المندوب';
-      if (!window.confirm(`هل تريد فعلاً إلغاء ربط الملف بـ "${currentName}"؟`)) return;
-    }
     setSaving(true);
     setShareMsg('');
     try {
       const res  = await fetch(`${API}/api/files/${shareModalFile.id}/share-with-user`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ userId: selectedLinkedUserId }),
+        body:    JSON.stringify({ userIds: [...selectedUserIds] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'فشل التعيين');
-      setShareMsg(selectedLinkedUserId ? '✓ تمت المزامنة بنجاح' : '✓ تم إلغاء المزامنة');
+      setShareMsg(selectedUserIds.size > 0 ? `✓ تمت المزامنة مع ${selectedUserIds.size} مستخدم` : '✓ تم إلغاء جميع المزامنات');
       await loadFiles();
-      setTimeout(() => { setShareModalFile(null); setShareMsg(''); }, 1200);
+      setTimeout(() => { setShareModalFile(null); setShareMsg(''); }, 1400);
     } catch (err: any) {
       setShareMsg(`⚠ ${err.message}`);
     } finally {
@@ -612,8 +620,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {files.map(f => {
               const isActive = activeFileIds.includes(f.id);
-              const isSharedToMe = f.sharedWithUserId === user?.id && f.userId !== user?.id;
-              const isSharedByMe = f.userId === user?.id && !!f.sharedWithUserId;
+              const shares = f.fileShares ?? [];
+              const isSharedToMe = shares.some(s => s.userId === user?.id) && f.userId !== user?.id;
+              const isSharedByMe = f.userId === user?.id && shares.length > 0;
+              const shareCount   = shares.length;
 
               const typeMeta =
                 f.fileType === 'returns' ? { label: t.upload.typeReturnsLabel, color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' } :
@@ -637,7 +647,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     </span>
                     <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
                     {isActive && <span style={BADGE('#dcfce7', '#15803d', '#86efac')}>✓ {t.upload.statusActive}</span>}
-                    {isSharedByMe && <span style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>🔗 {f.sharedWithUser?.displayName || f.sharedWithUser?.username}</span>}
+                    {isSharedByMe && (
+                      shareCount <= 2
+                        ? shares.map(s => (
+                            <span key={s.userId} style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>
+                              🔗 {s.user.displayName || s.user.username}
+                            </span>
+                          ))
+                        : <span style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>🔗 {shareCount} مندوبين</span>
+                    )}
                     {isSharedToMe && <span style={BADGE('#fef3c7', '#92400e', '#fcd34d')}>📥 مشارك معك</span>}
                   </div>
 
@@ -666,11 +684,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
                       <button style={{ ...BTN_SEC, background: isSharedByMe ? '#f5f3ff' : undefined, color: isSharedByMe ? '#6d28d9' : undefined, borderColor: isSharedByMe ? '#c4b5fd' : undefined }}
                         onClick={() => openShareModal(f)}>
-                        {isSharedByMe ? `🔗 ${f.sharedWithUser?.displayName || f.sharedWithUser?.username}` : '🔗 مزامنة مع مندوب'}
+                        {isSharedByMe ? `🔗 ${shareCount} مندوب${shareCount > 1 ? 'ين' : ''}` : '🔗 مزامنة مع مندوبين'}
                       </button>
                     )}
 
-                    {/* Download — recipient */}
+                    {/* Download my sales — recipient */}
                     {isSharedToMe && (
                       <button style={{ ...BTN_SEC, background: '#ecfdf5', color: '#059669', borderColor: '#6ee7b7' }}
                         onClick={() => downloadUserSalesExcel(f.id)} disabled={exporting === `${f.id}-me`}>
@@ -678,13 +696,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       </button>
                     )}
 
-                    {/* Download — manager preview */}
-                    {f.userId === user?.id && f.sharedWithUserId && (
-                      <button style={{ ...BTN_SEC, background: '#f0fdf4', color: '#15803d', borderColor: '#86efac' }}
-                        onClick={() => downloadUserSalesExcel(f.id, f.sharedWithUserId!)} disabled={exporting === `${f.id}-${f.sharedWithUserId}`}>
-                        {exporting === `${f.id}-${f.sharedWithUserId}` ? '⏳' : `📥 بيانات ${f.sharedWithUser?.displayName || f.sharedWithUser?.username || 'المندوب'}`}
-                      </button>
-                    )}
+                    {/* Download per-user preview — manager only (shown in modal instead) */}
 
                     {/* Activate toggle */}
                     <button style={{ ...BTN_GHOST, background: isActive ? '#dcfce7' : undefined, color: isActive ? '#15803d' : undefined, borderColor: isActive ? '#86efac' : undefined }}
@@ -926,89 +938,92 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           onClick={() => setShareModalFile(null)}
         >
           <div
-            style={{ background: '#fff', borderRadius: 18, padding: '2rem', minWidth: 340, maxWidth: 480, boxShadow: '0 10px 40px rgba(0,0,0,0.22)', direction: 'rtl', width: '92%' }}
+            style={{ background: '#fff', borderRadius: 12, padding: '20px 20px 16px', minWidth: 340, maxWidth: 500, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl', width: '94%' }}
             onClick={e => e.stopPropagation()}
           >
-            <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 800, color: '#1e1b4b' }}>🔗 مزامنة مع مندوب / قائد فريق</h3>
-            <p style={{ margin: '0 0 4px', fontSize: 13, color: '#6b7280' }}>{shareModalFile.originalName}</p>
-            <p style={{ margin: '0 0 14px', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
-              سيتمكن المستخدم المختار من رؤية بياناته المفلترة حسب مناطقه المعيّنة فقط
-            </p>
+            {/* Header */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>🔗 مزامنة الملف مع مندوبين</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{shareModalFile.originalName}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, lineHeight: 1.5 }}>
+                اختر مندوبين أو أكثر — كل منهم سيرى بياناته المفلترة حسب مناطقه فقط
+              </div>
+            </div>
 
             {linkedUsersLoading ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>⏳ جاري تحميل المستخدمين...</div>
+              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>⏳ جاري التحميل...</div>
             ) : linkedUsers.length === 0 ? (
-              <div style={{ padding: '12px', background: '#fef2f2', borderRadius: 10, color: '#b91c1c', fontSize: 13 }}>
-                لا يوجد مندوبون أو قادة فريق مرتبطون بك — يجب تعيينهم من لوحة الماستر أولاً
+              <div style={{ padding: '12px', background: '#fef2f2', borderRadius: 8, color: '#b91c1c', fontSize: 13 }}>
+                لا يوجد مندوبون مرتبطون بك — عيّنهم من لوحة الماستر أولاً
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto', marginBottom: 16 }}>
-                {/* None option */}
-                <label style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
-                  border: `1.5px solid ${selectedLinkedUserId === null ? '#e11d48' : '#e2e8f0'}`,
-                  background: selectedLinkedUserId === null ? '#fff1f2' : '#f9fafb',
-                }}>
-                  <input type="radio" name="shareUser" checked={selectedLinkedUserId === null} onChange={() => setSelectedLinkedUserId(null)} style={{ accentColor: '#e11d48' }} />
-                  <span style={{ fontSize: 13, fontWeight: selectedLinkedUserId === null ? 700 : 400, color: selectedLinkedUserId === null ? '#be123c' : '#374151' }}>
-                    🚫 بدون مزامنة (إلغاء التعيين)
-                  </span>
-                </label>
-                {linkedUsers.map(u => {
-                  const ROLE_AR: Record<string, string> = { scientific_rep: 'مندوب علمي', team_leader: 'قائد فريق', supervisor: 'مشرف', manager: 'مدير فريق' };
-                  const isSelected = selectedLinkedUserId === u.id;
-                  return (
-                    <label key={u.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
-                      border: `1.5px solid ${isSelected ? '#7c3aed' : '#e2e8f0'}`,
-                      background: isSelected ? '#f5f3ff' : '#f9fafb',
-                    }}>
-                      <input type="radio" name="shareUser" checked={isSelected} onChange={() => setSelectedLinkedUserId(u.id)} style={{ accentColor: '#7c3aed' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: isSelected ? 700 : 400, color: isSelected ? '#6d28d9' : '#374151' }}>
-                          👤 {u.name}
+              <>
+                {/* Select all / clear */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                  <button onClick={selectAllUsers} style={{ ...BTN_SEC, fontSize: 11 }}>تحديد الكل</button>
+                  <button onClick={() => setSelectedUserIds(new Set())} style={{ ...BTN_GHOST, fontSize: 11 }}>إلغاء الكل</button>
+                  {selectedUserIds.size > 0 && (
+                    <span style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700, marginRight: 4 }}>
+                      {selectedUserIds.size} محدد
+                    </span>
+                  )}
+                </div>
+
+                {/* User list */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 300, overflowY: 'auto', marginBottom: 12 }}>
+                  {linkedUsers.map(u => {
+                    const ROLE_AR: Record<string, string> = { scientific_rep: 'مندوب علمي', team_leader: 'قائد فريق', supervisor: 'مشرف', manager: 'مدير' };
+                    const checked = selectedUserIds.has(u.id);
+                    return (
+                      <label key={u.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
+                        border: `1.5px solid ${checked ? '#7c3aed' : '#e2e8f0'}`,
+                        background: checked ? '#f5f3ff' : '#fafafa',
+                        userSelect: 'none',
+                      }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleSelectUser(u.id)}
+                          style={{ accentColor: '#7c3aed', width: 15, height: 15, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: checked ? 700 : 400, color: checked ? '#6d28d9' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            👤 {u.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                            {ROLE_AR[u.role] ?? u.role} · {u.areaCount > 0 ? `${u.areaCount} منطقة` : '⚠ لا مناطق'}
+                            {u.areaCount > 0 && u.areas.length > 0 && ` · ${u.areas.slice(0, 3).join('، ')}${u.areas.length > 3 ? '...' : ''}`}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                          {ROLE_AR[u.role] ?? u.role} · {u.areaCount > 0 ? `${u.areaCount} منطقة` : '⚠ لا توجد مناطق مُعيَّنة'}
-                          {u.areaCount > 0 && u.areas.length > 0 && ` · ${u.areas.slice(0, 3).join('، ')}${u.areas.length > 3 ? '...' : ''}`}
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
+                        {/* Download button per user */}
+                        {checked && (
+                          <button
+                            onClick={e => { e.preventDefault(); downloadUserSalesExcel(shareModalFile.id, u.id); }}
+                            disabled={exporting === `${shareModalFile.id}-${u.id}`}
+                            style={{ ...BTN_SEC, fontSize: 10, padding: '3px 8px', flexShrink: 0 }}
+                            title={`تحميل بيانات ${u.name} كـ Excel`}
+                          >
+                            {exporting === `${shareModalFile.id}-${u.id}` ? '⏳' : '📥 Excel'}
+                          </button>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
             )}
 
             {shareMsg && (
-              <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 700, color: shareMsg.startsWith('✓') ? '#059669' : '#dc2626' }}>
+              <div style={{ marginBottom: 10, fontSize: 13, fontWeight: 700, color: shareMsg.startsWith('✓') ? '#059669' : '#dc2626' }}>
                 {shareMsg}
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button style={{ ...BTN_GHOST }} onClick={() => setShareModalFile(null)}>إلغاء</button>
               <button
-                style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}
-                onClick={() => setShareModalFile(null)}
-              >
-                إلغاء
-              </button>
-              {/* Preview download for selected user */}
-              {selectedLinkedUserId && (
-                <button
-                  onClick={() => downloadUserSalesExcel(shareModalFile.id, selectedLinkedUserId)}
-                  disabled={exporting === `${shareModalFile.id}-${selectedLinkedUserId}`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
-                  title="تحميل البيانات المفلترة للمستخدم المختار (حسب مناطقه) كـ Excel"
-                >
-                  {exporting === `${shareModalFile.id}-${selectedLinkedUserId}` ? '⏳ جاري...' : '📥 معاينة Excel'}
-                </button>
-              )}
-              <button
-                style={{ padding: '8px 22px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14, opacity: saving ? 0.7 : 1 }}
+                style={{ ...BTN_PRI, opacity: saving ? 0.7 : 1 }}
                 onClick={confirmShare}
                 disabled={saving || linkedUsers.length === 0}
               >
-                {saving ? '⏳ جاري...' : '✓ تأكيد المزامنة'}
+                {saving ? '⏳ جاري...' : `✓ حفظ المزامنة${selectedUserIds.size > 0 ? ` (${selectedUserIds.size})` : ''}`}
               </button>
             </div>
           </div>

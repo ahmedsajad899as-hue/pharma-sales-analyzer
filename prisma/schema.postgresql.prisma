@@ -65,7 +65,7 @@ model User {
   interactionAsTarget UserInteractionPermission[] @relation("InteractionTarget")
   invoiceSheets       InvoiceSheet[]
   fmsPlans            FmsPlan[]
-  receivedFiles       UploadedFile[]             @relation("FileSharedWithUser")
+  fileShares          FileUserShare[]
   pharmacies          Pharmacy[]              @relation("PharmacyOwner")
   assignedInvoices    CommercialInvoice[]     @relation("AssignedInvoices")
   createdInvoices     CommercialInvoice[]     @relation("CreatedInvoices")
@@ -317,15 +317,13 @@ model UploadedFile {
   sharedWithRepId Int?
   sharedWithRep   ScientificRepresentative? @relation("FileSharedWithRep", fields: [sharedWithRepId], references: [id], onDelete: SetNull)
 
-  // Share directly with a user account (filtered by their area assignments)
-  sharedWithUserId Int?
-  sharedWithUser   User? @relation("FileSharedWithUser", fields: [sharedWithUserId], references: [id], onDelete: SetNull)
+  // Share with multiple user accounts (many-to-many via junction table)
+  fileShares       FileUserShare[]
 
   sales Sale[]
 
   @@index([userId])
   @@index([sharedWithRepId])
-  @@index([sharedWithUserId])
   @@map("uploaded_files")
 }
 
@@ -1233,6 +1231,21 @@ model DistributorSaleRecord {
   @@index([uploadId])
   @@index([userId])
   @@map("distributor_sale_records")
+}
+
+// ─── File ↔ User Share (many-to-many) ────────────────────────
+model FileUserShare {
+  id           Int          @id @default(autoincrement())
+  fileId       Int
+  userId       Int
+  createdAt    DateTime     @default(now())
+
+  file UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, userId])
+  @@index([userId])
+  @@map("file_user_shares")
 }
 
 // ─── Filter Presets ─────────────────────────────────────────
