@@ -1840,22 +1840,21 @@ table{border-collapse:collapse;width:100%}
 
             {/* Items — collapsible pills */}
             {activeFile && itemNameCol && (() => {
+              // Build item list from ALL rows (not region-filtered) so selected items
+              // stay visible when switching regions / warehouses.
               let sourceRows = activeFile.rows;
-              if (regionFilter !== 'all') {
-                const hasTags = sourceRows.some(r => r['_regions'] || r['_sourceFile']);
-                if (hasTags) sourceRows = sourceRows.filter(r => {
-                  if (r['_regions'])    return r['_regions'].split(',').includes(regionFilter);
-                  if (r['_sourceFile']) return r['_sourceFile'] === regionFilter;
-                  return true;
-                });
-              }
               if (companyCol && selectedCompanies.size > 0)
                 sourceRows = sourceRows.filter(r => selectedCompanies.has(String(r[companyCol] ?? '').trim()));
               const allItems = [...new Set(
                 sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
               )].sort((a, b) => a.localeCompare(b, 'ar'));
               const q = itemQuery.trim().toLowerCase();
-              const visibleItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
+              const baseItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
+              // Always show selected items at the top, regardless of search/region
+              const selectedSet = new Set(selectedItems);
+              const selectedVisible = selectedItems.filter(n => allItems.includes(n));
+              const rest = baseItems.filter(n => !selectedSet.has(n));
+              const visibleItems = [...selectedVisible, ...rest];
               const hasActive = selectedItems.length > 0;
               const allSelected = selectedItems.length === 0;
               return (
