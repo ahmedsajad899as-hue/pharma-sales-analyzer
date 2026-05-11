@@ -2115,17 +2115,29 @@ table{border-collapse:collapse;width:100%}
                         const focusA = focusCategoryA && cat === 'A';
                         return (
                         <th key={col.key} style={{ ...thA, position: 'relative', background: focusA ? '#f1f5f9' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (isRT(col) ? '#4338ca' : '#1e293b'), borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                             {!isRT(col) && cat && (() => {
-                                const colors = { A: { bg: '#dcfce7', fg: '#16a34a', br: '#86efac' }, B: { bg: '#fef9c3', fg: '#ca8a04', br: '#fde68a' }, C: { bg: '#fee2e2', fg: '#dc2626', br: '#fca5a5' } }[cat];
+                                const palette = {
+                                  A: { solid: '#16a34a', text: '#fff', shadow: 'rgba(22,163,74,0.35)' },
+                                  B: { solid: '#d97706', text: '#fff', shadow: 'rgba(217,119,6,0.35)' },
+                                  C: { solid: '#dc2626', text: '#fff', shadow: 'rgba(220,38,38,0.35)' },
+                                }[cat];
                                 return (
                                   <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16, borderRadius: 4, fontSize: 9, fontWeight: 800, background: colors.bg, color: colors.fg, border: `1px solid ${colors.br}`, lineHeight: 1, flexShrink: 0 }}>
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                      width: 18, height: 18, borderRadius: 5,
+                                      fontSize: 10, fontWeight: 900, letterSpacing: 0,
+                                      background: palette.solid, color: palette.text,
+                                      boxShadow: `0 1px 4px ${palette.shadow}`,
+                                      lineHeight: 1, flexShrink: 0,
+                                      fontFamily: 'Arial, sans-serif',
+                                    }}>
                                     {cat}
                                   </span>
                                 );
                               })()}
-                            <span>{col.label}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.2, textAlign: 'center' }}>{col.label}</span>
                           </div>
                         </th>
                         );
