@@ -1119,40 +1119,69 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
             representative: { select: { name: true } },
             area:           { select: { name: true } },
             item:           { select: { name: true } },
-            quantity:  true,
+            quantity:   true,
             totalValue: true,
             recordType: true,
             saleDate:   true,
+            rawData:    true,
           },
           orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
         })
       : [];
 
-    const headers = ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
+    // ── Collect all original column headers from rawData ───────────────
+    const allRawKeys = new Set();
+    for (const s of sales) {
+      if (s.rawData) {
+        try { Object.keys(JSON.parse(s.rawData)).forEach(k => allRawKeys.add(k)); } catch {}
+      }
+    }
+    // Build headers: use original Excel columns if available, otherwise fallback
+    const useRaw = allRawKeys.size > 0;
+    const rawHeaders = useRaw ? [...allRawKeys] : [];
+    const headers = useRaw
+      ? rawHeaders  // exactly the original Excel columns
+      : ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
+
     const salesRows  = sales.filter(s => s.recordType !== 'return');
     const returnRows = sales.filter(s => s.recordType === 'return');
 
     // Sheet helper
-    const makeRows = (rows, negate = false) => rows.map(s => [
-      s.representative?.name ?? '',
-      s.area?.name          ?? '',
-      s.item?.name          ?? '',
-      negate ? -(Math.abs(s.quantity))    : s.quantity,
-      negate ? -(Math.abs(s.totalValue))  : s.totalValue,
-      s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
-      s.saleDate ? new Date(s.saleDate).toLocaleDateString('ar-IQ') : '',
-    ]);
+    const makeRows = (rows, negate = false) => rows.map(s => {
+      if (useRaw && s.rawData) {
+        try {
+          const raw = JSON.parse(s.rawData);
+          return rawHeaders.map(k => {
+            const v = raw[k];
+            return v !== undefined ? v : '';
+          });
+        } catch {}
+      }
+      // Fallback: structured fields
+      const qty = negate ? -(Math.abs(s.quantity)) : s.quantity;
+      const val = negate ? -(Math.abs(s.totalValue)) : s.totalValue;
+      return [
+        s.representative?.name ?? '',
+        s.area?.name          ?? '',
+        s.item?.name          ?? '',
+        qty, val,
+        s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
+        s.saleDate ? new Date(s.saleDate).toLocaleDateString('ar-IQ') : '',
+      ];
+    });
+
+    const colWidths = headers.map(h => ({ wch: Math.max(14, String(h).length + 4) }));
 
     const wb = XLSX.utils.book_new();
 
     // Sheet 1 – مبيعات (sales only)
     const wsSales = XLSX.utils.aoa_to_sheet([headers, ...makeRows(salesRows)]);
-    wsSales['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    wsSales['!cols'] = colWidths;
     XLSX.utils.book_append_sheet(wb, wsSales, 'مبيعات');
 
     // Sheet 2 – ارجاع (returns as negative)
     const wsReturns = XLSX.utils.aoa_to_sheet([headers, ...makeRows(returnRows, true)]);
-    wsReturns['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    wsReturns['!cols'] = colWidths;
     XLSX.utils.book_append_sheet(wb, wsReturns, 'ارجاع');
 
     // Sheet 3 – الصافي (all rows: returns negative so SUM = sales – returns)
@@ -1161,7 +1190,7 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
       ...makeRows(returnRows, true),
     ];
     const wsNet = XLSX.utils.aoa_to_sheet([headers, ...netRows]);
-    wsNet['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    wsNet['!cols'] = colWidths;
     XLSX.utils.book_append_sheet(wb, wsNet, 'الصافي (مبيع - ارجاع)');
 
     // Sheet 4 – ملخص
