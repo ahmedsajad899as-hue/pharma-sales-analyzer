@@ -31,6 +31,26 @@ router.get('/overall', async (req, res) => {
     // Keeping userId filter only as a fallback when no fileIds provided
     const userOwnershipFilter = (userId && parsedFileIds.length === 0) ? { uploadedFile: { userId } } : {};
 
+    // ── Area filter: when the current user is viewing a file shared WITH them
+    //    (not owned by them), restrict results to their assigned areas only ──
+    let areaFilter = {};
+    if (userId && parsedFileIds.length > 0) {
+      // Check if any of the requested files are shared with this user (not owned by them)
+      const sharedFiles = await prisma.uploadedFile.findMany({
+        where: { id: { in: parsedFileIds }, sharedWithUserId: userId, NOT: { userId } },
+        select: { id: true },
+      });
+      if (sharedFiles.length > 0) {
+        const userAreaRows = await prisma.userAreaAssignment.findMany({
+          where: { userId },
+          select: { areaId: true },
+        });
+        if (userAreaRows.length > 0) {
+          areaFilter = { areaId: { in: userAreaRows.map(a => a.areaId) } };
+        }
+      }
+    }
+
     const fileFilter = parsedFileIds.length === 0
       ? {}
       : parsedFileIds.length === 1
@@ -76,6 +96,7 @@ router.get('/overall', async (req, res) => {
           where: {
             ...fileFilter,
             ...userOwnershipFilter,
+            ...areaFilter,
             ...(recordType ? { recordType } : {}),
             saleDate: { lt: uploadedAt },
           },
@@ -95,6 +116,7 @@ router.get('/overall', async (req, res) => {
     const where = {
       ...fileFilter,
       ...userOwnershipFilter,
+      ...areaFilter,
       ...(effectiveStartDate || effectiveEndDate ? {
         saleDate: {
           ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),

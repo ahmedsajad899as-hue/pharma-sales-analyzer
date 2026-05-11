@@ -190,6 +190,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   const confirmShare = async () => {
     if (!shareModalFile) return;
+    // Guard: if file already has a linked user and user is trying to unlink, require explicit confirmation
+    if (selectedLinkedUserId === null && shareModalFile.sharedWithUserId !== null) {
+      const currentName = shareModalFile.sharedWithUser?.displayName || shareModalFile.sharedWithUser?.username || 'المندوب';
+      if (!window.confirm(`هل تريد فعلاً إلغاء ربط الملف بـ "${currentName}"؟`)) return;
+    }
     setSaving(true);
     setShareMsg('');
     try {

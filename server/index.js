@@ -1129,23 +1129,42 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
       : [];
 
     const headers = ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
-    const rows = sales.map(s => [
+    const salesRows  = sales.filter(s => s.recordType !== 'return');
+    const returnRows = sales.filter(s => s.recordType === 'return');
+
+    // Sheet helper
+    const makeRows = (rows, negate = false) => rows.map(s => [
       s.representative?.name ?? '',
       s.area?.name          ?? '',
       s.item?.name          ?? '',
-      s.quantity,
-      s.totalValue,
+      negate ? -(Math.abs(s.quantity))    : s.quantity,
+      negate ? -(Math.abs(s.totalValue))  : s.totalValue,
       s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
       s.saleDate ? new Date(s.saleDate).toLocaleDateString('ar-IQ') : '',
     ]);
 
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    ws['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'مبيعاتي');
 
-    const salesRows  = sales.filter(s => s.recordType !== 'return');
-    const returnRows = sales.filter(s => s.recordType === 'return');
+    // Sheet 1 – مبيعات (sales only)
+    const wsSales = XLSX.utils.aoa_to_sheet([headers, ...makeRows(salesRows)]);
+    wsSales['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsSales, 'مبيعات');
+
+    // Sheet 2 – ارجاع (returns as negative)
+    const wsReturns = XLSX.utils.aoa_to_sheet([headers, ...makeRows(returnRows, true)]);
+    wsReturns['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsReturns, 'ارجاع');
+
+    // Sheet 3 – الصافي (all rows: returns negative so SUM = sales – returns)
+    const netRows = [
+      ...makeRows(salesRows),
+      ...makeRows(returnRows, true),
+    ];
+    const wsNet = XLSX.utils.aoa_to_sheet([headers, ...netRows]);
+    wsNet['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsNet, 'الصافي (مبيع - ارجاع)');
+
+    // Sheet 4 – ملخص
     const wsSummary = XLSX.utils.aoa_to_sheet([
       ['ملخص بيانات المستخدم'],
       [''],
