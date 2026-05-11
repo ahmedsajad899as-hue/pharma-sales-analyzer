@@ -175,6 +175,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [lines,     setLines]     = useState<Line[]>([]);
   const [items,     setItems]     = useState<Item[]>([]);
   const [areas,     setAreas]     = useState<Area[]>([]);
+  const [refsLoading, setRefsLoading] = useState(false);
   const [loading,   setLoading]   = useState(true);
   const [detail,    setDetail]    = useState<UserDetail | null>(null);
 
@@ -225,14 +226,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   };
 
   const loadRefs = async () => {
-    const [li, it, ar] = await Promise.all([
-      fetch('/api/sa/companies/all-lines', { headers: H() }).then(r => r.json()),
-      fetch('/api/sa/items',  { headers: H() }).then(r => r.json()),
-      fetch('/api/sa/areas',  { headers: H() }).then(r => r.json()),
-    ]);
-    if (li.success) setLines(li.data);
-    if (it.success) setItems(it.data);
-    if (ar.success) setAreas(ar.data);
+    setRefsLoading(true);
+    try {
+      const [li, it, ar] = await Promise.all([
+        fetch('/api/sa/companies/all-lines', { headers: H() }).then(r => r.json()),
+        fetch('/api/sa/items',  { headers: H() }).then(r => r.json()),
+        fetch('/api/sa/areas',  { headers: H() }).then(r => r.json()),
+      ]);
+      if (li.success) setLines(li.data);
+      if (it.success) setItems(it.data);
+      if (ar.success) setAreas(ar.data);
+    } finally {
+      setRefsLoading(false);
+    }
   };
 
   useEffect(load, []);
@@ -669,9 +675,23 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 onChange={e => setAreaSearch(e.target.value)}
                 style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
               />
+              {refsLoading ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 14 }}>⏳ جاري تحميل قائمة المناطق...</div>
+              ) : (
+              <>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftAreaIds(areas.map(a => a.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftAreaIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+                <button
+                  onClick={() => { if (areas.length > 0) setDraftAreaIds(areas.map(a => a.id)); }}
+                  disabled={areas.length === 0}
+                  style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px', opacity: areas.length === 0 ? 0.4 : 1 }}
+                >✓ اختيار الكل</button>
+                <button
+                  onClick={() => {
+                    if (draftAreaIds.length > 0 && !confirm('سيتم إلغاء تحديد جميع المناطق. هل أنت متأكد؟')) return;
+                    setDraftAreaIds([]);
+                  }}
+                  style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}
+                >✗ إلغاء الكل</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {areas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase())).map(a => (
@@ -681,8 +701,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   </label>
                 ))}
               </div>
+              </>
+              )}
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => saveAssignment('areas', draftAreaIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
+                <button
+                  onClick={() => {
+                    if (draftAreaIds.length === 0 && detail.areaAssignments.length > 0) {
+                      if (!confirm(`سيتم حذف جميع المناطق المُعيَّنة (${detail.areaAssignments.length} منطقة) لهذا المستخدم. هل أنت متأكد؟`)) return;
+                    }
+                    saveAssignment('areas', draftAreaIds);
+                  }}
+                  disabled={saving || refsLoading}
+                  style={btnStyle('#0f172a', true)}
+                >{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
             </div>
           )}
