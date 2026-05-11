@@ -954,8 +954,7 @@ app.get('/api/files', async (req, res) => {
     if (userId) {
       const orClauses = [{ userId, ...typeFilter }];
       if (linkedRepId) orClauses.push({ sharedWithRepId: linkedRepId, ...typeFilter });
-      // Include files shared with current user via the new junction table
-      orClauses.push({ fileShares: { some: { userId } }, ...typeFilter });
+      orClauses.push({ sharedWithUserId: userId, ...typeFilter });
       whereClause = { OR: orClauses };
     } else {
       whereClause = { ...typeFilter };
@@ -970,12 +969,8 @@ app.get('/api/files', async (req, res) => {
         userId: true,
         sharedWithRepId: true,
         sharedWithRep: { select: { id: true, name: true } },
-        fileShares: {
-          select: {
-            userId: true,
-            user: { select: { id: true, displayName: true, username: true } },
-          },
-        },
+        sharedWithUserId: true,
+        sharedWithUser: { select: { id: true, displayName: true, username: true } },
         _count: { select: { sales: true } },
       },
     });
@@ -1055,11 +1050,11 @@ app.get('/api/files/linked-users', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/files/:id/share-with-user  body: { userIds: number[] }  (empty array = remove all)
+// POST /api/files/:id/share-with-user  body: { userId: number | null }
 app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
   try {
     const fileId   = parseInt(req.params.id);
-    const userIds  = Array.isArray(req.body.userIds) ? req.body.userIds.map(Number) : [];
+    const targetId = req.body.userId != null ? parseInt(req.body.userId) : null;
     const callerId = req.user?.id ?? null;
 
     const ALLOWED = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager']);
@@ -1068,26 +1063,18 @@ app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
     const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId: callerId } });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية تعديله' });
 
-    // Validate all targets are subordinates
-    if (userIds.length > 0) {
-      const asgns = await prisma.userManagerAssignment.findMany({ where: { managerId: callerId, userId: { in: userIds } } });
-      if (asgns.length !== userIds.length) return res.status(403).json({ error: 'بعض المستخدمين غير مرتبطين بك' });
+    if (targetId !== null) {
+      const asgn = await prisma.userManagerAssignment.findFirst({ where: { userId: targetId, managerId: callerId } });
+      if (!asgn) return res.status(403).json({ error: 'هذا المستخدم غير مرتبط بك' });
     }
 
-    // Replace shares: delete all existing, then insert new
-    await prisma.fileUserShare.deleteMany({ where: { fileId } });
-    if (userIds.length > 0) {
-      await prisma.fileUserShare.createMany({
-        data: userIds.map(uid => ({ fileId, userId: uid })),
-        skipDuplicates: true,
-      });
-    }
-
-    const updated = await prisma.uploadedFile.findUnique({
+    const updated = await prisma.uploadedFile.update({
       where: { id: fileId },
+      data:  { sharedWithUserId: targetId },
       select: {
         id: true,
-        fileShares: { select: { userId: true, user: { select: { id: true, displayName: true, username: true } } } },
+        sharedWithUserId: true,
+        sharedWithUser: { select: { id: true, displayName: true, username: true } },
       },
     });
     res.json({ success: true, data: updated });
@@ -1102,15 +1089,11 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     const callerId = req.user?.id ?? null;
     const targetId = req.query.userId ? parseInt(req.query.userId) : callerId;
 
-    // Access check: caller owns the file OR file is shared with caller via junction table
+    // Access check: caller owns the file OR file is shared with caller
     const file = await prisma.uploadedFile.findFirst({
       where: {
         id: fileId,
-        OR: [
-          { userId: callerId },
-          { fileShares: { some: { userId: callerId } } },
-          { userId: callerId, fileShares: { some: { userId: targetId } } },
-        ],
+        OR: [{ userId: callerId }, { sharedWithUserId: callerId }, { sharedWithUserId: targetId, userId: callerId }],
       },
       select: { id: true, originalName: true },
     });

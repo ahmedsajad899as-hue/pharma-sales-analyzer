@@ -394,19 +394,38 @@ export async function getReport(id, query = {}) {
   const endDate    = query.endDate   ? new Date(query.endDate)   : null;
   const recordType = query.recordType || null;
 
-  // Build base WHERE: scoped by fileIds, date, recordType
-  const baseWhere = {
-    ...(fileIds.length === 1 ? { uploadedFileId: fileIds[0] } : { uploadedFileId: { in: fileIds } }),
-    ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
-    ...(recordType ? { recordType } : {}),
-  };
+  // ── 4b. Detect files directly shared with this sci rep's linked user account ──
+  // When a manager explicitly shares a file with the rep's user account, every row
+  // in that file belongs to the rep by definition — no name/area filtering needed.
+  // This matches the logic used by /api/reports/overall for the rep's own view.
+  let sharedFileIds = [];
+  const linkedUser = await prisma.user.findFirst({
+    where: { linkedRepId: rep.id },
+    select: { id: true },
+  });
+  if (linkedUser && fileIds && fileIds.length > 0) {
+    const sharedFiles = await prisma.uploadedFile.findMany({
+      where: { id: { in: fileIds }, sharedWithUserId: linkedUser.id },
+      select: { id: true },
+    });
+    sharedFileIds = sharedFiles.map(f => f.id);
+  }
+  // Files NOT shared directly with the rep → use normal name/area filter
+  const nonSharedFileIds = fileIds ? fileIds.filter(fid => !sharedFileIds.includes(fid)) : [];
+
+  console.log('[SciRep.getReport] linkedUser:', linkedUser?.id ?? null, '| sharedFileIds:', sharedFileIds, '| nonSharedFileIds:', nonSharedFileIds);
 
   let rawSales = [];
 
-  if (allRepIds.length > 0) {
-    // Fetch all sales for involved reps (name-match + explicit) in active files
-    rawSales = await prisma.sale.findMany({
-      where: { ...baseWhere, representativeId: { in: allRepIds } },
+  // ── A. Shared files: include ALL sales (no rep/area/item filter) ──────────
+  if (sharedFileIds.length > 0) {
+    const sharedBaseWhere = {
+      ...(sharedFileIds.length === 1 ? { uploadedFileId: sharedFileIds[0] } : { uploadedFileId: { in: sharedFileIds } }),
+      ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
+      ...(recordType ? { recordType } : {}),
+    };
+    const sharedSales = await prisma.sale.findMany({
+      where: sharedBaseWhere,
       select: {
         quantity: true, totalValue: true,
         areaId: true, itemId: true,
@@ -415,37 +434,62 @@ export async function getReport(id, query = {}) {
         representative: { select: { id: true, name: true } },
       },
     });
+    rawSales = rawSales.concat(sharedSales);
+  }
 
-    // Row-level filter:
-    //   - name-match rep   → keep ALL their sales (no area/item filter)
-    //   - explicit-only rep → apply area/item filter
-    //   - if rep is BOTH name-match AND explicit → keep all (name-match wins, no double-count since one row only)
-    const areaSet = hasAreas ? new Set(areaIds) : null;
-    const itemSet = hasItems ? new Set(itemIds) : null;
-    rawSales = rawSales.filter(s => {
-      const repId = s.representative.id;
-      if (nameMatchSet.has(repId)) return true; // name-match: no filter
-      // explicit-only path
-      if (areaSet && !areaSet.has(s.areaId)) return false;
-      if (itemSet && !itemSet.has(s.itemId)) return false;
-      return true;
-    });
-  } else if (hasAreas || hasItems) {
-    // Legacy: no rep assignments at all → area/item only
-    rawSales = await prisma.sale.findMany({
-      where: {
-        ...baseWhere,
-        ...(hasAreas ? { areaId: { in: areaIds } } : {}),
-        ...(hasItems ? { itemId: { in: itemIds } } : {}),
-      },
-      select: {
-        quantity: true, totalValue: true,
-        areaId: true, itemId: true,
-        area: { select: { id: true, name: true } },
-        item: { select: { id: true, name: true } },
-        representative: { select: { id: true, name: true } },
-      },
-    });
+  // ── B. Non-shared files: use name-match + explicit-rep + area/item filter ─
+  if (nonSharedFileIds.length > 0) {
+    const nonSharedBase = {
+      ...(nonSharedFileIds.length === 1 ? { uploadedFileId: nonSharedFileIds[0] } : { uploadedFileId: { in: nonSharedFileIds } }),
+      ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
+      ...(recordType ? { recordType } : {}),
+    };
+
+    if (allRepIds.length > 0) {
+      // Fetch all sales for involved reps (name-match + explicit) in non-shared files
+      let nonSharedSales = await prisma.sale.findMany({
+        where: { ...nonSharedBase, representativeId: { in: allRepIds } },
+        select: {
+          quantity: true, totalValue: true,
+          areaId: true, itemId: true,
+          area: { select: { id: true, name: true } },
+          item: { select: { id: true, name: true } },
+          representative: { select: { id: true, name: true } },
+        },
+      });
+
+      // Row-level filter:
+      //   - name-match rep   → keep ALL their sales (no area/item filter)
+      //   - explicit-only rep → apply area/item filter
+      const areaSet = hasAreas ? new Set(areaIds) : null;
+      const itemSet = hasItems ? new Set(itemIds) : null;
+      nonSharedSales = nonSharedSales.filter(s => {
+        const repId = s.representative.id;
+        if (nameMatchSet.has(repId)) return true; // name-match: no filter
+        // explicit-only path
+        if (areaSet && !areaSet.has(s.areaId)) return false;
+        if (itemSet && !itemSet.has(s.itemId)) return false;
+        return true;
+      });
+      rawSales = rawSales.concat(nonSharedSales);
+    } else if (hasAreas || hasItems) {
+      // Legacy: no rep assignments at all → area/item only
+      const legacySales = await prisma.sale.findMany({
+        where: {
+          ...nonSharedBase,
+          ...(hasAreas ? { areaId: { in: areaIds } } : {}),
+          ...(hasItems ? { itemId: { in: itemIds } } : {}),
+        },
+        select: {
+          quantity: true, totalValue: true,
+          areaId: true, itemId: true,
+          area: { select: { id: true, name: true } },
+          item: { select: { id: true, name: true } },
+          representative: { select: { id: true, name: true } },
+        },
+      });
+      rawSales = rawSales.concat(legacySales);
+    }
   }
 
   const aggregated = aggregateSalesWithReps(rawSales);
@@ -464,6 +508,9 @@ export async function getReport(id, query = {}) {
     byRep,
     _debug: {
       fileIds,
+      sharedFileIds,
+      nonSharedFileIds,
+      linkedUserId: linkedUser?.id ?? null,
       nameMatchIds,
       explicitCommRepIds,
       areaIds,
