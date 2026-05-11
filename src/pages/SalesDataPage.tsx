@@ -2117,21 +2117,27 @@ table{border-collapse:collapse;width:100%}
                         <th key={col.key} style={{ ...thA, position: 'relative', background: focusA ? '#f1f5f9' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (isRT(col) ? '#4338ca' : '#1e293b'), borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                             {!isRT(col) && cat && (() => {
-                                const palette = {
-                                  A: { solid: '#1e293b', text: '#fff', shadow: 'rgba(30,41,59,0.25)' },
-                                  B: { solid: '#64748b', text: '#fff', shadow: 'rgba(100,116,139,0.25)' },
-                                  C: { solid: '#94a3b8', text: '#fff', shadow: 'rgba(148,163,184,0.20)' },
-                                }[cat];
+                                const isFocused = focusCategoryA && cat === 'A';
+                                const palette = isFocused
+                                  ? { solid: '#16a34a', text: '#fff', shadow: 'rgba(22,163,74,0.40)', size: 20, fs: 11 }
+                                  : {
+                                      A: { solid: '#334155', text: '#fff', shadow: 'rgba(51,65,85,0.22)', size: 18, fs: 10 },
+                                      B: { solid: '#64748b', text: '#fff', shadow: 'rgba(100,116,139,0.20)', size: 18, fs: 10 },
+                                      C: { solid: '#94a3b8', text: '#fff', shadow: 'rgba(148,163,184,0.18)', size: 18, fs: 10 },
+                                    }[cat];
                                 return (
                                   <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
                                     style={{
                                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                      width: 18, height: 18, borderRadius: 5,
-                                      fontSize: 10, fontWeight: 900, letterSpacing: 0,
+                                      width: palette.size, height: palette.size,
+                                      borderRadius: 5,
+                                      fontSize: palette.fs, fontWeight: 900, letterSpacing: 0,
                                       background: palette.solid, color: palette.text,
-                                      boxShadow: `0 1px 4px ${palette.shadow}`,
+                                      boxShadow: `0 1px 5px ${palette.shadow}`,
                                       lineHeight: 1, flexShrink: 0,
                                       fontFamily: 'Arial, sans-serif',
+                                      outline: isFocused ? '2px solid #86efac' : 'none',
+                                      outlineOffset: 1,
                                     }}>
                                     {cat}
                                   </span>
