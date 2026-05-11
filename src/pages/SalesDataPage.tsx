@@ -1846,11 +1846,8 @@ table{border-collapse:collapse;width:100%}
               )].sort((a, b) => a.localeCompare(b, 'ar'));
               const q = itemQuery.trim().toLowerCase();
               const baseItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
-              // Always show selected items at the top, regardless of search/region
-              const selectedSet = new Set(selectedItems);
-              const selectedVisible = selectedItems.filter(n => allItems.includes(n));
-              const rest = baseItems.filter(n => !selectedSet.has(n));
-              const visibleItems = [...selectedVisible, ...rest];
+              // Keep original order — selected items stay in place
+              const visibleItems = baseItems;
               const hasActive = selectedItems.length > 0;
               const allSelected = selectedItems.length === 0;
               return (
