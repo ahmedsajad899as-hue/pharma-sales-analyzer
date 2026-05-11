@@ -1940,9 +1940,9 @@ table{border-collapse:collapse;width:100%}
               {shortages.totalCount > 0 && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  minWidth: 20, padding: '0 6px', height: 18,
-                  borderRadius: 10, fontSize: 10, fontWeight: 700,
-                  background: '#dc2626', color: '#fff',
+                  minWidth: 22, padding: '0 7px', height: 22,
+                  borderRadius: 11, fontSize: 12, fontWeight: 800, letterSpacing: '-0.3px',
+                  background: '#dc2626', color: '#fff', lineHeight: 1,
                 }}>{redCellCount}</span>
               )}
             </button>
@@ -1964,9 +1964,9 @@ table{border-collapse:collapse;width:100%}
               {warehouseClasses.length > 0 && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  minWidth: 20, padding: '0 6px', height: 18,
-                  borderRadius: 10, fontSize: 10, fontWeight: 700,
-                  background: '#6366f1', color: '#fff',
+                  minWidth: 22, padding: '0 7px', height: 22,
+                  borderRadius: 11, fontSize: 12, fontWeight: 800, letterSpacing: '-0.3px',
+                  background: '#6366f1', color: '#fff', lineHeight: 1,
                 }}>{warehouseClasses.length}</span>
               )}
             </button>
@@ -2118,9 +2118,9 @@ table{border-collapse:collapse;width:100%}
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                             {!isRT(col) && cat && (() => {
                                 const palette = {
-                                  A: { solid: '#16a34a', text: '#fff', shadow: 'rgba(22,163,74,0.35)' },
-                                  B: { solid: '#d97706', text: '#fff', shadow: 'rgba(217,119,6,0.35)' },
-                                  C: { solid: '#dc2626', text: '#fff', shadow: 'rgba(220,38,38,0.35)' },
+                                  A: { solid: '#1e293b', text: '#fff', shadow: 'rgba(30,41,59,0.25)' },
+                                  B: { solid: '#64748b', text: '#fff', shadow: 'rgba(100,116,139,0.25)' },
+                                  C: { solid: '#94a3b8', text: '#fff', shadow: 'rgba(148,163,184,0.20)' },
                                 }[cat];
                                 return (
                                   <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
