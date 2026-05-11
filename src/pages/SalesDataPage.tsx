@@ -1029,6 +1029,82 @@ table{border-collapse:collapse;width:100%}
     }
   }, [activeFile]);
 
+  const exportTableToPDFFile = useCallback(async () => {
+    const section = exportViewRef.current;
+    if (!section) { alert('لا يوجد جدول للتصدير'); return; }
+
+    const clone = section.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('[data-export="omit"]').forEach(el => el.remove());
+    clone.querySelectorAll('[style*="position: absolute"], [style*="position:absolute"], [style*="position: fixed"], [style*="position:fixed"]').forEach(el => {
+      if ((el as HTMLElement).dataset.exportKeep) return;
+      (el as HTMLElement).style.display = 'none';
+    });
+    clone.querySelectorAll('button').forEach(el => {
+      const txt = (el as HTMLElement).textContent?.trim() ?? '';
+      if (txt === '✕' || txt.startsWith('⬇') || txt === '×') (el as HTMLElement).style.visibility = 'hidden';
+    });
+    clone.style.overflow = 'visible';
+    clone.querySelectorAll('th, td').forEach(c => {
+      const el = c as HTMLElement;
+      if (el.style.position === 'sticky') el.style.position = 'relative';
+    });
+    const tableWrap2 = clone.querySelector('[style*="overflow"]') as HTMLElement | null;
+    if (tableWrap2) tableWrap2.style.overflow = 'visible';
+
+    const wrap = document.createElement('div');
+    wrap.setAttribute('dir', 'rtl');
+    wrap.style.cssText = `
+      position: fixed; top: 0; left: -99999px;
+      background: #fff;
+      padding: 20px;
+      font-family: Arial, Tahoma, sans-serif;
+      width: ${Math.max(section.scrollWidth + 40, 900)}px;
+      box-sizing: border-box;
+    `;
+    wrap.appendChild(clone);
+    document.body.appendChild(wrap);
+
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      const canvas = await html2canvas(wrap, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        width: wrap.offsetWidth,
+        windowWidth: wrap.offsetWidth,
+      });
+
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      // A4 landscape in px at 96dpi: width=842pt height=595pt
+      const pdfW = imgW > imgH ? 842 : 595;
+      const pdfH = imgW > imgH ? 595 : 842;
+      const ratio = Math.min(pdfW / imgW, pdfH / imgH);
+      const pdf = new jsPDF({
+        orientation: imgW > imgH ? 'landscape' : 'portrait',
+        unit: 'pt',
+        format: [pdfW, pdfH],
+      });
+      pdf.addImage(
+        canvas.toDataURL('image/png'),
+        'PNG',
+        0, 0,
+        imgW * ratio,
+        imgH * ratio,
+      );
+      const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      pdf.save(fname);
+    } catch (err) {
+      console.error(err);
+      alert('فشل تصدير PDF: ' + (err as Error).message);
+    } finally {
+      document.body.removeChild(wrap);
+    }
+  }, [activeFile]);
+
   // Display columns: region totals when all, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
     if (!activeFile) return [];
@@ -2008,7 +2084,8 @@ table{border-collapse:collapse;width:100%}
                     {[
                       { label: '📊 Excel', onClick: exportTableToExcel },
                       { label: '📝 Word',  onClick: exportTableToWord  },
-                      { label: '�️ صورة (نسخ)', onClick: exportTableToPDF   },
+                      { label: '🖼️ صورة (نسخ)', onClick: exportTableToPDF   },
+                      { label: '📄 PDF',   onClick: exportTableToPDFFile },
                     ].map(item => (
                       <button key={item.label}
                         onClick={() => { setExportMenuOpen(false); item.onClick(); }}
