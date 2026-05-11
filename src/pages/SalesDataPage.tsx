@@ -1474,14 +1474,10 @@ table{border-collapse:collapse;width:100%}
     setRegionFilter(r);
     setWarehouseKeys(new Set());
     setPage(1);
-    // Clear item selection so shortage-only mode re-evaluates against the new region
-    if (shortageOnlyMode) { setSelectedItems([]); setItemQuery(''); }
   };
   const toggleCompany = (c: string) => {
     setSelectedCompanies(prev => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; });
     setPage(1);
-    // Clear item selection so shortage-only mode re-evaluates against the new company
-    if (shortageOnlyMode) { setSelectedItems([]); setItemQuery(''); }
   };
   const clearCompanies = () => { setSelectedCompanies(new Set()); setSelectedItems([]); setItemQuery(''); setPage(1); };
   const toggleWH = (key: string) => {
