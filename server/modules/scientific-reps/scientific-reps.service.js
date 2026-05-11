@@ -405,7 +405,7 @@ export async function getReport(id, query = {}) {
   });
   if (linkedUser && fileIds && fileIds.length > 0) {
     const sharedFiles = await prisma.uploadedFile.findMany({
-      where: { id: { in: fileIds }, sharedWithUserId: linkedUser.id },
+      where: { id: { in: fileIds }, fileShares: { some: { userId: linkedUser.id } } },
       select: { id: true },
     });
     sharedFileIds = sharedFiles.map(f => f.id);

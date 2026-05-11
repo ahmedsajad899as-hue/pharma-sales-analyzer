@@ -37,7 +37,7 @@ router.get('/overall', async (req, res) => {
     if (userId && parsedFileIds.length > 0) {
       // Check if any of the requested files are shared with this user (not owned by them)
       const sharedFiles = await prisma.uploadedFile.findMany({
-        where: { id: { in: parsedFileIds }, sharedWithUserId: userId, NOT: { userId } },
+        where: { id: { in: parsedFileIds }, NOT: { userId }, fileShares: { some: { userId } } },
         select: { id: true },
       });
       if (sharedFiles.length > 0) {
