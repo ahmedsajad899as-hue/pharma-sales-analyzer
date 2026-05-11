@@ -16,6 +16,8 @@ interface UploadedFile {
   userId?: number | null;
   sharedWithRepId?: number | null;
   sharedWithRep?: { id: number; name: string } | null;
+  sharedWithUserId?: number | null;
+  sharedWithUser?: { id: number; displayName?: string; username: string } | null;
   _count?: { sales: number };
 }
 
@@ -160,27 +162,30 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currSaveMsg, setCurrSaveMsg] = useState('');
 
-  // File-rep sharing state
+  // File-rep sharing state (old: ScientificRep)
   const [shareModalFile, setShareModalFile] = useState<UploadedFile | null>(null);
   const [sciReps, setSciReps] = useState<{ id: number; name: string }[]>([]);
   const [sciRepsLoading, setSciRepsLoading] = useState(false);
   const [selectedRepId, setSelectedRepId] = useState<number | null>(null);
+  // File-user sharing state (new: User account with area assignments)
+  const [linkedUsers, setLinkedUsers] = useState<{ id: number; name: string; role: string; areaCount: number; areas: string[] }[]>([]);
+  const [linkedUsersLoading, setLinkedUsersLoading] = useState(false);
+  const [selectedLinkedUserId, setSelectedLinkedUserId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [shareMsg, setShareMsg] = useState('');
 
   const openShareModal = async (f: UploadedFile) => {
     setShareModalFile(f);
-    setSelectedRepId(f.sharedWithRepId ?? null);
+    setSelectedLinkedUserId(f.sharedWithUserId ?? null);
     setShareMsg('');
-    if (sciReps.length === 0) {
-      setSciRepsLoading(true);
-      try {
-        const res  = await fetch(`${API}/api/scientific-reps?standalone=1`, { headers: { Authorization: `Bearer ${token}` } });
-        const json = await res.json();
-        setSciReps(Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : []);
-      } catch { /* ignore */ }
-      finally { setSciRepsLoading(false); }
-    }
+    // Load linked users (subordinates of this manager)
+    setLinkedUsersLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/files/linked-users`, { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      setLinkedUsers(Array.isArray(json.data) ? json.data : []);
+    } catch { /* ignore */ }
+    finally { setLinkedUsersLoading(false); }
   };
 
   const confirmShare = async () => {
@@ -188,14 +193,14 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     setSaving(true);
     setShareMsg('');
     try {
-      const res  = await fetch(`${API}/api/files/${shareModalFile.id}/share-with-rep`, {
+      const res  = await fetch(`${API}/api/files/${shareModalFile.id}/share-with-user`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ repId: selectedRepId }),
+        body:    JSON.stringify({ userId: selectedLinkedUserId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'فشل التعيين');
-      setShareMsg(selectedRepId ? '✓ تمت المزامنة بنجاح' : '✓ تم إلغاء المزامنة');
+      setShareMsg(selectedLinkedUserId ? '✓ تمت المزامنة بنجاح' : '✓ تم إلغاء المزامنة');
       await loadFiles();
       setTimeout(() => { setShareModalFile(null); setShareMsg(''); }, 1200);
     } catch (err: any) {
@@ -205,14 +210,14 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     }
   };
 
-  // Download filtered Excel for a scientific rep
-  const [exporting, setExporting] = useState<string | null>(null); // key = `${fileId}-${repId}`
+  // Download filtered Excel for a user (by area assignments)
+  const [exporting, setExporting] = useState<string | null>(null); // key = `${fileId}-${userId}`
 
-  const downloadRepSalesExcel = async (fileId: number, repId?: number) => {
-    const key = `${fileId}-${repId ?? 'me'}`;
+  const downloadUserSalesExcel = async (fileId: number, userId?: number) => {
+    const key = `${fileId}-${userId ?? 'me'}`;
     setExporting(key);
     try {
-      const url = `${API}/api/files/${fileId}/export-rep-sales${repId ? `?repId=${repId}` : ''}`;
+      const url = `${API}/api/files/${fileId}/export-user-sales${userId ? `?userId=${userId}` : ''}`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
@@ -688,14 +693,14 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         ✓ {t.upload.statusActive}
                       </span>
                     )}
-                    {/* Shared badge — visible to both manager and rep */}
-                    {f.sharedWithRep && (
+                    {/* Shared badge — manager view: show which user the file is synced with */}
+                    {f.sharedWithUser && f.userId === user?.id && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd' }}>
-                        🔗 {f.sharedWithRep.name}
+                        🔗 {f.sharedWithUser.displayName || f.sharedWithUser.username}
                       </span>
                     )}
-                    {/* Badge for scientific rep receiving a shared file */}
-                    {f.userId !== user?.id && f.sharedWithRepId && (
+                    {/* Badge for user receiving a shared file */}
+                    {f.sharedWithUserId === user?.id && f.userId !== user?.id && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
                         📥 مشارك معك
                       </span>
@@ -738,36 +743,52 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         {t.upload.btnCurrency}
                       </button>
                     )}
-                    {/* Share with scientific rep button — only for owned files by manager roles */}
+                    {/* Sync with user button — only for owned files by manager roles */}
                     {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
                       <button
                         style={{
                           padding: '4px 12px', fontSize: 13,
-                          background: f.sharedWithRepId ? '#ede9fe' : '#f5f3ff',
-                          color: f.sharedWithRepId ? '#6d28d9' : '#7c3aed',
-                          border: `1px solid ${f.sharedWithRepId ? '#c4b5fd' : '#ddd6fe'}`,
-                          borderRadius: 6, cursor: 'pointer', fontWeight: f.sharedWithRepId ? 700 : undefined,
+                          background: f.sharedWithUserId ? '#ede9fe' : '#f5f3ff',
+                          color: f.sharedWithUserId ? '#6d28d9' : '#7c3aed',
+                          border: `1px solid ${f.sharedWithUserId ? '#c4b5fd' : '#ddd6fe'}`,
+                          borderRadius: 6, cursor: 'pointer', fontWeight: f.sharedWithUserId ? 700 : undefined,
                         }}
                         onClick={() => openShareModal(f)}
-                        title="مزامنة بيانات هذا الملف مع مندوب علمي"
+                        title="مزامنة بيانات هذا الملف مع مندوب أو قائد فريق (حسب مناطقه)"
                       >
-                        {f.sharedWithRepId ? `🔗 ${f.sharedWithRep?.name ?? 'مندوب'}` : '🔗 مزامنة مع مندوب'}
+                        {f.sharedWithUserId ? `🔗 ${f.sharedWithUser?.displayName || f.sharedWithUser?.username || 'مندوب'}` : '🔗 مزامنة مع مندوب'}
                       </button>
                     )}
-                    {/* Download my sales — shown for shared files (received by scientific rep OR manager can download for assigned rep) */}
-                    {(f.sharedWithRepId && (f.userId !== user?.id || user?.linkedRepId)) && (
+                    {/* Download my sales — shown for files shared with current user (user-based sharing) */}
+                    {f.sharedWithUserId === user?.id && f.userId !== user?.id && (
                       <button
-                        onClick={() => downloadRepSalesExcel(f.id, f.userId === user?.id ? f.sharedWithRepId! : undefined)}
-                        disabled={exporting === `${f.id}-${f.userId === user?.id ? f.sharedWithRepId : 'me'}`}
+                        onClick={() => downloadUserSalesExcel(f.id)}
+                        disabled={exporting === `${f.id}-me`}
                         style={{
                           padding: '4px 12px', fontSize: 13,
                           background: '#ecfdf5', color: '#059669',
                           border: '1px solid #6ee7b7', borderRadius: 6,
                           cursor: 'pointer', fontWeight: 700,
                         }}
-                        title="تحميل البيانات المفلترة حسب تعيينات المندوب كملف Excel"
+                        title="تحميل بياناتي المفلترة حسب مناطقي كملف Excel"
                       >
-                        {exporting === `${f.id}-${f.userId === user?.id ? f.sharedWithRepId : 'me'}` ? '⏳' : `📥 ${f.userId === user?.id ? `تحميل بيانات ${f.sharedWithRep?.name ?? 'المندوب'}` : 'تحميل مبيعاتي'}`}
+                        {exporting === `${f.id}-me` ? '⏳' : '📥 تحميل مبيعاتي'}
+                      </button>
+                    )}
+                    {/* Manager preview download — download a specific user's filtered data */}
+                    {f.userId === user?.id && f.sharedWithUserId && (
+                      <button
+                        onClick={() => downloadUserSalesExcel(f.id, f.sharedWithUserId!)}
+                        disabled={exporting === `${f.id}-${f.sharedWithUserId}`}
+                        style={{
+                          padding: '4px 12px', fontSize: 13,
+                          background: '#f0fdf4', color: '#15803d',
+                          border: '1px solid #86efac', borderRadius: 6,
+                          cursor: 'pointer', fontWeight: 700,
+                        }}
+                        title="تحميل بيانات المندوب المفلترة حسب مناطقه"
+                      >
+                        {exporting === `${f.id}-${f.sharedWithUserId}` ? '⏳' : `📥 بيانات ${f.sharedWithUser?.displayName || f.sharedWithUser?.username || 'المندوب'}`}
                       </button>
                     )}
                     <button
@@ -1020,59 +1041,63 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         </div>
       )}
 
-      {/* ── Share with Scientific Rep Modal ── */}
+      {/* ── Share with User (area-based) Modal ── */}
       {shareModalFile && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShareModalFile(null)}
         >
           <div
-            style={{ background: '#fff', borderRadius: 18, padding: '2rem', minWidth: 340, maxWidth: 460, boxShadow: '0 10px 40px rgba(0,0,0,0.22)', direction: 'rtl', width: '90%' }}
+            style={{ background: '#fff', borderRadius: 18, padding: '2rem', minWidth: 340, maxWidth: 480, boxShadow: '0 10px 40px rgba(0,0,0,0.22)', direction: 'rtl', width: '92%' }}
             onClick={e => e.stopPropagation()}
           >
-            <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 800, color: '#1e1b4b' }}>🔗 مزامنة مع مندوب علمي</h3>
-            <p style={{ margin: '0 0 1.25rem', fontSize: 13, color: '#6b7280' }}>{shareModalFile.originalName}</p>
-
-            <p style={{ margin: '0 0 10px', fontSize: 13, color: '#374151' }}>
-              اختر المندوب العلمي الذي سيتمكن من رؤية بيانات هذا الملف في حسابه:
+            <h3 style={{ margin: '0 0 4px', fontSize: '1.1rem', fontWeight: 800, color: '#1e1b4b' }}>🔗 مزامنة مع مندوب / قائد فريق</h3>
+            <p style={{ margin: '0 0 4px', fontSize: 13, color: '#6b7280' }}>{shareModalFile.originalName}</p>
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
+              سيتمكن المستخدم المختار من رؤية بياناته المفلترة حسب مناطقه المعيّنة فقط
             </p>
 
-            {sciRepsLoading ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>⏳ جاري التحميل...</div>
-            ) : sciReps.length === 0 ? (
+            {linkedUsersLoading ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>⏳ جاري تحميل المستخدمين...</div>
+            ) : linkedUsers.length === 0 ? (
               <div style={{ padding: '12px', background: '#fef2f2', borderRadius: 10, color: '#b91c1c', fontSize: 13 }}>
-                لا يوجد مندوبون علميون مضافون في حسابك
+                لا يوجد مندوبون أو قادة فريق مرتبطون بك — يجب تعيينهم من لوحة الماستر أولاً
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto', marginBottom: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto', marginBottom: 16 }}>
                 {/* None option */}
-                <label
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
-                    border: `1.5px solid ${selectedRepId === null ? '#e11d48' : '#e2e8f0'}`,
-                    background: selectedRepId === null ? '#fff1f2' : '#f9fafb',
-                  }}
-                >
-                  <input type="radio" name="shareRep" checked={selectedRepId === null} onChange={() => setSelectedRepId(null)} style={{ accentColor: '#e11d48' }} />
-                  <span style={{ fontSize: 13, fontWeight: selectedRepId === null ? 700 : 400, color: selectedRepId === null ? '#be123c' : '#374151' }}>
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
+                  border: `1.5px solid ${selectedLinkedUserId === null ? '#e11d48' : '#e2e8f0'}`,
+                  background: selectedLinkedUserId === null ? '#fff1f2' : '#f9fafb',
+                }}>
+                  <input type="radio" name="shareUser" checked={selectedLinkedUserId === null} onChange={() => setSelectedLinkedUserId(null)} style={{ accentColor: '#e11d48' }} />
+                  <span style={{ fontSize: 13, fontWeight: selectedLinkedUserId === null ? 700 : 400, color: selectedLinkedUserId === null ? '#be123c' : '#374151' }}>
                     🚫 بدون مزامنة (إلغاء التعيين)
                   </span>
                 </label>
-                {sciReps.map(r => (
-                  <label
-                    key={r.id}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
-                      border: `1.5px solid ${selectedRepId === r.id ? '#7c3aed' : '#e2e8f0'}`,
-                      background: selectedRepId === r.id ? '#f5f3ff' : '#f9fafb',
-                    }}
-                  >
-                    <input type="radio" name="shareRep" checked={selectedRepId === r.id} onChange={() => setSelectedRepId(r.id)} style={{ accentColor: '#7c3aed' }} />
-                    <span style={{ fontSize: 13, fontWeight: selectedRepId === r.id ? 700 : 400, color: selectedRepId === r.id ? '#6d28d9' : '#374151' }}>
-                      🔬 {r.name}
-                    </span>
-                  </label>
-                ))}
+                {linkedUsers.map(u => {
+                  const ROLE_AR: Record<string, string> = { scientific_rep: 'مندوب علمي', team_leader: 'قائد فريق', supervisor: 'مشرف', manager: 'مدير فريق' };
+                  const isSelected = selectedLinkedUserId === u.id;
+                  return (
+                    <label key={u.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+                      border: `1.5px solid ${isSelected ? '#7c3aed' : '#e2e8f0'}`,
+                      background: isSelected ? '#f5f3ff' : '#f9fafb',
+                    }}>
+                      <input type="radio" name="shareUser" checked={isSelected} onChange={() => setSelectedLinkedUserId(u.id)} style={{ accentColor: '#7c3aed' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: isSelected ? 700 : 400, color: isSelected ? '#6d28d9' : '#374151' }}>
+                          👤 {u.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                          {ROLE_AR[u.role] ?? u.role} · {u.areaCount > 0 ? `${u.areaCount} منطقة` : '⚠ لا توجد مناطق مُعيَّنة'}
+                          {u.areaCount > 0 && u.areas.length > 0 && ` · ${u.areas.slice(0, 3).join('، ')}${u.areas.length > 3 ? '...' : ''}`}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
             )}
 
@@ -1089,21 +1114,21 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               >
                 إلغاء
               </button>
-              {/* Download filtered excel for selected rep — only shown when a rep is selected */}
-              {selectedRepId && (
+              {/* Preview download for selected user */}
+              {selectedLinkedUserId && (
                 <button
-                  onClick={() => downloadRepSalesExcel(shareModalFile.id, selectedRepId)}
-                  disabled={exporting === `${shareModalFile.id}-${selectedRepId}`}
+                  onClick={() => downloadUserSalesExcel(shareModalFile.id, selectedLinkedUserId)}
+                  disabled={exporting === `${shareModalFile.id}-${selectedLinkedUserId}`}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
-                  title="تحميل البيانات المفلترة للمندوب المختار كـ Excel"
+                  title="تحميل البيانات المفلترة للمستخدم المختار (حسب مناطقه) كـ Excel"
                 >
-                  {exporting === `${shareModalFile.id}-${selectedRepId}` ? '⏳ جاري...' : '📥 معاينة وتحميل Excel'}
+                  {exporting === `${shareModalFile.id}-${selectedLinkedUserId}` ? '⏳ جاري...' : '📥 معاينة Excel'}
                 </button>
               )}
               <button
                 style={{ padding: '8px 22px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14, opacity: saving ? 0.7 : 1 }}
                 onClick={confirmShare}
-                disabled={saving || sciReps.length === 0}
+                disabled={saving || linkedUsers.length === 0}
               >
                 {saving ? '⏳ جاري...' : '✓ تأكيد المزامنة'}
               </button>

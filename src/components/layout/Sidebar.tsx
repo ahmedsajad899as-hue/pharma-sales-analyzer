@@ -119,6 +119,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     rep_files:      'rep-analysis',
     users_list:     'users',
     master_survey:      'master-survey',
+    free_samples:       'fms',
     distributor_sales:  'distributor-sales',
     sales_data:         'sales-data',
     file_filter:        'file-filter',

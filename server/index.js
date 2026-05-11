@@ -951,10 +951,13 @@ app.get('/api/files', async (req, res) => {
     }
 
     let whereClause;
-    if (userId && linkedRepId) {
-      whereClause = { OR: [ { userId, ...typeFilter }, { sharedWithRepId: linkedRepId, ...typeFilter } ], };
+    if (userId) {
+      const orClauses = [{ userId, ...typeFilter }];
+      if (linkedRepId) orClauses.push({ sharedWithRepId: linkedRepId, ...typeFilter });
+      orClauses.push({ sharedWithUserId: userId, ...typeFilter });
+      whereClause = { OR: orClauses };
     } else {
-      whereClause = { ...(userId ? { userId } : {}), ...typeFilter };
+      whereClause = { ...typeFilter };
     }
 
     const files = await prisma.uploadedFile.findMany({
@@ -966,6 +969,8 @@ app.get('/api/files', async (req, res) => {
         userId: true,
         sharedWithRepId: true,
         sharedWithRep: { select: { id: true, name: true } },
+        sharedWithUserId: true,
+        sharedWithUser: { select: { id: true, displayName: true, username: true } },
         _count: { select: { sales: true } },
       },
     });
@@ -1003,6 +1008,162 @@ app.post('/api/files/:id/share-with-rep', requireAuth, async (req, res) => {
       select: { id: true, sharedWithRepId: true, sharedWithRep: { select: { id: true, name: true } } },
     });
     res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
+// User-based file sharing (by area assignments from SA panel)
+// ════════════════════════════════════════════════════════════
+
+// GET /api/files/linked-users — list subordinate users (for share modal)
+app.get('/api/files/linked-users', requireAuth, async (req, res) => {
+  try {
+    const managerId = req.user?.id ?? null;
+    const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager']);
+    if (!MANAGER_ROLES.has(req.user?.role)) return res.status(403).json({ error: 'غير مصرح' });
+
+    const assignments = await prisma.userManagerAssignment.findMany({
+      where: { managerId },
+      select: {
+        user: {
+          select: {
+            id: true, username: true, displayName: true, role: true, isActive: true,
+            areaAssignments: { select: { areaId: true, area: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+
+    const REP_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor', 'manager']);
+    const users = assignments
+      .map(a => a.user)
+      .filter(u => u.isActive && REP_ROLES.has(u.role))
+      .map(u => ({
+        id: u.id,
+        name: u.displayName || u.username,
+        role: u.role,
+        areaCount: u.areaAssignments.length,
+        areas: u.areaAssignments.map(a => a.area.name).slice(0, 10),
+      }));
+
+    res.json({ success: true, data: users });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/files/:id/share-with-user  body: { userId: number | null }
+app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
+  try {
+    const fileId   = parseInt(req.params.id);
+    const targetId = req.body.userId != null ? parseInt(req.body.userId) : null;
+    const callerId = req.user?.id ?? null;
+
+    const ALLOWED = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager']);
+    if (!ALLOWED.has(req.user?.role)) return res.status(403).json({ error: 'غير مصرح' });
+
+    const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId: callerId } });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية تعديله' });
+
+    if (targetId !== null) {
+      const asgn = await prisma.userManagerAssignment.findFirst({ where: { userId: targetId, managerId: callerId } });
+      if (!asgn) return res.status(403).json({ error: 'هذا المستخدم غير مرتبط بك' });
+    }
+
+    const updated = await prisma.uploadedFile.update({
+      where: { id: fileId },
+      data:  { sharedWithUserId: targetId },
+      select: {
+        id: true,
+        sharedWithUserId: true,
+        sharedWithUser: { select: { id: true, displayName: true, username: true } },
+      },
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/files/:id/export-user-sales?userId=X
+// Exports rows filtered by target user's UserAreaAssignment
+app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
+  try {
+    const fileId   = parseInt(req.params.id);
+    const callerId = req.user?.id ?? null;
+    const targetId = req.query.userId ? parseInt(req.query.userId) : callerId;
+
+    // Access check: caller owns the file OR file is shared with caller
+    const file = await prisma.uploadedFile.findFirst({
+      where: {
+        id: fileId,
+        OR: [{ userId: callerId }, { sharedWithUserId: callerId }, { sharedWithUserId: targetId, userId: callerId }],
+      },
+      select: { id: true, originalName: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية الوصول إليه' });
+
+    // Load target user's area assignments
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: {
+        id: true, displayName: true, username: true,
+        areaAssignments: { select: { areaId: true } },
+      },
+    });
+    if (!targetUser) return res.status(404).json({ error: 'المستخدم غير موجود' });
+
+    const areaIds = targetUser.areaAssignments.map(a => a.areaId);
+    const userName = targetUser.displayName || targetUser.username;
+
+    const sales = areaIds.length > 0
+      ? await prisma.sale.findMany({
+          where: { uploadedFileId: fileId, areaId: { in: areaIds } },
+          select: {
+            representative: { select: { name: true } },
+            area:           { select: { name: true } },
+            item:           { select: { name: true } },
+            quantity:  true,
+            totalValue: true,
+            recordType: true,
+            saleDate:   true,
+          },
+          orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+
+    const headers = ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
+    const rows = sales.map(s => [
+      s.representative?.name ?? '',
+      s.area?.name          ?? '',
+      s.item?.name          ?? '',
+      s.quantity,
+      s.totalValue,
+      s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
+      s.saleDate ? new Date(s.saleDate).toLocaleDateString('ar-IQ') : '',
+    ]);
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'مبيعاتي');
+
+    const salesRows  = sales.filter(s => s.recordType !== 'return');
+    const returnRows = sales.filter(s => s.recordType === 'return');
+    const wsSummary = XLSX.utils.aoa_to_sheet([
+      ['ملخص بيانات المستخدم'],
+      [''],
+      ['المستخدم',                 userName],
+      ['عدد المناطق المعيّنة',      areaIds.length],
+      ['إجمالي صفوف المبيعات',     salesRows.length],
+      ['إجمالي صفوف المرتجعات',    returnRows.length],
+      ['إجمالي قيمة المبيعات',     salesRows.reduce((a, s) => a + s.totalValue, 0)],
+      ['إجمالي قيمة المرتجعات',    returnRows.reduce((a, s) => a + s.totalValue, 0)],
+      ['الصافي',                   salesRows.reduce((a, s) => a + s.totalValue, 0) - returnRows.reduce((a, s) => a + s.totalValue, 0)],
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
+
+    const buf   = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const fname = `مبيعات_${userName}_${new Date().toLocaleDateString('ar-IQ').replace(/\//g, '-')}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buf);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

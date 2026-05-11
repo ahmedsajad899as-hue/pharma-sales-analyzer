@@ -68,6 +68,7 @@ model User {
   interactionAsTarget UserInteractionPermission[] @relation("InteractionTarget")
   invoiceSheets       InvoiceSheet[]
   fmsPlans            FmsPlan[]
+  receivedFiles       UploadedFile[]             @relation("FileSharedWithUser")
 
   // Commercial module relations
   pharmacies          Pharmacy[]              @relation("PharmacyOwner")
@@ -304,10 +305,15 @@ model UploadedFile {
   sharedWithRepId Int?
   sharedWithRep   ScientificRepresentative? @relation("FileSharedWithRep", fields: [sharedWithRepId], references: [id], onDelete: SetNull)
 
+  // Share directly with a user account (filtered by their area assignments)
+  sharedWithUserId Int?
+  sharedWithUser   User? @relation("FileSharedWithUser", fields: [sharedWithUserId], references: [id], onDelete: SetNull)
+
   sales Sale[]
 
   @@index([userId])
   @@index([sharedWithRepId])
+  @@index([sharedWithUserId])
   @@map("uploaded_files")
 }
 
