@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+﻿import { useState, useRef, useCallback, useEffect } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import { useAuth } from '../context/AuthContext';
@@ -387,202 +387,155 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('ar-IQ-u-nu-latn');
   const activeFiles = files.filter(f => activeFileIds.includes(f.id));
 
+  // ── Style tokens (PharmacyNet-style) ─────────────────────────
+  const CARD: React.CSSProperties = {
+    background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+    padding: '12px 16px', marginBottom: 10, boxShadow: '0 1px 3px rgba(0,0,0,.04)',
+  };
+  const BTN_PRI: React.CSSProperties = {
+    padding: '5px 14px', border: 'none', borderRadius: 6, background: '#1e40af',
+    color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
+  };
+  const BTN_SEC: React.CSSProperties = {
+    padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc',
+    color: '#374151', fontSize: 12, cursor: 'pointer',
+  };
+  const BTN_GHOST: React.CSSProperties = {
+    padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff',
+    color: '#64748b', fontSize: 12, cursor: 'pointer',
+  };
+  const BADGE = (bg: string, color: string, border = bg): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+    background: bg, color, border: `1px solid ${border}`, whiteSpace: 'nowrap',
+  });
+
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{t.upload.title}</h1>
-          <p className="page-subtitle">{t.upload.subtitle}</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {cleanResult && (
-            <span style={{ fontSize: '13px', color: '#065f46', background: '#d1fae5', borderRadius: '8px', padding: '5px 12px', fontWeight: 600 }}>
-              {t.upload.cleanSuccessPrefix} {cleanResult.areas} {t.upload.cleanSuccessArea} {t.upload.cleanSuccessAnd} {cleanResult.items} {t.upload.cleanSuccessItem}
-            </span>
-          )}
-          {dedupResult && (
-            <span style={{ fontSize: '13px', color: '#1e3a5f', background: '#dbeafe', borderRadius: '8px', padding: '5px 12px', fontWeight: 600, cursor: dedupResult.count > 0 ? 'pointer' : 'default' }}
-              onClick={() => dedupResult.count > 0 && setShowDedupDetail(v => !v)}>
-              {dedupResult.count === 0
-                ? t.upload.dedupNoSimilar
-                : `🔀 ${t.upload.dedupUnified} ${dedupResult.count} ${t.upload.dedupNamesUnit} ${showDedupDetail ? '▲' : '▼'}`}
-            </span>
-          )}
-        </div>
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px 16px', direction: 'rtl', fontFamily: 'inherit' }}>
+
+      {/* ── Page header ─────────────────────────────────────── */}
+      <div style={{ marginBottom: 18 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', margin: 0 }}>{t.upload.title}</h1>
+        <p style={{ fontSize: 13, color: '#64748b', margin: '2px 0 0' }}>{t.upload.subtitle}</p>
       </div>
 
-      {/* Active files banner */}
+      {/* ── Active files bar ────────────────────────────────── */}
       {activeFiles.length > 0 ? (
-        <div className="info-banner" style={{ background: '#f0fdf4', borderColor: '#86efac', flexDirection: 'column', gap: 4 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="info-banner-icon">✅</span>
-            <strong>{activeFiles.length === 1 ? t.upload.activeFileSingle : `${activeFiles.length} ${t.upload.activeFilesMulti}`}:</strong>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingRight: 8 }}>
-            {activeFiles.map(f => (
-              <span key={f.id} style={{ background: '#dcfce7', color: '#15803d', borderRadius: 20, padding: '3px 12px', fontSize: 13, fontWeight: 600 }}>
-                {f.fileType === 'returns' ? '↩' : f.fileType === 'auto' ? '🔀' : f.fileType === 'matrix' ? '📊' : '📦'} {f.originalName}
-              </span>
-            ))}
-          </div>
-          <p style={{ margin: 0, fontSize: 12, color: '#166534', paddingRight: 8 }}>{t.upload.allReportsNote}</p>
+        <div style={{ ...CARD, background: '#f0fdf4', borderColor: '#bbf7d0', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '8px 14px' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap' }}>✅ نشط:</span>
+          {activeFiles.map(f => (
+            <span key={f.id} style={BADGE('#dcfce7', '#15803d', '#86efac')}>
+              {f.fileType === 'returns' ? '↩' : f.fileType === 'auto' ? '🔀' : '📦'} {f.originalName}
+            </span>
+          ))}
+          <span style={{ fontSize: 11, color: '#166534', marginRight: 'auto' }}>{t.upload.allReportsNote}</span>
         </div>
       ) : (
-        <div className="info-banner" style={{ background: '#fff7ed', borderColor: '#fdba74' }}>
-          <span className="info-banner-icon">⚠️</span>
-          <div>
-            <strong>{t.upload.noActiveFile}</strong>
-            <p>{t.upload.noActiveFileDesc}</p>
-          </div>
+        <div style={{ ...CARD, background: '#fff7ed', borderColor: '#fed7aa', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
+          <span>⚠️</span>
+          <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{t.upload.noActiveFile}</span>
+          <span style={{ fontSize: 11, color: '#b45309' }}>— {t.upload.noActiveFileDesc}</span>
         </div>
       )}
 
-      {/* Drop Zone */}
+      {/* ── Upload drop zone ────────────────────────────────── */}
       <div
-        className={`drop-zone ${dragging ? 'drop-zone--active' : ''} ${uploading ? 'drop-zone--uploading' : ''}`}
-        style={{ cursor: 'default', paddingBottom: uploading ? undefined : '1.6rem' }}
+        style={{
+          ...CARD,
+          borderStyle: dragging ? 'dashed' : 'dashed',
+          borderColor: dragging ? '#93c5fd' : '#cbd5e1',
+          background: dragging ? '#eff6ff' : uploading ? '#f8fafc' : '#fafbfc',
+          padding: '20px 16px',
+          textAlign: 'center',
+          cursor: 'default',
+          transition: 'all 0.15s',
+        }}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
       >
         <input
-          ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+          ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) requestUpload(f); e.target.value = ''; }}
         />
-
         {uploading ? (
-          <>
-            <div className="drop-zone-icon">⏳</div>
-            <div className="drop-zone-text">{t.upload.uploading}</div>
-          </>
-        ) : dragging ? (
-          <>
-            <div className="drop-zone-icon">📂</div>
-            <div className="drop-zone-text">{t.upload.dropHere}</div>
-          </>
+          <div style={{ color: '#64748b', fontSize: 13 }}>⏳ {t.upload.uploading}</div>
         ) : (
           <>
-            <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 16, fontWeight: 600 }}>
-              {t.upload.chooseFileType}
-            </div>
-            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, fontWeight: 600 }}>{t.upload.chooseFileType}</div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               {([
-                { type: 'sales',   label: t.upload.typeSales,   icon: '📦', color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe', shadow: 'rgba(59,130,246,0.25)' },
-                { type: 'returns', label: t.upload.typeReturns, icon: '↩',  color: '#ef4444', bg: '#fff1f2', border: '#fecaca', shadow: 'rgba(239,68,68,0.25)' },
-                { type: 'auto',    label: t.upload.typeAuto,    icon: '🔀', color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe', shadow: 'rgba(139,92,246,0.25)' },
+                { type: 'auto',    label: t.upload.typeAuto,    icon: '🔀', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+                { type: 'returns', label: t.upload.typeReturns, icon: '↩',  color: '#dc2626', bg: '#fff1f2', border: '#fecaca' },
+                { type: 'sales',   label: t.upload.typeSales,   icon: '📦', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
               ] as const).map(opt => (
-                <button
-                  key={opt.type}
-                  onClick={() => { setFileType(opt.type); setTimeout(() => fileRef.current?.click(), 0); }}
+                <button key={opt.type} onClick={() => { setFileType(opt.type); setTimeout(() => fileRef.current?.click(), 0); }}
                   style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                    padding: '18px 28px', borderRadius: 14, cursor: 'pointer', fontWeight: 700,
-                    fontSize: 15, transition: 'all 0.18s',
-                    background: opt.bg,
-                    color: opt.color,
-                    border: `2px solid ${opt.border}`,
-                    boxShadow: `0 4px 14px ${opt.shadow}`,
-                    minWidth: 130,
-                  }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-3px)';
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 8px 20px ${opt.shadow}`;
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLButtonElement).style.transform = '';
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 4px 14px ${opt.shadow}`;
+                    padding: '12px 22px', borderRadius: 8, cursor: 'pointer', fontWeight: 700,
+                    fontSize: 13, border: `1.5px solid ${opt.border}`,
+                    background: opt.bg, color: opt.color,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                    minWidth: 110, transition: 'opacity 0.1s',
                   }}
                 >
-                  <span style={{ fontSize: 32 }}>{opt.icon}</span>
+                  <span style={{ fontSize: 24 }}>{opt.icon}</span>
                   <span>{opt.label}</span>
                 </button>
               ))}
             </div>
-            <div style={{ marginTop: 18, color: '#9ca3af', fontSize: 12 }}>
-              {t.upload.dragHint}
-            </div>
+            <div style={{ marginTop: 10, color: '#94a3b8', fontSize: 11 }}>{t.upload.dragHint}</div>
           </>
         )}
       </div>
 
       {progress > 0 && (
-        <div className="progress-track">
-          <div className="progress-bar" style={{ width: `${progress}%` }} />
+        <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, marginBottom: 8, overflow: 'hidden' }}>
+          <div style={{ height: '100%', background: '#1e40af', width: `${progress}%`, transition: 'width 0.2s', borderRadius: 2 }} />
         </div>
       )}
 
       {error && (
-        <div className="alert alert--error" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-          <div><span>⚠️</span> {error}</div>
-          {errorDetail && (
-            <div style={{ fontSize: '12px', background: '#fff0f0', borderRadius: '6px', padding: '8px', width: '100%', direction: 'ltr', fontFamily: 'monospace' }}>
-              {errorDetail}
-              <div style={{ marginTop: '6px', direction: 'rtl', fontFamily: 'inherit', color: '#7f1d1d' }}>
-                {t.upload.columnHint}
-              </div>
-            </div>
-          )}
+        <div style={{ ...CARD, background: '#fef2f2', borderColor: '#fca5a5', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>⚠️ {error}</div>
+          {errorDetail && <div style={{ fontSize: 11, color: '#b91c1c', fontFamily: 'monospace', background: '#fff', borderRadius: 4, padding: '4px 8px' }}>{errorDetail}</div>}
         </div>
       )}
 
+      {/* Upload success */}
       {uploadResult && (uploadResult.salesCount !== undefined || uploadResult.returnsCount !== undefined) && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 12, fontSize: 14 }}>
-          <span style={{ fontSize: 20 }}>✅</span>
-          <div>
-            <strong>{t.upload.uploadSuccessTitle}</strong>
-            {uploadResult.salesCount !== undefined && uploadResult.returnsCount !== undefined && (
-              <div style={{ marginTop: 4, color: '#374151' }}>
-                {uploadResult.salesCount > 0 && <span style={{ marginLeft: 12 }}>📦 {t.upload.salesRows}: <strong style={{ color: '#2563eb' }}>{uploadResult.salesCount.toLocaleString('ar-IQ')}</strong> {t.upload.rowUnit}</span>}
-                {uploadResult.returnsCount > 0 && <span>↩ {t.upload.returnsRows}: <strong style={{ color: '#dc2626' }}>{uploadResult.returnsCount.toLocaleString('ar-IQ')}</strong> {t.upload.rowUnit}</span>}
-                {uploadResult.returnsCount === 0 && uploadResult.salesCount === 0 && <span style={{ color: '#9ca3af' }}>{t.upload.noDataInFile}</span>}
-              </div>
-            )}
-          </div>
+        <div style={{ ...CARD, background: '#f0fdf4', borderColor: '#86efac', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+          <span>✅</span>
+          <strong style={{ color: '#15803d' }}>{t.upload.uploadSuccessTitle}</strong>
+          {uploadResult.salesCount !== undefined && uploadResult.salesCount > 0 && <span style={{ color: '#2563eb' }}>📦 {uploadResult.salesCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
+          {uploadResult.returnsCount !== undefined && uploadResult.returnsCount > 0 && <span style={{ color: '#dc2626' }}>↩ {uploadResult.returnsCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
         </div>
       )}
 
-      {/* Normalization warning panel */}
-      {uploadResult && uploadResult.normalizations && uploadResult.normalizations.length > 0 && (
-        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, padding: 0, fontSize: 14 }}>
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => setShowNorm(v => !v)}
-          >
-            <span style={{ fontSize: 20 }}>⚠️</span>
-            <div style={{ flex: 1 }}>
-              <strong style={{ color: '#92400e' }}>
-                {t.upload.normCount} {uploadResult.normalizations.length} {t.upload.normSuffix}
-              </strong>
-              <span style={{ color: '#b45309', fontSize: 12, marginRight: 8 }}>
-                {t.upload.normClickDetails} {showNorm ? '▲' : '▼'})
-              </span>
-            </div>
+      {/* Normalization panel */}
+      {uploadResult?.normalizations && uploadResult.normalizations.length > 0 && (
+        <div style={{ ...CARD, background: '#fffbeb', borderColor: '#fcd34d', padding: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer' }} onClick={() => setShowNorm(v => !v)}>
+            <span style={{ fontSize: 14 }}>⚠️</span>
+            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{t.upload.normCount} {uploadResult.normalizations.length} {t.upload.normSuffix}</span>
+            <span style={{ fontSize: 11, color: '#b45309', marginRight: 'auto' }}>{showNorm ? '▲' : '▼'}</span>
           </div>
           {showNorm && (
-            <div style={{ borderTop: '1px solid #fcd34d', padding: '10px 18px', overflowY: 'auto', maxHeight: 240 }}>
-              <p style={{ margin: '0 0 8px', color: '#78350f', fontSize: 13 }}>
-                {t.upload.normDesc}
-              </p>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div style={{ borderTop: '1px solid #fcd34d', padding: '8px 14px', overflowY: 'auto', maxHeight: 200 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead>
                   <tr style={{ background: '#fef3c7' }}>
-                    <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #fcd34d' }}>{t.upload.normColType}</th>
-                    <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #fcd34d' }}>{t.upload.normColFrom}</th>
-                    <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #fcd34d' }}>{t.upload.normColTo}</th>
-                    <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #fcd34d' }}>{t.upload.normColSource}</th>
+                    {[t.upload.normColType, t.upload.normColFrom, t.upload.normColTo, t.upload.normColSource].map(h => (
+                      <th key={h} style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #fcd34d', color: '#78350f' }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {uploadResult.normalizations.map((n, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid #fef3c7' }}>
-                      <td style={{ padding: '4px 8px', color: '#92400e' }}>
-                        {n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}
-                      </td>
-                      <td style={{ padding: '4px 8px', color: '#dc2626', textDecoration: 'line-through' }}>{n.from}</td>
-                      <td style={{ padding: '4px 8px', color: '#15803d', fontWeight: 700 }}>{n.to}</td>
-                      <td style={{ padding: '4px 8px', color: '#6b7280', fontSize: 12 }}>
-                        {n.source === 'db' ? t.upload.sourceDb : t.upload.sourceFile}
-                      </td>
+                      <td style={{ padding: '3px 8px', color: '#92400e' }}>{n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}</td>
+                      <td style={{ padding: '3px 8px', color: '#dc2626', textDecoration: 'line-through' }}>{n.from}</td>
+                      <td style={{ padding: '3px 8px', color: '#15803d', fontWeight: 700 }}>{n.to}</td>
+                      <td style={{ padding: '3px 8px', color: '#6b7280' }}>{n.source === 'db' ? t.upload.sourceDb : t.upload.sourceFile}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -592,246 +545,165 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         </div>
       )}
 
-      {/* Unknown items warning — items from file not in company catalog */}
-      {uploadResult && uploadResult.unknownItems && uploadResult.unknownItems.length > 0 && (
-        <div style={{ background: '#fff7ed', border: '1px solid #fb923c', borderRadius: 10, padding: '12px 18px', fontSize: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 22 }}>🆕</span>
-            <div>
-              <strong style={{ color: '#9a3412', fontSize: 15 }}>
-                {uploadResult.unknownItems.length} ايتم غير موجود في كتالوج الشركة
-              </strong>
-              <div style={{ color: '#c2410c', fontSize: 12, marginTop: 2 }}>
-                تم حفظ البيانات مؤقتاً — أضف هذه الأيتمات من صفحة إدارة الشركة إذا أردت اعتمادها رسمياً
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {/* Unknown items */}
+      {uploadResult?.unknownItems && uploadResult.unknownItems.length > 0 && (
+        <div style={{ ...CARD, background: '#fff7ed', borderColor: '#fb923c', padding: '8px 14px' }}>
+          <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 6 }}>🆕 {uploadResult.unknownItems.length} ايتم غير موجود في الكتالوج</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {uploadResult.unknownItems.map((name, i) => (
-              <span key={i} style={{ background: '#fed7aa', color: '#9a3412', borderRadius: 6, padding: '2px 10px', fontSize: 13, fontWeight: 600 }}>
-                {name}
-              </span>
+              <span key={i} style={BADGE('#fed7aa', '#9a3412', '#fdba74')}>{name}</span>
             ))}
           </div>
         </div>
       )}
 
-      {/* Dedup scan result */}
+      {/* Dedup result */}
       {dedupResult && showDedupDetail && dedupResult.count > 0 && (
-        <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: 10, padding: '10px 18px', fontSize: 14 }}>
-          <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#1e3a5f' }}>
-            {t.upload.dedupScanHeader} ({dedupResult.count})
-          </p>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <div style={{ ...CARD, background: '#eff6ff', borderColor: '#93c5fd', padding: '8px 14px' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a5f', marginBottom: 6 }}>{t.upload.dedupScanHeader} ({dedupResult.count})</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
               <tr style={{ background: '#dbeafe' }}>
-                <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #93c5fd' }}>{t.upload.normColType}</th>
-                <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #93c5fd' }}>{t.upload.dedupColDuplicate}</th>
-                <th style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid #93c5fd' }}>{t.upload.dedupColMerge}</th>
+                {[t.upload.normColType, t.upload.dedupColDuplicate, t.upload.dedupColMerge].map(h => (
+                  <th key={h} style={{ padding: '3px 8px', textAlign: 'right', borderBottom: '1px solid #93c5fd', color: '#1e40af' }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {dedupResult.normalizations.map((n: any, i: number) => (
                 <tr key={i} style={{ borderBottom: '1px solid #dbeafe' }}>
-                  <td style={{ padding: '4px 8px', color: '#1e40af' }}>
-                    {n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}
-                  </td>
-                  <td style={{ padding: '4px 8px', color: '#dc2626' }}>{n.from}</td>
-                  <td style={{ padding: '4px 8px', color: '#15803d', fontWeight: 700 }}>{n.to}</td>
+                  <td style={{ padding: '3px 8px', color: '#1e40af' }}>{n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}</td>
+                  <td style={{ padding: '3px 8px', color: '#dc2626' }}>{n.from}</td>
+                  <td style={{ padding: '3px 8px', color: '#15803d', fontWeight: 700 }}>{n.to}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <button
-            onClick={() => dedupNames(true)}
-            disabled={deduping}
-            style={{ marginTop: 10, padding: '6px 18px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}
-          >
+          <button onClick={() => dedupNames(true)} disabled={deduping} style={{ ...BTN_PRI, marginTop: 8 }}>
             {t.upload.dedupApplyBtn}
           </button>
         </div>
       )}
 
-      {/* Files List */}
-      <div style={{ marginTop: '1.5rem' }}>
-        <h2 className="section-title" style={{ marginBottom: '0.75rem' }}>{t.upload.filesTitle}</h2>
+      {cleanResult && (
+        <div style={{ ...CARD, background: '#f0fdf4', borderColor: '#86efac', padding: '7px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
+          ✓ {t.upload.cleanSuccessPrefix} {cleanResult.areas} {t.upload.cleanSuccessArea} {t.upload.cleanSuccessAnd} {cleanResult.items} {t.upload.cleanSuccessItem}
+        </div>
+      )}
+
+      {dedupResult && !showDedupDetail && (
+        <div style={{ ...CARD, background: '#eff6ff', borderColor: '#93c5fd', padding: '7px 14px', fontSize: 12, color: '#1e3a5f', fontWeight: 600, cursor: dedupResult.count > 0 ? 'pointer' : 'default' }}
+          onClick={() => dedupResult.count > 0 && setShowDedupDetail(v => !v)}>
+          {dedupResult.count === 0 ? t.upload.dedupNoSimilar : `🔀 ${t.upload.dedupUnified} ${dedupResult.count} ${t.upload.dedupNamesUnit} — اضغط للتفاصيل ▼`}
+        </div>
+      )}
+
+      {/* ── Files List ──────────────────────────────────────── */}
+      <div style={{ marginTop: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
+          📁 {t.upload.filesTitle}
+        </div>
+
         {filesLoading ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>{t.upload.filesLoading}</div>
+          <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8', fontSize: 13 }}>⏳ {t.upload.filesLoading}</div>
         ) : files.length === 0 ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', background: '#f9fafb', borderRadius: 12 }}>
-            {t.upload.noFiles}
-          </div>
+          <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8', background: '#f8fafc', borderRadius: 8, fontSize: 13 }}>{t.upload.noFiles}</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {files.map(f => {
               const isActive = activeFileIds.includes(f.id);
-              const typeColors = f.fileType === 'returns'
-                ? { bg: '#fee2e2', color: '#dc2626' }
-                : f.fileType === 'auto'
-                ? { bg: '#ede9fe', color: '#6d28d9' }
-                : f.fileType === 'matrix'
-                ? { bg: '#ecfeff', color: '#0891b2' }
-                : { bg: '#dbeafe', color: '#1d4ed8' };
-              const typeLabel = f.fileType === 'returns' ? t.upload.typeReturnsLabel : f.fileType === 'auto' ? t.upload.typeAutoLabel : f.fileType === 'matrix' ? t.upload.typeMatrixLabel : t.upload.typeSalesLabel;
-              const currDisplay = (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '$ USD' : '﷼ IQD';
+              const isSharedToMe = f.sharedWithUserId === user?.id && f.userId !== user?.id;
+              const isSharedByMe = f.userId === user?.id && !!f.sharedWithUserId;
+
+              const typeMeta =
+                f.fileType === 'returns' ? { label: t.upload.typeReturnsLabel, color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' } :
+                f.fileType === 'auto'    ? { label: t.upload.typeAutoLabel,    color: '#6d28d9', bg: '#ede9fe', border: '#c4b5fd' } :
+                f.fileType === 'matrix' ? { label: t.upload.typeMatrixLabel,   color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc' } :
+                                          { label: t.upload.typeSalesLabel,    color: '#1d4ed8', bg: '#dbeafe', border: '#93c5fd' };
+
+              const currIsDollar = (f.currencyMode ?? f.detectedCurrency) === 'USD';
+
               return (
-                <div
-                  key={f.id}
-                  style={{
-                    background: isActive ? '#f0fdf4' : '#fff',
-                    border: `1px solid ${isActive ? '#86efac' : '#e5e7eb'}`,
-                    borderRadius: 12,
-                    padding: '0.75rem 1rem',
-                    transition: 'box-shadow 0.15s',
-                  }}
-                >
-                  {/* Row 1: name + badges */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: '0.45rem' }}>
-                    <strong style={{ fontSize: 14, color: '#1a2332', flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div key={f.id} style={{
+                  ...CARD,
+                  marginBottom: 0,
+                  borderColor: isActive ? '#86efac' : isSharedToMe ? '#fde68a' : '#e2e8f0',
+                  background: isActive ? '#f0fdf4' : isSharedToMe ? '#fffbeb' : '#fff',
+                }}>
+                  {/* ── Row 1: name + badges ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.originalName}
-                    </strong>
-                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: typeColors.bg, color: typeColors.color }}>
-                      {typeLabel}
                     </span>
-                    {isActive && (
-                      <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#dcfce7', color: '#15803d' }}>
-                        ✓ {t.upload.statusActive}
-                      </span>
-                    )}
-                    {/* Shared badge — manager view: show which user the file is synced with */}
-                    {f.sharedWithUser && f.userId === user?.id && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd' }}>
-                        🔗 {f.sharedWithUser.displayName || f.sharedWithUser.username}
-                      </span>
-                    )}
-                    {/* Badge for user receiving a shared file */}
-                    {f.sharedWithUserId === user?.id && f.userId !== user?.id && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, flexShrink: 0, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
-                        📥 مشارك معك
-                      </span>
-                    )}
+                    <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
+                    {isActive && <span style={BADGE('#dcfce7', '#15803d', '#86efac')}>✓ {t.upload.statusActive}</span>}
+                    {isSharedByMe && <span style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>🔗 {f.sharedWithUser?.displayName || f.sharedWithUser?.username}</span>}
+                    {isSharedToMe && <span style={BADGE('#fef3c7', '#92400e', '#fcd34d')}>📥 مشارك معك</span>}
                   </div>
-                  {/* Row 2: meta info */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: '0.55rem', fontSize: 13, color: '#6b7280' }}>
+
+                  {/* ── Row 2: meta ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8, fontSize: 11, color: '#64748b' }}>
                     <span>📊 {f.rowCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>
                     <span>📅 {fmtDate(f.uploadedAt)}</span>
-                    <span style={{
-                      padding: '1px 8px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                      background: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fef9c3' : '#dcfce7',
-                      color: (f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#92400e' : '#15803d',
-                      border: `1px solid ${(f.currencyMode ?? f.detectedCurrency) === 'USD' ? '#fcd34d' : '#86efac'}`,
-                    }}>
-                      {currDisplay}
+                    <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
+                      {currIsDollar ? 'USD $' : 'IQD ﷼'}
                     </span>
                   </div>
-                  {/* Row 3: action buttons */}
-                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button
-                      className="btn btn--primary"
-                      style={{ padding: '4px 12px', fontSize: 13 }}
-                      onClick={() => handleAnalyze(f)}
-                      disabled={analyzing && analyzeFile?.id === f.id}
-                    >
+
+                  {/* ── Row 3: actions ── */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button style={{ ...BTN_PRI }} onClick={() => handleAnalyze(f)} disabled={analyzing && analyzeFile?.id === f.id}>
                       {analyzing && analyzeFile?.id === f.id ? '⏳' : t.upload.btnAnalyze}
                     </button>
+
                     {hasFeature('currency_convert') && (
-                      <button
-                        style={{
-                          padding: '4px 12px', fontSize: 13,
-                          background: f.currencyMode === 'USD' ? '#fef9c3' : '#f3f4f6',
-                          color: f.currencyMode === 'USD' ? '#92400e' : '#374151',
-                          border: `1px solid ${f.currencyMode === 'USD' ? '#fcd34d' : '#d1d5db'}`,
-                          borderRadius: 6, cursor: 'pointer', fontWeight: f.currencyMode === 'USD' ? 700 : undefined,
-                        }}
-                        onClick={() => openCurrencyModal(f)}
-                      >
+                      <button style={{ ...BTN_SEC, background: f.currencyMode === 'USD' ? '#fef9c3' : undefined, color: f.currencyMode === 'USD' ? '#92400e' : undefined, borderColor: f.currencyMode === 'USD' ? '#fcd34d' : undefined }} onClick={() => openCurrencyModal(f)}>
                         {t.upload.btnCurrency}
                       </button>
                     )}
-                    {/* Sync with user button — only for owned files by manager roles */}
+
+                    {/* Sync button — manager only */}
                     {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
-                      <button
-                        style={{
-                          padding: '4px 12px', fontSize: 13,
-                          background: f.sharedWithUserId ? '#ede9fe' : '#f5f3ff',
-                          color: f.sharedWithUserId ? '#6d28d9' : '#7c3aed',
-                          border: `1px solid ${f.sharedWithUserId ? '#c4b5fd' : '#ddd6fe'}`,
-                          borderRadius: 6, cursor: 'pointer', fontWeight: f.sharedWithUserId ? 700 : undefined,
-                        }}
-                        onClick={() => openShareModal(f)}
-                        title="مزامنة بيانات هذا الملف مع مندوب أو قائد فريق (حسب مناطقه)"
-                      >
-                        {f.sharedWithUserId ? `🔗 ${f.sharedWithUser?.displayName || f.sharedWithUser?.username || 'مندوب'}` : '🔗 مزامنة مع مندوب'}
+                      <button style={{ ...BTN_SEC, background: isSharedByMe ? '#f5f3ff' : undefined, color: isSharedByMe ? '#6d28d9' : undefined, borderColor: isSharedByMe ? '#c4b5fd' : undefined }}
+                        onClick={() => openShareModal(f)}>
+                        {isSharedByMe ? `🔗 ${f.sharedWithUser?.displayName || f.sharedWithUser?.username}` : '🔗 مزامنة مع مندوب'}
                       </button>
                     )}
-                    {/* Download my sales — shown for files shared with current user (user-based sharing) */}
-                    {f.sharedWithUserId === user?.id && f.userId !== user?.id && (
-                      <button
-                        onClick={() => downloadUserSalesExcel(f.id)}
-                        disabled={exporting === `${f.id}-me`}
-                        style={{
-                          padding: '4px 12px', fontSize: 13,
-                          background: '#ecfdf5', color: '#059669',
-                          border: '1px solid #6ee7b7', borderRadius: 6,
-                          cursor: 'pointer', fontWeight: 700,
-                        }}
-                        title="تحميل بياناتي المفلترة حسب مناطقي كملف Excel"
-                      >
+
+                    {/* Download — recipient */}
+                    {isSharedToMe && (
+                      <button style={{ ...BTN_SEC, background: '#ecfdf5', color: '#059669', borderColor: '#6ee7b7' }}
+                        onClick={() => downloadUserSalesExcel(f.id)} disabled={exporting === `${f.id}-me`}>
                         {exporting === `${f.id}-me` ? '⏳' : '📥 تحميل مبيعاتي'}
                       </button>
                     )}
-                    {/* Manager preview download — download a specific user's filtered data */}
+
+                    {/* Download — manager preview */}
                     {f.userId === user?.id && f.sharedWithUserId && (
-                      <button
-                        onClick={() => downloadUserSalesExcel(f.id, f.sharedWithUserId!)}
-                        disabled={exporting === `${f.id}-${f.sharedWithUserId}`}
-                        style={{
-                          padding: '4px 12px', fontSize: 13,
-                          background: '#f0fdf4', color: '#15803d',
-                          border: '1px solid #86efac', borderRadius: 6,
-                          cursor: 'pointer', fontWeight: 700,
-                        }}
-                        title="تحميل بيانات المندوب المفلترة حسب مناطقه"
-                      >
+                      <button style={{ ...BTN_SEC, background: '#f0fdf4', color: '#15803d', borderColor: '#86efac' }}
+                        onClick={() => downloadUserSalesExcel(f.id, f.sharedWithUserId!)} disabled={exporting === `${f.id}-${f.sharedWithUserId}`}>
                         {exporting === `${f.id}-${f.sharedWithUserId}` ? '⏳' : `📥 بيانات ${f.sharedWithUser?.displayName || f.sharedWithUser?.username || 'المندوب'}`}
                       </button>
                     )}
-                    <button
-                      className="btn btn--secondary"
-                      style={{
-                        padding: '4px 12px', fontSize: 13,
-                        background: isActive ? '#dcfce7' : undefined,
-                        color: isActive ? '#15803d' : undefined,
-                        border: isActive ? '1px solid #86efac' : undefined,
-                        fontWeight: isActive ? 700 : undefined,
-                      }}
-                      onClick={() => onFileActivated(f.id)}
-                    >
+
+                    {/* Activate toggle */}
+                    <button style={{ ...BTN_GHOST, background: isActive ? '#dcfce7' : undefined, color: isActive ? '#15803d' : undefined, borderColor: isActive ? '#86efac' : undefined }}
+                      onClick={() => onFileActivated(f.id)}>
                       {isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
                     </button>
+
+                    {/* Delete */}
                     {confirmId === f.id ? (
                       <>
-                        <span style={{ fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>{t.upload.confirmDelete}</span>
-                        <button
-                          style={{ padding: '4px 12px', fontSize: 13, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-                          onClick={() => deleteFile(f.id)}
-                          disabled={deleting === f.id}
-                        >
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>{t.upload.confirmDelete}</span>
+                        <button style={{ ...BTN_PRI, background: '#dc2626' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
                           {deleting === f.id ? '⏳' : t.upload.confirmDeleteBtn}
                         </button>
-                        <button
-                          style={{ padding: '4px 12px', fontSize: 13, background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}
-                          onClick={() => setConfirmId(null)}
-                        >
-                          {t.upload.cancel}
-                        </button>
+                        <button style={{ ...BTN_GHOST }} onClick={() => setConfirmId(null)}>{t.upload.cancel}</button>
                       </>
                     ) : (
-                      <button
-                        style={{ padding: '4px 12px', fontSize: 13, background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 6, cursor: 'pointer' }}
-                        onClick={() => setConfirmId(f.id)}
-                        disabled={deleting === f.id}
-                      >
+                      <button style={{ ...BTN_GHOST, color: '#dc2626', borderColor: '#fca5a5', background: '#fff5f5' }}
+                        onClick={() => setConfirmId(f.id)} disabled={deleting === f.id}>
                         {t.upload.deleteBtn}
                       </button>
                     )}
@@ -842,6 +714,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           </div>
         )}
       </div>
+
 
       {/* Analysis Output */}
       {analyzeFile && (
