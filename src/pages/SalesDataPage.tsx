@@ -1112,12 +1112,10 @@ table{border-collapse:collapse;width:100%}
   // Display columns: region totals when all/multi, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
     if (!activeFile) return [];
-    if (regionFilter === 'all' || regionFilter === 'multi') {
-      const targetCols = regionFilter === 'multi'
-        ? activeFile.areaCols.filter(ac => selectedRegions.includes(ac.region))
-        : activeFile.areaCols;
+    if (regionFilter === 'all') {
+      // All regions: one aggregated column per region
       const groups: Record<string, ColMeta[]> = {};
-      targetCols.forEach(ac => {
+      activeFile.areaCols.forEach(ac => {
         if (!groups[ac.region]) groups[ac.region] = [];
         groups[ac.region].push(ac);
       });
@@ -1126,7 +1124,6 @@ table{border-collapse:collapse;width:100%}
         isRegionTotal: true as const, cols,
       }));
     }
-    const colsInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
     const applySort = (cols: ColMeta[]) => {
       if (!sortAFirst) return cols;
       return [...cols].sort((a, b) => {
@@ -1137,6 +1134,17 @@ table{border-collapse:collapse;width:100%}
         return 0;
       });
     };
+    if (regionFilter === 'multi') {
+      // Multiple regions: individual warehouse columns for each selected region
+      const result: ColMeta[] = [];
+      selectedRegions.forEach(r => {
+        result.push(...applySort(activeFile.areaCols.filter(ac => ac.region === r)));
+      });
+      if (warehouseKeys.size > 0) return result.filter(ac => warehouseKeys.has(ac.key));
+      return result;
+    }
+    // Single region
+    const colsInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
     if (warehouseKeys.size > 0) return applySort(colsInRegion.filter(ac => warehouseKeys.has(ac.key)));
     return applySort(colsInRegion);
   }, [activeFile, regionFilter, selectedRegions, warehouseKeys, sortAFirst, getCategory]);
@@ -1468,24 +1476,13 @@ table{border-collapse:collapse;width:100%}
     // in the currently-visible columns (works correctly after region/company switches)
     if (shortageOnlyMode) {
       const T = Math.max(0, shortageThreshold || 0);
-      // In multi-region mode displayCols are all RegionTotal (isRT=true) and get
-      // skipped by the isRT guard — use individual warehouse cols instead.
-      const warehouseCols = isMultiRegion && activeFile
-        ? activeFile.areaCols.filter(ac => selectedRegions.includes(ac.region))
-        : null;
-      rows = rows.filter(row => {
-        if (warehouseCols) {
-          return warehouseCols.some(ac => {
-            const v = toNum(row[ac.key] ?? '');
-            return v === 0 || (T > 0 && v > 0 && v < T);
-          });
-        }
-        return displayCols.some(col => {
+      rows = rows.filter(row =>
+        displayCols.some(col => {
           if (isRT(col)) return false;
           const v = cellVal(row, col);
           return v === 0 || (T > 0 && v > 0 && v < T);
-        });
-      });
+        })
+      );
     }
     return rows.sort((a, b) => {
       const ca = String(a[companyCol] ?? '').toLowerCase();
@@ -1495,7 +1492,7 @@ table{border-collapse:collapse;width:100%}
       const ib = String(b[itemNameCol] ?? '').toLowerCase();
       return ia.localeCompare(ib, 'ar');
     });
-  }, [filteredRows, shortageOnlyMode, displayCols, shortageThreshold, companyCol, itemNameCol, isMultiRegion, activeFile, selectedRegions]);
+  }, [filteredRows, shortageOnlyMode, displayCols, shortageThreshold, companyCol, itemNameCol]);
 
   // Handlers
   const handleFile = useCallback((file: File): Promise<{ ok: boolean; err?: string; saved?: SalesFile }> => {
@@ -1936,20 +1933,39 @@ table{border-collapse:collapse;width:100%}
               </div>
             </div>
 
-            {/* Warehouses — only when single region selected */}
-            {regionFilter !== 'all' && !isMultiRegion && (() => {
-              const whInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
+            {/* Warehouses */}
+            {regionFilter !== 'all' && (() => {
               return (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>
-                  🏪 المخزن <span style={{ color: '#94a3b8', fontWeight: 600 }}>({whInRegion.length})</span>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  🏪 المخزن
+                  {isMultiRegion && warehouseKeys.size > 0 && (
+                    <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={{ fontSize: 10, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 700 }}>مسح ✕</button>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={fp(warehouseKeys.size === 0, true)}>الكل</button>
-                  {whInRegion.map(ac => (
-                    <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
-                  ))}
-                </div>
+                {isMultiRegion
+                  ? selectedRegions.map(region => {
+                      const whInRegion = activeFile.areaCols.filter(ac => ac.region === region);
+                      return (
+                        <div key={region} style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', marginBottom: 4 }}>📍 {region}</div>
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                            {whInRegion.map(ac => (
+                              <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })
+                  : (
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={fp(warehouseKeys.size === 0, true)}>الكل</button>
+                      {activeFile.areaCols.filter(ac => ac.region === regionFilter).map(ac => (
+                        <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
+                      ))}
+                    </div>
+                  )
+                }
               </div>
               );
             })()}
@@ -2150,7 +2166,7 @@ table{border-collapse:collapse;width:100%}
           {tab === 'table' && (
             <>
               <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>{filteredRows.length} ايتم{regionFilter !== 'all' && !isMultiRegion && ` · ${regionFilter}`}{isMultiRegion && ` · ${selectedRegions.length} منطقة`}{warehouseKeys.size > 0 && !isMultiRegion && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
+                <span>{filteredRows.length} ايتم{regionFilter !== 'all' && !isMultiRegion && ` · ${regionFilter}`}{isMultiRegion && ` · ${selectedRegions.length} منطقة`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
                 {shortageOnlyMode && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', color: '#dc2626', fontWeight: 700, fontSize: 11 }}>
                     🔴 عرض النقص فقط
@@ -2159,139 +2175,25 @@ table{border-collapse:collapse;width:100%}
                 )}
               </div>
 
-              {/* ── MULTI-REGION STACKED VIEW ── */}
-              {isMultiRegion && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  {selectedRegions.map(region => {
-                    // Apply sortAFirst within this region (same logic as single-region displayCols)
-                    const rawRegionCols = activeFile.areaCols.filter(ac => ac.region === region);
-                    const regionCols = sortAFirst
-                      ? [...rawRegionCols].sort((a, b) => {
-                          const ca = getCategory(a.region, a.label);
-                          const cb = getCategory(b.region, b.label);
-                          if (ca === 'A' && cb !== 'A') return -1;
-                          if (cb === 'A' && ca !== 'A') return 1;
-                          return 0;
-                        })
-                      : rawRegionCols;
-                    const T = Math.max(0, shortageThreshold || 0);
-                    // In shortageOnlyMode filter per-region: only rows that have shortage in THIS region
-                    const visibleRows = shortageOnlyMode
-                      ? pageRows.filter(row => regionCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); }))
-                      : pageRows;
-                    const regionShortageItems = shortageOnlyMode
-                      ? visibleRows
-                      : pageRows.filter(row => regionCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); }));
-                    const regionTotal = visibleRows.reduce((s, row) => s + regionCols.reduce((ss, ac) => ss + toNum(row[ac.key] ?? ''), 0), 0);
-                    return (
-                      <div key={region} style={{ borderRadius: 14, overflow: 'hidden', border: '1.5px solid #6366f1', boxShadow: '0 4px 16px rgba(99,102,241,0.12)' }}>
-                        {/* Region header */}
-                        <div style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <span style={{ fontSize: 22 }}>📍</span>
-                            <div>
-                              <div style={{ fontSize: 17, fontWeight: 900, color: '#fff' }}>منطقة {region}</div>
-                              <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 2 }}>{regionCols.length} مخزن · {visibleRows.length} ايتم</div>
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            {regionShortageItems.length > 0 && (
-                              <span style={{ background: 'rgba(220,38,38,0.9)', color: '#fff', borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 800 }}>⚠ {regionShortageItems.length} ناقص</span>
-                            )}
-                            <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.2)', borderRadius: 8, padding: '4px 12px' }}>المجموع: {fmtNum(regionTotal)}</span>
-                          </div>
-                        </div>
-                        {/* Stack table */}
-                        <div style={{ overflowX: 'auto', background: '#fff' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
-                            <thead>
-                              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                <th style={thS}>#</th>
-                                {activeFile.fixedCols.map((c, i) => <th key={i} style={thS}>{c}</th>)}
-                                {regionCols.map(col => {
-                                  const cat = getCategory(col.region, col.label);
-                                  const dim = focusCategoryA && cat !== 'A';
-                                  const focusA = focusCategoryA && cat === 'A';
-                                  return (
-                                    <th key={col.key} style={{ ...thA, opacity: dim ? 0.4 : 1, background: focusA ? '#f1f5f9' : '#f8fafc', borderRight: focusA ? '1.5px solid #cbd5e1' : undefined, borderLeft: focusA ? '1.5px solid #cbd5e1' : undefined }}>
-                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                                        {cat && (() => {
-                                          const palette = focusCategoryA && cat === 'A'
-                                            ? { solid: '#16a34a', text: '#fff', size: 20, fs: 11 }
-                                            : { A: { solid: '#334155', text: '#fff', size: 18, fs: 10 }, B: { solid: '#64748b', text: '#fff', size: 18, fs: 10 }, C: { solid: '#94a3b8', text: '#fff', size: 18, fs: 10 } }[cat];
-                                          return (
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: palette.size, height: palette.size, borderRadius: 5, fontSize: palette.fs, fontWeight: 900, background: palette.solid, color: palette.text, lineHeight: 1 }}>{cat}</span>
-                                          );
-                                        })()}
-                                        <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.2, textAlign: 'center' }}>{col.label}</span>
-                                      </div>
-                                    </th>
-                                  );
-                                })}
-                                <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {visibleRows.length === 0
-                                ? <tr><td colSpan={activeFile.fixedCols.length + regionCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
-                                : visibleRows.map((row, idx) => {
-                                    const rt = regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0);
-                                    return (
-                                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                                        onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                                        <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
-                                        {activeFile.fixedCols.map((c, ci) => (
-                                          <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}) }}>
-                                            {row[c] ?? <span style={{ color: '#d1d5db' }}>—</span>}
-                                          </td>
-                                        ))}
-                                        {regionCols.map(col => {
-                                          const v = toNum(row[col.key] ?? '');
-                                          const isShortage = v === 0 || (T > 0 && v > 0 && v < T);
-                                          const cat = getCategory(col.region, col.label);
-                                          const dim = focusCategoryA && cat !== 'A';
-                                          const focusA = focusCategoryA && cat === 'A';
-                                          const aGap = focusA && v === 0;
-                                          const aLow = focusA && v > 0 && T > 0 && v < T;
-                                          return (
-                                            <td key={col.key} style={{ ...tdA, opacity: dim ? 0.3 : 1, background: aGap || aLow ? '#fef2f2' : (focusA ? '#f8fafc' : undefined), color: isShortage ? '#dc2626' : v > 0 ? '#1e293b' : '#cbd5e1', fontWeight: isShortage || v > 0 ? 700 : 400, borderRight: focusA ? '1.5px solid #cbd5e1' : undefined, borderLeft: focusA ? '1.5px solid #cbd5e1' : undefined }}>
-                                              {fmtNum(v)}
-                                            </td>
-                                          );
-                                        })}
-                                        <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>
-                                          {rt > 0 ? fmtNum(rt) : '—'}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })
-                              }
-                            </tbody>
-                            <tfoot>
-                              <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
-                                <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: '#475569', fontWeight: 700 }}>المجموع ({visibleRows.length} ايتم)</td>
-                                {regionCols.map(col => (
-                                  <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>
-                                    {fmtNum(visibleRows.reduce((s, row) => s + toNum(row[col.key] ?? ''), 0))}
-                                  </td>
-                                ))}
-                                <td style={{ ...tdA, color: '#065f46', fontWeight: 800, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(regionTotal)}</td>
-                              </tr>
-                            </tfoot>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* ── NORMAL (single / all) VIEW ── */}
-              {!isMultiRegion && (
+              {/* ── TABLE VIEW (single & multi-region) ── */}
               <div ref={tableContainerRef} style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
+                    {isMultiRegion && (
+                      <tr style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)', borderBottom: '2px solid #6366f1' }}>
+                        <th colSpan={activeFile.fixedCols.filter(c => !(shortageOnlyMode && c === priceCol)).length + 1} style={{ background: 'transparent', border: 'none', padding: 0 }} />
+                        {selectedRegions.map(region => {
+                          const count = (displayCols as ColMeta[]).filter(c => c.region === region).length;
+                          if (!count) return null;
+                          return (
+                            <th key={region} colSpan={count} style={{ padding: '6px 10px', fontSize: 12, fontWeight: 800, color: '#fff', textAlign: 'center', borderRight: '2px solid rgba(255,255,255,0.25)', borderLeft: '2px solid rgba(255,255,255,0.25)' }}>
+                              📍 {region}
+                            </th>
+                          );
+                        })}
+                        {!shortageOnlyMode && <th style={{ background: 'transparent', border: 'none', padding: 0 }} />}
+                      </tr>
+                    )}
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                       <th style={thS}>#</th>
                       {activeFile.fixedCols.map((c, i) => {
@@ -2490,7 +2392,6 @@ table{border-collapse:collapse;width:100%}
                   )}
                 </table>
               </div>
-              )}
 
 
             </>
