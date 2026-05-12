@@ -684,7 +684,9 @@ export default function SalesDataPage() {
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemQuery, setItemQuery]         = useState('');
   const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set());
-  const [regionFilter, setRegionFilter]   = useState('all');
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const regionFilter = selectedRegions.length === 0 ? 'all' : selectedRegions.length === 1 ? selectedRegions[0] : 'multi';
+  const isMultiRegion = selectedRegions.length > 1;
   const [warehouseKeys, setWarehouseKeys] = useState<Set<string>>(new Set());
   const [page, setPage]           = useState(1);
   const [tab, setTab]             = useState<'table' | 'analysis'>('table');
@@ -885,8 +887,9 @@ export default function SalesDataPage() {
   const exportTableToExcel = useCallback(() => {
     const tableHTML = buildStyledTableHTML();
     if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const regionLabel = regionFilter !== 'all' ? (isMultiRegion ? 'المناطق: ' + selectedRegions.join(' · ') : 'المنطقة: ' + regionFilter) : '';
     const badgeParts = [
-      regionFilter !== 'all' ? `<span style="font-weight:700;color:#1e293b;font-size:13px;margin-left:8px;">📍 المنطقة: ${regionFilter}</span>` : '',
+      regionLabel ? `<span style="font-weight:700;color:#1e293b;font-size:13px;margin-left:8px;">📍 ${regionLabel}</span>` : '',
       showValue ? `<span style="padding:2px 10px;border-radius:12px;background:#fffbeb;border:1.5px solid #f59e0b;color:#b45309;font-weight:700;font-size:11px;">💰 قيمة مالية</span>` : '',
       redCellCountRef.current > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;font-weight:700;font-size:11px;">⚠ النقص: ${redCellCountRef.current}</span>` : '',
       warehouseClasses.length > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#eef2ff;border:1.5px solid #a5b4fc;color:#4338ca;font-weight:700;font-size:11px;">🏷️ تصنيف المذاخر: ${warehouseClasses.length}</span>` : '',
@@ -910,13 +913,14 @@ export default function SalesDataPage() {
     a.download = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.xls`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [activeFile, buildStyledTableHTML, regionFilter, showValue, warehouseClasses]);
+  }, [activeFile, buildStyledTableHTML, regionFilter, isMultiRegion, selectedRegions, showValue, warehouseClasses]);
 
   const exportTableToWord = useCallback(() => {
     const tableHTML = buildStyledTableHTML();
     if (!tableHTML) { alert('لا يوجد جدول للتصدير'); return; }
+    const regionLabel = regionFilter !== 'all' ? (isMultiRegion ? 'المناطق: ' + selectedRegions.join(' · ') : 'المنطقة: ' + regionFilter) : '';
     const badgeParts = [
-      regionFilter !== 'all' ? `<span style="font-weight:700;color:#1e293b;font-size:13px;margin-left:8px;">📍 المنطقة: ${regionFilter}</span>` : '',
+      regionLabel ? `<span style="font-weight:700;color:#1e293b;font-size:13px;margin-left:8px;">📍 ${regionLabel}</span>` : '',
       showValue ? `<span style="padding:2px 10px;border-radius:12px;background:#fffbeb;border:1.5px solid #f59e0b;color:#b45309;font-weight:700;font-size:11px;">💰 قيمة مالية</span>` : '',
       redCellCountRef.current > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#fef2f2;border:1.5px solid #fca5a5;color:#dc2626;font-weight:700;font-size:11px;">⚠ النقص: ${redCellCountRef.current}</span>` : '',
       warehouseClasses.length > 0 ? `<span style="padding:2px 10px;border-radius:12px;background:#eef2ff;border:1.5px solid #a5b4fc;color:#4338ca;font-weight:700;font-size:11px;">🏷️ تصنيف المذاخر: ${warehouseClasses.length}</span>` : '',
@@ -940,7 +944,7 @@ table{border-collapse:collapse;width:100%}
     a.download = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.doc`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [activeFile, buildStyledTableHTML, regionFilter, showValue, warehouseClasses]);
+  }, [activeFile, buildStyledTableHTML, regionFilter, isMultiRegion, selectedRegions, showValue, warehouseClasses]);
 
   const exportTableToPDF = useCallback(async () => {
     const section = exportViewRef.current;
@@ -1105,12 +1109,15 @@ table{border-collapse:collapse;width:100%}
     }
   }, [activeFile]);
 
-  // Display columns: region totals when all, else individual warehouse cols
+  // Display columns: region totals when all/multi, else individual warehouse cols
   const displayCols = useMemo<ViewCol[]>(() => {
     if (!activeFile) return [];
-    if (regionFilter === 'all') {
+    if (regionFilter === 'all' || regionFilter === 'multi') {
+      const targetCols = regionFilter === 'multi'
+        ? activeFile.areaCols.filter(ac => selectedRegions.includes(ac.region))
+        : activeFile.areaCols;
       const groups: Record<string, ColMeta[]> = {};
-      activeFile.areaCols.forEach(ac => {
+      targetCols.forEach(ac => {
         if (!groups[ac.region]) groups[ac.region] = [];
         groups[ac.region].push(ac);
       });
@@ -1132,7 +1139,7 @@ table{border-collapse:collapse;width:100%}
     };
     if (warehouseKeys.size > 0) return applySort(colsInRegion.filter(ac => warehouseKeys.has(ac.key)));
     return applySort(colsInRegion);
-  }, [activeFile, regionFilter, warehouseKeys, sortAFirst, getCategory]);
+  }, [activeFile, regionFilter, selectedRegions, warehouseKeys, sortAFirst, getCategory]);
 
   // Auto-detect company column
   const companyCol = useMemo(() => {
@@ -1149,13 +1156,17 @@ table{border-collapse:collapse;width:100%}
     if (regionFilter !== 'all') {
       const hasTags = rows.some(r => r['_regions'] || r['_sourceFile']);
       if (hasTags) rows = rows.filter(r => {
-        if (r['_regions'])    return r['_regions'].split(',').includes(regionFilter);
-        if (r['_sourceFile']) return r['_sourceFile'] === regionFilter;
+        if (r['_regions'])    return regionFilter === 'multi'
+          ? r['_regions'].split(',').some(x => selectedRegions.includes(x))
+          : r['_regions'].split(',').includes(regionFilter);
+        if (r['_sourceFile']) return regionFilter === 'multi'
+          ? selectedRegions.includes(r['_sourceFile'])
+          : r['_sourceFile'] === regionFilter;
         return true;
       });
     }
     return [...new Set(rows.map(r => String(r[companyCol] ?? '').trim()).filter(Boolean))].sort();
-  }, [activeFile, companyCol, regionFilter]);
+  }, [activeFile, companyCol, regionFilter, selectedRegions]);
 
   // Filtered rows by item selection / text query + company filter + column filters
   const filteredRows = useMemo(() => {
@@ -1164,8 +1175,12 @@ table{border-collapse:collapse;width:100%}
     if (regionFilter !== 'all') {
       const hasTags = rows.some(r => r['_regions'] || r['_sourceFile']);
       if (hasTags) rows = rows.filter(row => {
-        if (row['_regions'])    return row['_regions'].split(',').includes(regionFilter);
-        if (row['_sourceFile']) return row['_sourceFile'] === regionFilter;
+        if (row['_regions'])    return regionFilter === 'multi'
+          ? row['_regions'].split(',').some(r => selectedRegions.includes(r))
+          : row['_regions'].split(',').includes(regionFilter);
+        if (row['_sourceFile']) return regionFilter === 'multi'
+          ? selectedRegions.includes(row['_sourceFile'])
+          : row['_sourceFile'] === regionFilter;
         return true;
       });
     }
@@ -1184,7 +1199,7 @@ table{border-collapse:collapse;width:100%}
       if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return rows;
-  }, [activeFile, selectedItems, itemQuery, selectedCompanies, companyCol, colFilters, regionFilter]);
+  }, [activeFile, selectedItems, itemQuery, selectedCompanies, companyCol, colFilters, regionFilter, selectedRegions]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
@@ -1299,6 +1314,8 @@ table{border-collapse:collapse;width:100%}
     let cols: ColMeta[];
     if (regionFilter === 'all') {
       cols = activeFile.areaCols;
+    } else if (regionFilter === 'multi') {
+      cols = activeFile.areaCols.filter(ac => selectedRegions.includes(ac.region));
     } else {
       const colsInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
       cols = warehouseKeys.size > 0 ? colsInRegion.filter(ac => warehouseKeys.has(ac.key)) : colsInRegion;
@@ -1311,7 +1328,7 @@ table{border-collapse:collapse;width:100%}
       }
     }
     return count;
-  }, [activeFile, filteredRows, shortageThreshold, regionFilter, warehouseKeys]);
+  }, [activeFile, filteredRows, shortageThreshold, regionFilter, selectedRegions, warehouseKeys]);
   redCellCountRef.current = redCellCount;
 
   // ── Shortage Radar: per-item analysis over filtered rows ──────────────────
@@ -1322,7 +1339,9 @@ table{border-collapse:collapse;width:100%}
     // When a region is selected, only include warehouses of that region
     const relevantCols = regionFilter === 'all'
       ? activeFile.areaCols
-      : activeFile.areaCols.filter(ac => ac.region === regionFilter);
+      : regionFilter === 'multi'
+        ? activeFile.areaCols.filter(ac => selectedRegions.includes(ac.region))
+        : activeFile.areaCols.filter(ac => ac.region === regionFilter);
     relevantCols.forEach(ac => { (groups[ac.region] ||= []).push(ac); });
     const regionCols: RegionTotalCol[] = Object.entries(groups).map(([region, cols]) => ({
       key: `rt_${region}`, label: region, region, colIdx: -1 as const, isRegionTotal: true as const, cols,
@@ -1395,7 +1414,7 @@ table{border-collapse:collapse;width:100%}
     const uniq = new Set<string>();
     for (const e of [...out, ...critical, ...low]) uniq.add(e.name + '|' + e.company);
     return { out, critical, low, totalCount: uniq.size, allRegions };
-  }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol, regionFilter]);
+  }, [activeFile, filteredRows, shortageThreshold, itemNameCol, companyCol, regionFilter, selectedRegions]);
 
   // Unique values for the currently-open filter column
   // Cross-filtered: applies all OTHER active filters so choices stay relevant
@@ -1406,8 +1425,12 @@ table{border-collapse:collapse;width:100%}
     if (regionFilter !== 'all') {
       const hasTags = rows.some(r => r['_regions'] || r['_sourceFile']);
       if (hasTags) rows = rows.filter(row => {
-        if (row['_regions'])    return row['_regions'].split(',').includes(regionFilter);
-        if (row['_sourceFile']) return row['_sourceFile'] === regionFilter;
+        if (row['_regions'])    return regionFilter === 'multi'
+          ? row['_regions'].split(',').some(r => selectedRegions.includes(r))
+          : row['_regions'].split(',').includes(regionFilter);
+        if (row['_sourceFile']) return regionFilter === 'multi'
+          ? selectedRegions.includes(row['_sourceFile'])
+          : row['_sourceFile'] === regionFilter;
         return true;
       });
     }
@@ -1419,7 +1442,7 @@ table{border-collapse:collapse;width:100%}
         rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return [...new Set(rows.map(r => String(r[openFilterCol] ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [activeFile, openFilterCol, regionFilter, selectedCompanies, companyCol, colFilters]);
+  }, [activeFile, openFilterCol, regionFilter, selectedRegions, selectedCompanies, companyCol, colFilters]);
 
   // Reset column filters when switching files
   useEffect(() => { setColFilters({}); setOpenFilterCol(null); }, [activeId]);
@@ -1503,7 +1526,7 @@ table{border-collapse:collapse;width:100%}
     if (savedFiles.length > 0) {
       setFiles(prev => [...prev, ...savedFiles]);
       setActiveId(savedFiles[0].id);
-      setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setRegionFilter('all'); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
+      setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setSelectedRegions([]); setWarehouseKeys(new Set()); setColFilters({}); setPage(1);
       setShowImport(false);
     }
     if (errors.length > 0) setImportErr(errors.join('\n'));
@@ -1557,8 +1580,13 @@ table{border-collapse:collapse;width:100%}
     if (!next.find(f => f.id === activeId)) setActiveId(next[0]?.id ?? '');
   };
 
+  const toggleRegion = (r: string) => {
+    setSelectedRegions(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]);
+    setWarehouseKeys(new Set());
+    setPage(1);
+  };
   const selectRegion = (r: string) => {
-    setRegionFilter(r);
+    setSelectedRegions(r === 'all' ? [] : [r]);
     setWarehouseKeys(new Set());
     setPage(1);
   };
@@ -1573,7 +1601,7 @@ table{border-collapse:collapse;width:100%}
   };
 
   const resetFilters = () => {
-    selectRegion('all'); setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setColFilters({}); setPage(1);
+    setSelectedRegions([]); setWarehouseKeys(new Set()); setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setColFilters({}); setPage(1);
   };
 
   const doMerge = async () => {
@@ -1880,18 +1908,25 @@ table{border-collapse:collapse;width:100%}
             </div>
 
             {/* Regions */}
-            <div style={{ marginBottom: regionFilter !== 'all' ? 12 : 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📍 المناطق</div>
+            <div style={{ marginBottom: regionFilter !== 'all' && !isMultiRegion ? 12 : 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                📍 المناطق
+                {isMultiRegion && (
+                  <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 800 }}>
+                    {selectedRegions.length} محدد
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button onClick={() => selectRegion('all')} style={fp(regionFilter === 'all')}>الكل</button>
+                <button onClick={() => selectRegion('all')} style={fp(selectedRegions.length === 0)}>الكل</button>
                 {activeFile.regions.map(region => (
-                  <button key={region} onClick={() => selectRegion(region)} style={fp(regionFilter === region)}>{region}</button>
+                  <button key={region} onClick={() => toggleRegion(region)} style={fp(selectedRegions.includes(region))}>{region}</button>
                 ))}
               </div>
             </div>
 
-            {/* Warehouses — only when region selected */}
-            {regionFilter !== 'all' && (() => {
+            {/* Warehouses — only when single region selected */}
+            {regionFilter !== 'all' && !isMultiRegion && (() => {
               const whInRegion = activeFile.areaCols.filter(ac => ac.region === regionFilter);
               return (
               <div style={{ marginBottom: 14 }}>
@@ -2104,7 +2139,7 @@ table{border-collapse:collapse;width:100%}
           {tab === 'table' && (
             <>
               <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>{filteredRows.length} ايتم{regionFilter !== 'all' && ` · ${regionFilter}`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
+                <span>{filteredRows.length} ايتم{regionFilter !== 'all' && !isMultiRegion && ` · ${regionFilter}`}{isMultiRegion && ` · ${selectedRegions.length} منطقة`}{warehouseKeys.size > 0 && !isMultiRegion && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
                 {shortageOnlyMode && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', color: '#dc2626', fontWeight: 700, fontSize: 11 }}>
                     🔴 عرض النقص فقط
@@ -2113,6 +2148,147 @@ table{border-collapse:collapse;width:100%}
                 )}
               </div>
 
+              {/* ── MULTI-REGION STACKED VIEW ── */}
+              {isMultiRegion && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  {selectedRegions.map(region => {
+                    const regionCols = activeFile.areaCols.filter(ac => ac.region === region);
+                    const T = Math.max(0, shortageThreshold || 0);
+                    const regionShortageItems = pageRows.filter(row =>
+                      regionCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); })
+                    );
+                    const regionTotal = pageRows.reduce((s, row) => s + regionCols.reduce((ss, ac) => ss + toNum(row[ac.key] ?? ''), 0), 0);
+                    return (
+                      <div key={region} style={{ borderRadius: 14, overflow: 'hidden', border: '1.5px solid #6366f1', boxShadow: '0 4px 16px rgba(99,102,241,0.12)' }}>
+                        {/* Region header */}
+                        <div style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 22 }}>📍</span>
+                            <div>
+                              <div style={{ fontSize: 17, fontWeight: 900, color: '#fff' }}>منطقة {region}</div>
+                              <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 2 }}>{regionCols.length} مخزن · {filteredRows.length} ايتم</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            {regionShortageItems.length > 0 && (
+                              <span style={{ background: 'rgba(220,38,38,0.9)', color: '#fff', borderRadius: 8, padding: '4px 12px', fontSize: 12, fontWeight: 800 }}>⚠ {regionShortageItems.length} ناقص</span>
+                            )}
+                            <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.2)', borderRadius: 8, padding: '4px 12px' }}>المجموع: {fmtNum(regionTotal)}</span>
+                          </div>
+                        </div>
+                        {/* Sstck table */}
+                        <div style={{ overflowX: 'auto', background: '#fff' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
+                            <thead>
+                              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                <th style={thS}>#</th>
+                                {activeFile.fixedCols.map((c, i) => <th key={i} style={thS}>{c}</th>)}
+                                {regionCols.map(col => <th key={col.key} style={thA}>{col.label}</th>)}
+                                <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pageRows.length === 0
+                                ? <tr><td colSpan={activeFile.fixedCols.length + regionCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
+                                : pageRows.map((row, idx) => {
+                                    const rt = regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0);
+                                    return (
+                                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                        onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                                        <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
+                                        {activeFile.fixedCols.map((c, ci) => (
+                                          <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}) }}>
+                                            {row[c] ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                                          </td>
+                                        ))}
+                                        {regionCols.map(col => {
+                                          const v = toNum(row[col.key] ?? '');
+                                          const isShortage = v === 0 || (T > 0 && v > 0 && v < T);
+                                          return (
+                                            <td key={col.key} style={{ ...tdA, color: isShortage ? '#dc2626' : v > 0 ? '#1e293b' : '#cbd5e1', fontWeight: isShortage || v > 0 ? 700 : 400 }}>
+                                              {fmtNum(v)}
+                                            </td>
+                                          );
+                                        })}
+                                        <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>
+                                          {rt > 0 ? fmtNum(rt) : '—'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                              }
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
+                                <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: '#475569', fontWeight: 700 }}>المجموع ({pageRows.length} ايتم)</td>
+                                {regionCols.map(col => (
+                                  <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>
+                                    {fmtNum(pageRows.reduce((s, row) => s + toNum(row[col.key] ?? ''), 0))}
+                                  </td>
+                                ))}
+                                <td style={{ ...tdA, color: '#065f46', fontWeight: 800, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(regionTotal)}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                        {/* Shortage summary for this region */}
+                        {regionShortageItems.length > 0 && (
+                          <div style={{ padding: '12px 16px', background: '#fff7f7', borderTop: '1px solid #fee2e2' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c', marginBottom: 8 }}>📡 نقص في منطقة {region} — {regionShortageItems.length} ايتم</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {regionShortageItems.slice(0, 20).map((row, i) => {
+                                const name = itemNameCol ? String(row[itemNameCol] ?? '') : String(row[activeFile.fixedCols[1] ?? activeFile.fixedCols[0]] ?? '');
+                                const missingWhs = regionCols.filter(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); });
+                                const totalQty = regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0);
+                                return (
+                                  <div key={i} style={{ background: '#fff', border: '1px solid #fca5a5', borderRadius: 8, padding: '5px 10px', fontSize: 11, maxWidth: 240 }}>
+                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{name}</div>
+                                    <div style={{ color: '#dc2626', fontSize: 10 }}>{missingWhs.map(ac => { const v = toNum(row[ac.key] ?? ''); return `${ac.label}: ${v === 0 ? 'نفد' : v}`; }).join(' · ')}</div>
+                                    <div style={{ color: '#94a3b8', fontSize: 10 }}>إجمالي المنطقة: {fmtNum(totalQty)}</div>
+                                  </div>
+                                );
+                              })}
+                              {regionShortageItems.length > 20 && <div style={{ fontSize: 11, color: '#94a3b8', alignSelf: 'center' }}>+{regionShortageItems.length - 20} آخرين</div>}
+                            </div>
+                          </div>
+                        )}
+                        {/* Top items for this region */}
+                        {(() => {
+                          const topReg = [...pageRows]
+                            .map(row => ({ row, total: regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0) }))
+                            .filter(x => x.total > 0).sort((a, b) => b.total - a.total).slice(0, 5);
+                          if (topReg.length === 0) return null;
+                          const mx = topReg[0]?.total ?? 1;
+                          return (
+                            <div style={{ padding: '12px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8 }}>🏆 أعلى 5 ايتمات في منطقة {region}</div>
+                              {topReg.map(({ row, total }, idx) => {
+                                const name = itemNameCol ? String(row[itemNameCol] ?? '') : String(row[activeFile.fixedCols[1] ?? activeFile.fixedCols[0]] ?? '');
+                                const pct = Math.round(total / mx * 100);
+                                return (
+                                  <div key={idx} style={{ marginBottom: 6 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
+                                      <span style={{ fontWeight: 600, color: '#1e293b' }}>{name}</span>
+                                      <span style={{ fontWeight: 800, color: '#4338ca' }}>{fmtNum(total)}</span>
+                                    </div>
+                                    <div style={{ height: 4, borderRadius: 99, background: '#e2e8f0', overflow: 'hidden' }}>
+                                      <div style={{ width: `${pct}%`, height: '100%', background: '#6366f1', borderRadius: 99 }} />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── NORMAL (single / all) VIEW ── */}
+              {!isMultiRegion && (
               <div ref={tableContainerRef} style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
@@ -2314,6 +2490,7 @@ table{border-collapse:collapse;width:100%}
                   )}
                 </table>
               </div>
+              )}
 
 
             </>
@@ -2328,7 +2505,8 @@ table{border-collapse:collapse;width:100%}
               <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: '16px 18px' }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
                   🏆 أعلى الايتمات مبيعاً
-                  {regionFilter !== 'all' && <span style={{ fontSize: 11, color: '#6366f1', marginRight: 8, fontWeight: 400 }}>— {regionFilter}</span>}
+                  {regionFilter !== 'all' && !isMultiRegion && <span style={{ fontSize: 11, color: '#6366f1', marginRight: 8, fontWeight: 400 }}>— {regionFilter}</span>}
+                  {isMultiRegion && <span style={{ fontSize: 11, color: '#6366f1', marginRight: 8, fontWeight: 400 }}>— {selectedRegions.join(' · ')}</span>}
                   {(selectedItems.length > 0 || itemQuery) && <span style={{ fontSize: 11, color: '#10b981', marginRight: 8, fontWeight: 400 }}>({filteredRows.length} نتيجة)</span>}
                 </div>
                 {topItems.length === 0
@@ -2359,11 +2537,12 @@ table{border-collapse:collapse;width:100%}
               </div>
 
               {/* Regional comparison */}
-              {regionFilter === 'all' && activeFile.regions.length > 0 && (
+              {(regionFilter === 'all' || isMultiRegion) && (isMultiRegion ? selectedRegions : activeFile.regions).length > 0 && (
                 <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: '16px 18px' }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>🗺️ مبيعات المناطق</div>
                   {(() => {
-                    const regionTotals = activeFile.regions.map(region => {
+                    const displayRegions = isMultiRegion ? selectedRegions : activeFile.regions;
+                    const regionTotals = displayRegions.map(region => {
                       const cols = activeFile.areaCols.filter(ac => ac.region === region);
                       const total = filteredRows.reduce((s, row) => s + cols.reduce((ss, ac) => ss + toNum(row[ac.key] ?? ''), 0), 0);
                       return { region, total, wCount: cols.length };
