@@ -2281,34 +2281,6 @@ table{border-collapse:collapse;width:100%}
                             </tfoot>
                           </table>
                         </div>
-                        {/* Top items for this region */}
-                        {(() => {
-                          const topReg = [...visibleRows]
-                            .map(row => ({ row, total: regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0) }))
-                            .filter(x => x.total > 0).sort((a, b) => b.total - a.total).slice(0, 5);
-                          if (topReg.length === 0) return null;
-                          const mx = topReg[0]?.total ?? 1;
-                          return (
-                            <div style={{ padding: '12px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8 }}>🏆 أعلى 5 ايتمات في منطقة {region}</div>
-                              {topReg.map(({ row, total }, idx) => {
-                                const name = itemNameCol ? String(row[itemNameCol] ?? '') : String(row[activeFile.fixedCols[1] ?? activeFile.fixedCols[0]] ?? '');
-                                const pct = Math.round(total / mx * 100);
-                                return (
-                                  <div key={idx} style={{ marginBottom: 6 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-                                      <span style={{ fontWeight: 600, color: '#1e293b' }}>{name}</span>
-                                      <span style={{ fontWeight: 800, color: '#4338ca' }}>{fmtNum(total)}</span>
-                                    </div>
-                                    <div style={{ height: 4, borderRadius: 99, background: '#e2e8f0', overflow: 'hidden' }}>
-                                      <div style={{ width: `${pct}%`, height: '100%', background: '#6366f1', borderRadius: 99 }} />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
                       </div>
                     );
                   })}
