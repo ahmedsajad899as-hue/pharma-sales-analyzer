@@ -1087,17 +1087,21 @@ table{border-collapse:collapse;width:100%}
       const pdfW = imgW > imgH ? 842 : 595;
       const pdfH = imgW > imgH ? 595 : 842;
       const ratio = Math.min(pdfW / imgW, pdfH / imgH);
+      const scaledW = imgW * ratio;
+      const scaledH = imgH * ratio;
       const pdf = new jsPDF({
         orientation: imgW > imgH ? 'landscape' : 'portrait',
         unit: 'pt',
         format: [pdfW, pdfH],
       });
+      // Align to right for RTL content
+      const xPos = pdfW - scaledW;
       pdf.addImage(
         canvas.toDataURL('image/png'),
         'PNG',
-        0, 0,
-        imgW * ratio,
-        imgH * ratio,
+        xPos, 0,
+        scaledW,
+        scaledH,
       );
       const fname = `sales_${activeFile?.name?.replace(/\.[^.]+$/, '') || 'data'}_${new Date().toISOString().slice(0, 10)}.pdf`;
       pdf.save(fname);
