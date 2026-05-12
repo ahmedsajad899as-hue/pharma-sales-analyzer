@@ -2205,13 +2205,13 @@ table{border-collapse:collapse;width:100%}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <span style={{ fontSize: 20 }}>📍</span>
                             <div>
-                              <div style={{ fontSize: 15, fontWeight: 900, color: '#fff' }}>منطقة {region}</div>
+                              <div style={{ fontSize: 15, fontWeight: 900, color: '#fff' }}>{region}</div>
                               <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 2 }}>{visibleCols.length} مخزن · {visibleRows.length} ايتم</div>
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             {regionShortageCount > 0 && (
-                              <span style={{ background: 'rgba(220,38,38,0.9)', color: '#fff', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 800 }}>⚠ {regionShortageCount} ناقص</span>
+                              <span style={{ background: 'rgba(220,38,38,0.9)', color: '#fff', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 800 }}>⚠ {regionShortageCount} النقص</span>
                             )}
                             <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.18)', borderRadius: 8, padding: '3px 10px' }}>المجموع: {fmtNum(regionTotal)}</span>
                           </div>
