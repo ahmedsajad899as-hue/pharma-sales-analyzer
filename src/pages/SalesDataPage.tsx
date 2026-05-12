@@ -2232,27 +2232,6 @@ table{border-collapse:collapse;width:100%}
                             </tfoot>
                           </table>
                         </div>
-                        {/* Shortage summary for this region */}
-                        {regionShortageItems.length > 0 && (
-                          <div style={{ padding: '12px 16px', background: '#fff7f7', borderTop: '1px solid #fee2e2' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c', marginBottom: 8 }}>📡 نقص في منطقة {region} — {regionShortageItems.length} ايتم</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                              {regionShortageItems.slice(0, 20).map((row, i) => {
-                                const name = itemNameCol ? String(row[itemNameCol] ?? '') : String(row[activeFile.fixedCols[1] ?? activeFile.fixedCols[0]] ?? '');
-                                const missingWhs = regionCols.filter(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); });
-                                const totalQty = regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0);
-                                return (
-                                  <div key={i} style={{ background: '#fff', border: '1px solid #fca5a5', borderRadius: 8, padding: '5px 10px', fontSize: 11, maxWidth: 240 }}>
-                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{name}</div>
-                                    <div style={{ color: '#dc2626', fontSize: 10 }}>{missingWhs.map(ac => { const v = toNum(row[ac.key] ?? ''); return `${ac.label}: ${v === 0 ? 'نفد' : v}`; }).join(' · ')}</div>
-                                    <div style={{ color: '#94a3b8', fontSize: 10 }}>إجمالي المنطقة: {fmtNum(totalQty)}</div>
-                                  </div>
-                                );
-                              })}
-                              {regionShortageItems.length > 20 && <div style={{ fontSize: 11, color: '#94a3b8', alignSelf: 'center' }}>+{regionShortageItems.length - 20} آخرين</div>}
-                            </div>
-                          </div>
-                        )}
                         {/* Top items for this region */}
                         {(() => {
                           const topReg = [...pageRows]
