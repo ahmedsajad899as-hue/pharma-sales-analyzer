@@ -2163,12 +2163,26 @@ table{border-collapse:collapse;width:100%}
               {isMultiRegion && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                   {selectedRegions.map(region => {
-                    const regionCols = activeFile.areaCols.filter(ac => ac.region === region);
+                    // Apply sortAFirst within this region (same logic as single-region displayCols)
+                    const rawRegionCols = activeFile.areaCols.filter(ac => ac.region === region);
+                    const regionCols = sortAFirst
+                      ? [...rawRegionCols].sort((a, b) => {
+                          const ca = getCategory(a.region, a.label);
+                          const cb = getCategory(b.region, b.label);
+                          if (ca === 'A' && cb !== 'A') return -1;
+                          if (cb === 'A' && ca !== 'A') return 1;
+                          return 0;
+                        })
+                      : rawRegionCols;
                     const T = Math.max(0, shortageThreshold || 0);
-                    const regionShortageItems = pageRows.filter(row =>
-                      regionCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); })
-                    );
-                    const regionTotal = pageRows.reduce((s, row) => s + regionCols.reduce((ss, ac) => ss + toNum(row[ac.key] ?? ''), 0), 0);
+                    // In shortageOnlyMode filter per-region: only rows that have shortage in THIS region
+                    const visibleRows = shortageOnlyMode
+                      ? pageRows.filter(row => regionCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); }))
+                      : pageRows;
+                    const regionShortageItems = shortageOnlyMode
+                      ? visibleRows
+                      : pageRows.filter(row => regionCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); }));
+                    const regionTotal = visibleRows.reduce((s, row) => s + regionCols.reduce((ss, ac) => ss + toNum(row[ac.key] ?? ''), 0), 0);
                     return (
                       <div key={region} style={{ borderRadius: 14, overflow: 'hidden', border: '1.5px solid #6366f1', boxShadow: '0 4px 16px rgba(99,102,241,0.12)' }}>
                         {/* Region header */}
@@ -2177,7 +2191,7 @@ table{border-collapse:collapse;width:100%}
                             <span style={{ fontSize: 22 }}>📍</span>
                             <div>
                               <div style={{ fontSize: 17, fontWeight: 900, color: '#fff' }}>منطقة {region}</div>
-                              <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 2 }}>{regionCols.length} مخزن · {filteredRows.length} ايتم</div>
+                              <div style={{ fontSize: 11, color: '#c7d2fe', marginTop: 2 }}>{regionCols.length} مخزن · {visibleRows.length} ايتم</div>
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -2187,21 +2201,40 @@ table{border-collapse:collapse;width:100%}
                             <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', background: 'rgba(255,255,255,0.2)', borderRadius: 8, padding: '4px 12px' }}>المجموع: {fmtNum(regionTotal)}</span>
                           </div>
                         </div>
-                        {/* Sstck table */}
+                        {/* Stack table */}
                         <div style={{ overflowX: 'auto', background: '#fff' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                             <thead>
                               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                                 <th style={thS}>#</th>
                                 {activeFile.fixedCols.map((c, i) => <th key={i} style={thS}>{c}</th>)}
-                                {regionCols.map(col => <th key={col.key} style={thA}>{col.label}</th>)}
+                                {regionCols.map(col => {
+                                  const cat = getCategory(col.region, col.label);
+                                  const dim = focusCategoryA && cat !== 'A';
+                                  const focusA = focusCategoryA && cat === 'A';
+                                  return (
+                                    <th key={col.key} style={{ ...thA, opacity: dim ? 0.4 : 1, background: focusA ? '#f1f5f9' : '#f8fafc', borderRight: focusA ? '1.5px solid #cbd5e1' : undefined, borderLeft: focusA ? '1.5px solid #cbd5e1' : undefined }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                        {cat && (() => {
+                                          const palette = focusCategoryA && cat === 'A'
+                                            ? { solid: '#16a34a', text: '#fff', size: 20, fs: 11 }
+                                            : { A: { solid: '#334155', text: '#fff', size: 18, fs: 10 }, B: { solid: '#64748b', text: '#fff', size: 18, fs: 10 }, C: { solid: '#94a3b8', text: '#fff', size: 18, fs: 10 } }[cat];
+                                          return (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: palette.size, height: palette.size, borderRadius: 5, fontSize: palette.fs, fontWeight: 900, background: palette.solid, color: palette.text, lineHeight: 1 }}>{cat}</span>
+                                          );
+                                        })()}
+                                        <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.2, textAlign: 'center' }}>{col.label}</span>
+                                      </div>
+                                    </th>
+                                  );
+                                })}
                                 <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {pageRows.length === 0
+                              {visibleRows.length === 0
                                 ? <tr><td colSpan={activeFile.fixedCols.length + regionCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
-                                : pageRows.map((row, idx) => {
+                                : visibleRows.map((row, idx) => {
                                     const rt = regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0);
                                     return (
                                       <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
@@ -2216,8 +2249,13 @@ table{border-collapse:collapse;width:100%}
                                         {regionCols.map(col => {
                                           const v = toNum(row[col.key] ?? '');
                                           const isShortage = v === 0 || (T > 0 && v > 0 && v < T);
+                                          const cat = getCategory(col.region, col.label);
+                                          const dim = focusCategoryA && cat !== 'A';
+                                          const focusA = focusCategoryA && cat === 'A';
+                                          const aGap = focusA && v === 0;
+                                          const aLow = focusA && v > 0 && T > 0 && v < T;
                                           return (
-                                            <td key={col.key} style={{ ...tdA, color: isShortage ? '#dc2626' : v > 0 ? '#1e293b' : '#cbd5e1', fontWeight: isShortage || v > 0 ? 700 : 400 }}>
+                                            <td key={col.key} style={{ ...tdA, opacity: dim ? 0.3 : 1, background: aGap || aLow ? '#fef2f2' : (focusA ? '#f8fafc' : undefined), color: isShortage ? '#dc2626' : v > 0 ? '#1e293b' : '#cbd5e1', fontWeight: isShortage || v > 0 ? 700 : 400, borderRight: focusA ? '1.5px solid #cbd5e1' : undefined, borderLeft: focusA ? '1.5px solid #cbd5e1' : undefined }}>
                                               {fmtNum(v)}
                                             </td>
                                           );
@@ -2232,10 +2270,10 @@ table{border-collapse:collapse;width:100%}
                             </tbody>
                             <tfoot>
                               <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
-                                <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: '#475569', fontWeight: 700 }}>المجموع ({pageRows.length} ايتم)</td>
+                                <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: '#475569', fontWeight: 700 }}>المجموع ({visibleRows.length} ايتم)</td>
                                 {regionCols.map(col => (
                                   <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>
-                                    {fmtNum(pageRows.reduce((s, row) => s + toNum(row[col.key] ?? ''), 0))}
+                                    {fmtNum(visibleRows.reduce((s, row) => s + toNum(row[col.key] ?? ''), 0))}
                                   </td>
                                 ))}
                                 <td style={{ ...tdA, color: '#065f46', fontWeight: 800, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(regionTotal)}</td>
@@ -2245,7 +2283,7 @@ table{border-collapse:collapse;width:100%}
                         </div>
                         {/* Top items for this region */}
                         {(() => {
-                          const topReg = [...pageRows]
+                          const topReg = [...visibleRows]
                             .map(row => ({ row, total: regionCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0) }))
                             .filter(x => x.total > 0).sort((a, b) => b.total - a.total).slice(0, 5);
                           if (topReg.length === 0) return null;
