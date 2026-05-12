@@ -1468,13 +1468,24 @@ table{border-collapse:collapse;width:100%}
     // in the currently-visible columns (works correctly after region/company switches)
     if (shortageOnlyMode) {
       const T = Math.max(0, shortageThreshold || 0);
-      rows = rows.filter(row =>
-        displayCols.some(col => {
+      // In multi-region mode displayCols are all RegionTotal (isRT=true) and get
+      // skipped by the isRT guard — use individual warehouse cols instead.
+      const warehouseCols = isMultiRegion && activeFile
+        ? activeFile.areaCols.filter(ac => selectedRegions.includes(ac.region))
+        : null;
+      rows = rows.filter(row => {
+        if (warehouseCols) {
+          return warehouseCols.some(ac => {
+            const v = toNum(row[ac.key] ?? '');
+            return v === 0 || (T > 0 && v > 0 && v < T);
+          });
+        }
+        return displayCols.some(col => {
           if (isRT(col)) return false;
           const v = cellVal(row, col);
           return v === 0 || (T > 0 && v > 0 && v < T);
-        })
-      );
+        });
+      });
     }
     return rows.sort((a, b) => {
       const ca = String(a[companyCol] ?? '').toLowerCase();
@@ -1484,7 +1495,7 @@ table{border-collapse:collapse;width:100%}
       const ib = String(b[itemNameCol] ?? '').toLowerCase();
       return ia.localeCompare(ib, 'ar');
     });
-  }, [filteredRows, shortageOnlyMode, displayCols, shortageThreshold, companyCol, itemNameCol]);
+  }, [filteredRows, shortageOnlyMode, displayCols, shortageThreshold, companyCol, itemNameCol, isMultiRegion, activeFile, selectedRegions]);
 
   // Handlers
   const handleFile = useCallback((file: File): Promise<{ ok: boolean; err?: string; saved?: SalesFile }> => {
