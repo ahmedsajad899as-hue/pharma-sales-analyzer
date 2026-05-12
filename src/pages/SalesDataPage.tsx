@@ -1083,23 +1083,21 @@ table{border-collapse:collapse;width:100%}
 
       const imgW = canvas.width;
       const imgH = canvas.height;
-      // A4 landscape in px at 96dpi: width=842pt height=595pt
-      const pdfW = imgW > imgH ? 842 : 595;
-      const pdfH = imgW > imgH ? 595 : 842;
-      const ratio = Math.min(pdfW / imgW, pdfH / imgH);
+      // Scale image to fill full page width
+      const ratio = imgW > imgH ? 842 / imgW : 595 / imgW;
       const scaledW = imgW * ratio;
       const scaledH = imgH * ratio;
+      const pdfW = scaledW;
+      const pdfH = Math.max(scaledH, imgW > imgH ? 595 : 842);
       const pdf = new jsPDF({
         orientation: imgW > imgH ? 'landscape' : 'portrait',
         unit: 'pt',
         format: [pdfW, pdfH],
       });
-      // Align to right for RTL content
-      const xPos = pdfW - scaledW;
       pdf.addImage(
         canvas.toDataURL('image/png'),
         'PNG',
-        xPos, 0,
+        0, 0,
         scaledW,
         scaledH,
       );
@@ -2283,7 +2281,7 @@ table{border-collapse:collapse;width:100%}
                                   })
                               }
                             </tbody>
-                            <tfoot>
+                            <tfoot data-export="omit">
                               <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
                                 <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: '#475569', fontWeight: 700 }}>المجموع ({visibleRows.length} ايتم)</td>
                                 {visibleCols.map(col => (
