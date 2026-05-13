@@ -1412,16 +1412,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       </div>
 
       {/* Mode toggle */}
-      <div className="tabs" style={{ marginBottom: 0 }}>
-        <button className={`tab ${mode === 'overall' ? 'tab--active' : ''}`} onClick={() => { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); }}>
-          📊 تحليل شامل
-        </button>
-        <button className={`tab ${mode === 'scientific' ? 'tab--active' : ''}`} onClick={() => { setMode('scientific'); setError(''); setSciReport(null); }}>
-          🔬 {t.reports.modeScientific}
-        </button>
-        <button className={`tab ${mode === 'commercial' ? 'tab--active' : ''}`} onClick={() => { setMode('commercial'); setError(''); setCommReport(null); }}>
-          💰 {t.reports.modeCommercial}
-        </button>
+      <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
+        {([['overall','📊','تحليل شامل'], ['scientific','🔬',t.reports.modeScientific], ['commercial','💰',t.reports.modeCommercial]] as [string,string,string][]).map(([id, icon, label]) => (
+          <button key={id} onClick={() => {
+            if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); }
+            if (id === 'scientific') { setMode('scientific'); setError(''); setSciReport(null); }
+            if (id === 'commercial') { setMode('commercial'); setError(''); setCommReport(null); }
+          }} style={{
+            padding: '9px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
+            background: mode === id ? '#fff' : 'transparent',
+            color: mode === id ? '#1e40af' : '#6b7280',
+            fontWeight: mode === id ? 700 : 500, fontSize: 14,
+            borderBottom: mode === id ? '2px solid #1e40af' : '2px solid transparent',
+            marginBottom: -2, display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span>{icon}</span><span>{label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Filters Card */}
@@ -1995,30 +2002,48 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netQtyTotal = (commReport?.totalQty ?? 0) - (commReturnsReport?.totalQty ?? 0);
         const netValTotal = (commReport?.totalValue ?? 0) - (commReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
+        const hasRet = (commReturnsReport?.totalQty ?? 0) > 0;
         return (
         <>
-          <div className="report-summary">
-
-            {renderViewToggle(true, (commReturnsReport?.totalQty ?? 0) > 0)}
-            <div style={{ marginTop: 16, maxWidth: 360 }}>
-              <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981'}` }}>
-                <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#d1fae5', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981' }}>💰</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: isNet ? (netValTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#10b981' }}>
-                    {isNet ? fmtValSigned(netValTotal) : fmtVal(viewData?.totalValue ?? 0)}
-                  </div>
-                  <div className="stat-card-label">{isNet ? currStatNet : currStatTotal}</div>
+          {/* KPI Cards — Commercial */}
+          <div style={{ marginTop: 8, marginBottom: 4 }}>
+            {renderViewToggle(true, hasRet)}
+            {isNet ? (
+              <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+                <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? '✅' : '⚠️'}</div>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
+                  {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
                 </div>
               </div>
-            </div>
+            ) : (
+              <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+                <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>💰</div>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
+                  <div style={{ fontSize: 12, color: '#374151', marginTop: 2, fontWeight: 600 }}>الكمية: {fmt(viewData?.totalQty ?? 0)}</div>
+                </div>
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
-            <div className="tabs" style={{ margin: 0 }}>
-              <button title={t.reports.tabByArea}   className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
-              <button title={t.reports.tabByItem}   className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
+          {/* Sub-tabs — Commercial */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+              {([['area','📍',t.reports.tabByArea], ['item','💊',t.reports.tabByItem]] as [string,string,string][]).map(([id, icon, label]) => (
+                <button key={id} onClick={() => setActiveTab(id as 'area' | 'item')} title={label} style={{
+                  padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
+                  background: activeTab === id ? '#fff' : 'transparent',
+                  color: activeTab === id ? '#1e40af' : '#6b7280',
+                  fontWeight: activeTab === id ? 700 : 500, fontSize: 13,
+                  borderBottom: activeTab === id ? '2px solid #1e40af' : '2px solid transparent',
+                  marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
+                }}><span>{icon}</span><span>{label}</span></button>
+              ))}
             </div>
             <button onClick={() => setCommViewMode(v => v === 'qty' ? 'value' : 'qty')}
-              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${commViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: commViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: commViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${commViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: commViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: commViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4 }}>
               {commViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
             </button>
           </div>
@@ -2034,69 +2059,63 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </>
           )}
           {activeTab === 'item' && commRepId && (
-            <div style={{ marginTop: 20 }}>
+            <div style={{ marginTop: 16 }}>
               <button
-                className="btn btn--secondary"
-                style={{ marginBottom: 10, fontSize: 13 }}
+                style={{ marginBottom: 10, fontSize: 13, padding: '7px 18px', borderRadius: 8, border: '1.5px solid #6366f1', background: showTargets ? '#eef2ff' : '#f9fafb', color: '#4f46e5', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 onClick={() => {
-                  if (!showTargets) {
-                    loadTargetsForRep('commercial', commRepId);
-                    setShowTargets(true);
-                  } else {
-                    setShowTargets(false);
-                  }
+                  if (!showTargets) { loadTargetsForRep('commercial', commRepId); setShowTargets(true); }
+                  else { setShowTargets(false); }
                 }}
               >
                 🎯 {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
               </button>
               {showTargets && (
-                targetsLoading ? <div style={{ textAlign: 'center', padding: 20 }}>جاري التحميل...</div> : (
-                  <div className="table-wrapper">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <button
-                        onClick={() => setHideEmptyTargetRows(v => !v)}
-                        style={{
-                          padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                          background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9',
-                          color: hideEmptyTargetRows ? '#fff' : '#374151',
-                          display: 'flex', alignItems: 'center', gap: 5,
-                        }}
-                        title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت"
-                      >
+                targetsLoading ? <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>جاري التحميل...</div> : (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af' }}>🎯 مقارنة التارگت بالمبيعات</span>
+                      <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151' }} title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت">
                         {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
                       </button>
-                      {hideEmptyTargetRows && <span style={{ fontSize: 11, color: '#64748b' }}>الايتمات بدون مبيع وتارگت مخفية</span>}
                     </div>
-                    <table className="data-table" style={{ fontSize: 13 }}>
+                    <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
-                        <tr>
-                          <th>المادة</th>
-                          <th>التارگت (عدد)</th>
-                          <th>صافي الكمية</th>
-                          <th>نسبة التحقق</th>
+                        <tr style={{ background: '#1e40af' }}>
+                          <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#fff', borderLeft: '1px solid rgba(255,255,255,.15)' }}>المادة</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', borderLeft: '1px solid rgba(255,255,255,.15)' }}>التارگت</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', background: 'rgba(255,255,255,.12)', borderLeft: '1px solid rgba(255,255,255,.15)' }}>صافي الكمية</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', background: 'rgba(255,255,255,.12)' }}>نسبة التحقق</th>
                         </tr>
                       </thead>
                       <tbody>
                         {targetData.length === 0 ? (
-                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
+                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 28, fontSize: 13 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
                         ) : targetData.filter(td => {
                           if (!hideEmptyTargetRows) return true;
                           const salesRow = commReport.byItem.find(r => r.name === td.itemName);
                           const retRow   = commReturnsReport?.byItem.find(r => r.name === td.itemName);
                           const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
                           return td.target > 0 || netQty !== 0;
-                        }).map(td => {
+                        }).map((td, i) => {
                           const salesRow  = commReport.byItem.find(r => r.name === td.itemName);
                           const retRow    = commReturnsReport?.byItem.find(r => r.name === td.itemName);
                           const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
                           const pct       = td.target > 0 ? (netQty / td.target) * 100 : null;
                           const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
+                          const rowBg = i % 2 === 0 ? '#fff' : '#f9fafb';
                           return (
-                            <tr key={td.itemId}>
-                              <td>{td.itemName}</td>
-                              <td>{fmt(td.target)}</td>
-                              <td style={{ color: netQty < 0 ? '#dc2626' : undefined }}>{fmtSigned(netQty)}</td>
-                              <td style={{ color, fontWeight: 600 }}>{pct !== null ? `${Math.round(pct)}%` : '—'}</td>
+                            <tr key={td.itemId} style={{ background: rowBg }} onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')} onMouseLeave={e => (e.currentTarget.style.background = rowBg)}>
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 600, color: '#1e293b', borderBottom: '1px solid #f1f5f9' }}>{td.itemName}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600, borderBottom: '1px solid #f1f5f9' }}>{fmt(td.target)}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ background: netQty >= 0 ? '#ecfdf5' : '#fef2f2', color: netQty >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 12 }}>{fmtSigned(netQty)}</span>
+                              </td>
+                              <td style={{ padding: '8px 14px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                {pct !== null ? (
+                                  <span style={{ background: color + '22', color, borderRadius: 5, padding: '2px 10px', fontWeight: 800, fontSize: 13 }}>{Math.round(pct)}%</span>
+                                ) : '—'}
+                              </td>
                             </tr>
                           );
                         })}
@@ -2112,17 +2131,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                         return (
                           <tfoot>
-                            <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
-                              <td style={{ padding: '10px 12px', color: '#065f46' }}>الإجمالي</td>
-                              <td style={{ padding: '10px 12px', color: '#065f46' }}>{fmt(totalTarget)}</td>
-                              <td style={{ padding: '10px 12px', color: totalNet < 0 ? '#dc2626' : '#065f46' }}>{fmtSigned(totalNet)}</td>
-                              <td style={{ padding: '10px 12px', color: pctColor, fontSize: 15 }}>{totalPct !== null ? `${totalPct}%` : '—'}</td>
+                            <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 800 }}>
+                              <td style={{ padding: '10px 14px', color: '#065f46', textAlign: 'right' }}>الإجمالي</td>
+                              <td style={{ padding: '10px 14px', color: '#1d4ed8', textAlign: 'center' }}>{fmt(totalTarget)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'center' }}><span style={{ background: totalNet >= 0 ? '#ecfdf5' : '#fef2f2', color: totalNet >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 13 }}>{fmtSigned(totalNet)}</span></td>
+                              <td style={{ padding: '10px 14px', textAlign: 'center' }}>{totalPct !== null ? <span style={{ background: pctColor + '22', color: pctColor, borderRadius: 5, padding: '2px 10px', fontWeight: 800, fontSize: 15 }}>{totalPct}%</span> : '—'}</td>
                             </tr>
                           </tfoot>
                         );
                       })()}
                     </table>
-                  </div>
+                    </div>
                 )
               )}
             </div>
@@ -2137,66 +2156,64 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netQtyTotal = (sciReport?.totalQty ?? 0) - (sciReturnsReport?.totalQty ?? 0);
         const netValTotal = (sciReport?.totalValue ?? 0) - (sciReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
+        const hasRet = (sciReturnsReport?.totalQty ?? 0) > 0;
         return (
         <>
-          <div className="report-summary">
-
-
-            {/* Info tags — hidden by default, toggle on click */}
-            <div style={{ margin: '0.6rem 0' }}>
-              <button
-                onClick={() => setShowInfoTags(v => !v)}
-                style={{
-                  background: showInfoTags ? '#ede9fe' : '#f3f4f6',
-                  border: `1px solid ${showInfoTags ? '#c4b5fd' : '#e5e7eb'}`,
-                  borderRadius: 20, padding: '4px 14px', cursor: 'pointer',
-                  fontSize: '1rem', color: showInfoTags ? '#6d28d9' : '#6b7280',
-                }}
-                title={showInfoTags ? 'إخفاء التفاصيل' : 'عرض المناطق والمندوبين والأيتمات'}
-              >
-                {showInfoTags ? '🔼' : '🔽'}
-              </button>
-              {showInfoTags && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
-                  {sciReport.assignedCommercialReps.map(r => (
-                    <span key={r.id} className="tag tag--green">💰 {r.name}</span>
-                  ))}
-                  {sciReport.assignedAreas.map(a => (
-                    <span key={a.id} className="tag tag--purple">📍 {a.name}</span>
-                  ))}
-                  {sciReport.assignedItems.map(i => (
-                    <span key={i.id} className="tag tag--orange">💊 {i.name}</span>
-                  ))}
-                  {sciReport.assignedCommercialReps.length === 0 && (
-                    <span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}>⚠️ {t.reports.noCommRepsAssigned}</span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {renderViewToggle(true, (sciReturnsReport?.totalQty ?? 0) > 0)}
-
-            <div style={{ marginTop: 16, maxWidth: 360 }}>
-              <div className="stat-card" style={{ borderTop: `4px solid ${isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981'}` }}>
-                <div className="stat-card-icon" style={{ background: isNet ? '#d1fae5' : reportView === 'returns' ? '#fee2e2' : '#d1fae5', color: isNet ? '#10b981' : reportView === 'returns' ? '#ef4444' : '#10b981' }}>💰</div>
-                <div className="stat-card-body">
-                  <div className="stat-card-value" style={{ color: isNet ? (netValTotal >= 0 ? '#065f46' : '#991b1b') : reportView === 'returns' ? '#ef4444' : '#10b981' }}>
-                    {isNet ? fmtValSigned(netValTotal) : fmtVal(viewData?.totalValue ?? 0)}
-                  </div>
-                  <div className="stat-card-label">{isNet ? currStatNet : currStatTotal}</div>
-                </div>
+          {/* Info tags */}
+          <div style={{ margin: '8px 0 4px' }}>
+            <button onClick={() => setShowInfoTags(v => !v)} style={{ background: showInfoTags ? '#ede9fe' : '#f3f4f6', border: `1px solid ${showInfoTags ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 20, padding: '4px 14px', cursor: 'pointer', fontSize: '1rem', color: showInfoTags ? '#6d28d9' : '#6b7280' }} title={showInfoTags ? 'إخفاء التفاصيل' : 'عرض المناطق والمندوبين والأيتمات'}>
+              {showInfoTags ? '🔼' : '🔽'}
+            </button>
+            {showInfoTags && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
+                {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green">💰 {r.name}</span>))}
+                {sciReport.assignedAreas.map(a => (<span key={a.id} className="tag tag--purple">📍 {a.name}</span>))}
+                {sciReport.assignedItems.map(i => (<span key={i.id} className="tag tag--orange">💊 {i.name}</span>))}
+                {sciReport.assignedCommercialReps.length === 0 && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}>⚠️ {t.reports.noCommRepsAssigned}</span>)}
               </div>
-            </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, margin: '8px 0' }}>
-            <div className="tabs" style={{ margin: 0 }}>
-              <button title={t.reports.tabByArea}    className={`tab ${activeTab === 'area' ? 'tab--active' : ''}`} onClick={() => setActiveTab('area')}>📍</button>
-              <button title={t.reports.tabByItem}    className={`tab ${activeTab === 'item' ? 'tab--active' : ''}`} onClick={() => setActiveTab('item')}>💊</button>
-              <button title={t.reports.tabByCommRep} className={`tab ${activeTab === 'rep'  ? 'tab--active' : ''}`} onClick={() => setActiveTab('rep')}>👤</button>
+          {/* KPI Cards — Scientific */}
+          <div style={{ marginBottom: 4 }}>
+            {renderViewToggle(true, hasRet)}
+            {isNet ? (
+              <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+                <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? '✅' : '⚠️'}</div>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
+                  {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+                <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>💰</div>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
+                  <div style={{ fontSize: 12, color: '#374151', marginTop: 2, fontWeight: 600 }}>الكمية: {fmt(viewData?.totalQty ?? 0)}</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sub-tabs — Scientific */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+              {([['area','📍',t.reports.tabByArea], ['item','💊',t.reports.tabByItem], ['rep','👤',t.reports.tabByCommRep]] as [string,string,string][]).map(([id, icon, label]) => (
+                <button key={id} onClick={() => setActiveTab(id as 'area' | 'item' | 'rep')} title={label} style={{
+                  padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
+                  background: activeTab === id ? '#fff' : 'transparent',
+                  color: activeTab === id ? '#1e40af' : '#6b7280',
+                  fontWeight: activeTab === id ? 700 : 500, fontSize: 13,
+                  borderBottom: activeTab === id ? '2px solid #1e40af' : '2px solid transparent',
+                  marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
+                }}><span>{icon}</span><span>{label}</span></button>
+              ))}
             </div>
             <button onClick={() => setSciViewMode(v => v === 'qty' ? 'value' : 'qty')}
-              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${sciViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: sciViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: sciViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${sciViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: sciViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: sciViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4 }}>
               {sciViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
             </button>
           </div>
@@ -2214,69 +2231,63 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </>
           )}
           {activeTab === 'item' && sciRepId && (
-            <div style={{ marginTop: 20 }}>
+            <div style={{ marginTop: 16 }}>
               <button
-                className="btn btn--secondary"
-                style={{ marginBottom: 10, fontSize: 13 }}
+                style={{ marginBottom: 10, fontSize: 13, padding: '7px 18px', borderRadius: 8, border: '1.5px solid #6366f1', background: showTargets ? '#eef2ff' : '#f9fafb', color: '#4f46e5', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 onClick={() => {
-                  if (!showTargets) {
-                    loadTargetsForRep('scientific', sciRepId);
-                    setShowTargets(true);
-                  } else {
-                    setShowTargets(false);
-                  }
+                  if (!showTargets) { loadTargetsForRep('scientific', sciRepId); setShowTargets(true); }
+                  else { setShowTargets(false); }
                 }}
               >
                 🎯 {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
               </button>
               {showTargets && (
-                targetsLoading ? <div style={{ textAlign: 'center', padding: 20 }}>جاري التحميل...</div> : (
-                  <div className="table-wrapper">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <button
-                        onClick={() => setHideEmptyTargetRows(v => !v)}
-                        style={{
-                          padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                          background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9',
-                          color: hideEmptyTargetRows ? '#fff' : '#374151',
-                          display: 'flex', alignItems: 'center', gap: 5,
-                        }}
-                        title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت"
-                      >
+                targetsLoading ? <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>جاري التحميل...</div> : (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af' }}>🎯 مقارنة التارگت بالمبيعات</span>
+                      <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151' }} title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت">
                         {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
                       </button>
-                      {hideEmptyTargetRows && <span style={{ fontSize: 11, color: '#64748b' }}>الايتمات بدون مبيع وتارگت مخفية</span>}
                     </div>
-                    <table className="data-table" style={{ fontSize: 13 }}>
+                    <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
-                        <tr>
-                          <th>المادة</th>
-                          <th>التارگت (عدد)</th>
-                          <th>صافي الكمية</th>
-                          <th>نسبة التحقق</th>
+                        <tr style={{ background: '#1e40af' }}>
+                          <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#fff', borderLeft: '1px solid rgba(255,255,255,.15)' }}>المادة</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', borderLeft: '1px solid rgba(255,255,255,.15)' }}>التارگت</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', background: 'rgba(255,255,255,.12)', borderLeft: '1px solid rgba(255,255,255,.15)' }}>صافي الكمية</th>
+                          <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', background: 'rgba(255,255,255,.12)' }}>نسبة التحقق</th>
                         </tr>
                       </thead>
                       <tbody>
                         {targetData.length === 0 ? (
-                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
+                          <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 28, fontSize: 13 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
                         ) : targetData.filter(td => {
                           if (!hideEmptyTargetRows) return true;
                           const salesRow = sciReport.byItem.find(r => r.name === td.itemName);
                           const retRow   = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
                           const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
                           return td.target > 0 || netQty !== 0;
-                        }).map(td => {
+                        }).map((td, i) => {
                           const salesRow  = sciReport.byItem.find(r => r.name === td.itemName);
                           const retRow    = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
                           const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
                           const pct       = td.target > 0 ? (netQty / td.target) * 100 : null;
                           const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
+                          const rowBg = i % 2 === 0 ? '#fff' : '#f9fafb';
                           return (
-                            <tr key={td.itemId}>
-                              <td>{td.itemName}</td>
-                              <td>{fmt(td.target)}</td>
-                              <td style={{ color: netQty < 0 ? '#dc2626' : undefined }}>{fmtSigned(netQty)}</td>
-                              <td style={{ color, fontWeight: 600 }}>{pct !== null ? `${Math.round(pct)}%` : '—'}</td>
+                            <tr key={td.itemId} style={{ background: rowBg }} onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')} onMouseLeave={e => (e.currentTarget.style.background = rowBg)}>
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 600, color: '#1e293b', borderBottom: '1px solid #f1f5f9' }}>{td.itemName}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600, borderBottom: '1px solid #f1f5f9' }}>{fmt(td.target)}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ background: netQty >= 0 ? '#ecfdf5' : '#fef2f2', color: netQty >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 12 }}>{fmtSigned(netQty)}</span>
+                              </td>
+                              <td style={{ padding: '8px 14px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                {pct !== null ? (
+                                  <span style={{ background: color + '22', color, borderRadius: 5, padding: '2px 10px', fontWeight: 800, fontSize: 13 }}>{Math.round(pct)}%</span>
+                                ) : '—'}
+                              </td>
                             </tr>
                           );
                         })}
@@ -2292,17 +2303,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                         return (
                           <tfoot>
-                            <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
-                              <td style={{ padding: '10px 12px', color: '#065f46' }}>الإجمالي</td>
-                              <td style={{ padding: '10px 12px', color: '#065f46' }}>{fmt(totalTarget)}</td>
-                              <td style={{ padding: '10px 12px', color: totalNet < 0 ? '#dc2626' : '#065f46' }}>{fmtSigned(totalNet)}</td>
-                              <td style={{ padding: '10px 12px', color: pctColor, fontSize: 15 }}>{totalPct !== null ? `${totalPct}%` : '—'}</td>
+                            <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 800 }}>
+                              <td style={{ padding: '10px 14px', color: '#065f46', textAlign: 'right' }}>الإجمالي</td>
+                              <td style={{ padding: '10px 14px', color: '#1d4ed8', textAlign: 'center' }}>{fmt(totalTarget)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'center' }}><span style={{ background: totalNet >= 0 ? '#ecfdf5' : '#fef2f2', color: totalNet >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 13 }}>{fmtSigned(totalNet)}</span></td>
+                              <td style={{ padding: '10px 14px', textAlign: 'center' }}>{totalPct !== null ? <span style={{ background: pctColor + '22', color: pctColor, borderRadius: 5, padding: '2px 10px', fontWeight: 800, fontSize: 15 }}>{totalPct}%</span> : '—'}</td>
                             </tr>
                           </tfoot>
                         );
                       })()}
                     </table>
-                  </div>
+                    </div>
                 )
               )}
             </div>
