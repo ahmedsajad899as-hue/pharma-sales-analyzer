@@ -114,6 +114,8 @@ export default function PharmacyAnalysisPage() {
   const [uploadMsg, setUploadMsg]       = useState<{ ok: boolean; text: string } | null>(null);
   const [dragOver, setDragOver]         = useState(false);
   const [showUpload, setShowUpload]     = useState(false);
+  const [clearing, setClearing]         = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const searchTimer    = useRef<ReturnType<typeof setTimeout>>();
 
@@ -160,6 +162,23 @@ export default function PharmacyAnalysisPage() {
   }, [token]);
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) requestUpload(file); };
+
+  const clearAllData = async () => {
+    setClearing(true);
+    try {
+      for (const f of files) {
+        await fetch(`${API}/api/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      }
+      setFiles([]);
+      setSelFiles(new Set());
+      setPharmacies([]);
+      setItems([]);
+      setAlerts([]);
+      setSelectedPharma(null);
+      setSelectedItem(null);
+    } finally { setClearing(false); setShowClearConfirm(false); }
+  };
+
   const fileIdsParam = [...selFiles].join(',');
   const fileQuery    = fileIdsParam ? `?fileIds=${fileIdsParam}` : '?';
 
@@ -174,6 +193,7 @@ export default function PharmacyAnalysisPage() {
   }, [token]);
 
   const loadPharmacies = useCallback((search = pharmaSearch) => {
+    if (selFiles.size === 0) { setPharmacies([]); setPharmaLoading(false); return; }
     setPharmaLoading(true);
     const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '');
     fetch(`${API}/api/pharmacy-analysis/pharmacies${q}`, { headers })
@@ -182,6 +202,7 @@ export default function PharmacyAnalysisPage() {
   }, [fileIdsParam, pharmaSearch, token]);
 
   const loadItems = useCallback((search = itemSearch) => {
+    if (selFiles.size === 0) { setItems([]); setItemsLoading(false); return; }
     setItemsLoading(true);
     const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '');
     fetch(`${API}/api/pharmacy-analysis/items${q}`, { headers })
@@ -190,6 +211,7 @@ export default function PharmacyAnalysisPage() {
   }, [fileIdsParam, itemSearch, token]);
 
   const loadAlerts = useCallback(() => {
+    if (selFiles.size === 0) { setAlerts([]); setAlertsLoading(false); return; }
     setAlertsLoading(true);
     fetch(`${API}/api/pharmacy-analysis/alerts${fileQuery}&days=${alertDays}`, { headers })
       .then(r => r.json()).then(d => setAlerts(d.alerts || [])).catch(() => {}).finally(() => setAlertsLoading(false));
@@ -356,10 +378,29 @@ export default function PharmacyAnalysisPage() {
 
       {/* ── File Selector card ──────────────────────────────── */}
       <div style={CARD}>
+        {/* Clear confirm dialog */}
+        {showClearConfirm && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !clearing && setShowClearConfirm(false)}>
+            <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', marginBottom: 6 }}>مسح كل البيانات</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 20 }}>سيتم حذف جميع الملفات ({files.length}) وبياناتها نهائياً. هل أنت متأكد؟</div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button onClick={clearAllData} disabled={clearing} style={{ padding: '9px 24px', borderRadius: 8, background: '#dc2626', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: clearing ? 'default' : 'pointer', opacity: clearing ? .7 : 1 }}>
+                  {clearing ? '⏳ جاري الحذف...' : '✔ نعم، احذف'}
+                </button>
+                <button onClick={() => setShowClearConfirm(false)} disabled={clearing} style={{ padding: '9px 20px', borderRadius: 8, background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}>إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>الملفات:</span>
           <button onClick={() => setSelFiles(new Set(files.map(f => f.id)))} style={PILL_BTN('#eff6ff','#1d4ed8')}>تحديد الكل</button>
           <button onClick={() => setSelFiles(new Set())}                     style={PILL_BTN('#f1f5f9','#64748b')}>إلغاء الكل</button>
+          {files.length > 0 && (
+            <button onClick={() => setShowClearConfirm(true)} style={{ ...PILL_BTN('#fef2f2','#dc2626'), border: '1px solid #fecaca' }}>🗑 مسح كل البيانات</button>
+          )}
           <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{selFiles.size} / {files.length} ملف</span>
         </div>
         {filesLoading ? <span style={{ fontSize: 12, color: '#94a3b8' }}>جاري التحميل...</span> : (
@@ -463,6 +504,14 @@ export default function PharmacyAnalysisPage() {
       {/* ════════ PHARMACIES TAB ════════ */}
       {tab === 'pharmacies' && !selectedPharma && (
         <div>
+          {selFiles.size === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#64748b', marginBottom: 6 }}>لا توجد ملفات محددة</div>
+              <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض بيانات الصيدليات</div>
+            </div>
+          ) : (
+          <>
           {/* Toolbar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}
@@ -570,6 +619,8 @@ export default function PharmacyAnalysisPage() {
               </table>
             </div>
           )}
+          </>
+          )}
         </div>
       )}
 
@@ -643,6 +694,14 @@ export default function PharmacyAnalysisPage() {
       {/* ════════ ITEMS TAB ════════ */}
       {tab === 'items' && !selectedItem && (
         <div>
+          {selFiles.size === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#64748b', marginBottom: 6 }}>لا توجد ملفات محددة</div>
+              <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض بيانات الايتمات</div>
+            </div>
+          ) : (
+          <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={itemSearch} onChange={e => onItemSearch(e.target.value)} placeholder="بحث باسم الايتم..."
               style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
@@ -683,6 +742,8 @@ export default function PharmacyAnalysisPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          </>
           )}
         </div>
       )}
@@ -732,6 +793,14 @@ export default function PharmacyAnalysisPage() {
       {/* ════════ ALERTS TAB ════════ */}
       {tab === 'alerts' && (
         <div>
+          {selFiles.size === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#64748b', marginBottom: 6 }}>لا توجد ملفات محددة</div>
+              <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض التنبيهات</div>
+            </div>
+          ) : (
+          <>
           {/* Alert controls */}
           <div style={{ ...CARD, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>حد التنبيه:</span>
@@ -783,6 +852,8 @@ export default function PharmacyAnalysisPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          </>
           )}
         </div>
       )}
