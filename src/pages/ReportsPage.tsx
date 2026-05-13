@@ -786,86 +786,155 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
     const retMap    = Object.fromEntries(returns.map(r => [rowKey(r), r]));
-    // Remove rows where all four values are zero
     const allKeys = [...new Set([...sales.map(rowKey), ...returns.map(rowKey)])].filter(key => {
       const s = salesMap[key]  ?? { totalQty: 0, totalValue: 0 };
       const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
       return s.totalQty !== 0 || s.totalValue !== 0 || r.totalQty !== 0 || r.totalValue !== 0;
     });
-    // Active keys (not excluded) — used for totals
     const activeKeys = excludedKeys ? allKeys.filter(k => !excludedKeys.has(k)) : allKeys;
-    // forceMode overrides hideQtyCols
     const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : !hideQtyCols;
     const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : hideQtyCols;
     const colSpanEmpty = (hasRep ? 3 : 2) + 3;
-    // Responsive styles: compact on mobile, larger on desktop
-    const thMobile: React.CSSProperties = isMobile
-      ? { fontSize: 10, padding: '5px 4px', whiteSpace: 'nowrap', verticalAlign: 'middle', textAlign: 'center' }
-      : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700, verticalAlign: 'middle', textAlign: 'center' };
-    const tdMobile: React.CSSProperties = isMobile
-      ? { fontSize: 11, padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }
-      : { fontSize: 14, padding: '9px 10px', textAlign: 'center', verticalAlign: 'middle' };
-    const tdNameMobile: React.CSSProperties = isMobile
-      ? { fontSize: 11, padding: '5px 4px', textAlign: 'right', wordBreak: 'break-word', whiteSpace: 'normal', verticalAlign: 'middle' }
-      : { fontSize: 14, padding: '9px 10px', textAlign: 'right', fontWeight: 600, verticalAlign: 'middle' };
-    const tdRepMobile: React.CSSProperties = isMobile
-      ? { fontSize: 10, padding: '5px 3px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b', fontWeight: 600, verticalAlign: 'middle' }
-      : { fontSize: 13, padding: '9px 10px', textAlign: 'center', color: '#1e293b', fontWeight: 600, verticalAlign: 'middle' };
+
+    // ── PharmacyNet-style table styles ──────────────────────
+    const thStyle: React.CSSProperties = {
+      padding: isMobile ? '7px 6px' : '10px 14px',
+      textAlign: 'center', fontWeight: 700,
+      fontSize: isMobile ? 11 : 13,
+      whiteSpace: 'nowrap', verticalAlign: 'middle',
+      borderLeft: '1px solid rgba(255,255,255,.15)',
+      color: '#fff',
+    };
+    const tdStyle: React.CSSProperties = {
+      padding: isMobile ? '6px 5px' : '8px 14px',
+      textAlign: 'center', fontSize: isMobile ? 11 : 13,
+      verticalAlign: 'middle', borderBottom: '1px solid #f1f5f9',
+    };
+    const tdNameStyle: React.CSSProperties = {
+      padding: isMobile ? '6px 5px' : '8px 14px',
+      textAlign: 'right', fontSize: isMobile ? 11 : 13,
+      fontWeight: 600, verticalAlign: 'middle',
+      borderBottom: '1px solid #f1f5f9',
+      wordBreak: 'break-word', whiteSpace: isMobile ? 'normal' : 'nowrap',
+    };
+
     return (
-      <>
-      <div style={{ overflow: isMobile ? 'hidden' : 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isMobile ? 'fixed' : 'auto' }}>
-          <colgroup>
-            <col style={{ width: isMobile ? 22 : 36 }} />
-            <col />
-            {hasRep && <col style={{ width: isMobile ? 50 : undefined }} />}
-            {effShowQty && <col style={{ width: isMobile ? 44 : undefined }} />}
-            {effShowVal && <col style={{ width: isMobile ? 56 : undefined }} />}
-            {effShowQty && <col style={{ width: isMobile ? 44 : undefined }} />}
-            {effShowVal && <col style={{ width: isMobile ? 56 : undefined }} />}
-            {effShowQty && <col style={{ width: isMobile ? 48 : undefined }} />}
-            {effShowVal && <col style={{ width: isMobile ? 56 : undefined }} />}
-          </colgroup>
-          <thead>
-            <tr style={{ background: '#f8fafc' }}>
-              <th style={{ ...thMobile, textAlign: 'center' }}>#</th>
-              <th style={{ ...thMobile, textAlign: 'right' }}>{nameLabel}</th>
-              {hasRep && <th style={thMobile}>👤</th>}
-              {effShowQty && <th style={{ ...thMobile, background: '#dbeafe', color: '#1e40af' }} title={t.reports.colSalesQty}><div>📈</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>مبيعات</div>}</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colSalesVal}><div style={{fontWeight:800,fontSize:13,letterSpacing:'-0.5px'}}>S</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
-              {effShowQty && <th style={{ ...thMobile, background: '#fee2e2', color: '#991b1b' }} title={t.reports.colRetQty}><div>📉</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>ارجاع</div>}</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colRetVal}><div style={{fontWeight:800,fontSize:13,letterSpacing:'-0.5px'}}>R</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>قيمة</div>}</th>}
-              {effShowQty && <th style={{ ...thMobile, background: '#d1fae5', color: '#065f46' }} title={t.reports.colNetQty}><div>✅</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
-              {effShowVal && <th style={{ ...thMobile, background: '#fffbeb', color: '#b45309' }} title={t.reports.colNetVal}><div style={{fontWeight:800,fontSize:13,letterSpacing:'-0.5px'}}>N</div>{!isMobile && <div style={{fontSize:11,opacity:.7}}>صافي</div>}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {allKeys.map((key, i) => {
-              const s = salesMap[key]  ?? { totalQty: 0, totalValue: 0 };
-              const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
-              const row = salesMap[key] ?? retMap[key];
-              const netQty = s.totalQty - r.totalQty;
-              const netVal = s.totalValue - r.totalValue;
-              const isExcluded = excludedKeys?.has(key) ?? false;
-              return (
-                <tr key={key} style={{ borderBottom: '1px solid #f1f5f9', opacity: isExcluded ? 0.35 : 1, transition: 'opacity 0.2s' }}>
-                  <td style={{ ...tdMobile, color: isExcluded ? '#ef4444' : '#94a3b8', cursor: onToggleKey ? 'pointer' : 'default', userSelect: 'none', fontWeight: isExcluded ? 700 : 400 }}
-                    onClick={() => onToggleKey?.(key)}
-                    title={isExcluded ? 'انقر لإعادة التضمين' : 'انقر للاستبعاد من الحساب'}>
-                    {isExcluded ? '✕' : i + 1}
-                  </td>
-                  <td style={{ ...tdNameMobile, textDecoration: isExcluded ? 'line-through' : 'none', color: isExcluded ? '#94a3b8' : undefined }}><strong>{row.name}</strong></td>
-                  {hasRep && <td style={tdRepMobile}>{row.repName ?? '—'}</td>}
-                  {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(s.totalQty)}</td>}
-                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(s.totalValue)}</td>}
-                  {effShowQty && <td style={{ ...tdMobile, color: '#dc2626' }}>{fmt(r.totalQty)}</td>}
-                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(r.totalValue)}</td>}
-                  {effShowQty && <td style={{ ...tdMobile, fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(netQty)}</td>}
-                  {effShowVal && <td style={{ ...tdMobile, fontWeight: 700, background: '#fffbeb', color: '#92400e' }}>{fmtValSigned(netVal)}</td>}
-                </tr>
-              );
-            })}
-            {allKeys.length === 0 && <tr><td colSpan={colSpanEmpty} className="empty-row">{t.reports.noDataTable}</td></tr>}
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginTop: 4, boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: isMobile ? 'fixed' : 'auto' }}>
+            <colgroup>
+              <col style={{ width: isMobile ? 26 : 40 }} />
+              <col />
+              {hasRep && <col style={{ width: isMobile ? 52 : undefined }} />}
+              {effShowQty && <col style={{ width: isMobile ? 46 : undefined }} />}
+              {effShowVal && <col style={{ width: isMobile ? 60 : undefined }} />}
+              {effShowQty && <col style={{ width: isMobile ? 46 : undefined }} />}
+              {effShowVal && <col style={{ width: isMobile ? 60 : undefined }} />}
+              {effShowQty && <col style={{ width: isMobile ? 50 : undefined }} />}
+              {effShowVal && <col style={{ width: isMobile ? 60 : undefined }} />}
+            </colgroup>
+            <thead>
+              <tr style={{ background: '#1e40af' }}>
+                <th style={{ ...thStyle, textAlign: 'center', width: isMobile ? 26 : 40 }}>#</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>{nameLabel}</th>
+                {hasRep && <th style={thStyle}>👤</th>}
+                {effShowQty && (
+                  <th style={thStyle} title={t.reports.colSalesQty}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <span>📈</span>
+                      {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>مبيعات</span>}
+                    </div>
+                  </th>
+                )}
+                {effShowVal && (
+                  <th style={thStyle} title={t.reports.colSalesVal}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <span style={{ fontWeight: 800 }}>💵</span>
+                      {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>قيمة البيع</span>}
+                    </div>
+                  </th>
+                )}
+                {effShowQty && (
+                  <th style={thStyle} title={t.reports.colRetQty}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <span>📉</span>
+                      {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>ارجاع</span>}
+                    </div>
+                  </th>
+                )}
+                {effShowVal && (
+                  <th style={thStyle} title={t.reports.colRetVal}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <span style={{ fontWeight: 800 }}>💸</span>
+                      {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>قيمة الارجاع</span>}
+                    </div>
+                  </th>
+                )}
+                {effShowQty && (
+                  <th style={{ ...thStyle, background: 'rgba(255,255,255,.12)' }} title={t.reports.colNetQty}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <span>✅</span>
+                      {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>صافي</span>}
+                    </div>
+                  </th>
+                )}
+                {effShowVal && (
+                  <th style={{ ...thStyle, background: 'rgba(255,255,255,.12)' }} title={t.reports.colNetVal}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                      <span>⚖️</span>
+                      {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>صافي القيمة</span>}
+                    </div>
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {allKeys.map((key, i) => {
+                const s = salesMap[key]  ?? { totalQty: 0, totalValue: 0 };
+                const r = retMap[key]    ?? { totalQty: 0, totalValue: 0 };
+                const row = salesMap[key] ?? retMap[key];
+                const netQty = s.totalQty - r.totalQty;
+                const netVal = s.totalValue - r.totalValue;
+                const isExcluded = excludedKeys?.has(key) ?? false;
+                const rowBg = i % 2 === 0 ? '#fff' : '#f9fafb';
+                return (
+                  <tr key={key}
+                    style={{ background: rowBg, opacity: isExcluded ? 0.35 : 1, transition: 'background .1s, opacity 0.2s', cursor: onToggleKey ? 'pointer' : 'default' }}
+                    onMouseEnter={e => !isExcluded && ((e.currentTarget as HTMLElement).style.background = '#eff6ff')}
+                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = rowBg)}
+                  >
+                    <td style={{ ...tdStyle, color: isExcluded ? '#ef4444' : '#94a3b8', userSelect: 'none', fontWeight: isExcluded ? 700 : 400 }}
+                      onClick={() => onToggleKey?.(key)}
+                      title={isExcluded ? 'انقر لإعادة التضمين' : onToggleKey ? 'انقر للاستبعاد' : undefined}>
+                      {isExcluded ? '✕' : i + 1}
+                    </td>
+                    <td style={{ ...tdNameStyle, textDecoration: isExcluded ? 'line-through' : 'none', color: isExcluded ? '#94a3b8' : '#1e293b' }}>{row.name}</td>
+                    {hasRep && <td style={{ ...tdStyle, color: '#374151', fontWeight: 600 }}>{row.repName ?? '—'}</td>}
+                    {effShowQty && <td style={{ ...tdStyle, color: '#1d4ed8', fontWeight: 600 }}>{fmt(s.totalQty)}</td>}
+                    {effShowVal && <td style={{ ...tdStyle, color: '#92400e' }}>{fmtVal(s.totalValue)}</td>}
+                    {effShowQty && <td style={{ ...tdStyle, color: '#dc2626', fontWeight: 600 }}>{fmt(r.totalQty)}</td>}
+                    {effShowVal && <td style={{ ...tdStyle, color: '#92400e' }}>{fmtVal(r.totalValue)}</td>}
+                    {effShowQty && (
+                      <td style={{ ...tdStyle, fontWeight: 700, color: netQty >= 0 ? '#065f46' : '#991b1b' }}>
+                        <span style={{ background: netQty >= 0 ? '#ecfdf5' : '#fef2f2', color: netQty >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontSize: isMobile ? 10 : 12, fontWeight: 800 }}>
+                          {fmtSigned(netQty)}
+                        </span>
+                      </td>
+                    )}
+                    {effShowVal && (
+                      <td style={{ ...tdStyle, fontWeight: 700 }}>
+                        <span style={{ background: netVal >= 0 ? '#ecfdf5' : '#fef2f2', color: netVal >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontSize: isMobile ? 10 : 12, fontWeight: 800 }}>
+                          {fmtValSigned(netVal)}
+                        </span>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+              {allKeys.length === 0 && (
+                <tr><td colSpan={colSpanEmpty} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>{t.reports.noDataTable}</td></tr>
+              )}
+            </tbody>
             {allKeys.length > 0 && (() => {
               const activeSales   = sales.filter(r => activeKeys.includes(rowKey(r)));
               const activeReturns = returns.filter(r => activeKeys.includes(rowKey(r)));
@@ -874,27 +943,31 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const totRetQty   = activeReturns.reduce((s, r) => s + r.totalQty, 0);
               const totRetVal   = activeReturns.reduce((s, r) => s + r.totalValue, 0);
               const excludedCount = excludedKeys ? allKeys.filter(k => excludedKeys.has(k)).length : 0;
+              const tNetQty = totSalesQty - totRetQty;
+              const tNetVal = totSalesVal - totRetVal;
+              const ftd: React.CSSProperties = { padding: isMobile ? '7px 5px' : '10px 14px', textAlign: 'center', fontSize: isMobile ? 11 : 13, fontWeight: 800 };
               return (
-                <tr style={{ background: effShowVal ? '#fffbeb' : '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
-                  <td style={tdMobile}></td>
-                  <td style={{ ...tdMobile, textAlign: 'right' }}>
-                    {t.reports.totalLabel}
-                    {excludedCount > 0 && <span style={{ fontSize: 10, fontWeight: 400, color: '#ef4444', marginRight: 4 }}>({excludedCount} مستبعد)</span>}
-                  </td>
-                  {hasRep && <td></td>}
-                  {effShowQty && <td style={{ ...tdMobile, color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>}
-                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(totSalesVal)}</td>}
-                  {effShowQty && <td style={{ ...tdMobile, color: '#dc2626' }}>{fmt(totRetQty)}</td>}
-                  {effShowVal && <td style={{ ...tdMobile, background: '#fffbeb', color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
-                  {effShowQty && <td style={{ ...tdMobile, color: totSalesQty - totRetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(totSalesQty - totRetQty)}</td>}
-                  {effShowVal && <td style={{ ...tdMobile, fontWeight: 800, background: '#fffbeb', color: '#92400e' }}>{fmtValSigned(totSalesVal - totRetVal)}</td>}
-                </tr>
+                <tfoot>
+                  <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
+                    <td style={ftd}></td>
+                    <td style={{ ...ftd, textAlign: 'right', color: '#065f46' }}>
+                      {t.reports.totalLabel}
+                      {excludedCount > 0 && <span style={{ fontSize: 10, fontWeight: 400, color: '#ef4444', marginRight: 4 }}>({excludedCount} مستبعد)</span>}
+                    </td>
+                    {hasRep && <td></td>}
+                    {effShowQty && <td style={{ ...ftd, color: '#1d4ed8' }}>{fmt(totSalesQty)}</td>}
+                    {effShowVal && <td style={{ ...ftd, color: '#92400e' }}>{fmtVal(totSalesVal)}</td>}
+                    {effShowQty && <td style={{ ...ftd, color: '#dc2626' }}>{fmt(totRetQty)}</td>}
+                    {effShowVal && <td style={{ ...ftd, color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
+                    {effShowQty && <td style={{ ...ftd, color: tNetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(tNetQty)}</td>}
+                    {effShowVal && <td style={{ ...ftd, color: tNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(tNetVal)}</td>}
+                  </tr>
+                </tfoot>
               );
             })()}
-          </tbody>
-        </table>
+          </table>
+        </div>
       </div>
-      </>
     );
   };
 
@@ -1702,61 +1775,62 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
         return (
           <>
-            {/* Summary cards — mobile-optimised layout */}
-            <div style={{ marginTop: 8, marginBottom: 4 }}>
-              {/* Qty row: sales + returns side by side, net centered below */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div className="stat-card" style={{ borderTop: '4px solid #10b981', margin: 0 }}>
-                  <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981', fontSize: 18 }}>📈</div>
-                  <div className="stat-card-body">
-                    <div className="stat-card-value" style={{ color: '#065f46', fontSize: 18 }}>{fmt(salesQ)}</div>
-                    <div className="stat-card-label" style={{ fontSize: 11 }}>كمية المبيع</div>
-                    {overallSales.recordCount != null && <div style={{ fontSize: 10, color: '#6b7280' }}>{overallSales.recordCount.toLocaleString()} سجل</div>}
-                  </div>
+            {/* ── KPI Summary Cards ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginTop: 8, marginBottom: 4 }}>
+              {/* كمية المبيع */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #10b981' }}>
+                <div style={{ background: '#d1fae5', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📈</div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#065f46', lineHeight: 1.1 }}>{fmt(salesQ)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>كمية المبيع</div>
+                  {overallSales.recordCount != null && <div style={{ fontSize: 10, color: '#9ca3af' }}>{overallSales.recordCount.toLocaleString()} سجل</div>}
                 </div>
-                <div className="stat-card" style={{ borderTop: '4px solid #ef4444', margin: 0 }}>
-                  <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444', fontSize: 18 }}>📉</div>
-                  <div className="stat-card-body">
-                    <div className="stat-card-value" style={{ color: '#991b1b', fontSize: 18 }}>{fmt(retQ)}</div>
-                    <div className="stat-card-label" style={{ fontSize: 11 }}>كمية الارجاع</div>
+              </div>
+              {/* كمية الارجاع */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #ef4444' }}>
+                <div style={{ background: '#fee2e2', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📉</div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#991b1b', lineHeight: 1.1 }}>{fmt(retQ)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>كمية الارجاع</div>
+                </div>
+              </div>
+              {/* قيمة المبيع */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #f59e0b' }}>
+                <div style={{ background: '#fffbeb', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>💰</div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#92400e', lineHeight: 1.1 }}>{fmtVal(salesV)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>قيمة المبيع</div>
+                </div>
+              </div>
+              {/* قيمة الارجاع */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #ef4444' }}>
+                <div style={{ background: '#fee2e2', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>💸</div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#991b1b', lineHeight: 1.1 }}>{fmtVal(retV)}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>قيمة الارجاع</div>
+                </div>
+              </div>
+            </div>
+
+            {/* صافي — full width highlight card */}
+            <div style={{ background: netQ >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netQ >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+              <div style={{ background: netQ >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netQ >= 0 ? '✅' : '⚠️'}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: netQ >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtSigned(netQ)}</div>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>صافي الكميات</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: netV >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netV)}</div>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{currStatNet}</div>
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
-                <div className="stat-card" style={{ borderTop: '4px solid #6366f1', margin: 0, minWidth: 160 }}>
-                  <div className="stat-card-icon" style={{ background: '#e0e7ff', color: '#6366f1', fontSize: 18 }}>✅</div>
-                  <div className="stat-card-body">
-                    <div className="stat-card-value" style={{ color: netQ >= 0 ? '#065f46' : '#991b1b', fontSize: 20 }}>{fmtSigned(netQ)}</div>
-                    <div className="stat-card-label" style={{ fontSize: 11 }}>صافي الكميات</div>
-                  </div>
-                </div>
-              </div>
-              {/* Divider */}
-              <div style={{ borderTop: '2px dashed #e2e8f0', margin: '10px 0' }} />
-              {/* Value row: sales + returns side by side, net centered below */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div className="stat-card" style={{ borderTop: '4px solid #f59e0b', margin: 0 }}>
-                  <div className="stat-card-icon" style={{ background: '#fffbeb', color: '#b45309', fontSize: 18 }}>💰</div>
-                  <div className="stat-card-body">
-                    <div className="stat-card-value" style={{ color: '#92400e', fontSize: 16 }}>{fmtVal(salesV)}</div>
-                    <div className="stat-card-label" style={{ fontSize: 11 }}>قيمة المبيع</div>
-                  </div>
-                </div>
-                <div className="stat-card" style={{ borderTop: '4px solid #ef4444', margin: 0 }}>
-                  <div className="stat-card-icon" style={{ background: '#fee2e2', color: '#ef4444', fontSize: 18 }}>💸</div>
-                  <div className="stat-card-body">
-                    <div className="stat-card-value" style={{ color: '#991b1b', fontSize: 16 }}>{fmtVal(retV)}</div>
-                    <div className="stat-card-label" style={{ fontSize: 11 }}>قيمة الارجاع</div>
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
-                <div className="stat-card" style={{ borderTop: '4px solid #10b981', margin: 0, minWidth: 160 }}>
-                  <div className="stat-card-icon" style={{ background: '#d1fae5', color: '#10b981', fontSize: 18 }}>⚖️</div>
-                  <div className="stat-card-body">
-                    <div className="stat-card-value" style={{ color: netV >= 0 ? '#065f46' : '#991b1b', fontSize: 20 }}>{fmtValSigned(netV)}</div>
-                    <div className="stat-card-label" style={{ fontSize: 11 }}>{currStatNet}</div>
-                  </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>نسبة الارجاع</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: salesQ > 0 ? (retQ / salesQ > 0.2 ? '#dc2626' : '#b45309') : '#94a3b8' }}>
+                  {salesQ > 0 ? `${Math.round((retQ / salesQ) * 100)}%` : '—'}
                 </div>
               </div>
             </div>
@@ -1880,22 +1954,32 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             })()}
 
             {/* Sub-tabs: area / item / company */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-              <div className="tabs" style={{ margin: 0 }}>
-                <button className={`tab ${overallTab === 'area' ? 'tab--active' : ''}`} onClick={() => setOverallTab('area')}>📍 {t.reports.colArea}</button>
-                <button className={`tab ${overallTab === 'item' ? 'tab--active' : ''}`} onClick={() => setOverallTab('item')}>💊 {t.reports.colItem}</button>
-                <button className={`tab ${overallTab === 'company' ? 'tab--active' : ''}`} onClick={() => setOverallTab('company')}>🏢 الشركة</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+              <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+                {([['area', '📍', t.reports.colArea], ['item', '💊', t.reports.colItem], ['company', '🏢', 'الشركة']] as [string, string, string][]).map(([id, icon, label]) => (
+                  <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company')} style={{
+                    padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
+                    background: overallTab === id ? '#fff' : 'transparent',
+                    color: overallTab === id ? '#1e40af' : '#6b7280',
+                    fontWeight: overallTab === id ? 700 : 500, fontSize: 13,
+                    borderBottom: overallTab === id ? '2px solid #1e40af' : '2px solid transparent',
+                    marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    <span>{icon}</span><span>{label}</span>
+                  </button>
+                ))}
               </div>
-              {overallExcluded.size > 0 && (
-                <button onClick={() => setOverallExcluded(new Set())} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>
-                  ↩ إعادة الكل ({overallExcluded.size})
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 4 }}>
+                {overallExcluded.size > 0 && (
+                  <button onClick={() => setOverallExcluded(new Set())} style={{ fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>
+                    ↩ إعادة الكل ({overallExcluded.size})
+                  </button>
+                )}
+                <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
+                  style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
+                  {overallViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
                 </button>
-              )}
-              {/* View mode toggle: qty ↔ value */}
-              <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
-                style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
-                {overallViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
-              </button>
+              </div>
             </div>
 
             {overallTab === 'area'    && renderNetTable(finalSalesAreas,   finalRetAreas,   t.reports.colArea, false, overallViewMode, overallExcluded, toggleExcluded)}
