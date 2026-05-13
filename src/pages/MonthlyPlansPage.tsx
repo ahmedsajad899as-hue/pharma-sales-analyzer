@@ -136,6 +136,11 @@ export default function MonthlyPlansPage() {
   const [pharmVisits, setPharmVisits]         = useState<PharmVisit[]>([]);
   const [pharmVisitsLoading, setPharmVisitsLoading] = useState(false);
 
+  // My targets (visible to field reps)
+  type MyTarget = { id: number; itemId: number; item: { id: number; name: string }; target: number };
+  const [myTargets, setMyTargets]     = useState<MyTarget[]>([]);
+  const [myTargetsOpen, setMyTargetsOpen] = useState(true);
+
   // Create plan
   const [showCreate, setShowCreate] = useState(false);
   const [cRepId, setCRepId]     = useState(() => String(authUser?.linkedRepId ?? ''));
@@ -520,6 +525,18 @@ export default function MonthlyPlansPage() {
       .finally(() => { if (!cancelled) setPharmVisitsLoading(false); });
     return () => { cancelled = true; };
   }, [activePlan?.id, H]);
+
+  // Fetch my targets (field reps only) when plan month/year changes
+  useEffect(() => {
+    if (!activePlan || isManagerOrAdmin) { setMyTargets([]); return; }
+    let cancelled = false;
+    const qs = new URLSearchParams({ month: String(activePlan.month), year: String(activePlan.year) });
+    fetch(`${API}/api/targets/mine?${qs}`, { headers: H() })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(j => { if (!cancelled) setMyTargets(Array.isArray(j.data) ? j.data : []); })
+      .catch(() => { if (!cancelled) setMyTargets([]); });
+    return () => { cancelled = true; };
+  }, [activePlan?.id, activePlan?.month, activePlan?.year, isManagerOrAdmin, H]);
 
   // Mobile back button: inside a plan → go back to plan list
   useEffect(() => {
@@ -3371,6 +3388,56 @@ export default function MonthlyPlansPage() {
                 </div>
               )}
             </div>
+
+            {/* ── تارگتي الشهري — visible only to field reps when targets exist ── */}
+            {!isManagerOrAdmin && myTargets.length > 0 && (
+              <div style={{ background: '#fff', border: '2px solid #e0e7ff', borderRadius: 14, marginBottom: 16, overflow: 'hidden' }}>
+                <button
+                  onClick={() => setMyTargetsOpen(v => !v)}
+                  style={{
+                    width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', background: 'linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%)',
+                    border: 'none', cursor: 'pointer', color: '#fff',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>🎯</span>
+                    <span style={{ fontWeight: 800, fontSize: 14 }}>تارگتي الشهري — {(() => { const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']; return MONTHS[(activePlan.month ?? 1) - 1]; })()}</span>
+                  </div>
+                  <span style={{ fontSize: 12, opacity: 0.85 }}>{myTargetsOpen ? '▲ إخفاء' : '▼ عرض'}</span>
+                </button>
+                {myTargetsOpen && (
+                  <div style={{ padding: '0 0 8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: '#f5f3ff' }}>
+                          <th style={{ padding: '8px 14px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#5b21b6', borderBottom: '1px solid #e0e7ff' }}>الايتم</th>
+                          <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#6366f1', borderBottom: '1px solid #e0e7ff', width: 120 }}>🎯 التارگت</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {myTargets.map((t, i) => (
+                          <tr key={t.id} style={{ borderBottom: '1px solid #f5f3ff', background: i % 2 === 0 ? '#fff' : '#fdfcff' }}>
+                            <td style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{t.item.name}</td>
+                            <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: '#6366f1' }}>
+                              {t.target.toLocaleString('ar-IQ-u-nu-latn')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#ede9fe', borderTop: '2px solid #c4b5fd' }}>
+                          <td style={{ padding: '9px 14px', fontWeight: 700, fontSize: 13, color: '#5b21b6' }}>الإجمالي</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 900, fontSize: 15, color: '#4f46e5' }}>
+                            {myTargets.reduce((s, t) => s + t.target, 0).toLocaleString('ar-IQ-u-nu-latn')}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Search bar */}
             <div style={{ marginBottom: 12 }}>

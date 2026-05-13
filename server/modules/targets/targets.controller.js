@@ -75,3 +75,31 @@ export async function deleteTarget(req, res, next) {
     res.json({ success: true });
   } catch (e) { next(e); }
 }
+
+// GET /api/targets/mine?month=5&year=2026
+// Returns targets for the currently logged-in scientific rep
+export async function getMyTargets(req, res, next) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+
+    // Resolve the scientific rep ID for this user
+    let repId = req.user?.linkedRepId ?? null;
+    if (!repId) {
+      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+      repId = rep?.id ?? null;
+    }
+    if (!repId) return res.json({ success: true, data: [] });
+
+    const now = new Date();
+    const month = req.query.month ? parseInt(req.query.month) : now.getMonth() + 1;
+    const year  = req.query.year  ? parseInt(req.query.year)  : now.getFullYear();
+
+    const targets = await prisma.repItemTarget.findMany({
+      where: { repType: 'scientific', repId, month, year },
+      include: { item: { select: { id: true, name: true } } },
+      orderBy: { item: { name: 'asc' } },
+    });
+    res.json({ success: true, data: targets, repId, month, year });
+  } catch (e) { next(e); }
+}

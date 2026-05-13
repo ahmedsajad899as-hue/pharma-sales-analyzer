@@ -11,9 +11,14 @@ interface SavedTarget { id: number; itemId: number; item: NamedItem; target: num
 
 const NOW = new Date();
 
+// Roles allowed to create/sync targets for reps
+const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'office_manager', 'product_manager', 'commercial_supervisor', 'commercial_team_leader']);
+
 export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
+
+  const isManager = MANAGER_ROLES.has(user?.role ?? '');
 
   const [repType, setRepType] = useState<'scientific' | 'commercial'>('scientific');
   const [sciReps, setSciReps] = useState<ScientificRep[]>([]);
@@ -161,7 +166,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     }
     setBroadcasting(false);
     setBroadcastResult(fail === 0
-      ? `✓ تم تعميم التارگت على ${ok} مندوب بنجاح`
+      ? `✓ تمت المزامنة مع ${ok} مندوب — سيرى كل مندوب تارگته فوراً`
       : `⚠ نجح ${ok} وفشل ${fail}`);
     setTimeout(() => { setBroadcastResult(null); setShowBroadcast(false); setBroadcastSel(new Set()); }, 3500);
   };
@@ -240,25 +245,30 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           </select>
         </div>
 
-        {/* Save */}
+        {/* Save / Sync */}
         <button
           className="tgt-btn"
           onClick={save}
           disabled={saving || !selRepId || rows.length === 0}
-          style={{ background: saved ? '#10b981' : '#6366f1', color: '#fff', minWidth: 100, opacity: (!selRepId || rows.length === 0) ? 0.5 : 1 }}
+          style={{ background: saved ? '#10b981' : '#6366f1', color: '#fff', minWidth: 130, opacity: (!selRepId || rows.length === 0) ? 0.5 : 1 }}
         >
-          {saving ? '⏳ جاري...' : saved ? '✓ تم الحفظ' : '💾 حفظ'}
+          {saving ? '⏳ جاري...' : saved ? '✅ تمت المزامنة' : '🔄 مزامنة مع المندوب'}
         </button>
+        {saved && (
+          <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>
+            سيظهر التارگت عند المندوب فوراً
+          </span>
+        )}
 
         {/* Broadcast */}
         <button
           className="tgt-btn"
           onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
           disabled={!selRepId || rows.length === 0}
-          title="تعميم نفس التارگت على مندوبين آخرين"
+          title="مزامنة نفس التارگت مع مندوبين آخرين"
           style={{ background: showBroadcast ? '#f59e0b' : '#fff', color: showBroadcast ? '#fff' : '#f59e0b', border: '1.5px solid #f59e0b', opacity: (!selRepId || rows.length === 0) ? 0.4 : 1 }}
         >
-          📢 تعميم على مندوبين
+          🔄 مزامنة مع مندوبين آخرين
         </button>
       </div>
 
@@ -267,7 +277,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div>
-              <span style={{ fontWeight: 800, fontSize: 14, color: '#92400e' }}>📢 تعميم التارگت على مندوبين آخرين</span>
+              <span style={{ fontWeight: 800, fontSize: 14, color: '#92400e' }}>� مزامنة التارگت مع مندوبين آخرين</span>
               <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
                 سيتم تطبيق تارگت {months[month - 1]} {year} على المندوبين المحددين أدناه
                 {repType === 'scientific' && <span> (يُطبَّق فقط على الايتمات المشتركة)</span>}
@@ -278,8 +288,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                 className="tgt-btn"
                 onClick={() => setBroadcastSel(new Set(reps.filter(r => r.id !== parseInt(selRepId)).map(r => r.id)))}
                 style={{ background: '#f59e0b', color: '#fff', fontSize: 12, padding: '5px 14px' }}
-              >تحديد الكل</button>
-              <button
+              >تحديد الكل</button>              <button
                 className="tgt-btn"
                 onClick={() => setBroadcastSel(new Set())}
                 style={{ background: '#f1f5f9', color: '#374151', fontSize: 12, padding: '5px 14px' }}
@@ -319,7 +328,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
               disabled={broadcasting || broadcastSel.size === 0}
               style={{ background: '#f59e0b', color: '#fff', opacity: broadcastSel.size === 0 ? 0.4 : 1, minWidth: 140 }}
             >
-              {broadcasting ? '⏳ جاري التعميم...' : `📢 تعميم على ${broadcastSel.size} مندوب`}
+              {broadcasting ? '⏳ جاري المزامنة...' : `🔄 مزامنة مع ${broadcastSel.size} مندوب`}
             </button>
             {broadcastResult && (
               <span style={{ fontSize: 13, fontWeight: 700, color: broadcastResult.startsWith('✓') ? '#059669' : '#d97706' }}>
