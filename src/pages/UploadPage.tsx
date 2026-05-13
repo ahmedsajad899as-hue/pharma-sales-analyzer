@@ -175,6 +175,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [shareMsg, setShareMsg] = useState('');
+  // Custom area overrides per user in share modal
+  const [fileAreas, setFileAreas] = useState<{ id: number; name: string }[]>([]);
+  const [customAreaOverrides, setCustomAreaOverrides] = useState<Map<number, Set<number>>>(new Map());
+  const [expandedAreaUserId, setExpandedAreaUserId] = useState<number | null>(null);
 
   const openShareModal = async (f: UploadedFile) => {
     setShareModalFile(f);
@@ -208,10 +212,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     setSaving(true);
     setShareMsg('');
     try {
+      // Build areaOverrides object: { [userId]: areaId[] }
+      const areaOverrides: Record<number, number[]> = {};
+      customAreaOverrides.forEach((areaIds, userId) => {
+        if (areaIds.size > 0) areaOverrides[userId] = [...areaIds];
+      });
       const res  = await fetch(`${API}/api/files/${shareModalFile.id}/share-with-user`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ userIds: [...selectedUserIds] }),
+        body:    JSON.stringify({ userIds: [...selectedUserIds], areaOverrides }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'فشل التعيين');
@@ -1011,36 +1020,106 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   {linkedUsers.map(u => {
                     const ROLE_AR: Record<string, string> = { scientific_rep: 'مندوب علمي', team_leader: 'قائد فريق', supervisor: 'مشرف', manager: 'مدير' };
                     const checked = selectedUserIds.has(u.id);
+                    const isExpanded = expandedAreaUserId === u.id;
+                    const overrides = customAreaOverrides.get(u.id);
+                    const hasOverride = overrides && overrides.size > 0;
                     return (
-                      <label key={u.id} style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
-                        border: `1.5px solid ${checked ? '#7c3aed' : '#e2e8f0'}`,
-                        background: checked ? '#f5f3ff' : '#fafafa',
-                        userSelect: 'none',
+                      <div key={u.id} style={{
+                        borderRadius: 8,
+                        border: `1.5px solid ${checked ? (hasOverride ? '#0891b2' : '#7c3aed') : '#e2e8f0'}`,
+                        background: checked ? (hasOverride ? '#ecfeff' : '#f5f3ff') : '#fafafa',
+                        overflow: 'hidden',
                       }}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleSelectUser(u.id)}
-                          style={{ accentColor: '#7c3aed', width: 15, height: 15, flexShrink: 0 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: checked ? 700 : 400, color: checked ? '#6d28d9' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            👤 {u.name}
+                        {/* Main row */}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', userSelect: 'none' }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleSelectUser(u.id)}
+                            style={{ accentColor: '#7c3aed', width: 15, height: 15, flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: checked ? 700 : 400, color: checked ? (hasOverride ? '#0e7490' : '#6d28d9') : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              👤 {u.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                              {ROLE_AR[u.role] ?? u.role}
+                              {hasOverride
+                                ? <span style={{ color: '#0891b2', fontWeight: 700, marginRight: 4 }}>· 📍 {overrides!.size} منطقة مخصصة</span>
+                                : ` · ${u.areaCount > 0 ? `${u.areaCount} منطقة` : '⚠ لا مناطق'}${u.areaCount > 0 && u.areas.length > 0 ? ` · ${u.areas.slice(0, 2).join('، ')}${u.areas.length > 2 ? '...' : ''}` : ''}`
+                              }
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
-                            {ROLE_AR[u.role] ?? u.role} · {u.areaCount > 0 ? `${u.areaCount} منطقة` : '⚠ لا مناطق'}
-                            {u.areaCount > 0 && u.areas.length > 0 && ` · ${u.areas.slice(0, 3).join('، ')}${u.areas.length > 3 ? '...' : ''}`}
+                          {/* Customize areas button — only when selected */}
+                          {checked && fileAreas.length > 0 && (
+                            <button
+                              onClick={e => { e.preventDefault(); setExpandedAreaUserId(isExpanded ? null : u.id); }}
+                              style={{
+                                padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, flexShrink: 0,
+                                border: `1px solid ${hasOverride ? '#0891b2' : '#a78bfa'}`,
+                                background: hasOverride ? '#cffafe' : '#ede9fe',
+                                color: hasOverride ? '#0e7490' : '#6d28d9', cursor: 'pointer',
+                              }}
+                              title="تخصيص المناطق لهذا المندوب"
+                            >
+                              {isExpanded ? '▲ مناطق' : (hasOverride ? `📍 ${overrides!.size}` : '📍 تخصيص')}
+                            </button>
+                          )}
+                          {/* Download button per user */}
+                          {checked && (
+                            <button
+                              onClick={e => { e.preventDefault(); downloadUserSalesExcel(shareModalFile!.id, u.id); }}
+                              disabled={exporting === `${shareModalFile!.id}-${u.id}`}
+                              style={{ ...BTN_SEC, fontSize: 10, padding: '3px 8px', flexShrink: 0 }}
+                              title={`تحميل بيانات ${u.name} كـ Excel`}
+                            >
+                              {exporting === `${shareModalFile!.id}-${u.id}` ? '⏳' : '📥'}
+                            </button>
+                          )}
+                        </label>
+
+                        {/* Area picker panel */}
+                        {checked && isExpanded && fileAreas.length > 0 && (
+                          <div style={{ borderTop: '1px solid #e0f2fe', background: '#f0f9ff', padding: '8px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#0369a1' }}>📍 اختر المناطق لـ {u.name}</span>
+                              <button onClick={() => {
+                                setCustomAreaOverrides(prev => {
+                                  const next = new Map(prev);
+                                  next.set(u.id, new Set(fileAreas.map(a => a.id)));
+                                  return next;
+                                });
+                              }} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid #7dd3fc', background: '#e0f2fe', color: '#0369a1', cursor: 'pointer', fontWeight: 700 }}>الكل</button>
+                              <button onClick={() => {
+                                setCustomAreaOverrides(prev => {
+                                  const next = new Map(prev);
+                                  next.delete(u.id);
+                                  return next;
+                                });
+                              }} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#6b7280', cursor: 'pointer' }}>إلغاء التخصيص</button>
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                              {fileAreas.map(area => {
+                                const sel = overrides?.has(area.id) ?? false;
+                                return (
+                                  <button key={area.id} onClick={() => {
+                                    setCustomAreaOverrides(prev => {
+                                      const next = new Map(prev);
+                                      const cur = new Set(next.get(u.id) ?? []);
+                                      if (cur.has(area.id)) cur.delete(area.id); else cur.add(area.id);
+                                      if (cur.size === 0) next.delete(u.id); else next.set(u.id, cur);
+                                      return next;
+                                    });
+                                  }} style={{
+                                    fontSize: 11, padding: '3px 9px', borderRadius: 20, cursor: 'pointer', fontWeight: sel ? 700 : 400,
+                                    border: `1px solid ${sel ? '#0891b2' : '#cbd5e1'}`,
+                                    background: sel ? '#0891b2' : '#fff',
+                                    color: sel ? '#fff' : '#475569',
+                                  }}>
+                                    {area.name}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                        {/* Download button per user */}
-                        {checked && (
-                          <button
-                            onClick={e => { e.preventDefault(); downloadUserSalesExcel(shareModalFile.id, u.id); }}
-                            disabled={exporting === `${shareModalFile.id}-${u.id}`}
-                            style={{ ...BTN_SEC, fontSize: 10, padding: '3px 8px', flexShrink: 0 }}
-                            title={`تحميل بيانات ${u.name} كـ Excel`}
-                          >
-                            {exporting === `${shareModalFile.id}-${u.id}` ? '⏳' : '📥 Excel'}
-                          </button>
                         )}
-                      </label>
+                      </div>
                     );
                   })}
                 </div>

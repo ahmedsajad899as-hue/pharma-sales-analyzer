@@ -1051,6 +1051,27 @@ app.get('/api/files/linked-users', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/files/:id/areas — distinct areas that have sales in this file
+app.get('/api/files/:id/areas', requireAuth, async (req, res) => {
+  try {
+    const fileId   = parseInt(req.params.id);
+    const callerId = req.user?.id ?? null;
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id: fileId, OR: [{ userId: callerId }, { fileShares: { some: { userId: callerId } } }] },
+      select: { id: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+    const areas = await prisma.sale.findMany({
+      where:  { uploadedFileId: fileId, areaId: { not: null } },
+      select: { area: { select: { id: true, name: true } } },
+      distinct: ['areaId'],
+      orderBy: { area: { name: 'asc' } },
+    });
+    const data = areas.filter(a => a.area).map(a => a.area);
+    res.json({ success: true, data });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // POST /api/files/:id/share-with-user  body: { userId: number | null }
 app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
   try {
@@ -1078,13 +1099,21 @@ app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
       if (!asgn) return res.status(403).json({ error: 'هذا المستخدم غير مرتبط بك' });
     }
 
+    // areaOverrides: { [userId]: areaId[] } — optional custom area list per user
+    const areaOverrides = (req.body.areaOverrides && typeof req.body.areaOverrides === 'object')
+      ? req.body.areaOverrides
+      : {};
+
     // Replace all existing shares for this file with the new set
     await prisma.fileUserShare.deleteMany({ where: { fileId } });
     if (targetIds.length > 0) {
-      await prisma.fileUserShare.createMany({
-        data: targetIds.map(userId => ({ fileId, userId })),
-        skipDuplicates: true,
-      });
+      for (const userId of targetIds) {
+        const overrideIds = areaOverrides[userId];
+        const customAreaIds = Array.isArray(overrideIds) && overrideIds.length > 0
+          ? JSON.stringify(overrideIds.map(Number))
+          : null;
+        await prisma.fileUserShare.create({ data: { fileId, userId, customAreaIds } });
+      }
     }
     res.json({ success: true, data: { id: fileId, sharedCount: targetIds.length } });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1122,7 +1151,17 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     });
     if (!targetUser) return res.status(404).json({ error: 'المستخدم غير موجود' });
 
-    const areaIds = targetUser.areaAssignments.map(a => a.areaId);
+    // Check if there are custom area overrides on the share record
+    const shareRecord = await prisma.fileUserShare.findUnique({
+      where: { fileId_userId: { fileId, userId: targetId } },
+      select: { customAreaIds: true },
+    });
+    let areaIds;
+    if (shareRecord?.customAreaIds) {
+      try { areaIds = JSON.parse(shareRecord.customAreaIds); } catch { areaIds = []; }
+    } else {
+      areaIds = targetUser.areaAssignments.map(a => a.areaId);
+    }
     const userName = targetUser.displayName || targetUser.username;
 
     const sales = areaIds.length > 0

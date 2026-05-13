@@ -38,10 +38,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [broadcasting, setBroadcasting]     = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
 
-  // Load reps — standalone=1 returns ONLY records manually created in
-  // the المندوبون العلميون tab (not every system user account).
+  // Load reps — without standalone=1 so system users created by master/super_admin
+  // and linked to this manager's companies are also included.
   useEffect(() => {
-    fetch(`${API}/api/scientific-reps?standalone=1`, { headers: H() })
+    fetch(`${API}/api/scientific-reps`, { headers: H() })
       .then(r => r.json())
       .then(j => setSciReps(Array.isArray(j) ? j : (j.data ?? [])))
       .catch(() => {});
