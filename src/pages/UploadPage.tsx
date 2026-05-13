@@ -662,7 +662,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
                       {openMenuId === f.id && (
                         <div style={{
-                          position: 'absolute', left: 0, top: 'calc(100% + 4px)', zIndex: 1000,
+                          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000,
                           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
                           boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 190,
                           padding: '4px 0', direction: 'rtl',
