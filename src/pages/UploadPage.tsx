@@ -146,6 +146,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [expandedSharesId, setExpandedSharesId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncDone, setSyncDone] = useState<number | null>(null);
   const [cleaning, setCleaning] = useState(false);
@@ -726,16 +727,28 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
                     {isActive && <span style={BADGE('#dcfce7', '#15803d', '#86efac')}>✓ {t.upload.statusActive}</span>}
                     {isSharedByMe && (
-                      shareCount <= 2
-                        ? shares.map(s => (
-                            <span key={s.userId} style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>
-                              🔗 {s.user.displayName || s.user.username}
-                            </span>
-                          ))
-                        : <span style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>🔗 {shareCount} مندوبين</span>
+                      <button
+                        onClick={() => setExpandedSharesId(expandedSharesId === f.id ? null : f.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #c4b5fd', borderRadius: 20, padding: '2px 10px', background: expandedSharesId === f.id ? '#ede9fe' : '#faf5ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#6d28d9', flexShrink: 0 }}
+                        title="عرض المندوبين"
+                      >
+                        🔗 {shareCount} مندوب
+                        <span style={{ fontSize: 10, transition: 'transform 0.2s', display: 'inline-block', transform: expandedSharesId === f.id ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                      </button>
                     )}
                     {isSharedToMe && <span style={BADGE('#fef3c7', '#92400e', '#fcd34d')}>📥 مشارك معك</span>}
                   </div>
+
+                  {/* ── Expanded reps row ── */}
+                  {isSharedByMe && expandedSharesId === f.id && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
+                      {shares.map(s => (
+                        <span key={s.userId} style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>
+                          🔗 {s.user.displayName || s.user.username}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   {/* ── Row 2: meta (no row count) ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
