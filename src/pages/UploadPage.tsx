@@ -145,6 +145,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncDone, setSyncDone] = useState<number | null>(null);
   const [cleaning, setCleaning] = useState(false);
@@ -417,15 +418,14 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
     background: bg, color, border: `1px solid ${border}`, whiteSpace: 'nowrap',
   });
+  const MENU_ITEM_STYLE: React.CSSProperties = {
+    display: 'block', width: '100%', padding: '7px 14px', background: 'none',
+    border: 'none', textAlign: 'right', cursor: 'pointer', fontSize: 12,
+    color: '#374151', whiteSpace: 'nowrap',
+  };
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px 16px', direction: 'rtl', fontFamily: 'inherit' }}>
-
-      {/* ── Page header ─────────────────────────────────────── */}
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', margin: 0 }}>{t.upload.title}</h1>
-        <p style={{ fontSize: 13, color: '#64748b', margin: '2px 0 0' }}>{t.upload.subtitle}</p>
-      </div>
 
       {/* ── Active files bar ────────────────────────────────── */}
       {activeFiles.length > 0 ? (
@@ -491,7 +491,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 </button>
               ))}
             </div>
-            <div style={{ marginTop: 10, color: '#94a3b8', fontSize: 11 }}>{t.upload.dragHint}</div>
+
           </>
         )}
       </div>
@@ -606,6 +606,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         </div>
       )}
 
+      {/* Close 3-dots menu on outside click */}
+      {openMenuId !== null && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999 }} onClick={() => setOpenMenuId(null)} />
+      )}
+
       {/* ── Files List ──────────────────────────────────────── */}
       <div style={{ marginTop: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
@@ -640,8 +645,81 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   borderColor: isActive ? '#86efac' : isSharedToMe ? '#fde68a' : '#e2e8f0',
                   background: isActive ? '#f0fdf4' : isSharedToMe ? '#fffbeb' : '#fff',
                 }}>
-                  {/* ── Row 1: name + badges ── */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                  {/* ── Row 1: name + badges + 3-dots menu ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
+                    {/* 3-dots menu on visual left */}
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      <button
+                        onClick={() => setOpenMenuId(openMenuId === f.id ? null : f.id)}
+                        style={{
+                          width: 28, height: 28, border: '1px solid #e2e8f0', borderRadius: 6,
+                          background: openMenuId === f.id ? '#f1f5f9' : '#fff',
+                          cursor: 'pointer', fontSize: 16, color: '#64748b',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                        }}
+                        title="الخيارات"
+                      >⋮</button>
+
+                      {openMenuId === f.id && (
+                        <div style={{
+                          position: 'absolute', left: 0, top: 'calc(100% + 4px)', zIndex: 1000,
+                          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 190,
+                          padding: '4px 0', direction: 'rtl',
+                        }}>
+                          {/* Activate/Deactivate */}
+                          <button onClick={() => { onFileActivated(f.id); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
+                            {isActive ? '✅ إلغاء التفعيل' : '⚡ تفعيل الملف'}
+                          </button>
+
+                          {/* Analyze */}
+                          <button onClick={() => { handleAnalyze(f); setOpenMenuId(null); }} disabled={analyzing && analyzeFile?.id === f.id} style={MENU_ITEM_STYLE}>
+                            🤖 تحليل الملف
+                          </button>
+
+                          {/* Currency convert */}
+                          {hasFeature('currency_convert') && (
+                            <button onClick={() => { openCurrencyModal(f); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
+                              💱 تحويل العملة
+                            </button>
+                          )}
+
+                          {/* Sync with reps — manager only */}
+                          {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
+                            <button onClick={() => { openShareModal(f); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
+                              🔗 {isSharedByMe ? `مزامنة (${shareCount})` : 'مزامنة مع مندوبين'}
+                            </button>
+                          )}
+
+                          {/* Download my sales — shared recipient */}
+                          {isSharedToMe && (
+                            <button onClick={() => { downloadUserSalesExcel(f.id); setOpenMenuId(null); }} disabled={exporting === `${f.id}-me`} style={MENU_ITEM_STYLE}>
+                              📥 تحميل مبيعاتي
+                            </button>
+                          )}
+
+                          <div style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
+
+                          {/* Delete */}
+                          {confirmId === f.id ? (
+                            <div style={{ padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, flex: 1 }}>{t.upload.confirmDelete}</span>
+                              <button style={{ ...BTN_PRI, background: '#dc2626', padding: '3px 10px' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
+                                {deleting === f.id ? '⏳' : '✓'}
+                              </button>
+                              <button style={{ ...BTN_GHOST, padding: '3px 8px' }} onClick={() => setConfirmId(null)}>✕</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmId(f.id)} disabled={deleting === f.id}
+                              style={{ ...MENU_ITEM_STYLE, color: '#dc2626' }}>
+                              🗑️ حذف الملف
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* File name */}
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.originalName}
                     </span>
@@ -659,66 +737,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     {isSharedToMe && <span style={BADGE('#fef3c7', '#92400e', '#fcd34d')}>📥 مشارك معك</span>}
                   </div>
 
-                  {/* ── Row 2: meta ── */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8, fontSize: 11, color: '#64748b' }}>
-                    <span>📊 {f.rowCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>
+                  {/* ── Row 2: meta (no row count) ── */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
                     <span>📅 {fmtDate(f.uploadedAt)}</span>
                     <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
                       {currIsDollar ? 'USD $' : 'IQD ﷼'}
                     </span>
-                  </div>
-
-                  {/* ── Row 3: actions ── */}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button style={{ ...BTN_PRI }} onClick={() => handleAnalyze(f)} disabled={analyzing && analyzeFile?.id === f.id}>
-                      {analyzing && analyzeFile?.id === f.id ? '⏳' : t.upload.btnAnalyze}
-                    </button>
-
-                    {hasFeature('currency_convert') && (
-                      <button style={{ ...BTN_SEC, background: f.currencyMode === 'USD' ? '#fef9c3' : undefined, color: f.currencyMode === 'USD' ? '#92400e' : undefined, borderColor: f.currencyMode === 'USD' ? '#fcd34d' : undefined }} onClick={() => openCurrencyModal(f)}>
-                        {t.upload.btnCurrency}
-                      </button>
-                    )}
-
-                    {/* Sync button — manager only */}
-                    {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
-                      <button style={{ ...BTN_SEC, background: isSharedByMe ? '#f5f3ff' : undefined, color: isSharedByMe ? '#6d28d9' : undefined, borderColor: isSharedByMe ? '#c4b5fd' : undefined }}
-                        onClick={() => openShareModal(f)}>
-                        {isSharedByMe ? `🔗 ${shareCount} مندوب${shareCount > 1 ? 'ين' : ''}` : '🔗 مزامنة مع مندوبين'}
-                      </button>
-                    )}
-
-                    {/* Download my sales — recipient */}
-                    {isSharedToMe && (
-                      <button style={{ ...BTN_SEC, background: '#ecfdf5', color: '#059669', borderColor: '#6ee7b7' }}
-                        onClick={() => downloadUserSalesExcel(f.id)} disabled={exporting === `${f.id}-me`}>
-                        {exporting === `${f.id}-me` ? '⏳' : '📥 تحميل مبيعاتي'}
-                      </button>
-                    )}
-
-                    {/* Download per-user preview — manager only (shown in modal instead) */}
-
-                    {/* Activate toggle */}
-                    <button style={{ ...BTN_GHOST, background: isActive ? '#dcfce7' : undefined, color: isActive ? '#15803d' : undefined, borderColor: isActive ? '#86efac' : undefined }}
-                      onClick={() => onFileActivated(f.id)}>
-                      {isActive ? t.upload.btnDeactivate : t.upload.btnActivate}
-                    </button>
-
-                    {/* Delete */}
-                    {confirmId === f.id ? (
-                      <>
-                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>{t.upload.confirmDelete}</span>
-                        <button style={{ ...BTN_PRI, background: '#dc2626' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
-                          {deleting === f.id ? '⏳' : t.upload.confirmDeleteBtn}
-                        </button>
-                        <button style={{ ...BTN_GHOST }} onClick={() => setConfirmId(null)}>{t.upload.cancel}</button>
-                      </>
-                    ) : (
-                      <button style={{ ...BTN_GHOST, color: '#dc2626', borderColor: '#fca5a5', background: '#fff5f5' }}
-                        onClick={() => setConfirmId(f.id)} disabled={deleting === f.id}>
-                        {t.upload.deleteBtn}
-                      </button>
-                    )}
                   </div>
                 </div>
               );
