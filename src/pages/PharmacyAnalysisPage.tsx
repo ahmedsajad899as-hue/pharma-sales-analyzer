@@ -117,17 +117,39 @@ export default function PharmacyAnalysisPage() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const searchTimer    = useRef<ReturnType<typeof setTimeout>>();
 
-  const uploadFile = useCallback(async (file: File) => {
+  // Pre-upload currency selection
+  const [pendingFile, setPendingFile]   = useState<File | null>(null);
+  const [preCurrency, setPreCurrency]   = useState<'IQD' | 'USD'>('IQD');
+  const [preRate, setPreRate]           = useState<string>('1470');
+
+  const requestUpload = (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { setUploadMsg({ ok: false, text: 'يُسمح فقط بـ Excel أو CSV' }); return; }
+    setPreCurrency('IQD');
+    setPreRate('1470');
+    setPendingFile(file);
+  };
+
+  const uploadFile = useCallback(async (file: File, sourceCurrency: 'IQD' | 'USD', exchangeRate: number) => {
     setUploading(true); setUploadMsg(null);
-    const fd = new FormData(); fd.append('file', file); fd.append('fileType', 'sales');
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('fileType', 'pharmacy_net');
+    fd.append('sourceCurrency', sourceCurrency);
     try {
       const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'فشل الرفع');
       const newId = data.data?.uploadedFile?.id ?? data.uploadedFile?.id;
+      // Save exchange rate on the uploaded file
+      if (newId) {
+        await fetch(`${API}/api/files/${newId}/currency`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ currencyMode: sourceCurrency, exchangeRate, sourceCurrency }),
+        });
+      }
       setUploadMsg({ ok: true, text: `تم رفع ${file.name} — ${data.data?.rowCount ?? ''} سجل` });
-      const r2 = await fetch(`${API}/api/files`, { headers: { Authorization: `Bearer ${token}` } });
+      const r2 = await fetch(`${API}/api/files?context=pharmacy_net`, { headers: { Authorization: `Bearer ${token}` } });
       const d2 = await r2.json();
       const all: UpFile[] = Array.isArray(d2.data) ? d2.data : [];
       setFiles(all);
@@ -137,13 +159,13 @@ export default function PharmacyAnalysisPage() {
     finally { setUploading(false); }
   }, [token]);
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) uploadFile(file); };
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) requestUpload(file); };
   const fileIdsParam = [...selFiles].join(',');
   const fileQuery    = fileIdsParam ? `?fileIds=${fileIdsParam}` : '?';
 
   useEffect(() => {
     setFilesLoading(true);
-    fetch(`${API}/api/files`, { headers }).then(r => r.json()).then(d => {
+    fetch(`${API}/api/files?context=pharmacy_net`, { headers }).then(r => r.json()).then(d => {
       const all: UpFile[] = Array.isArray(d.data) ? d.data : [];
       setFiles(all);
       if (all.length > 0) setSelFiles(new Set(all.map(f => f.id)));
@@ -272,6 +294,57 @@ export default function PharmacyAnalysisPage() {
   return (
     <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
 
+      {/* ── Pre-upload currency dialog ─────────────────────── */}
+      {pendingFile && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl">
+            <div style={{ fontSize: 22, marginBottom: 6 }}>💱</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 4 }}>عملة الملف</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 18 }}>{pendingFile.name}</div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 16 }}>
+              {(['IQD', 'USD'] as const).map(c => (
+                <button key={c} onClick={() => setPreCurrency(c)} style={{
+                  padding: '8px 22px', borderRadius: 8, border: `2px solid ${preCurrency === c ? '#1e40af' : '#e2e8f0'}`,
+                  background: preCurrency === c ? '#eff6ff' : '#f8fafc',
+                  color: preCurrency === c ? '#1e40af' : '#64748b',
+                  fontWeight: preCurrency === c ? 700 : 500, fontSize: 14, cursor: 'pointer',
+                }}>
+                  {c === 'IQD' ? 'د.ع دينار عراقي' : '$ دولار'}
+                </button>
+              ))}
+            </div>
+            {preCurrency === 'USD' && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>سعر الصرف (دولار → دينار):</span>
+                <input
+                  type="number" min="1" value={preRate}
+                  onChange={e => setPreRate(e.target.value)}
+                  style={{ width: 90, padding: '5px 8px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, textAlign: 'center' }}
+                />
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                onClick={() => {
+                  const rate = parseFloat(preRate);
+                  uploadFile(pendingFile, preCurrency, isFinite(rate) && rate > 0 ? rate : 1470);
+                  setPendingFile(null);
+                }}
+                style={{ padding: '9px 24px', borderRadius: 8, background: '#1e40af', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+              >
+                ✔ رفع الملف
+              </button>
+              <button
+                onClick={() => setPendingFile(null)}
+                style={{ padding: '9px 20px', borderRadius: 8, background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Page Header ────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🔬</div>
@@ -323,7 +396,7 @@ export default function PharmacyAnalysisPage() {
               style={{ border: `2px dashed ${dragOver ? '#6366f1' : '#c7d2fe'}`, borderRadius: 10, background: dragOver ? '#eef2ff' : '#fafbff', padding: '18px 16px', textAlign: 'center', cursor: uploading ? 'default' : 'pointer', marginTop: 8 }}
             >
               <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) { uploadFile(f); e.target.value = ''; } }} />
+                onChange={e => { const f = e.target.files?.[0]; if (f) { requestUpload(f); e.target.value = ''; } }} />
               {uploading
                 ? <span style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>⏳ جاري الرفع...</span>
                 : <><div style={{ fontSize: 11, fontWeight: 600, color: '#4f46e5' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: '#94a3b8' }}>.xlsx / .xls / .csv</div></>

@@ -938,10 +938,11 @@ app.delete('/api/companies/:id', async (req, res) => {
 app.get('/api/files', async (req, res) => {
   try {
     const userId  = req.user?.id ?? null;
-    const context = req.query.context ?? null; // 'filter_page' → show only filter files; else → hide filter files
-    const typeFilter = context === 'filter_page'
-      ? { fileType: 'filter_page' }
-      : { NOT: { fileType: 'filter_page' } };
+    const context = req.query.context ?? null; // 'filter_page' → show only filter files; 'pharmacy_net' → show only pharmacy_net files; else → hide both
+    const typeFilter =
+      context === 'filter_page'  ? { fileType: 'filter_page' } :
+      context === 'pharmacy_net' ? { fileType: 'pharmacy_net' } :
+      { NOT: { fileType: { in: ['filter_page', 'pharmacy_net'] } } };
 
     // If the current user is linked to a scientific rep, also include files shared with that rep
     let linkedRepId = null;
