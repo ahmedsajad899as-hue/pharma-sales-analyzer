@@ -3389,8 +3389,8 @@ export default function MonthlyPlansPage() {
                         type="text"
                         value={searchQuery}
                         onChange={e => { setSearchQuery(e.target.value); setSearchSuggestOpen(true); }}
-                        onFocus={() => setSearchSuggestOpen(true)}
-                        onBlur={() => setTimeout(() => setSearchSuggestOpen(false), 150)}
+                        onFocus={e => { setSearchSuggestOpen(true); e.target.style.borderColor = '#6366f1'; }}
+                        onBlur={e => { setTimeout(() => setSearchSuggestOpen(false), 150); e.target.style.borderColor = '#e2e8f0'; }}
                         placeholder="🔍  ابحث باسم الطبيب، الصيدلية، الاختصاص، الايتم، المنطقة..."
                         style={{
                           flex: 1, padding: '10px 16px 10px 36px', border: '2px solid #e2e8f0',
@@ -3399,8 +3399,6 @@ export default function MonthlyPlansPage() {
                           outline: 'none', background: '#fff', color: '#1e293b',
                           transition: 'border-color 0.15s',
                         }}
-                        onFocus={e => (e.target.style.borderColor = '#6366f1')}
-                        onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                       />
                       {searchQuery && (
                         <button
