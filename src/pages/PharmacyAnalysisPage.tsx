@@ -82,6 +82,8 @@ export default function PharmacyAnalysisPage() {
   const [pharmaSortDir, setPharmaSortDir] = useState<'asc' | 'desc'>('asc');
   const [itemSortCol, setItemSortCol]     = useState<string | null>(null);
   const [itemSortDir, setItemSortDir]     = useState<'asc' | 'desc'>('asc');
+  const [alertSortCol, setAlertSortCol]   = useState<string | null>(null);
+  const [alertSortDir, setAlertSortDir]   = useState<'asc' | 'desc'>('asc');
 
   // Items
   const [items, setItems]               = useState<ItemSummary[]>([]);
@@ -265,6 +267,12 @@ export default function PharmacyAnalysisPage() {
     if (itemSortCol === col) setItemSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setItemSortCol(col); setItemSortDir('asc'); }
   };
+  const handleAlertSort = (col: string) => {
+    if (alertSortCol === col) setAlertSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setAlertSortCol(col); setAlertSortDir('asc'); }
+  };
+  const sortArrow = (col: string, activeCol: string | null, dir: 'asc' | 'desc') =>
+    activeCol === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '';
 
   const sortedPharmacies: PharmacySummary[] = (() => {
     if (!pharmaSortCol) return pharmacies;
@@ -297,6 +305,24 @@ export default function PharmacyAnalysisPage() {
       else return 0;
       if (typeof av === 'string') return itemSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
       return itemSortDir === 'asc' ? av - bv : bv - av;
+    });
+  })();
+
+  const sortedAlerts = (() => {
+    const base = filteredAlerts;
+    if (!alertSortCol) return base;
+    return [...base].sort((a, b) => {
+      let av: any, bv: any;
+      if      (alertSortCol === 'pharma') { av = a.pharmaName;       bv = b.pharmaName; }
+      else if (alertSortCol === 'item')   { av = a.itemName;         bv = b.itemName; }
+      else if (alertSortCol === 'area')   { av = a.areaName || '';   bv = b.areaName || ''; }
+      else if (alertSortCol === 'qty')    { av = a.totalQty;         bv = b.totalQty; }
+      else if (alertSortCol === 'orders') { av = a.orderCount;       bv = b.orderCount; }
+      else if (alertSortCol === 'last')   { av = new Date(a.lastOrder).getTime(); bv = new Date(b.lastOrder).getTime(); }
+      else if (alertSortCol === 'days')   { av = a.daysSinceLast;    bv = b.daysSinceLast; }
+      else return 0;
+      if (typeof av === 'string') return alertSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
+      return alertSortDir === 'asc' ? av - bv : bv - av;
     });
   })();
 
@@ -547,14 +573,14 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('name')}>الصيدلية</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('area')}>المنطقة</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('orders')}>الطلبيات</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('qty')}>الكمية</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('value')}>القيمة ({currLabel})</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('items')}>الايتمات</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('last')}>آخر طلبية</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('days')}>الأيام</th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('name')}>الصيدلية{sortArrow('name', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('area')}>المنطقة{sortArrow('area', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('orders')}>الطلبيات{sortArrow('orders', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('qty')}>الكمية{sortArrow('qty', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('value')}>القيمة ({currLabel}){sortArrow('value', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('items')}>الايتمات{sortArrow('items', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('last')}>آخر طلبية{sortArrow('last', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('days')}>الأيام{sortArrow('days', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, width: 32 }}></th>
                   </tr>
                 </thead>
@@ -720,12 +746,12 @@ export default function PharmacyAnalysisPage() {
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
                     <th style={TH}>#</th>
-                    <th style={{ ...TH, textAlign: 'right', minWidth: 180, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('name')}>الايتم</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('qty')}>الكمية</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('value')}>القيمة ({currLabel})</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('pharmas')}>الصيدليات</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('first')}>أول طلبية</th>
-                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('last')}>آخر طلبية</th>
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 180, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('name')}>الايتم{sortArrow('name', itemSortCol, itemSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('qty')}>الكمية{sortArrow('qty', itemSortCol, itemSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('value')}>القيمة ({currLabel}){sortArrow('value', itemSortCol, itemSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('pharmas')}>الصيدليات{sortArrow('pharmas', itemSortCol, itemSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('first')}>أول طلبية{sortArrow('first', itemSortCol, itemSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('last')}>آخر طلبية{sortArrow('last', itemSortCol, itemSortDir)}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -830,11 +856,17 @@ export default function PharmacyAnalysisPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#1e40af', color: '#fff' }}>
-                    {['الصيدلية','الايتم','المنطقة','الكمية السابقة','الطلبيات','آخر طلبية','الأيام'].map(h => <th key={h} style={TH}>{h}</th>)}
+                    <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('pharma')}>الصيدلية{sortArrow('pharma', alertSortCol, alertSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('item')}>الايتم{sortArrow('item', alertSortCol, alertSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('area')}>المنطقة{sortArrow('area', alertSortCol, alertSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('qty')}>الكمية السابقة{sortArrow('qty', alertSortCol, alertSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('orders')}>الطلبيات{sortArrow('orders', alertSortCol, alertSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('last')}>آخر طلبية{sortArrow('last', alertSortCol, alertSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('days')}>الأيام{sortArrow('days', alertSortCol, alertSortDir)}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAlerts.map((a, i) => {
+                  {sortedAlerts.map((a, i) => {
                     const dc = dayColor(a.daysSinceLast);
                     return (
                       <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
@@ -850,7 +882,7 @@ export default function PharmacyAnalysisPage() {
                       </tr>
                     );
                   })}
-                  {filteredAlerts.length === 0 && (
+                  {sortedAlerts.length === 0 && (
                     <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>
                       {alertSearch ? 'لا يوجد تنبيه يطابق البحث.' : `لا توجد صيدلية متأخرة عن ${alertDays} يوم. ✅`}
                     </td></tr>
