@@ -246,9 +246,15 @@ export default function PharmacyAnalysisPage() {
   const toggleRow   = (key: string) => setExpandedRows(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
   const toggleFile  = (id: number)  => setSelFiles(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
-  const filteredAlerts = alerts.filter(a =>
-    !alertSearch || a.pharmaName.includes(alertSearch) || a.itemName.includes(alertSearch) || a.areaName.includes(alertSearch)
-  );
+  const filteredAlerts = alerts.filter(a => {
+    if (!alertSearch) return true;
+    const q = alertSearch.toLowerCase();
+    return (
+      a.pharmaName.toLowerCase().includes(q) ||
+      a.itemName.toLowerCase().includes(q) ||
+      (a.areaName || '').toLowerCase().includes(q)
+    );
+  });
 
   // ── Sort handlers ─────────────────────────────────────────────
   const handlePharmaSort = (col: string) => {
