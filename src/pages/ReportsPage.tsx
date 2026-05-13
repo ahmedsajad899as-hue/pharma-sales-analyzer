@@ -2142,6 +2142,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       })()}
                     </table>
                     </div>
+                  </div>
                 )
               )}
             </div>
@@ -2314,6 +2315,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       })()}
                     </table>
                     </div>
+                  </div>
                 )
               )}
             </div>
