@@ -117,10 +117,14 @@ interface PharmByItem { name: string; orders: PharmOrderEntry[]; totalQty: numbe
 interface PharmDetailData { byItem: PharmByItem[]; totalOrders: number; }
 
 function normPharm(s: string) {
-  return String(s || '').trim()
+  let r = String(s || '').trim()
     .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
     .replace(/[ًٌٍَُِّْٰ]/g, '').replace(/ـ/g, '')
     .replace(/\s+/g, ' ').toLowerCase();
+  // Strip leading pharmacy prefix words/abbreviations after normalisation
+  // e.g.  "ص الوافي" → "الوافي"   "صيدليه النور" → "النور"
+  r = r.replace(/^(الصيدليه|صيدليه|ص\.?)\s*/, '').trim();
+  return r;
 }
 
 function findNetMatches(pharmName: string, list: NetPharm[], areaName?: string | null): { exact: NetPharm | null; similar: NetPharm[] } {
