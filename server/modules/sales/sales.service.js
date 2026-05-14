@@ -187,8 +187,17 @@ export async function processUploadedFile(file, options = {}) {
       sheetsToProcess.push({ sheetName: sn, forceReturn: isReturnSheet(sn) });
     }
   } else {
-    // Single-sheet: always use first sheet
-    sheetsToProcess.push({ sheetName: workbook.SheetNames[0], forceReturn: false });
+    // Always process first sheet with the selected fileType
+    sheetsToProcess.push({ sheetName: workbook.SheetNames[0], forceReturn: fileType === 'returns' });
+    // Smart multi-sheet: also process additional sheets whose names indicate sales or returns
+    for (let i = 1; i < workbook.SheetNames.length; i++) {
+      const sn = workbook.SheetNames[i];
+      if (isReturnSheet(sn)) {
+        sheetsToProcess.push({ sheetName: sn, forceReturn: true });
+      } else if (isSalesSheet(sn)) {
+        sheetsToProcess.push({ sheetName: sn, forceReturn: false });
+      }
+    }
   }
 
   // Collect all raw rows with their sheet-level return flag + per-sheet colMap
@@ -508,6 +517,14 @@ function isReturnSheet(sheetName) {
   const s = String(sheetName).trim();
   return /ارجاع|ارجاعات|الارجاع|الارجاعات|اراجيع|رجيع|مرتجع|مرتجعات|المرتجع|المرتجعات|return|returns|refund|refunds|credit note|credit|debit note/i
     .test(s);
+}
+
+/**
+ * Returns true if a sheet name indicates it contains sales data.
+ */
+function isSalesSheet(sheetName) {
+  const s = String(sheetName).trim();
+  return /مبيع|مبيعات|المبيع|المبيعات|sale|sales/i.test(s);
 }
 
 /**
