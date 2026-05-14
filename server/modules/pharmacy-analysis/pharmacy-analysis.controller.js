@@ -102,17 +102,22 @@ export async function listPharmacies(req, res, next) {
       if (!p.repName && s.representative?.name) p.repName = s.representative.name;
 
       const isReturn = s.recordType === 'return';
+      const iName = s.item?.name || 'غير محدد';
       if (isReturn) {
         p.returnsOrders++;
         p.returnsQty   += s.quantity;
         p.returnsValue += iqd;
+        if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
+        const ip = p.items.get(iName);
+        ip.qty   += s.quantity;
+        ip.value += iqd;
+        ip.count++;
       } else {
         p.totalOrders++;
         p.totalQty   += s.quantity;
         p.totalValue += iqd;
         if (!p.firstOrder || new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
         if (!p.lastOrder  || new Date(s.saleDate) > new Date(p.lastOrder))  p.lastOrder  = s.saleDate;
-        const iName = s.item?.name || 'غير محدد';
         if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
         const ip = p.items.get(iName);
         ip.qty   += s.quantity;
