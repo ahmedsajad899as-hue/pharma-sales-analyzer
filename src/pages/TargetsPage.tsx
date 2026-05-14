@@ -441,7 +441,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         </div>
       )}
 
-      {/* ── Broadcast Panel ── */
+      {/* ── Broadcast Panel ── */}
       {showBroadcast && selRepId && rows.length > 0 && (
         <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
