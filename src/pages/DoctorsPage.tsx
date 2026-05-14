@@ -161,23 +161,29 @@ function getAreaPharmStats(
 }
 
 // O(1) lookup version — uses a pre-normalised Map instead of scanning the array
+// Deduplication is done by NORMALISED name so "ص الوافي" and "الوافي" count as one
 function getAreaPharmStatsFast(
   doctors: Array<{ pharmacyName?: string | null }>,
   normMap: Map<string, NetPharm>
 ): { total: number; withSales: string[]; withReturnsOnly: string[]; noData: string[] } {
-  const names = [...new Set(
-    doctors.map(d => d.pharmacyName?.trim()).filter((n): n is string => Boolean(n))
-  )];
+  // Build a map: normalisedKey → first raw name seen (deduplicates by normalised name)
+  const seen = new Map<string, string>();
+  for (const d of doctors) {
+    const raw = d.pharmacyName?.trim();
+    if (!raw) continue;
+    const key = normPharm(raw);
+    if (!seen.has(key)) seen.set(key, raw);
+  }
   const withSales: string[] = [];
   const withReturnsOnly: string[] = [];
   const noData: string[] = [];
-  for (const name of names) {
-    const exact = normMap.get(normPharm(name)) ?? null;
-    if (exact && exact.totalValue > 0) withSales.push(name);
-    else if (exact) withReturnsOnly.push(name);
-    else noData.push(name);
+  for (const [normKey, rawName] of seen) {
+    const exact = normMap.get(normKey) ?? null;
+    if (exact && exact.totalValue > 0) withSales.push(rawName);
+    else if (exact) withReturnsOnly.push(rawName);
+    else noData.push(rawName);
   }
-  return { total: names.length, withSales, withReturnsOnly, noData };
+  return { total: seen.size, withSales, withReturnsOnly, noData };
 }
 
 export default function DoctorsPage() {
