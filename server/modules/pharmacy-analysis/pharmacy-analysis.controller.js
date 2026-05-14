@@ -44,6 +44,7 @@ export async function listPharmacies(req, res, next) {
         quantity: true,
         totalValue: true,
         saleDate: true,
+        recordType: true,
         customer:     { select: { id: true, name: true } },
         area:         { select: { id: true, name: true } },
         item:         { select: { id: true, name: true } },
@@ -70,8 +71,8 @@ export async function listPharmacies(req, res, next) {
       }
       if (!pharmaName) continue;
 
-      // Skip duplicates from overlapping uploaded files
-      const dedupKey = [norm(pharmaName), norm(s.item?.name || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue].join('|');
+      // Skip duplicates from overlapping uploaded files (recordType included in key)
+      const dedupKey = [norm(pharmaName), norm(s.item?.name || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue, s.recordType || 'sale'].join('|');
       if (seenSales.has(dedupKey)) continue;
       seenSales.add(dedupKey);
 
@@ -87,40 +88,53 @@ export async function listPharmacies(req, res, next) {
           totalOrders: 0,
           totalQty: 0,
           totalValue: 0,
-          firstOrder: s.saleDate,
-          lastOrder: s.saleDate,
+          returnsOrders: 0,
+          returnsQty: 0,
+          returnsValue: 0,
+          firstOrder: null,
+          lastOrder: null,
           items: new Map(), // itemName → { qty, value, count }
         });
       }
       const p = map.get(pharmaName);
       const iqd = toIQD(s.totalValue, s.uploadedFile);
-      p.totalOrders++;
-      p.totalQty   += s.quantity;
-      p.totalValue += iqd;
-      if (new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
-      if (new Date(s.saleDate) > new Date(p.lastOrder))  p.lastOrder  = s.saleDate;
       if (!p.areaName && areaName) p.areaName = areaName;
       if (!p.repName && s.representative?.name) p.repName = s.representative.name;
 
-      const iName = s.item?.name || 'غير محدد';
-      if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
-      const ip = p.items.get(iName);
-      ip.qty   += s.quantity;
-      ip.value += iqd;
-      ip.count++;
+      const isReturn = s.recordType === 'return';
+      if (isReturn) {
+        p.returnsOrders++;
+        p.returnsQty   += s.quantity;
+        p.returnsValue += iqd;
+      } else {
+        p.totalOrders++;
+        p.totalQty   += s.quantity;
+        p.totalValue += iqd;
+        if (!p.firstOrder || new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
+        if (!p.lastOrder  || new Date(s.saleDate) > new Date(p.lastOrder))  p.lastOrder  = s.saleDate;
+        const iName = s.item?.name || 'غير محدد';
+        if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
+        const ip = p.items.get(iName);
+        ip.qty   += s.quantity;
+        ip.value += iqd;
+        ip.count++;
+      }
     }
 
+    const now = Date.now();
     const result = [...map.values()].map(p => ({
-      name:        p.name,
-      areaName:    p.areaName,
-      repName:     p.repName || '',
-      totalOrders: p.totalOrders,
-      totalQty:    p.totalQty,
-      totalValue:  Math.round(p.totalValue),
-      firstOrder:  p.firstOrder,
-      lastOrder:   p.lastOrder,
-      itemCount:   p.items.size,
-      daysSinceLast: Math.floor((Date.now() - new Date(p.lastOrder).getTime()) / 86400000),
+      name:          p.name,
+      areaName:      p.areaName,
+      repName:       p.repName || '',
+      totalOrders:   p.totalOrders,
+      totalQty:      p.totalQty,
+      totalValue:    Math.round(p.totalValue),
+      returnsQty:    p.returnsQty,
+      returnsValue:  Math.round(p.returnsValue),
+      firstOrder:    p.firstOrder,
+      lastOrder:     p.lastOrder,
+      itemCount:     p.items.size,
+      daysSinceLast: p.lastOrder ? Math.floor((now - new Date(p.lastOrder).getTime()) / 86400000) : 9999,
       topItems: [...p.items.entries()]
         .sort((a, b) => b[1].qty - a[1].qty)
         .slice(0, 5)

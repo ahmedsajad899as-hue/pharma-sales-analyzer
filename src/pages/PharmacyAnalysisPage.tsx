@@ -9,7 +9,8 @@ interface UpFile { id: number; originalName: string; uploadedAt: string; rowCoun
 interface PharmacySummary {
   name: string; areaName: string; repName: string;
   totalOrders: number; totalQty: number; totalValue: number;
-  firstOrder: string; lastOrder: string; itemCount: number; daysSinceLast: number;
+  returnsQty: number; returnsValue: number;
+  firstOrder: string | null; lastOrder: string | null; itemCount: number; daysSinceLast: number;
   topItems: { name: string; qty: number; value: number; count: number }[];
 }
 
@@ -282,9 +283,10 @@ export default function PharmacyAnalysisPage() {
       else if (pharmaSortCol === 'area')   { av = a.areaName || '';  bv = b.areaName || ''; }
       else if (pharmaSortCol === 'orders') { av = a.totalOrders;     bv = b.totalOrders; }
       else if (pharmaSortCol === 'qty')    { av = a.totalQty;        bv = b.totalQty; }
-      else if (pharmaSortCol === 'value')  { av = a.totalValue;      bv = b.totalValue; }
-      else if (pharmaSortCol === 'items')  { av = a.itemCount;       bv = b.itemCount; }
-      else if (pharmaSortCol === 'last')   { av = new Date(a.lastOrder).getTime(); bv = new Date(b.lastOrder).getTime(); }
+      else if (pharmaSortCol === 'value')   { av = a.totalValue;        bv = b.totalValue; }
+      else if (pharmaSortCol === 'returns')  { av = a.returnsQty;        bv = b.returnsQty; }
+      else if (pharmaSortCol === 'items')    { av = a.itemCount;          bv = b.itemCount; }
+      else if (pharmaSortCol === 'last')     { av = new Date(a.lastOrder ?? 0).getTime(); bv = new Date(b.lastOrder ?? 0).getTime(); }
       else if (pharmaSortCol === 'days')   { av = a.daysSinceLast;   bv = b.daysSinceLast; }
       else return 0;
       if (typeof av === 'string') return pharmaSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
@@ -578,6 +580,7 @@ export default function PharmacyAnalysisPage() {
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('orders')}>الطلبيات{sortArrow('orders', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('qty')}>الكمية{sortArrow('qty', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('value')}>القيمة ({currLabel}){sortArrow('value', pharmaSortCol, pharmaSortDir)}</th>
+                    <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('returns')}>الارجاعات{sortArrow('returns', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('items')}>الايتمات{sortArrow('items', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('last')}>آخر طلبية{sortArrow('last', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('days')}>الأيام{sortArrow('days', pharmaSortCol, pharmaSortDir)}</th>
@@ -590,7 +593,7 @@ export default function PharmacyAnalysisPage() {
                       {/* Group header */}
                       {groupBy !== 'none' && (
                         <tr key={`gh-${g.key}`} style={{ background: '#e8f0fe', cursor: 'pointer' }} onClick={() => toggleGroup(g.key)}>
-                          <td colSpan={10} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: '#1e40af' }}>
+                          <td colSpan={11} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: '#1e40af' }}>
                             {collapsedGroups.has(g.key) ? '▶' : '▼'}&nbsp;
                             {g.label}
                             <span style={{ fontWeight: 400, color: '#6b7280', marginRight: 8, fontSize: 11 }}>({g.rows.length} صيدلية)</span>
@@ -614,8 +617,16 @@ export default function PharmacyAnalysisPage() {
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
                               <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmtV(p.totalValue)}</td>
+                              <td style={{ ...TD, textAlign: 'center' }} onClick={() => openPharma(p.name)}>
+                                {p.returnsQty > 0 ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
+                                    <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>{fmt(p.returnsQty)}</span>
+                                    <span style={{ color: '#ef4444', fontSize: 10 }}>{fmtV(p.returnsValue)}</span>
+                                  </div>
+                                ) : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>}
+                              </td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.itemCount}</td>
-                              <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{fmtDate(p.lastOrder)}</td>
+                              <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.lastOrder ? fmtDate(p.lastOrder) : '—'}</td>
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>
                                 <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{p.daysSinceLast}</span>
                               </td>
@@ -626,7 +637,7 @@ export default function PharmacyAnalysisPage() {
                             {/* Expanded: top items as small chips */}
                             {expanded && (
                               <tr key={`exp-${p.name}`} style={{ background: '#f8fafc' }}>
-                                <td colSpan={10} style={{ padding: '8px 16px', borderBottom: '1px solid #e2e8f0' }}>
+                                <td colSpan={11} style={{ padding: '8px 16px', borderBottom: '1px solid #e2e8f0' }}>
                                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                                     <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>الايتمات:</span>
                                     {p.topItems.map(it => (
@@ -645,7 +656,7 @@ export default function PharmacyAnalysisPage() {
                     </>
                   ))}
                   {pharmacies.length === 0 && (
-                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات. ارفع ملفات مبيعات أولاً.</td></tr>
+                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات. ارفع ملفات مبيعات أولاً.</td></tr>
                   )}
                 </tbody>
               </table>
