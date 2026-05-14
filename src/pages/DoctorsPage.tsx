@@ -105,11 +105,36 @@ function fmt(dateStr: string) {
   return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`;
 }
 
+interface NetPharm {
+  name: string; areaName: string; repName?: string;
+  totalOrders: number; totalValue: number;
+  returnsQty: number; returnsValue: number;
+  lastOrder: string | null;
+}
+
+function normPharm(s: string) {
+  return String(s || '').trim()
+    .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+    .replace(/[ًٌٍَُِّْٰ]/g, '').replace(/ـ/g, '')
+    .replace(/\s+/g, ' ').toLowerCase();
+}
+
+function findNetMatches(pharmName: string, list: NetPharm[]): { exact: NetPharm | null; similar: NetPharm[] } {
+  const q = normPharm(pharmName);
+  const exact = list.find(p => normPharm(p.name) === q) ?? null;
+  const similar = list.filter(p => {
+    const n = normPharm(p.name);
+    return n !== q && (n.includes(q) || q.includes(n));
+  }).slice(0, 6);
+  return { exact, similar };
+}
+
 export default function DoctorsPage() {
   const { token, user, hasFeature } = useAuth();
   const isCommercialRep = user?.role === 'commercial_rep';
   const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
   const isFieldRep  = FIELD_ROLES.includes(user?.role ?? '');
+  const canSeePharmNet = ['company_manager', 'team_leader'].includes(user?.role ?? '');
   const showDoctorFields    = hasFeature('doctor_fields');
   const showVisitAnalysis   = hasFeature('visit_analysis_tab');
   const showDoctorsList     = hasFeature('doctors_list_tab');
@@ -413,6 +438,9 @@ export default function DoctorsPage() {
   const [editDocClass, setEditDocClass]           = useState('');
   const [editDocSaving, setEditDocSaving]         = useState(false);
   const [editDocErr, setEditDocErr]               = useState('');
+  // Pharmacy Net comparison
+  const [netPharmacies, setNetPharmacies]         = useState<NetPharm[]>([]);
+  const [pharmComparePopup, setPharmComparePopup] = useState<{ docName: string; pharmName: string; areaName: string | null; exact: NetPharm | null; similar: NetPharm[] } | null>(null);
 
   // Back button: close open modals/panels in priority order
   useBackHandler([
@@ -438,6 +466,7 @@ export default function DoctorsPage() {
     [showNewDocForm,               () => { setShowNewDocForm(false); setNewDocErr(''); }],
     [editDocId !== null,           () => { setEditDocId(null); setEditDocErr(''); }],
     [archiveExpandedAreas.size > 0, () => setArchiveExpandedAreas(new Set())],
+    [pharmComparePopup !== null,    () => setPharmComparePopup(null)],
   ]);
 
   const toggleWish = (id: number, name?: string, extra?: { specialty?: string; pharmacyName?: string; areaName?: string }) => {
@@ -751,6 +780,16 @@ export default function DoctorsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamWishLoaded, teamWishList.length]);
+
+  // Load Pharmacy Net data once for comparison (managers only)
+  useEffect(() => {
+    if (!canSeePharmNet) return;
+    fetch(`${API}/api/pharmacy-analysis/pharmacies`, { headers: H() })
+      .then(r => r.ok ? r.json() : { pharmacies: [] })
+      .then(d => setNetPharmacies(d.pharmacies || []))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, canSeePharmNet]);
 
   const loadPharmVisits = useCallback(async () => {
     setPharmVisitLoading(true);
@@ -2409,6 +2448,21 @@ export default function DoctorsPage() {
                                 )}
                               </div>
                               {doc.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{doc.specialty}</div>}
+                              {doc.pharmacyName && (
+                                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span>🏪 {doc.pharmacyName}</span>
+                                  {canSeePharmNet && (() => {
+                                    const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies);
+                                    const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : similar.length > 0 ? '#6366f1' : '#94a3b8';
+                                    return (
+                                      <button onClick={e => { e.stopPropagation(); setPharmComparePopup({ docName: doc.name, pharmName: doc.pharmacyName!, areaName: doc.area?.name ?? null, exact, similar }); }}
+                                        title="مقارنة بيانات المبيع" style={{ background: 'none', border: `1.5px solid ${c}`, borderRadius: 6, padding: '1px 5px', fontSize: 10, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4 }}>
+                                        📊
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
+                              )}
                             </div>
 
                             {/* Wish button */}
@@ -3168,7 +3222,21 @@ export default function DoctorsPage() {
                                   {/* Specialty + area */}
                                   <div style={{ display: 'flex', gap: 6, marginTop: 2, flexWrap: 'wrap', alignItems: 'center' }}>
                                     {doc.specialty && <span style={{ fontSize: 11, color: '#94a3b8' }}>{doc.specialty}</span>}
-                                    {doc.pharmacyName && <span style={{ fontSize: 11, color: '#94a3b8' }}>· {doc.pharmacyName}</span>}
+                                    {doc.pharmacyName && (
+                                      <>
+                                        <span style={{ fontSize: 11, color: '#94a3b8' }}>· {doc.pharmacyName}</span>
+                                        {canSeePharmNet && (() => {
+                                          const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies);
+                                          const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : similar.length > 0 ? '#6366f1' : '#94a3b8';
+                                          return (
+                                            <button onClick={e => { e.stopPropagation(); setPharmComparePopup({ docName: doc.name, pharmName: doc.pharmacyName!, areaName: doc.areaName ?? null, exact, similar }); }}
+                                              title="مقارنة بيانات المبيع" style={{ background: 'none', border: `1.5px solid ${c}`, borderRadius: 6, padding: '1px 5px', fontSize: 10, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4 }}>
+                                              📊
+                                            </button>
+                                          );
+                                        })()}
+                                      </>
+                                    )}
                                   </div>
 
                                   {/* Toggle buttons row */}
@@ -3912,6 +3980,103 @@ export default function DoctorsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Pharmacy Net Comparison Popup ──────────────────────── */}
+      {pharmComparePopup && canSeePharmNet && (
+        <>
+          <div onClick={() => setPharmComparePopup(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1200 }} />
+          <div onClick={e => e.stopPropagation()}
+            style={{
+              position: 'fixed', top: '50%', left: '50%',
+              transform: 'translate(-50%,-50%)',
+              background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.22)', zIndex: 1201,
+              width: 'min(94vw,420px)', maxHeight: '85vh',
+              display: 'flex', flexDirection: 'column', direction: 'rtl',
+              overflow: 'hidden',
+            }}>
+            {/* Header */}
+            <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>📊 مقارنة بيانات المبيع</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>د. {pharmComparePopup.docName}</div>
+                </div>
+                <button onClick={() => setPharmComparePopup(null)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 22, lineHeight: 1, padding: '0 4px' }}>×</button>
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, background: '#e0f2fe', color: '#0369a1', borderRadius: 6, padding: '2px 8px', fontWeight: 600 }}>
+                  🏪 {pharmComparePopup.pharmName}
+                </span>
+                {pharmComparePopup.areaName && (
+                  <span style={{ fontSize: 11, background: '#f1f5f9', color: '#475569', borderRadius: 6, padding: '2px 8px' }}>
+                    📍 {pharmComparePopup.areaName}
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* Body */}
+            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 16px 16px' }}>
+              {pharmComparePopup.exact ? (
+                <>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontSize: 14 }}>✅</span> تم العثور على الصيدلية في بيانات المبيع
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                    {([
+                      { label: 'عدد الطلبيات', value: String(pharmComparePopup.exact.totalOrders), color: '#6366f1', bg: '#eef2ff' },
+                      { label: 'إجمالي المبيع', value: pharmComparePopup.exact.totalValue > 0 ? `${pharmComparePopup.exact.totalValue.toLocaleString()} د.ع` : '—', color: '#10b981', bg: '#ecfdf5' },
+                      { label: 'إجمالي الارجاع', value: pharmComparePopup.exact.returnsValue > 0 ? `${pharmComparePopup.exact.returnsValue.toLocaleString()} د.ع` : '—', color: '#ef4444', bg: '#fef2f2' },
+                      { label: 'آخر طلبية', value: pharmComparePopup.exact.lastOrder ? fmt(pharmComparePopup.exact.lastOrder) : '—', color: '#f59e0b', bg: '#fffbeb' },
+                    ] as { label: string; value: string; color: string; bg: string }[]).map(card => (
+                      <div key={card.label} style={{ background: card.bg, borderRadius: 10, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 3 }}>{card.label}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: card.color }}>{card.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {pharmComparePopup.exact.areaName && (
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                      📍 المنطقة في ملف المبيع: <strong>{pharmComparePopup.exact.areaName}</strong>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ padding: '12px', background: '#fef3c7', borderRadius: 10, marginBottom: 12, fontSize: 12, color: '#92400e', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                  <span>لم يتم العثور على هذه الصيدلية بشكل مباشر في بيانات المبيع</span>
+                </div>
+              )}
+              {pharmComparePopup.similar.length > 0 && (
+                <div style={{ marginTop: pharmComparePopup.exact ? 4 : 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span>🔍</span> صيدليات مشابهة في الاسم ({pharmComparePopup.similar.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {pharmComparePopup.similar.map((p, i) => (
+                      <div key={i} style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>🏪 {p.name}</div>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          {p.totalValue > 0 && <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>مبيع: {p.totalValue.toLocaleString()} د.ع</span>}
+                          {p.returnsValue > 0 && <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>ارجاع: {p.returnsValue.toLocaleString()} د.ع</span>}
+                          {p.areaName && <span style={{ fontSize: 11, color: '#94a3b8' }}>📍 {p.areaName}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!pharmComparePopup.exact && pharmComparePopup.similar.length === 0 && (
+                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 0', fontSize: 13 }}>
+                  لا توجد بيانات مبيع مرتبطة بهذه الصيدلية
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
