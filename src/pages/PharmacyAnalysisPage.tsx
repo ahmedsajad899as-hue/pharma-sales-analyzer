@@ -124,12 +124,12 @@ export default function PharmacyAnalysisPage() {
 
   // Pre-upload currency selection
   const [pendingFile, setPendingFile]   = useState<File | null>(null);
-  const [preCurrency, setPreCurrency]   = useState<'IQD' | 'USD'>('IQD');
+  const [preCurrency, setPreCurrency]   = useState<'IQD' | 'USD'>('USD');
   const [preRate, setPreRate]           = useState<string>('1470');
 
   const requestUpload = (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { setUploadMsg({ ok: false, text: 'يُسمح فقط بـ Excel أو CSV' }); return; }
-    setPreCurrency('IQD');
+    setPreCurrency('USD');
     setPreRate('1470');
     setPendingFile(file);
   };

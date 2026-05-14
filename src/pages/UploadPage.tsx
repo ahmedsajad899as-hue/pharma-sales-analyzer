@@ -40,7 +40,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   // Pre-upload currency picker
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [preCurrency, setPreCurrency] = useState<'IQD' | 'USD'>('IQD');
+  const [preCurrency, setPreCurrency] = useState<'IQD' | 'USD'>('USD');
   const [uploadResult, setUploadResult] = useState<{
     salesCount?: number;
     returnsCount?: number;
@@ -132,7 +132,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       setError(t.upload.invalidFile);
       return;
     }
-    setPreCurrency('IQD');
+    setPreCurrency('USD');
     setPendingFile(file);
   };
 
