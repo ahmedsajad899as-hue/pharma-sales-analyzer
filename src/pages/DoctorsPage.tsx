@@ -112,6 +112,10 @@ interface NetPharm {
   lastOrder: string | null;
 }
 
+interface PharmOrderEntry { date: string; qty: number; value: number; rep: string; type: string; }
+interface PharmByItem { name: string; orders: PharmOrderEntry[]; totalQty: number; totalValue: number; }
+interface PharmDetailData { byItem: PharmByItem[]; totalOrders: number; }
+
 function normPharm(s: string) {
   return String(s || '').trim()
     .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
@@ -441,6 +445,9 @@ export default function DoctorsPage() {
   // Pharmacy Net comparison
   const [netPharmacies, setNetPharmacies]         = useState<NetPharm[]>([]);
   const [pharmComparePopup, setPharmComparePopup] = useState<{ docName: string; pharmName: string; areaName: string | null; exact: NetPharm | null; similar: NetPharm[] } | null>(null);
+  const [pharmDetail, setPharmDetail]             = useState<PharmDetailData | null>(null);
+  const [pharmDetailLoading, setPharmDetailLoading] = useState(false);
+  const [pharmDetailFor, setPharmDetailFor]       = useState<string | null>(null);
 
   // Back button: close open modals/panels in priority order
   useBackHandler([
@@ -790,6 +797,28 @@ export default function DoctorsPage() {
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, canSeePharmNet]);
+
+  // Load detailed orders (all items + dates) for a specific pharmacy
+  const loadPharmDetail = useCallback(async (pharmName: string) => {
+    setPharmDetailLoading(true);
+    setPharmDetail(null);
+    setPharmDetailFor(pharmName);
+    try {
+      const r = await fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(pharmName)}`, { headers: H() });
+      if (r.ok) setPharmDetail(await r.json());
+    } catch {}
+    finally { setPharmDetailLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // Auto-load detail when popup opens with an exact match
+  useEffect(() => {
+    if (!pharmComparePopup?.exact || !canSeePharmNet) {
+      setPharmDetail(null); setPharmDetailFor(null); return;
+    }
+    loadPharmDetail(pharmComparePopup.exact.name);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmComparePopup?.exact?.name]);
 
   const loadPharmVisits = useCallback(async () => {
     setPharmVisitLoading(true);
@@ -3993,7 +4022,7 @@ export default function DoctorsPage() {
               transform: 'translate(-50%,-50%)',
               background: '#fff', borderRadius: 16, border: '1px solid #e2e8f0',
               boxShadow: '0 16px 48px rgba(0,0,0,0.22)', zIndex: 1201,
-              width: 'min(94vw,420px)', maxHeight: '85vh',
+              width: 'min(94vw,440px)', maxHeight: '85vh',
               display: 'flex', flexDirection: 'column', direction: 'rtl',
               overflow: 'hidden',
             }}>
@@ -4025,6 +4054,7 @@ export default function DoctorsPage() {
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ fontSize: 14 }}>✅</span> تم العثور على الصيدلية في بيانات المبيع
                   </div>
+                  {/* Summary cards */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     {([
                       { label: 'عدد الطلبيات', value: String(pharmComparePopup.exact.totalOrders), color: '#6366f1', bg: '#eef2ff' },
@@ -4039,10 +4069,53 @@ export default function DoctorsPage() {
                     ))}
                   </div>
                   {pharmComparePopup.exact.areaName && (
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>
                       📍 المنطقة في ملف المبيع: <strong>{pharmComparePopup.exact.areaName}</strong>
                     </div>
                   )}
+                  {/* Item breakdown with dates */}
+                  {pharmDetailLoading && pharmDetailFor === pharmComparePopup.exact.name ? (
+                    <div style={{ textAlign: 'center', padding: '16px 0', color: '#94a3b8', fontSize: 12 }}>⏳ جاري تحميل تفاصيل الطلبيات...</div>
+                  ) : pharmDetail && pharmDetailFor === pharmComparePopup.exact.name && pharmDetail.byItem.length > 0 ? (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span>📦</span> تفاصيل الإيتمات والطلبيات
+                      </div>
+                      {pharmDetail.byItem.map((item, idx) => {
+                        const salesOrders   = item.orders.filter(o => o.type !== 'return');
+                        const returnOrders  = item.orders.filter(o => o.type === 'return');
+                        return (
+                          <div key={idx} style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>💊 {item.name}</div>
+                            {salesOrders.length > 0 && (
+                              <div style={{ marginBottom: returnOrders.length > 0 ? 6 : 0 }}>
+                                <div style={{ fontSize: 10, color: '#10b981', fontWeight: 700, marginBottom: 3 }}>مبيع ({salesOrders.length})</div>
+                                {salesOrders.map((o, i) => (
+                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 8px', background: '#ecfdf5', borderRadius: 6, marginBottom: 2 }}>
+                                    <span style={{ color: '#475569' }}>{fmt(o.date)}</span>
+                                    <span style={{ color: '#475569' }}>كمية: {o.qty}</span>
+                                    <span style={{ color: '#10b981', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {returnOrders.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 700, marginBottom: 3 }}>ارجاع ({returnOrders.length})</div>
+                                {returnOrders.map((o, i) => (
+                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 8px', background: '#fef2f2', borderRadius: 6, marginBottom: 2 }}>
+                                    <span style={{ color: '#475569' }}>{fmt(o.date)}</span>
+                                    <span style={{ color: '#475569' }}>كمية: {o.qty}</span>
+                                    <span style={{ color: '#ef4444', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <div style={{ padding: '12px', background: '#fef3c7', borderRadius: 10, marginBottom: 12, fontSize: 12, color: '#92400e', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -4050,20 +4123,65 @@ export default function DoctorsPage() {
                   <span>لم يتم العثور على هذه الصيدلية بشكل مباشر في بيانات المبيع</span>
                 </div>
               )}
+              {/* Similar pharmacies */}
               {pharmComparePopup.similar.length > 0 && (
-                <div style={{ marginTop: pharmComparePopup.exact ? 4 : 0 }}>
+                <div style={{ marginTop: pharmComparePopup.exact ? 8 : 0 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span>🔍</span> صيدليات مشابهة في الاسم ({pharmComparePopup.similar.length})
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {pharmComparePopup.similar.map((p, i) => (
                       <div key={i} style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>🏪 {p.name}</div>
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>🏪 {p.name}</div>
+                          <button onClick={() => loadPharmDetail(p.name)}
+                            style={{ background: pharmDetailFor === p.name ? '#eef2ff' : 'none', border: '1px solid #6366f1', borderRadius: 6, padding: '2px 8px', fontSize: 10, color: '#6366f1', cursor: 'pointer', flexShrink: 0 }}>
+                            {pharmDetailFor === p.name && pharmDetailLoading ? '⏳' : 'تفاصيل'}
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
                           {p.totalValue > 0 && <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>مبيع: {p.totalValue.toLocaleString()} د.ع</span>}
                           {p.returnsValue > 0 && <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>ارجاع: {p.returnsValue.toLocaleString()} د.ع</span>}
                           {p.areaName && <span style={{ fontSize: 11, color: '#94a3b8' }}>📍 {p.areaName}</span>}
                         </div>
+                        {/* Inline detail for this similar pharmacy */}
+                        {pharmDetailFor === p.name && !pharmDetailLoading && pharmDetail && pharmDetail.byItem.length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            {pharmDetail.byItem.map((item, idx) => {
+                              const salesOrders  = item.orders.filter(o => o.type !== 'return');
+                              const returnOrders = item.orders.filter(o => o.type === 'return');
+                              return (
+                                <div key={idx} style={{ background: '#fff', borderRadius: 8, padding: '8px 10px', marginBottom: 6, border: '1px solid #e2e8f0' }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1e293b', marginBottom: 5 }}>💊 {item.name}</div>
+                                  {salesOrders.length > 0 && (
+                                    <div style={{ marginBottom: returnOrders.length > 0 ? 5 : 0 }}>
+                                      <div style={{ fontSize: 10, color: '#10b981', fontWeight: 700, marginBottom: 2 }}>مبيع ({salesOrders.length})</div>
+                                      {salesOrders.map((o, oi) => (
+                                        <div key={oi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 6px', background: '#ecfdf5', borderRadius: 5, marginBottom: 2 }}>
+                                          <span style={{ color: '#475569' }}>{fmt(o.date)}</span>
+                                          <span style={{ color: '#475569' }}>كمية: {o.qty}</span>
+                                          <span style={{ color: '#10b981', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {returnOrders.length > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 700, marginBottom: 2 }}>ارجاع ({returnOrders.length})</div>
+                                      {returnOrders.map((o, oi) => (
+                                        <div key={oi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 6px', background: '#fef2f2', borderRadius: 5, marginBottom: 2 }}>
+                                          <span style={{ color: '#475569' }}>{fmt(o.date)}</span>
+                                          <span style={{ color: '#475569' }}>كمية: {o.qty}</span>
+                                          <span style={{ color: '#ef4444', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
