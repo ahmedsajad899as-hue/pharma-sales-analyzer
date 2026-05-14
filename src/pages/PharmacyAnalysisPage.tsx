@@ -664,10 +664,7 @@ export default function PharmacyAnalysisPage() {
                             <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: 12 }}>{fmtV(totalVal)}</td>
                             <td style={{ ...TD, textAlign: 'center', fontWeight: 800, fontSize: 12 }}>
                               {totalRetQty > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
-                                  <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>{fmt(totalRetQty)}</span>
-                                  <span style={{ color: '#ef4444', fontSize: 10 }}>{fmtV(totalRetVal)}</span>
-                                </div>
+                                <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 12 }}>{fmtV(totalRetVal)}</span>
                               ) : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>}
                             </td>
                             <td colSpan={4} />
