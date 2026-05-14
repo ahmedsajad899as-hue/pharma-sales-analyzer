@@ -32,7 +32,7 @@ const COMPANY_SCOPED_ROLES = new Set([
 ]);
 
 export async function list(filters, user = null, options = {}) {
-  const { standalone = false } = options;
+  const { standalone = false, excludeStandalone = false } = options;
   let whereFilters = { ...filters };
 
   if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
@@ -156,6 +156,11 @@ export async function list(filters, user = null, options = {}) {
     // Also include standalone ScientificRepresentative records created by this user
     // (added manually by the company manager — scoped via userId, not ScientificRepCompany,
     //  because UserCompanyAssignment → ScientificCompany while ScientificRepCompany → Company).
+    // Skipped when excludeStandalone=true (e.g. TargetsPage wants only system users).
+    if (excludeStandalone) {
+      return repsWithIds;
+    }
+
     const userRepIds = new Set(repsWithIds.map(r => r.id));
     const standaloneReps = await prisma.scientificRepresentative.findMany({
       where: {
@@ -429,6 +434,7 @@ export async function getReport(id, query = {}) {
       select: {
         quantity: true, totalValue: true,
         areaId: true, itemId: true,
+        saleDate: true, recordType: true,
         area: { select: { id: true, name: true } },
         item: { select: { id: true, name: true } },
         representative: { select: { id: true, name: true } },
@@ -452,6 +458,7 @@ export async function getReport(id, query = {}) {
         select: {
           quantity: true, totalValue: true,
           areaId: true, itemId: true,
+          saleDate: true, recordType: true,
           area: { select: { id: true, name: true } },
           item: { select: { id: true, name: true } },
           representative: { select: { id: true, name: true } },
@@ -483,6 +490,7 @@ export async function getReport(id, query = {}) {
         select: {
           quantity: true, totalValue: true,
           areaId: true, itemId: true,
+          saleDate: true, recordType: true,
           area: { select: { id: true, name: true } },
           item: { select: { id: true, name: true } },
           representative: { select: { id: true, name: true } },
@@ -491,6 +499,19 @@ export async function getReport(id, query = {}) {
       rawSales = rawSales.concat(legacySales);
     }
   }
+
+  // ── Deduplicate across files: same rep+area+item+date+qty+recordType ──────
+  // When two active files contain overlapping data (e.g. a «كل العراق» file and
+  // a per-region file both carrying the same rows), each row would otherwise be
+  // counted twice.  We drop the second occurrence using a composite key.
+  const _seenSales = new Set();
+  rawSales = rawSales.filter(s => {
+    const dayKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate';
+    const key = `${s.representative.id}|${s.areaId}|${s.itemId}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
+    if (_seenSales.has(key)) return false;
+    _seenSales.add(key);
+    return true;
+  });
 
   const aggregated = aggregateSalesWithReps(rawSales);
   console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);

@@ -19,8 +19,12 @@ export async function listReps(req, res, next) {
     // ?standalone=1 is sent by ScientificRepsPage (تحليل ملفات المندوبين).
     // In standalone mode, return ONLY manually-created records scoped to this
     // user (userId = user.id) — never mix in SA-managed system users.
-    const standalone = req.query.standalone === '1';
-    const reps = await svc.list({}, req.user ?? null, { standalone });
+    // ?excludeStandalone=1 is sent by TargetsPage: return only system users
+    // (created by master/SA, linked to this manager's companies) without
+    // appending the manually-created standalone reps.
+    const standalone        = req.query.standalone        === '1';
+    const excludeStandalone = req.query.excludeStandalone === '1';
+    const reps = await svc.list({}, req.user ?? null, { standalone, excludeStandalone });
     res.json({ success: true, data: reps, total: reps.length });
   } catch (err) { next(err); }
 }

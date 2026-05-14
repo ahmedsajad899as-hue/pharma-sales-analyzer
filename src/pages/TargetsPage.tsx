@@ -38,10 +38,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [broadcasting, setBroadcasting]     = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
 
-  // Load reps — without standalone=1 so system users created by master/super_admin
-  // and linked to this manager's companies are also included.
+  // Load reps — excludeStandalone=1 so only system users created by master/super_admin
+  // and linked to this manager's companies are shown (not manually-created standalone reps).
   useEffect(() => {
-    fetch(`${API}/api/scientific-reps`, { headers: H() })
+    fetch(`${API}/api/scientific-reps?excludeStandalone=1`, { headers: H() })
       .then(r => r.json())
       .then(j => setSciReps(Array.isArray(j) ? j : (j.data ?? [])))
       .catch(() => {});
