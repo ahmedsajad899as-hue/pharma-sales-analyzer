@@ -258,7 +258,8 @@ export async function processUploadedFile(file, options = {}) {
     if (fileType === 'auto') {
       rowRecordType = (forceReturn || rawQty < 0 || rawTotal < 0) ? 'return' : 'sale';
     } else {
-      rowRecordType = fileType === 'returns' ? 'return' : 'sale';
+      // forceReturn is set when the sheet name indicates returns (e.g. "الارجاعات")
+      rowRecordType = (fileType === 'returns' || forceReturn || rawQty < 0 || rawTotal < 0) ? 'return' : 'sale';
     }
 
     const parsed = {
