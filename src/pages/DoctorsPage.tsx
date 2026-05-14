@@ -2509,8 +2509,8 @@ export default function DoctorsPage() {
                           }}>
                             {/* Status dot */}
                             <span style={{
-                              width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
-                              background: doc.isWriting ? '#10b981' : doc.visited ? '#6366f1' : '#d1d5db',
+                              width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                              background: doc.isWriting ? '#6366f1' : doc.visited ? '#94a3b8' : '#e2e8f0',
                             }} />
 
                             {/* Name + specialty */}
@@ -2521,16 +2521,16 @@ export default function DoctorsPage() {
                                 </span>
                                 {doc.isWriting && (
                                   <span style={{
-                                    fontSize: 13, padding: '1px 4px', borderRadius: 8,
-                                    background: '#d1fae5', border: '1px solid #6ee7b7',
-                                    flexShrink: 0, lineHeight: 1,
-                                  }}>✏️</span>
+                                    fontSize: 10, padding: '1px 5px', borderRadius: 4,
+                                    background: '#eef2ff', border: '1px solid #c7d2fe',
+                                    flexShrink: 0, lineHeight: 1.4, color: '#4338ca', fontWeight: 600,
+                                  }}>كتابة</span>
                                 )}
                               </div>
                               {doc.specialty && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{doc.specialty}</div>}
                               {doc.pharmacyName && (
                                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  <span>🏪 {doc.pharmacyName}</span>
+                                  <span>{doc.pharmacyName}</span>
                                   {canSeePharmNet && (() => {
                                     const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies, doc.area?.name);
                                     if (!exact && similar.length === 0) return null;
@@ -3272,8 +3272,8 @@ export default function DoctorsPage() {
                               }}>
                                 {/* Status dot */}
                                 <span style={{
-                                  width: 9, height: 9, borderRadius: '50%', flexShrink: 0, marginTop: 5,
-                                  background: doc.isWriting ? '#10b981' : doc.isVisited ? '#6366f1' : '#d1d5db',
+                                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0, marginTop: 6,
+                                  background: doc.isWriting ? '#6366f1' : doc.isVisited ? '#94a3b8' : '#e2e8f0',
                                 }} />
 
                                 {/* Main info */}
@@ -3282,7 +3282,7 @@ export default function DoctorsPage() {
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{doc.name}</span>
                                     {doc.isWriting && (
-                                      <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 8, background: '#d1fae5', border: '1px solid #6ee7b7', flexShrink: 0, lineHeight: 1 }}>✏️</span>
+                                      <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: '#eef2ff', border: '1px solid #c7d2fe', flexShrink: 0, lineHeight: 1.4, color: '#4338ca', fontWeight: 600 }}>كتابة</span>
                                     )}
                                     {doc.className && (
                                       <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', borderRadius: 6, padding: '1px 7px', fontWeight: 600 }}>{doc.className}</span>
@@ -3343,7 +3343,7 @@ export default function DoctorsPage() {
                                           <span key={i} style={{ background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', borderRadius: 6, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                                             {item}
                                             <button onClick={() => patchArchive(doc, { visitItems: doc.visitItems.filter((_, idx) => idx !== i) })}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6ee7b7', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                                           </span>
                                         ))}
                                         {visitItemInputId === (doc.surveyDoctorId ?? doc.doctorId) ? (
@@ -3356,7 +3356,7 @@ export default function DoctorsPage() {
                                                 } else if (e.key === 'Escape') { setVisitItemInputVal(''); setVisitItemInputId(null); }
                                               }}
                                               onBlur={() => { if (visitItemInputVal.trim()) { patchArchive(doc, { visitItems: [...doc.visitItems, visitItemInputVal.trim()] }); } setVisitItemInputVal(''); setVisitItemInputId(null); }}
-                                              style={{ padding: '3px 9px', borderRadius: 20, border: '1.5px solid #6ee7b7', fontSize: 11, outline: 'none', width: 90, background: '#ecfdf5', color: '#065f46' }}
+                                              style={{ padding: '3px 9px', borderRadius: 6, border: '1px solid #c7d2fe', fontSize: 11, outline: 'none', width: 90, background: '#f8fafc', color: '#334155' }}
                                               placeholder="إيتم..." />
                                             {(() => {
                                               const q = visitItemInputVal.trim().toLowerCase();
@@ -3377,7 +3377,7 @@ export default function DoctorsPage() {
                                           </div>
                                         ) : (
                                           <button onClick={() => setVisitItemInputId(doc.surveyDoctorId ?? doc.doctorId ?? null)}
-                                            style={{ background: 'none', border: '1.5px dashed #6ee7b7', borderRadius: 20, padding: '2px 9px', fontSize: 11, color: '#6ee7b7', cursor: 'pointer' }}>
+                                            style={{ background: 'none', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
                                             +
                                           </button>
                                         )}
@@ -3393,7 +3393,7 @@ export default function DoctorsPage() {
                                           <span key={i} style={{ background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 6, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                                             {item}
                                             <button onClick={() => patchArchive(doc, { writingItems: doc.writingItems.filter((_, idx) => idx !== i) })}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#34d399', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                                           </span>
                                         ))}
                                         {itemInputId === (doc.surveyDoctorId ?? doc.doctorId) ? (
@@ -3406,7 +3406,7 @@ export default function DoctorsPage() {
                                                 } else if (e.key === 'Escape') { setItemInputVal(''); setItemInputId(null); }
                                               }}
                                               onBlur={() => { if (itemInputVal.trim()) { patchArchive(doc, { writingItems: [...doc.writingItems, itemInputVal.trim()] }); } setItemInputVal(''); setItemInputId(null); }}
-                                              style={{ padding: '3px 9px', borderRadius: 20, border: '1.5px solid #34d399', fontSize: 11, outline: 'none', width: 90, background: '#d1fae5', color: '#065f46' }}
+                                              style={{ padding: '3px 9px', borderRadius: 6, border: '1px solid #c7d2fe', fontSize: 11, outline: 'none', width: 90, background: '#f8fafc', color: '#334155' }}
                                               placeholder="إيتم..." />
                                             {(() => {
                                               const q = itemInputVal.trim().toLowerCase();
@@ -3427,7 +3427,7 @@ export default function DoctorsPage() {
                                           </div>
                                         ) : (
                                           <button onClick={() => setItemInputId(doc.surveyDoctorId ?? doc.doctorId ?? null)}
-                                            style={{ background: 'none', border: '1.5px dashed #34d399', borderRadius: 20, padding: '2px 9px', fontSize: 11, color: '#34d399', cursor: 'pointer' }}>
+                                            style={{ background: 'none', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: '#94a3b8', cursor: 'pointer' }}>
                                             +
                                           </button>
                                         )}
@@ -3449,8 +3449,8 @@ export default function DoctorsPage() {
                                     </div>
                                   ) : doc.notes ? (
                                     <div onClick={() => { setNotesEditId(doc.surveyDoctorId ?? doc.doctorId ?? null); setNotesEditVal(doc.notes ?? ''); }}
-                                      style={{ marginTop: 6, fontSize: 11, color: '#64748b', background: '#fafafa', padding: '4px 10px', borderRadius: 20, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid #e2e8f0' }}>
-                                      📝 {doc.notes}
+                                      style={{ marginTop: 5, fontSize: 11, color: '#64748b', background: '#f8fafc', padding: '3px 8px', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid #e2e8f0' }}>
+                                      {doc.notes}
                                     </div>
                                   ) : (
                                     <button onClick={() => { setNotesEditId(doc.surveyDoctorId ?? doc.doctorId ?? null); setNotesEditVal(''); }}
@@ -3465,21 +3465,21 @@ export default function DoctorsPage() {
                                   <button onClick={() => toggleArchiveStar(doc.surveyDoctorId)} title={archiveStarred.has(doc.surveyDoctorId) ? 'إزالة من البلان' : 'أضف للبلان'}
                                     style={{
                                       background: archiveStarred.has(doc.surveyDoctorId) ? '#fef9c3' : 'transparent',
-                                      border: `1.5px solid ${archiveStarred.has(doc.surveyDoctorId) ? '#fbbf24' : '#e2e8f0'}`,
-                                      borderRadius: 8, width: 32, height: 32, cursor: 'pointer', fontSize: 18,
+                                      border: `1px solid ${archiveStarred.has(doc.surveyDoctorId) ? '#f59e0b' : '#e2e8f0'}`,
+                                      borderRadius: 6, width: 28, height: 28, cursor: 'pointer', fontSize: 14,
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      color: archiveStarred.has(doc.surveyDoctorId) ? '#d97706' : '#cbd5e1',
+                                      color: archiveStarred.has(doc.surveyDoctorId) ? '#d97706' : '#d1d5db',
                                       transition: 'all .15s', padding: 0,
                                     }}>
                                     {archiveStarred.has(doc.surveyDoctorId) ? '★' : '☆'}
                                   </button>
                                   <button onClick={() => openEditDoc(doc)} title="تعديل"
-                                    style={{ background: 'transparent', border: '1.5px solid #e2e8f0', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
-                                    ✏️
+                                    style={{ background: 'transparent', border: '1px solid #e2e8f0', borderRadius: 6, width: 28, height: 28, fontSize: 13, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
+                                    ✎
                                   </button>
                                   <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة"
-                                    style={{ background: 'transparent', border: '1.5px solid #fecaca', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
-                                    🗑
+                                    style={{ background: 'transparent', border: '1px solid #e2e8f0', borderRadius: 6, width: 28, height: 28, fontSize: 13, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
+                                    ×
                                   </button>
                                 </div>
                               </div>
