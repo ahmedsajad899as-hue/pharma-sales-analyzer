@@ -109,7 +109,7 @@ export default function PharmacyAnalysisPage() {
   // cv: convert IQD value for display
   const cv = (v: number) => dispCurrency === 'USD' ? v / dispRate : v;
   const fmtV = (v: number) => dispCurrency === 'USD'
-    ? (v / dispRate).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+    ? (v / dispRate).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
     : fmt(Math.round(v));
   const currLabel = dispCurrency === 'IQD' ? 'د.ع' : '$';
 
@@ -660,7 +660,7 @@ export default function PharmacyAnalysisPage() {
                         const totalRetVal = g.rows.reduce((s, p) => s + p.returnsValue, 0);
                         return (
                           <tr key={`gs-${g.key}`} style={{ background: '#eef2ff', borderTop: '2px solid #c7d2fe' }}>
-                            <td colSpan={5} style={{ padding: '5px 12px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#4338ca' }}>إجمالي {g.label}</td>
+                            <td colSpan={5} style={{ padding: '5px 12px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#4338ca' }}>الإجمالي</td>
                             <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: 12 }}>{fmtV(totalVal)}</td>
                             <td style={{ ...TD, textAlign: 'center', fontWeight: 800, fontSize: 12 }}>
                               {totalRetQty > 0 ? (
