@@ -1782,63 +1782,38 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
         return (
           <>
-            {/* ── KPI Summary Cards ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginTop: 8, marginBottom: 4 }}>
-              {/* كمية المبيع */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #10b981' }}>
-                <div style={{ background: '#d1fae5', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📈</div>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: '#065f46', lineHeight: 1.1 }}>{fmt(salesQ)}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>كمية المبيع</div>
-                  {overallSales.recordCount != null && <div style={{ fontSize: 10, color: '#9ca3af' }}>{overallSales.recordCount.toLocaleString()} سجل</div>}
-                </div>
+            {/* ── KPI Summary ── */}
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginTop: 8, marginBottom: 8 }}>
+              {/* Header row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#374151', borderLeft: '1px solid #e2e8f0' }}></div>
+                <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#374151', borderLeft: '1px solid #e2e8f0' }}>الكمية</div>
+                <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#374151' }}>القيمة</div>
               </div>
-              {/* كمية الارجاع */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #ef4444' }}>
-                <div style={{ background: '#fee2e2', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📉</div>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: '#991b1b', lineHeight: 1.1 }}>{fmt(retQ)}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>كمية الارجاع</div>
-                </div>
+              {/* مبيع */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ padding: '11px 14px', fontSize: 12, fontWeight: 600, color: '#374151', borderLeft: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>مبيع</div>
+                <div style={{ padding: '11px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, color: '#1e293b', borderLeft: '1px solid #f1f5f9' }}>{fmt(salesQ)}</div>
+                <div style={{ padding: '11px 0', textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{fmtVal(salesV)}</div>
               </div>
-              {/* قيمة المبيع */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #f59e0b' }}>
-                <div style={{ background: '#fffbeb', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>💰</div>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#92400e', lineHeight: 1.1 }}>{fmtVal(salesV)}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>قيمة المبيع</div>
-                </div>
+              {/* ارجاع */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ padding: '11px 14px', fontSize: 12, fontWeight: 600, color: '#374151', borderLeft: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>ارجاع</div>
+                <div style={{ padding: '11px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, color: '#dc2626', borderLeft: '1px solid #f1f5f9' }}>{fmt(retQ)}</div>
+                <div style={{ padding: '11px 0', textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#dc2626' }}>{fmtVal(retV)}</div>
               </div>
-              {/* قيمة الارجاع */}
-              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 1px 4px rgba(0,0,0,.04)', borderTop: '3px solid #ef4444' }}>
-                <div style={{ background: '#fee2e2', borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>💸</div>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#991b1b', lineHeight: 1.1 }}>{fmtVal(retV)}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>قيمة الارجاع</div>
-                </div>
+              {/* نت */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', background: '#f8fafc' }}>
+                <div style={{ padding: '11px 14px', fontSize: 12, fontWeight: 600, color: '#374151', borderLeft: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>نت</div>
+                <div style={{ padding: '11px 0', textAlign: 'center', fontSize: 15, fontWeight: 800, color: netQ >= 0 ? '#065f46' : '#991b1b', borderLeft: '1px solid #e2e8f0' }}>{fmt(netQ)}</div>
+                <div style={{ padding: '11px 0', textAlign: 'center', fontSize: 14, fontWeight: 700, color: netV >= 0 ? '#065f46' : '#991b1b' }}>{fmtVal(netV)}</div>
               </div>
-            </div>
-
-            {/* صافي — full width highlight card */}
-            <div style={{ background: netQ >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netQ >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-              <div style={{ background: netQ >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netQ >= 0 ? '✅' : '⚠️'}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: netQ >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtSigned(netQ)}</div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>صافي الكميات</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: netV >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netV)}</div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{currStatNet}</div>
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>نسبة الارجاع</div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: salesQ > 0 ? (retQ / salesQ > 0.2 ? '#dc2626' : '#b45309') : '#94a3b8' }}>
+              {/* نسبة الارجاع */}
+              <div style={{ borderTop: '1px solid #e2e8f0', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff' }}>
+                <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>نسبة الارجاع</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: salesQ > 0 ? (retQ / salesQ > 0.2 ? '#dc2626' : '#374151') : '#9ca3af' }}>
                   {salesQ > 0 ? `${Math.round((retQ / salesQ) * 100)}%` : '—'}
-                </div>
+                </span>
               </div>
             </div>
 
