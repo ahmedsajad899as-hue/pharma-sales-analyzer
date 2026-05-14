@@ -1412,21 +1412,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       </div>
 
       {/* Mode toggle */}
-      <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
-        {([['overall','📊','تحليل شامل'], ['scientific','🔬',t.reports.modeScientific], ['commercial','💰',t.reports.modeCommercial]] as [string,string,string][]).map(([id, icon, label]) => (
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
+        {([['overall','تحليل شامل'], ['scientific',t.reports.modeScientific], ['commercial',t.reports.modeCommercial]] as [string,string][]).map(([id, label]) => (
           <button key={id} onClick={() => {
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); }
             if (id === 'scientific') { setMode('scientific'); setError(''); setSciReport(null); }
             if (id === 'commercial') { setMode('commercial'); setError(''); setCommReport(null); }
           }} style={{
-            padding: '9px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
-            background: mode === id ? '#fff' : 'transparent',
-            color: mode === id ? '#1e40af' : '#6b7280',
-            fontWeight: mode === id ? 700 : 500, fontSize: 14,
-            borderBottom: mode === id ? '2px solid #1e40af' : '2px solid transparent',
-            marginBottom: -2, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', border: 'none', borderRadius: '4px 4px 0 0', cursor: 'pointer',
+            background: 'transparent',
+            color: mode === id ? '#111827' : '#6b7280',
+            fontWeight: mode === id ? 700 : 400, fontSize: 13,
+            borderBottom: mode === id ? '2px solid #111827' : '2px solid transparent',
+            marginBottom: -1,
           }}>
-            <span>{icon}</span><span>{label}</span>
+            {label}
           </button>
         ))}
       </div>
@@ -1435,7 +1435,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       <div className="filter-card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
 
-          {/* Rep selector — hidden in overall mode */}
+          {/* Rep / file selector */}
           {mode === 'commercial' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
               onChange={e => { setCommRepId(e.target.value); if (e.target.value) loadCommReport(e.target.value); }}>
@@ -1449,10 +1449,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : (
-            /* Overall mode: file selector */
-            <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 340 }} value={overallFileId}
+            <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 360 }} value={overallFileId}
               onChange={e => { setOverallFileId(e.target.value); setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate(''); }}>
-              <option value="">-- اختر ملف للتحليل --</option>
+              <option value="">-- اختر ملف --</option>
               {availableFiles.map(f => (
                 <option key={f.id} value={f.id}>
                   {f.filename}{f.rowCount != null ? ` (صفوف: ${f.rowCount.toLocaleString()})` : ''}{f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
@@ -1461,66 +1460,35 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </select>
           )}
 
-          {/* Combined date range block — icon only, hidden inputs */}
-          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-            <label
-              title={fromDate && toDate ? `${fromDate} → ${toDate}` : fromDate ? `من ${fromDate}` : toDate ? `إلى ${toDate}` : `${t.reports.fromDate} / ${t.reports.toDate}`}
-              style={{
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                background: (fromDate || toDate) ? '#6366f1' : '#f1f5f9',
-                border: `1.5px solid ${(fromDate || toDate) ? '#6366f1' : '#e2e8f0'}`,
-                boxShadow: (fromDate || toDate) ? '0 2px 8px #6366f144' : 'none',
-                fontSize: 20, transition: 'all 0.2s',
-              }}
-            >
-              📅
-              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-            </label>
+          {/* Date range */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <label style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>من</label>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+              className="form-input"
+              style={{ padding: '6px 8px', fontSize: 13, width: 130 }} />
+            <label style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>إلى</label>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+              className="form-input"
+              style={{ padding: '6px 8px', fontSize: 13, width: 130 }} />
             {(fromDate || toDate) && (
-              <span onClick={() => { setFromDate(''); setToDate(''); }}
-                style={{
-                  position: 'absolute', top: -6, right: -6,
-                  width: 16, height: 16, borderRadius: '50%',
-                  background: '#ef4444', color: '#fff', fontSize: 10,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', fontWeight: 700, lineHeight: 1,
-                }}>✕</span>
+              <button onClick={() => { setFromDate(''); setToDate(''); }}
+                style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: '#6b7280', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                مسح
+              </button>
             )}
           </div>
-          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-            <label
-              title={toDate || t.reports.toDate}
-              style={{
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                background: toDate ? '#6366f1' : '#f1f5f9',
-                border: `1.5px solid ${toDate ? '#6366f1' : '#e2e8f0'}`,
-                boxShadow: toDate ? '0 2px 8px #6366f144' : 'none',
-                fontSize: 20, transition: 'all 0.2s',
-              }}
-            >
-              📅
-              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-                style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
-            </label>
-          </div>
 
-          {/* Generate icon button */}
+          {/* Generate button */}
           <button
-            title={t.reports.generate}
             onClick={() => mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport()}
             disabled={loading}
             style={{
-              width: 40, height: 40, borderRadius: 10, border: 'none', flexShrink: 0,
-              background: loading ? '#a5b4fc' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-              color: '#fff', fontSize: 20, cursor: loading ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px #6366f144', opacity: loading ? 0.7 : 1,
+              padding: '7px 18px', border: '1px solid #374151', borderRadius: 6, flexShrink: 0,
+              background: '#fff', color: '#111827', fontSize: 13, fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
             }}
           >
-            {loading ? '⏳' : '🔍'}
+            {loading ? 'جاري...' : 'تحليل'}
           </button>
 
         </div>
