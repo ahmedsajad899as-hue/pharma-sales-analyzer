@@ -152,6 +152,26 @@ function getAreaPharmStats(
   return { total: names.length, withSales, withReturnsOnly, noData };
 }
 
+// O(1) lookup version — uses a pre-normalised Map instead of scanning the array
+function getAreaPharmStatsFast(
+  doctors: Array<{ pharmacyName?: string | null }>,
+  normMap: Map<string, NetPharm>
+): { total: number; withSales: string[]; withReturnsOnly: string[]; noData: string[] } {
+  const names = [...new Set(
+    doctors.map(d => d.pharmacyName?.trim()).filter((n): n is string => Boolean(n))
+  )];
+  const withSales: string[] = [];
+  const withReturnsOnly: string[] = [];
+  const noData: string[] = [];
+  for (const name of names) {
+    const exact = normMap.get(normPharm(name)) ?? null;
+    if (exact && exact.totalValue > 0) withSales.push(name);
+    else if (exact) withReturnsOnly.push(name);
+    else noData.push(name);
+  }
+  return { total: names.length, withSales, withReturnsOnly, noData };
+}
+
 export default function DoctorsPage() {
   const { token, user, hasFeature } = useAuth();
   const isCommercialRep = user?.role === 'commercial_rep';
@@ -1264,6 +1284,29 @@ export default function DoctorsPage() {
     () => doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean) as string[],
     [doctors]
   );
+
+  // Fast normalised lookup map for pharmacy net — rebuilt only when netPharmacies changes
+  const netPharmNormMap = useMemo(() => {
+    const m = new Map<string, NetPharm>();
+    for (const p of netPharmacies) m.set(normPharm(p.name), p);
+    return m;
+  }, [netPharmacies]);
+
+  // Precomputed area stats for visits tab — rebuilt only when areas or net data changes
+  const visitAreaStatsMap = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof getAreaPharmStatsFast>>();
+    if (!canSeePharmNet || netPharmNormMap.size === 0) return m;
+    for (const area of visitAreas) m.set(area.name, getAreaPharmStatsFast(area.doctors, netPharmNormMap));
+    return m;
+  }, [visitAreas, netPharmNormMap, canSeePharmNet]);
+
+  // Precomputed area stats for archive tab
+  const archiveAreaStatsMap = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof getAreaPharmStatsFast>>();
+    if (!canSeePharmNet || netPharmNormMap.size === 0) return m;
+    for (const area of archiveAreas) m.set(area.name, getAreaPharmStatsFast(area.doctors, netPharmNormMap));
+    return m;
+  }, [archiveAreas, netPharmNormMap, canSeePharmNet]);
 
   // Suggestions for archive item inputs = system items + all previously entered archive items
   const archiveItemSuggestions = useMemo(() => {
@@ -2433,10 +2476,10 @@ export default function DoctorsPage() {
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px' }}>
                         🔲 {area.totalDoctors - area.visitedCount} لم يُزار
                       </span>
-                      {/* Pharmacy net stats badge — managers only */}
-                      {canSeePharmNet && netPharmacies.length > 0 && (() => {
-                        const stats = getAreaPharmStats(area.doctors, netPharmacies);
-                        if (stats.total === 0) return null;
+                      {/* Pharmacy net stats badge — managers only (uses precomputed map) */}
+                      {canSeePharmNet && (() => {
+                        const stats = visitAreaStatsMap.get(area.name);
+                        if (!stats || stats.total === 0) return null;
                         const pctSales = Math.round(stats.withSales.length / stats.total * 100);
                         const bc = pctSales >= 80 ? '#10b981' : pctSales >= 50 ? '#f59e0b' : '#ef4444';
                         return (
@@ -3225,10 +3268,10 @@ export default function DoctorsPage() {
                                 🔲 {area.doctors.length - visitedCount} لم يُزار
                               </span>
                             )}
-                            {/* Pharmacy net stats badge — managers only */}
-                            {canSeePharmNet && netPharmacies.length > 0 && (() => {
-                              const stats = getAreaPharmStats(area.doctors, netPharmacies);
-                              if (stats.total === 0) return null;
+                            {/* Pharmacy net stats badge — managers only (uses precomputed map) */}
+                            {canSeePharmNet && (() => {
+                              const stats = archiveAreaStatsMap.get(area.name);
+                              if (!stats || stats.total === 0) return null;
                               const pctSales = Math.round(stats.withSales.length / stats.total * 100);
                               const bc = pctSales >= 80 ? '#10b981' : pctSales >= 50 ? '#f59e0b' : '#ef4444';
                               return (
