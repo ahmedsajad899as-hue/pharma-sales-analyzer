@@ -123,10 +123,14 @@ function normPharm(s: string) {
     .replace(/\s+/g, ' ').toLowerCase();
 }
 
-function findNetMatches(pharmName: string, list: NetPharm[]): { exact: NetPharm | null; similar: NetPharm[] } {
+function findNetMatches(pharmName: string, list: NetPharm[], areaName?: string | null): { exact: NetPharm | null; similar: NetPharm[] } {
   const q = normPharm(pharmName);
   const exact = list.find(p => normPharm(p.name) === q) ?? null;
-  const similar = list.filter(p => {
+  // When areaName provided, restrict similar matches to that area only
+  const pool = areaName
+    ? list.filter(p => normPharm(p.areaName) === normPharm(areaName))
+    : list;
+  const similar = pool.filter(p => {
     const n = normPharm(p.name);
     return n !== q && (n.includes(q) || q.includes(n));
   }).slice(0, 6);
@@ -2542,7 +2546,7 @@ export default function DoctorsPage() {
                                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
                                   <span>🏪 {doc.pharmacyName}</span>
                                   {canSeePharmNet && (() => {
-                                    const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies);
+                                    const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies, doc.area?.name);
                                     if (!exact && similar.length === 0) return null;
                                     const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : '#6366f1';
                                     return (
@@ -3331,7 +3335,7 @@ export default function DoctorsPage() {
                                       <>
                                         <span style={{ fontSize: 11, color: '#94a3b8' }}>· {doc.pharmacyName}</span>
                                         {canSeePharmNet && (() => {
-                                          const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies);
+                                          const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies, doc.areaName);
                                           if (!exact && similar.length === 0) return null;
                                           const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : '#6366f1';
                                           return (
