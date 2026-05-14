@@ -790,24 +790,7 @@ export default function DoctorsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isFieldRep]);
 
-  // Auto-open the team wishlist panel for managers + expand all reps automatically
-  useEffect(() => {
-    if (activeTab !== 'visits' || isFieldRep) return;
-    if (teamWishLoaded && teamWishList.length > 0) {
-      setTeamWishPanelOpen(true);
-      // Auto-open each rep card so manager sees all doctors at once
-      setRepWishlists(prev => {
-        const next = { ...prev };
-        for (const t of teamWishList) {
-          if (t.wishlist.length > 0 && !next[t.rep.id]?.open) {
-            next[t.rep.id] = { rep: t.rep, wishlist: t.wishlist, loading: false, open: true, openDetails: next[t.rep.id]?.openDetails ?? new Set() };
-          }
-        }
-        return next;
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamWishLoaded, teamWishList.length]);
+  // (auto-open removed — panel is collapsed by default, user must click to open)
 
   // Load Pharmacy Net data once for comparison (managers only)
   useEffect(() => {
