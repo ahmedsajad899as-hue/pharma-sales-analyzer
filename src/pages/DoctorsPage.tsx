@@ -2543,7 +2543,8 @@ export default function DoctorsPage() {
                                   <span>🏪 {doc.pharmacyName}</span>
                                   {canSeePharmNet && (() => {
                                     const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies);
-                                    const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : similar.length > 0 ? '#6366f1' : '#94a3b8';
+                                    if (!exact && similar.length === 0) return null;
+                                    const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : '#6366f1';
                                     return (
                                       <button onClick={e => { e.stopPropagation(); setPharmComparePopup({ docName: doc.name, pharmName: doc.pharmacyName!, areaName: doc.area?.name ?? null, exact, similar }); }}
                                         title="مقارنة بيانات المبيع" style={{ background: `${c}26`, border: `2px solid ${c}`, borderRadius: 7, padding: '2px 7px', fontSize: 11, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4, fontWeight: 700 }}>
@@ -3331,7 +3332,8 @@ export default function DoctorsPage() {
                                         <span style={{ fontSize: 11, color: '#94a3b8' }}>· {doc.pharmacyName}</span>
                                         {canSeePharmNet && (() => {
                                           const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies);
-                                          const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : similar.length > 0 ? '#6366f1' : '#94a3b8';
+                                          if (!exact && similar.length === 0) return null;
+                                          const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : '#6366f1';
                                           return (
                                             <button onClick={e => { e.stopPropagation(); setPharmComparePopup({ docName: doc.name, pharmName: doc.pharmacyName!, areaName: doc.areaName ?? null, exact, similar }); }}
                                               title="مقارنة بيانات المبيع" style={{ background: `${c}26`, border: `2px solid ${c}`, borderRadius: 7, padding: '2px 7px', fontSize: 11, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4, fontWeight: 700 }}>
