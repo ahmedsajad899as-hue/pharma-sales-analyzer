@@ -653,6 +653,27 @@ export default function PharmacyAnalysisPage() {
                           </>
                         );
                       })}
+                      {/* Group summary row */}
+                      {!collapsedGroups.has(g.key) && groupBy !== 'none' && (() => {
+                        const totalVal    = g.rows.reduce((s, p) => s + p.totalValue,   0);
+                        const totalRetQty = g.rows.reduce((s, p) => s + p.returnsQty,   0);
+                        const totalRetVal = g.rows.reduce((s, p) => s + p.returnsValue, 0);
+                        return (
+                          <tr key={`gs-${g.key}`} style={{ background: '#eef2ff', borderTop: '2px solid #c7d2fe' }}>
+                            <td colSpan={5} style={{ padding: '5px 12px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#4338ca' }}>إجمالي {g.label}</td>
+                            <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: 12 }}>{fmtV(totalVal)}</td>
+                            <td style={{ ...TD, textAlign: 'center', fontWeight: 800, fontSize: 12 }}>
+                              {totalRetQty > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
+                                  <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>{fmt(totalRetQty)}</span>
+                                  <span style={{ color: '#ef4444', fontSize: 10 }}>{fmtV(totalRetVal)}</span>
+                                </div>
+                              ) : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>}
+                            </td>
+                            <td colSpan={4} />
+                          </tr>
+                        );
+                      })()}
                     </>
                   ))}
                   {pharmacies.length === 0 && (

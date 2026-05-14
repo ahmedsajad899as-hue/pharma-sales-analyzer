@@ -134,7 +134,7 @@ export async function listPharmacies(req, res, next) {
       firstOrder:    p.firstOrder,
       lastOrder:     p.lastOrder,
       itemCount:     p.items.size,
-      daysSinceLast: p.lastOrder ? Math.floor((now - new Date(p.lastOrder).getTime()) / 86400000) : 9999,
+      daysSinceLast: p.firstOrder ? Math.floor((now - new Date(p.firstOrder).getTime()) / 86400000) : 9999,
       topItems: [...p.items.entries()]
         .sort((a, b) => b[1].qty - a[1].qty)
         .slice(0, 5)
