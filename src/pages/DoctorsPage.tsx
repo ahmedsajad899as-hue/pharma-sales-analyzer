@@ -2449,65 +2449,39 @@ export default function DoctorsPage() {
               }}>
                 {/* Area header */}
                 <button onClick={() => toggleArea(key)} style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: 14,
-                  padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer',
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '11px 16px', background: '#f8fafc', border: 'none', cursor: 'pointer',
                   textAlign: 'right', direction: 'rtl',
                 }}>
-                  {/* Progress ring placeholder — use bar */}
-                  <div style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
-                    <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
-                      <circle cx="22" cy="22" r="18" fill="none" stroke="#e2e8f0" strokeWidth="4" />
-                      <circle cx="22" cy="22" r="18" fill="none"
-                        stroke={pct >= 80 ? '#10b981' : pct >= 50 ? '#6366f1' : '#f59e0b'}
-                        strokeWidth="4"
-                        strokeDasharray={`${2 * Math.PI * 18}`}
-                        strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
-                        strokeLinecap="round" />
-                    </svg>
-                    <span style={{
-                      position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', fontSize: 10, fontWeight: 700,
-                      color: pct >= 80 ? '#065f46' : pct >= 50 ? '#4338ca' : '#92400e',
-                    }}>{pct}%</span>
-                  </div>
-
                   <div style={{ flex: 1, textAlign: 'right' }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{area.name}</div>
-                    <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {/* total */}
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#64748b', background: '#f1f5f9', borderRadius: 20, padding: '2px 9px' }}>
-                        👥 {area.totalDoctors} طبيب
-                      </span>
-                      {/* visited → writing pill */}
-                      <span style={{ display: 'inline-flex', alignItems: 'center', background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 20, overflow: 'hidden', fontSize: 12 }}>
-                        <span style={{ padding: '2px 9px', color: '#065f46', fontWeight: 700 }}>{area.visitedCount} ✅</span>
-                        {area.writingCount > 0 && (
-                          <>
-                            <span style={{ color: '#34d399', fontSize: 11, padding: '0 2px' }}>←</span>
-                            <span style={{ padding: '2px 9px', color: '#0d9488', fontWeight: 700, borderRight: '1px solid #6ee7b7' }}>{area.writingCount} ✏️</span>
-                          </>
-                        )}
-                      </span>
-                      {/* not visited */}
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px' }}>
-                        🔲 {area.totalDoctors - area.visitedCount} لم يُزار
-                      </span>
-                      {/* Pharmacy net stats badge — managers only (uses precomputed map) */}
-                      {canSeePharmNet && (() => {
-                        const stats = visitAreaStatsMap.get(area.name);
-                        if (!stats || stats.total === 0) return null;
-                        const pctSales = Math.round(stats.withSales.length / stats.total * 100);
-                        const bc = pctSales >= 80 ? '#10b981' : pctSales >= 50 ? '#f59e0b' : '#ef4444';
-                        return (
-                          <button onClick={e => { e.stopPropagation(); setAreaStatsPopup({ areaName: area.name, ...stats }); }}
-                            title="إحصائية الصيدليات"
-                            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: bc, background: `${bc}20`, border: `1.5px solid ${bc}`, borderRadius: 20, padding: '2px 9px', cursor: 'pointer', fontWeight: 700, flexShrink: 0 }}>
-                            🏪 {stats.withSales.length}/{stats.total}
-                          </button>
-                        );
-                      })()}
-                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{area.name}</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginRight: 10 }}>
+                      {area.totalDoctors} طبيب
+                      {area.visitedCount > 0 && ` · ${area.visitedCount} زيارة`}
+                      {area.writingCount > 0 && ` · ${area.writingCount} كتابة`}
+                      {(area.totalDoctors - area.visitedCount) > 0 && ` · ${area.totalDoctors - area.visitedCount} لم يُزار`}
+                    </span>
                   </div>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    color: pct >= 80 ? '#059669' : pct >= 50 ? '#4338ca' : '#92400e',
+                    background: pct >= 80 ? '#ecfdf5' : pct >= 50 ? '#eef2ff' : '#fef3c7',
+                    border: `1px solid ${pct >= 80 ? '#6ee7b7' : pct >= 50 ? '#c7d2fe' : '#fde68a'}`,
+                    borderRadius: 6, padding: '2px 8px', flexShrink: 0,
+                  }}>{pct}%</span>
+                  {canSeePharmNet && (() => {
+                    const stats = visitAreaStatsMap.get(area.name);
+                    if (!stats || stats.total === 0) return null;
+                    const pctSales = Math.round(stats.withSales.length / stats.total * 100);
+                    const bc = pctSales >= 80 ? '#059669' : pctSales >= 50 ? '#92400e' : '#dc2626';
+                    return (
+                      <button onClick={e => { e.stopPropagation(); setAreaStatsPopup({ areaName: area.name, ...stats }); }}
+                        title="إحصائية الصيدليات"
+                        style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: bc, background: `${bc}14`, border: `1px solid ${bc}50`, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontWeight: 700, flexShrink: 0 }}>
+                        {stats.withSales.length}/{stats.total} ص
+                      </button>
+                    );
+                  })()}
 
                   <span style={{ fontSize: 18, color: '#94a3b8', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
                     ▾
@@ -3244,71 +3218,45 @@ export default function DoctorsPage() {
                       background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
                       overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
                     }}>
-                      {/* Area header — matches visits tab style */}
+                      {/* Area header — formal/clean */}
                       <button onClick={() => setArchiveExpandedAreas(prev => { const s = new Set(prev); s.has(area.name) ? s.delete(area.name) : s.add(area.name); return s; })}
-                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'right', direction: 'rtl' }}>
-                        {/* Progress ring */}
-                        <div style={{ position: 'relative', width: 44, height: 44, flexShrink: 0 }}>
-                          <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
-                            <circle cx="22" cy="22" r="18" fill="none" stroke="#e2e8f0" strokeWidth="4" />
-                            <circle cx="22" cy="22" r="18" fill="none"
-                              stroke={pct >= 80 ? '#10b981' : pct >= 50 ? '#6366f1' : '#f59e0b'}
-                              strokeWidth="4"
-                              strokeDasharray={`${2 * Math.PI * 18}`}
-                              strokeDashoffset={`${2 * Math.PI * 18 * (1 - pct / 100)}`}
-                              strokeLinecap="round" />
-                          </svg>
-                          <span style={{
-                            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                            justifyContent: 'center', fontSize: 10, fontWeight: 700,
-                            color: pct >= 80 ? '#065f46' : pct >= 50 ? '#4338ca' : '#92400e',
-                          }}>{pct}%</span>
-                        </div>
-
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', background: '#f8fafc', border: 'none', cursor: 'pointer', textAlign: 'right', direction: 'rtl' }}>
                         <div style={{ flex: 1, textAlign: 'right' }}>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{area.name}</div>
-                          <div style={{ display: 'flex', gap: 8, marginTop: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#64748b', background: '#f1f5f9', borderRadius: 20, padding: '2px 9px' }}>
-                              👥 {area.doctors.length} طبيب
-                            </span>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 20, overflow: 'hidden', fontSize: 12 }}>
-                              <span style={{ padding: '2px 9px', color: '#065f46', fontWeight: 700 }}>{visitedCount} ✅</span>
-                              {writingCount > 0 && (
-                                <>
-                                  <span style={{ color: '#34d399', fontSize: 11, padding: '0 2px' }}>←</span>
-                                  <span style={{ padding: '2px 9px', color: '#0d9488', fontWeight: 700, borderRight: '1px solid #6ee7b7' }}>{writingCount} ✏️</span>
-                                </>
-                              )}
-                            </span>
-                            {area.doctors.length - visitedCount > 0 && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px' }}>
-                                🔲 {area.doctors.length - visitedCount} لم يُزار
-                              </span>
-                            )}
-                            {/* Pharmacy net stats badge — managers only (uses precomputed map) */}
-                            {canSeePharmNet && (() => {
-                              const stats = archiveAreaStatsMap.get(area.name);
-                              if (!stats || stats.total === 0) return null;
-                              const pctSales = Math.round(stats.withSales.length / stats.total * 100);
-                              const bc = pctSales >= 80 ? '#10b981' : pctSales >= 50 ? '#f59e0b' : '#ef4444';
-                              return (
-                                <button onClick={e => { e.stopPropagation(); setAreaStatsPopup({ areaName: area.name, ...stats }); }}
-                                  title="إحصائية الصيدليات"
-                                  style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: bc, background: `${bc}20`, border: `1.5px solid ${bc}`, borderRadius: 20, padding: '2px 9px', cursor: 'pointer', fontWeight: 700, flexShrink: 0 }}>
-                                  🏪 {stats.withSales.length}/{stats.total}
-                                </button>
-                              );
-                            })()}
-                          </div>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{area.name}</span>
+                          <span style={{ fontSize: 12, color: '#64748b', marginRight: 10 }}>
+                            {area.doctors.length} طبيب
+                            {visitedCount > 0 && ` · ${visitedCount} زيارة`}
+                            {writingCount > 0 && ` · ${writingCount} كتابة`}
+                            {(area.doctors.length - visitedCount) > 0 && ` · ${area.doctors.length - visitedCount} لم يُزار`}
+                          </span>
                         </div>
-
+                        <span style={{
+                          fontSize: 11, fontWeight: 700,
+                          color: pct >= 80 ? '#059669' : pct >= 50 ? '#4338ca' : '#92400e',
+                          background: pct >= 80 ? '#ecfdf5' : pct >= 50 ? '#eef2ff' : '#fef3c7',
+                          border: `1px solid ${pct >= 80 ? '#6ee7b7' : pct >= 50 ? '#c7d2fe' : '#fde68a'}`,
+                          borderRadius: 6, padding: '2px 8px', flexShrink: 0,
+                        }}>{pct}%</span>
+                        {canSeePharmNet && (() => {
+                          const stats = archiveAreaStatsMap.get(area.name);
+                          if (!stats || stats.total === 0) return null;
+                          const pctSales = Math.round(stats.withSales.length / stats.total * 100);
+                          const bc = pctSales >= 80 ? '#059669' : pctSales >= 50 ? '#92400e' : '#dc2626';
+                          return (
+                            <button onClick={e => { e.stopPropagation(); setAreaStatsPopup({ areaName: area.name, ...stats }); }}
+                              title="إحصائية الصيدليات"
+                              style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: bc, background: `${bc}14`, border: `1px solid ${bc}50`, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontWeight: 700, flexShrink: 0 }}>
+                              {stats.withSales.length}/{stats.total} ص
+                            </button>
+                          );
+                        })()}
                         <button
                           onClick={e => { e.stopPropagation(); removeAreaFromArchive(area.name, area.doctors.map(d => d.surveyDoctorId)); }}
                           title="حذف المنطقة"
-                          style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 8, padding: '4px 8px', fontSize: 13, cursor: 'pointer', color: '#fca5a5', flexShrink: 0, lineHeight: 1 }}>
-                          🗑
+                          style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 6, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: '#fca5a5', flexShrink: 0, lineHeight: 1 }}>
+                          ×
                         </button>
-                        <span style={{ fontSize: 18, color: '#94a3b8', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>▾</span>
+                        <span style={{ fontSize: 16, color: '#94a3b8', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>▾</span>
                       </button>
 
                       {/* Doctor list */}
@@ -3362,28 +3310,28 @@ export default function DoctorsPage() {
                                   </div>
 
                                   {/* Toggle buttons row */}
-                                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                                     <button onClick={() => patchArchive(doc, { isVisited: !doc.isVisited })}
                                       title="تمت الزيارة"
                                       style={{
-                                        padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                                        border: `1.5px solid ${doc.isVisited ? '#6ee7b7' : '#e2e8f0'}`,
+                                        padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                        border: `1px solid ${doc.isVisited ? '#059669' : '#e2e8f0'}`,
                                         background: doc.isVisited ? '#ecfdf5' : '#f8fafc',
-                                        color: doc.isVisited ? '#065f46' : '#94a3b8',
-                                        display: 'flex', alignItems: 'center', gap: 4, transition: 'all .15s',
+                                        color: doc.isVisited ? '#059669' : '#94a3b8',
+                                        transition: 'all .15s',
                                       }}>
-                                      ✅ زيارة
+                                      {doc.isVisited ? '✔ زيارة' : 'زيارة'}
                                     </button>
                                     <button onClick={() => patchArchive(doc, { isWriting: !doc.isWriting })}
                                       title="يكتب"
                                       style={{
-                                        padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                                        border: `1.5px solid ${doc.isWriting ? '#6ee7b7' : '#e2e8f0'}`,
-                                        background: doc.isWriting ? '#d1fae5' : '#f8fafc',
-                                        color: doc.isWriting ? '#065f46' : '#94a3b8',
-                                        display: 'flex', alignItems: 'center', gap: 4, transition: 'all .15s',
+                                        padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                        border: `1px solid ${doc.isWriting ? '#4338ca' : '#e2e8f0'}`,
+                                        background: doc.isWriting ? '#eef2ff' : '#f8fafc',
+                                        color: doc.isWriting ? '#4338ca' : '#94a3b8',
+                                        transition: 'all .15s',
                                       }}>
-                                      ✏️ كتابة
+                                      {doc.isWriting ? '✎ كتابة' : 'كتابة'}
                                     </button>
                                   </div>
 
@@ -3392,8 +3340,8 @@ export default function DoctorsPage() {
                                     <div style={{ marginTop: 7 }}>
                                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                         {doc.visitItems.map((item, i) => (
-                                          <span key={i} style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #6ee7b7', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            💊 {item}
+                                          <span key={i} style={{ background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', borderRadius: 6, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            {item}
                                             <button onClick={() => patchArchive(doc, { visitItems: doc.visitItems.filter((_, idx) => idx !== i) })}
                                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6ee7b7', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                                           </span>
@@ -3442,8 +3390,8 @@ export default function DoctorsPage() {
                                     <div style={{ marginTop: 7 }}>
                                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                         {doc.writingItems.map((item, i) => (
-                                          <span key={i} style={{ background: '#d1fae5', color: '#065f46', border: '1px solid #34d399', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            ✏️ {item}
+                                          <span key={i} style={{ background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 6, padding: '2px 9px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            {item}
                                             <button onClick={() => patchArchive(doc, { writingItems: doc.writingItems.filter((_, idx) => idx !== i) })}
                                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#34d399', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
                                           </span>
