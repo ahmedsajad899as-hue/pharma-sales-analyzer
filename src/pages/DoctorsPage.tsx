@@ -121,10 +121,11 @@ function normPharm(s: string) {
     .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
     .replace(/[ًٌٍَُِّْٰ]/g, '').replace(/ـ/g, '')
     .replace(/\s+/g, ' ').toLowerCase();
-  // Strip leading noise words/abbreviations (after normalisation so ة→ه already applied):
-  //   "ص الوافي" → "الوافي"   "صيدليه النور" → "النور"
-  //   "ص// النور" → "النور"   "العميل X" → "X"   "الزبون X" → "X"   "الاسم X" → "X"
-  r = r.replace(/^(الصيدليه|صيدليه|العميل|الزبون|الاسم|ص\s*\/{1,3}|ص\.?)\s*/, '').trim();
+  // Step 1: strip full named noise words at start (after normalisation so ة→ه applied)
+  r = r.replace(/^(الصيدليه|صيدليه|العميل|الزبون|الاسم)\s*/, '').trim();
+  // Step 2: strip "ص" used as abbreviation for صيدلية — only when NOT followed by
+  //         another Arabic letter (so "صوفيا" is safe), strip any trailing punctuation/slashes
+  r = r.replace(/^ص(?!\p{L})[\s/\\.,،:;*\-]*/u, '').trim();
   return r;
 }
 
