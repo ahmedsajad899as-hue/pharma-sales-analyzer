@@ -21,6 +21,7 @@ prisma/pharma_sales.db-journal
 
 # Logs
 *.log
+auto-deploy.lock
 server_out.txt
 
 # OS files
