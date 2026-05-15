@@ -1235,10 +1235,11 @@ model DistributorSaleRecord {
 
 // ─── File ↔ User Share (many-to-many) ────────────────────────
 model FileUserShare {
-  id           Int          @id @default(autoincrement())
-  fileId       Int
-  userId       Int
-  createdAt    DateTime     @default(now())
+  id            Int          @id @default(autoincrement())
+  fileId        Int
+  userId        Int
+  customAreaIds String?      // JSON array of area IDs, null = use user's assigned areas
+  createdAt     DateTime     @default(now())
 
   file UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
