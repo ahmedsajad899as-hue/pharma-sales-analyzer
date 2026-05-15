@@ -394,8 +394,9 @@ export async function getAlerts(req, res, next) {
       },
     });
 
-    // For each pharmacy × item pair, find last order date
-    const map = new Map(); // `pharma|||item` → { pharmaName, itemName, areaName, lastOrder, totalQty, orderCount }
+    // For each pharmacy × item pair, keep only the LATEST order
+    // (last order qty is shown as reminder; old orders are ignored once a newer one exists)
+    const map = new Map(); // `pharma|||item` → { pharmaName, itemName, areaName, lastOrder, lastOrderQty, orderCount }
     const seenAlerts = new Set();
     for (const s of sales) {
       const iName = s.item?.name || 'غير محدد';
@@ -415,19 +416,22 @@ export async function getAlerts(req, res, next) {
 
       const key = `${pharmaName}|||${iName}`;
       if (!map.has(key)) {
-        map.set(key, { pharmaName, itemName: iName, areaName: s.area?.name || '', lastOrder: s.saleDate, totalQty: 0, orderCount: 0 });
+        map.set(key, { pharmaName, itemName: iName, areaName: s.area?.name || '', lastOrder: s.saleDate, lastOrderQty: s.quantity, orderCount: 0 });
       }
       const e = map.get(key);
-      e.totalQty   += s.quantity;
       e.orderCount++;
-      if (new Date(s.saleDate) > new Date(e.lastOrder)) e.lastOrder = s.saleDate;
+      // Keep track of the most recent order's date and quantity
+      if (new Date(s.saleDate) > new Date(e.lastOrder)) {
+        e.lastOrder    = s.saleDate;
+        e.lastOrderQty = s.quantity;
+      }
     }
 
     const now = Date.now();
     const alerts = [...map.values()]
       .map(e => ({
         ...e,
-        totalQty: e.totalQty,
+        totalQty: e.lastOrderQty,   // الكمية السابقة = qty of the latest (most recent) order
         daysSinceLast: Math.floor((now - new Date(e.lastOrder).getTime()) / 86400000),
       }))
       .filter(e => e.daysSinceLast >= thresholdDays)
