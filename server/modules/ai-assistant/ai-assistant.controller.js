@@ -2063,7 +2063,7 @@ function getNextApiKey() {
 const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
 
 // Try every (key × model) combination once before failing. Returns text on success.
-async function callGeminiSmart(parts) {
+export async function callGeminiSmart(parts) {
   const keys = getAllApiKeys();
   if (!keys.length) throw new Error('No Gemini API key configured');
   let lastErr;
