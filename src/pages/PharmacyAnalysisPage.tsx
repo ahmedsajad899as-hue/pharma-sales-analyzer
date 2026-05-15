@@ -119,6 +119,8 @@ export default function PharmacyAnalysisPage() {
   const [showUpload, setShowUpload]     = useState(false);
   const [clearing, setClearing]         = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [confirmDeleteFileId, setConfirmDeleteFileId] = useState<number | null>(null);
+  const [deletingFileId, setDeletingFileId] = useState<number | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const searchTimer    = useRef<ReturnType<typeof setTimeout>>();
 
@@ -180,6 +182,17 @@ export default function PharmacyAnalysisPage() {
       setSelectedPharma(null);
       setSelectedItem(null);
     } finally { setClearing(false); setShowClearConfirm(false); }
+  };
+
+  const deleteOneFile = async (id: number) => {
+    setDeletingFileId(id);
+    try {
+      await fetch(`${API}/api/files/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      setFiles(prev => prev.filter(f => f.id !== id));
+      setSelFiles(prev => { const s = new Set(prev); s.delete(id); return s; });
+      if (selectedPharma) setSelectedPharma(null);
+      if (selectedItem)   setSelectedItem(null);
+    } finally { setDeletingFileId(null); setConfirmDeleteFileId(null); }
   };
 
   const fileIdsParam = [...selFiles].join(',');
@@ -437,18 +450,52 @@ export default function PharmacyAnalysisPage() {
           )}
           <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{selFiles.size} / {files.length} ملف</span>
         </div>
+        {/* Confirm single-file delete dialog */}
+        {confirmDeleteFileId !== null && (() => {
+          const cf = files.find(f => f.id === confirmDeleteFileId);
+          return (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deletingFileId && setConfirmDeleteFileId(null)}>
+              <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 6 }}>حذف الملف</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 18, wordBreak: 'break-all' }}>{cf?.originalName}</div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                  <button onClick={() => deleteOneFile(confirmDeleteFileId)} disabled={!!deletingFileId} style={{ padding: '8px 22px', borderRadius: 8, background: '#dc2626', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: deletingFileId ? 'default' : 'pointer', opacity: deletingFileId ? .7 : 1 }}>
+                    {deletingFileId ? '⏳ جاري الحذف...' : '✔ نعم، احذف'}
+                  </button>
+                  <button onClick={() => setConfirmDeleteFileId(null)} disabled={!!deletingFileId} style={{ padding: '8px 18px', borderRadius: 8, background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>إلغاء</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {filesLoading ? <span style={{ fontSize: 12, color: '#94a3b8' }}>جاري التحميل...</span> : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {files.map(f => (
-              <div key={f.id} onClick={() => toggleFile(f.id)} style={{
-                padding: '5px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+              <div key={f.id} style={{
+                display: 'flex', alignItems: 'center', gap: 0,
+                borderRadius: 6, fontSize: 12,
                 border: selFiles.has(f.id) ? '1.5px solid #1e40af' : '1.5px solid #e2e8f0',
                 background: selFiles.has(f.id) ? '#eff6ff' : '#fff',
                 color: selFiles.has(f.id) ? '#1e40af' : '#6b7280',
                 fontWeight: selFiles.has(f.id) ? 600 : 400,
+                overflow: 'hidden',
               }}>
-                {selFiles.has(f.id) ? '✓ ' : ''}{f.originalName}
-                <span style={{ opacity: .55, marginRight: 4 }}>({f.rowCount})</span>
+                <span onClick={() => toggleFile(f.id)} style={{ padding: '5px 10px', cursor: 'pointer' }}>
+                  {selFiles.has(f.id) ? '✓ ' : ''}{f.originalName}
+                  <span style={{ opacity: .55, marginRight: 4 }}>({f.rowCount})</span>
+                </span>
+                <button
+                  onClick={e => { e.stopPropagation(); setConfirmDeleteFileId(f.id); }}
+                  title="حذف الملف"
+                  style={{
+                    padding: '5px 7px', border: 'none', background: 'transparent',
+                    cursor: 'pointer', color: '#94a3b8', fontSize: 13, lineHeight: 1,
+                    borderRight: selFiles.has(f.id) ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+                    order: -1,
+                  }}
+                >×</button>
               </div>
             ))}
             {files.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد ملفات</span>}
