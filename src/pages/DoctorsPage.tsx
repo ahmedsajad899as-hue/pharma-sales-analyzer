@@ -2505,7 +2505,6 @@ export default function DoctorsPage() {
                           <div style={{
                             display: 'flex', alignItems: 'center', gap: 10,
                             padding: '10px 18px', direction: 'rtl',
-                            opacity: doc.visited ? 1 : 0.5,
                           }}>
                             {/* Status dot */}
                             <span style={{
@@ -3267,8 +3266,6 @@ export default function DoctorsPage() {
                               <div style={{
                                 display: 'flex', alignItems: 'flex-start', gap: 10,
                                 padding: '11px 18px', direction: 'rtl',
-                                opacity: doc.isVisited ? 1 : 0.7,
-                                transition: 'opacity 0.15s',
                               }}>
                                 {/* Status dot */}
                                 <span style={{
