@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
+import ItemInsightTab from './ItemInsightTab';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -50,16 +51,17 @@ function dayColor(d: number): { bg: string; color: string } {
 }
 
 const TABS = [
-  { id: 'pharmacies', label: 'الصيدليات',  icon: '🏪' },
-  { id: 'items',      label: 'الايتمات',   icon: '💊' },
-  { id: 'alerts',     label: 'التنبيهات',  icon: '🔔' },
+  { id: 'pharmacies',   label: 'الصيدليات',  icon: '🏪' },
+  { id: 'items',        label: 'الايتمات',   icon: '💊' },
+  { id: 'item-insight', label: 'تحليل الإيتم', icon: '🔍' },
+  { id: 'alerts',       label: 'التنبيهات',  icon: '🔔' },
 ] as const;
 type Tab = typeof TABS[number]['id'];
 type GroupBy = 'none' | 'area' | 'rep' | 'item' | 'date';
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function PharmacyAnalysisPage() {
-  const { token } = useAuth();
+  const { token, hasFeature } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
 
   const [files, setFiles]           = useState<UpFile[]>([]);
@@ -530,7 +532,7 @@ export default function PharmacyAnalysisPage() {
 
       {/* ── Tabs ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-        {TABS.map(t => (
+        {TABS.filter(t => t.id !== 'item-insight' || hasFeature('item_deep_analysis')).map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setSelectedPharma(null); setSelectedItem(null); }} style={{
             padding: '8px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
             background: tab === t.id ? '#fff' : 'transparent',
@@ -970,6 +972,11 @@ export default function PharmacyAnalysisPage() {
           </>
           )}
         </div>
+      )}
+
+      {/* ════════ ITEM INSIGHT TAB ════════ */}
+      {tab === 'item-insight' && hasFeature('item_deep_analysis') && (
+        <ItemInsightTab fileIdsParam={fileIdsParam} />
       )}
     </div>
   );

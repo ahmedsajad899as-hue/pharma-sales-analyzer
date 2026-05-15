@@ -127,6 +127,12 @@ const FEATURE_TREE: FeatureNode[] = [
   { key: 'switch_account', label: 'تبديل الحساب (Switch Account)', icon: '⇄', desc: 'زر في الشريط الجانبي لتبديل الحسابات المحفوظة بدون تسجيل خروج' },
   // ── 11. التارگت الشهري
   { key: 'targets_tab', label: '🎯 التارگت الشهري', icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين العلميين والتجاريين ومقارنته بالمبيعات' },
+  // ── 12. تحليل الإيتم المعمّق (AI) — تبويب جديد داخل Pharmacy Net
+  {
+    key: 'item_deep_analysis', label: 'تحليل الإيتم المعمّق (AI)', icon: '🔍',
+    desc: 'تبويب داخل صفحة Pharmacy Net — تحليل ذكي شامل لأي إيتم: المبيع، الإرجاعات، المناطق، المندوبين، زيارات الأطباء والصيدليات، الفيدباك + توصيات Gemini',
+    onlyRoles: ['company_manager','admin','manager','product_manager','office_manager','team_leader','supervisor','commercial_supervisor','commercial_team_leader'],
+  },
 ];
 
 interface Office   { id: number; name: string; }
