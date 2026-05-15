@@ -1030,49 +1030,52 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         background: checked ? (hasOverride ? '#ecfeff' : '#f5f3ff') : '#fafafa',
                         overflow: 'hidden',
                       }}>
-                        {/* Main row */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', userSelect: 'none' }}>
+                        {/* Main row — checkbox + name only, no buttons here */}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleSelectUser(u.id)}
-                            style={{ accentColor: '#7c3aed', width: 15, height: 15, flexShrink: 0 }} />
+                            style={{ accentColor: '#7c3aed', width: 16, height: 16, flexShrink: 0, cursor: 'pointer' }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: checked ? 700 : 400, color: checked ? (hasOverride ? '#0e7490' : '#6d28d9') : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: 13, fontWeight: checked ? 700 : 500, color: checked ? (hasOverride ? '#0e7490' : '#6d28d9') : '#1e293b' }}>
                               👤 {u.name}
                             </div>
-                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
                               {ROLE_AR[u.role] ?? u.role}
                               {hasOverride
                                 ? <span style={{ color: '#0891b2', fontWeight: 700, marginRight: 4 }}>· 📍 {overrides!.size} منطقة مخصصة</span>
-                                : ` · ${u.areaCount > 0 ? `${u.areaCount} منطقة` : '⚠ لا مناطق'}${u.areaCount > 0 && u.areas.length > 0 ? ` · ${u.areas.slice(0, 2).join('، ')}${u.areas.length > 2 ? '...' : ''}` : ''}`
+                                : u.areaCount > 0
+                                  ? ` · ${u.areaCount} منطقة`
+                                  : <span style={{ color: '#f59e0b', marginRight: 4 }}> · ⚠ لا مناطق</span>
                               }
                             </div>
                           </div>
-                          {/* Customize areas button — only when selected */}
-                          {checked && fileAreas.length > 0 && (
-                            <button
-                              onClick={e => { e.preventDefault(); setExpandedAreaUserId(isExpanded ? null : u.id); }}
-                              style={{
-                                padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, flexShrink: 0,
-                                border: `1px solid ${hasOverride ? '#0891b2' : '#a78bfa'}`,
-                                background: hasOverride ? '#cffafe' : '#ede9fe',
-                                color: hasOverride ? '#0e7490' : '#6d28d9', cursor: 'pointer',
-                              }}
-                              title="تخصيص المناطق لهذا المندوب"
-                            >
-                              {isExpanded ? '▲ مناطق' : (hasOverride ? `📍 ${overrides!.size}` : '📍 تخصيص')}
-                            </button>
-                          )}
-                          {/* Download button per user */}
-                          {checked && (
-                            <button
-                              onClick={e => { e.preventDefault(); downloadUserSalesExcel(shareModalFile!.id, u.id); }}
-                              disabled={exporting === `${shareModalFile!.id}-${u.id}`}
-                              style={{ ...BTN_SEC, fontSize: 10, padding: '3px 8px', flexShrink: 0 }}
-                              title={`تحميل بيانات ${u.name} كـ Excel`}
-                            >
-                              {exporting === `${shareModalFile!.id}-${u.id}` ? '⏳' : '📥'}
-                            </button>
-                          )}
                         </label>
+
+                        {/* Action buttons row — shown only when checked */}
+                        {checked && (
+                          <div style={{ display: 'flex', gap: 6, padding: '0 14px 10px', flexWrap: 'wrap' }}>
+                            {fileAreas.length > 0 && (
+                              <button
+                                onClick={() => setExpandedAreaUserId(isExpanded ? null : u.id)}
+                                style={{
+                                  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                                  border: `1px solid ${hasOverride ? '#0891b2' : '#a78bfa'}`,
+                                  background: hasOverride ? '#cffafe' : '#ede9fe',
+                                  color: hasOverride ? '#0e7490' : '#6d28d9', cursor: 'pointer',
+                                }}
+                              >
+                                {isExpanded ? '▲ إخفاء' : (hasOverride ? `📍 ${overrides!.size} منطقة` : '📍 تخصيص المناطق')}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => downloadUserSalesExcel(shareModalFile!.id, u.id)}
+                              disabled={exporting === `${shareModalFile!.id}-${u.id}`}
+                              style={{ ...BTN_SEC, fontSize: 11, padding: '4px 10px' }}
+                              title={`تحميل بيانات ${u.name}`}
+                            >
+                              {exporting === `${shareModalFile!.id}-${u.id}` ? '⏳ جاري...' : '📥 تحميل'}
+                            </button>
+                          </div>
+                        )}
 
                         {/* Area picker panel */}
                         {checked && isExpanded && fileAreas.length > 0 && (
