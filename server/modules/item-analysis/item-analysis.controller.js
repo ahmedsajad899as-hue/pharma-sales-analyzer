@@ -151,7 +151,7 @@ export async function listReps(req, res, next) {
         const areasSalesQty   = repAreaIds.reduce((s, aid) => s + (salesQtyByArea.get(aid)   || 0), 0);
         // Include rep if their areas intersect OR they have visits for this item
         const include = intersectsAreas || visitsCount > 0 || pharmacyVisitsCount > 0;
-        let source: string;
+        let source;
         if (areasSalesValue > 0 && visitsCount > 0) source = 'both';
         else if (visitsCount > 0 || pharmacyVisitsCount > 0)  source = 'visits';
         else source = 'area-sales';
