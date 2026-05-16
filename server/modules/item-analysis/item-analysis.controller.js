@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { list as listSciReps } from '../scientific-reps/scientific-reps.service.js';
 
 // ─── Helpers ────────────────────────────────────────────────
 function norm(s = '') {
@@ -87,16 +88,10 @@ export async function listReps(req, res, next) {
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // 1. All active scientific reps owned by this manager
-    const sciReps = await prisma.scientificRepresentative.findMany({
-      where: { userId, isActive: true },
-      select: {
-        id: true, name: true,
-        areas: { select: { areaId: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-    if (!sciReps.length) return res.json({ reps: [] });
+    // 1. Get all scientific reps visible to this manager (same logic as ScientificRepsPage)
+    //    This handles both system users (created by master) and standalone reps.
+    const allReps = await listSciReps({}, req.user, { standalone: false }).catch(() => []);
+    if (!allReps.length) return res.json({ reps: [] });
 
     // 2. Distinct area IDs from this item's sales (for intersection check)
     const salesAreaRows = await prisma.sale.findMany({
@@ -106,7 +101,7 @@ export async function listReps(req, res, next) {
     });
     const salesAreaIds = new Set(salesAreaRows.map(s => s.areaId).filter(Boolean));
 
-    // 3. Sales value aggregated by area (for computing each rep's area-based sales)
+    // 3. Sales value/qty aggregated by area
     const salesByAreaRaw = await prisma.sale.groupBy({
       by: ['areaId'],
       where: { userId, itemId, ...buildFileFilter(fileIds), recordType: 'sale' },
@@ -133,27 +128,26 @@ export async function listReps(req, res, next) {
         visitItems: { some: { itemId } },
       },
       select: { scientificRepId: true },
-    });
+    }).catch(() => []);
     const pvCountById = new Map();
     for (const v of phVisits) {
       if (v.scientificRepId != null)
         pvCountById.set(v.scientificRepId, (pvCountById.get(v.scientificRepId) || 0) + 1);
     }
 
-    // 6. Filter by area intersection + map
-    const reps = sciReps
+    // 6. Map reps, filter by area intersection OR visits
+    const reps = allReps
       .map(r => {
-        const repAreaIds = r.areas.map(a => a.areaId);
+        const repAreaIds = (r.areas || []).map(a => a.id ?? a);
         const intersectsAreas = salesAreaIds.size === 0 || repAreaIds.some(aid => salesAreaIds.has(aid));
         const visitsCount         = visitCountById.get(r.id) || 0;
         const pharmacyVisitsCount = pvCountById.get(r.id)    || 0;
         const areasSalesValue = repAreaIds.reduce((s, aid) => s + (salesValueByArea.get(aid) || 0), 0);
         const areasSalesQty   = repAreaIds.reduce((s, aid) => s + (salesQtyByArea.get(aid)   || 0), 0);
-        // Include rep if their areas intersect OR they have visits for this item
         const include = intersectsAreas || visitsCount > 0 || pharmacyVisitsCount > 0;
         let source;
         if (areasSalesValue > 0 && visitsCount > 0) source = 'both';
-        else if (visitsCount > 0 || pharmacyVisitsCount > 0)  source = 'visits';
+        else if (visitsCount > 0 || pharmacyVisitsCount > 0) source = 'visits';
         else source = 'area-sales';
         return {
           id: r.id, name: r.name, repType: 'scientific',
@@ -196,15 +190,24 @@ export async function getItemAnalytics(req, res, next) {
     if (!item) return res.status(404).json({ error: 'الإيتم غير موجود' });
 
     // ── 1b. Resolve scientific rep (if repName given) ──────
-    // Look up this manager's scientific rep by name
+    // Look up this manager's scientific rep by name — check both:
+    // (a) ScientificRepresentative.userId = manager (standalone reps)
+    // (b) ScientificRepresentative linked via User.linkedRepId where user is a subordinate
     let sciRep = null; // { id, areaIds }
     if (repName) {
-      const found = await prisma.scientificRepresentative.findFirst({
-        where: { userId, name: { equals: repName, mode: 'insensitive' } },
-        select: { id: true, areas: { select: { areaId: true } } },
-      });
-      if (found) {
-        sciRep = { id: found.id, areaIds: found.areas.map(a => a.areaId) };
+      // Try to find the rep from the service pool (same logic as dropdown)
+      const allReps = await listSciReps({}, req.user, { standalone: false }).catch(() => []);
+      const matched = allReps.find(r => norm(r.name) === norm(repName));
+      if (matched) {
+        const areaIds = (matched.areas || []).map(a => a.id ?? a);
+        sciRep = { id: matched.id, areaIds };
+      } else {
+        // Fallback: direct DB lookup
+        const found = await prisma.scientificRepresentative.findFirst({
+          where: { name: { equals: repName, mode: 'insensitive' } },
+          select: { id: true, areas: { select: { areaId: true } } },
+        });
+        if (found) sciRep = { id: found.id, areaIds: found.areas.map(a => a.areaId) };
       }
     }
 
