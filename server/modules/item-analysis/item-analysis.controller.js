@@ -759,18 +759,20 @@ ${repBlock}
 # المطلوب
 اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي). لا تكتفِ بالعموميات، اربط كل استنتاج بأرقام محددة من البيانات أعلاه.
 
-## 💊 1. المعلومات العلمية الشاملة عن الدواء
-استنتج من الاسم العلمي والجرعة والشكل:
-- **المكونات الفعالة والفئة الدوائية** (drug class)
-- **ميكانيزم العمل (Mechanism of Action)** — كيف يعمل في الجسم
-- **الفارماكوكاينيتيك** (الامتصاص، التوزيع، الأيض، الإخراج)
-- **الاستخدامات الرئيسية والأمراض المعالجة** (Indications)
-- **الاستخدامات الإضافية** (Off-label uses)
-- **الموانع (Contraindications)** — متى يُمنع استخدامه
-- **الأعراض الجانبية**: الشائعة + الخطيرة
-- **الحمل والإرضاع**: تصنيف الحمل (FDA category) + الإرضاع
-- **التداخلات الدوائية الأهم** (Top 5)
-- **الفئات العمرية المستهدفة** والاحتياطات
+## 💊 1. Scientific Drug Profile (الملف العلمي)
+Write this section **in English medical terminology**. Use Arabic only in parentheses for critical label terms. Keep all phrases short, factual, and clinically precise. Use the following exact structure (one compact line or 2-3 words per field, no verbose sentences):
+
+**Brand:** [name] | **Generic (الاسم العلمي):** [active ingredient(s)]
+**Drug Class (الفئة):** [class] | **Form (الشكل):** [dosage form] | **Strength:** [dosage]
+**Mechanism (آلية العمل):** [1 concise sentence — how it works at cellular/molecular level]
+**Indications (الاستخدامات):** [comma-separated, 4-6 items max]
+**Off-label Uses:** [2-3 items or "Not established"]
+**Contraindications (الموانع):** [key contraindications as comma-separated]
+**Side Effects — Common (شائعة):** [list] | **Serious (خطيرة):** [list]
+**Pregnancy (الحمل):** FDA Cat. [X] — [brief 1-line note] | **Breastfeeding:** [Safe / Avoid / Caution]
+**Drug Interactions (تداخلات):** [Top 3-5 as comma-separated]
+**Pharmacokinetics:** Onset [X] | T½ [X] | Bioavailability [X%] | Excretion [renal/hepatic]
+**Target Population (الفئة المستهدفة):** [Adults / Children / Both] — [key cautions]
 
 ## 🩺 2. التخصصات الطبية الأكثر وصفاً
 استنتج علمياً + استدل من بيانات الزيارات: ما هي التخصصات التي تصف هذا الدواء عادةً؟ (Cardiologist, GP, Pediatrician, OB-GYN, ...) رتّبها حسب الأهمية.

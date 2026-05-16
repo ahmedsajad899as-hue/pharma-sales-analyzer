@@ -483,23 +483,77 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
           {/* ── Subtab: Science ────────────────────────── */}
           {subTab === 'science' && (
             <div style={cardStyle}>
-              <h3 style={{ marginTop: 0, color: '#1e40af' }}>💊 المعلومات العلمية</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
-                <Field label="الاسم التجاري" value={data.item.name} />
-                <Field label="الاسم العلمي" value={data.item.scientificName || '—'} />
-                <Field label="الجرعة" value={data.item.dosage || '—'} />
-                <Field label="الشكل الدوائي" value={data.item.form || '—'} />
-                <Field label="السعر" value={data.item.price != null ? fmt(data.item.price) : '—'} />
-                <Field label="الشركة" value={data.item.company?.name || '—'} />
+              {/* ── Drug identity header ── */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16,
+                padding: '12px 16px', background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%)',
+                borderRadius: 10, color: '#fff',
+              }}>
+                <div style={{ fontSize: 32 }}>💊</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.03em' }}>{data.item.name}</div>
+                  {data.item.scientificName && (
+                    <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2, fontStyle: 'italic' }}>
+                      {data.item.scientificName}
+                    </div>
+                  )}
+                </div>
+                {(data.item.dosage || data.item.form) && (
+                  <div style={{ textAlign: 'right' }}>
+                    {data.item.dosage && <div style={{ fontSize: 14, fontWeight: 700 }}>{data.item.dosage}</div>}
+                    {data.item.form && <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>{data.item.form}</div>}
+                  </div>
+                )}
               </div>
-              <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.7 }}>
-                <b style={{ color: '#1e40af' }}>الرسالة العلمية المسجّلة:</b>
-                <div style={{ marginTop: 6, padding: 10, background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                  {data.item.scientificMessage || <span style={{ color: '#94a3b8' }}>لا توجد رسالة علمية مسجّلة. يمكنك إضافتها من صفحة "الإيتمات" أو طلب توليد تحليل ذكي يستنتج التفاصيل العلمية تلقائياً.</span>}
+
+              {/* ── Key data grid ── */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, marginBottom: 14 }}>
+                {[
+                  { en: 'Brand Name', ar: 'الاسم التجاري', val: data.item.name },
+                  { en: 'Generic / Active', ar: 'الاسم العلمي', val: data.item.scientificName || '—' },
+                  { en: 'Strength / Dosage', ar: 'الجرعة', val: data.item.dosage || '—' },
+                  { en: 'Dosage Form', ar: 'الشكل الدوائي', val: data.item.form || '—' },
+                  { en: 'Price', ar: 'السعر', val: data.item.price != null ? fmt(data.item.price) : '—' },
+                  { en: 'Manufacturer', ar: 'الشركة', val: data.item.company?.name || '—' },
+                ].map(f => (
+                  <div key={f.en} style={{
+                    background: '#f8fafc', padding: '10px 12px', borderRadius: 8,
+                    border: '1px solid #e2e8f0',
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      {f.en} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({f.ar})</span>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginTop: 4 }}>{f.val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Scientific message ── */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                  Scientific Message <span style={{ color: '#94a3b8', fontWeight: 400 }}>(الرسالة العلمية المسجّلة)</span>
+                </div>
+                <div style={{
+                  padding: '10px 14px', background: '#f8fafc', borderRadius: 8,
+                  border: '1px solid #e2e8f0', fontSize: 13, color: '#334155', lineHeight: 1.75,
+                  borderRight: '3px solid #1d4ed8',
+                }}>
+                  {data.item.scientificMessage ||
+                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                      No scientific message registered. Add it from Items page or use the AI tab to auto-generate full drug profile.
+                    </span>
+                  }
                 </div>
               </div>
-              <div style={{ marginTop: 14, fontSize: 12, color: '#64748b', background: '#fef3c7', padding: 10, borderRadius: 6, border: '1px solid #fde68a' }}>
-                💡 لتحليل علمي تفصيلي (المكونات، الاستخدامات، الأمراض المعالجة، نقاط القوة)، استخدم تبويب <b>تحليل ذكي (AI)</b>.
+
+              {/* ── Tip ── */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '9px 14px', background: '#eff6ff', borderRadius: 8,
+                border: '1px solid #bfdbfe', fontSize: 12, color: '#1d4ed8',
+              }}>
+                <span style={{ fontSize: 16 }}>⚡</span>
+                <span>Use the <b>AI tab</b> to auto-generate a full scientific profile — mechanism, indications, side effects, competitors &amp; 30-day action plan.</span>
               </div>
             </div>
           )}

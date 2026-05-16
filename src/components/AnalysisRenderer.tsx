@@ -11,14 +11,24 @@ export default function AnalysisRenderer({ text }: Props) {
   return (
     <div className="ar-root">
       {sections.map((sec, i) => (
-        <div key={i} className="ar-section">
+        <div key={i} className="ar-section" data-sec={sec.secNum || undefined}>
           {sec.title && (
             <div className="ar-section-header">
               <span className="ar-section-icon">{sec.icon}</span>
               <h3 className="ar-section-title">{sec.title}</h3>
+              {sec.secNum && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, opacity: 0.5,
+                  background: 'rgba(0,0,0,.07)', padding: '2px 6px', borderRadius: 10,
+                }}>#{sec.secNum}</span>
+              )}
             </div>
           )}
-          {sec.blocks.map((block, j) => renderBlock(block, j))}
+          {sec.blocks.map((block, j) =>
+            block.type === 'subsection'
+              ? <div key={j} className="ar-subsection" dangerouslySetInnerHTML={{ __html: inlineFormat(block.lines[0] || '') }} />
+              : renderBlock(block, j)
+          )}
         </div>
       ))}
     </div>
@@ -26,9 +36,9 @@ export default function AnalysisRenderer({ text }: Props) {
 }
 
 // ─────────────────────────── Types ────────────────────────────
-type BlockType = 'table' | 'bullets' | 'kv' | 'text';
+type BlockType = 'table' | 'bullets' | 'kv' | 'text' | 'subsection';
 interface Block { type: BlockType; lines: string[]; }
-interface Section { title: string; icon: string; blocks: Block[]; }
+interface Section { title: string; icon: string; secNum: number | null; blocks: Block[]; }
 
 // ─────────────────────────── Render ───────────────────────────
 function renderBlock(block: Block, key: number) {
@@ -134,7 +144,7 @@ function getSectionIcon(title: string): string {
 function parseIntoSections(raw: string): Section[] {
   const lines = raw.split('\n');
   const sections: Section[] = [];
-  let currentSection: Section = { title: '', icon: '📋', blocks: [] };
+  let currentSection: Section = { title: '', icon: '📋', secNum: null, blocks: [] };
   let pendingLines: string[] = [];
 
   function flushPending() {
@@ -147,12 +157,19 @@ function parseIntoSections(raw: string): Section[] {
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
 
-    // Section header: ##, ###, or numbered like "1." or "1️⃣"
-    const headerMatch = line.match(/^#{1,3}\s+(.+)/) ||
-                        line.match(/^[*_]{0,2}(\d+[.)\s][\s.]+[\u{1F300}-\u{1FFFF}]?\s*.+)/u) ||
-                        line.match(/^[*_]{0,2}([١-٩]\d*[.)]\s*.+)/);
-    const isHeader = /^#{1,3}\s/.test(line) ||
-                     (/^[\*_]{0,2}\d+[.)]\s/.test(line) && line.length > 5 && !line.includes('|'));
+    // Sub-section header: ### (inside a section)
+    const isSubHeader = /^#{3,}\s/.test(line);
+    // Main section header: ## or numbered
+    const isH2 = /^#{1,2}\s/.test(line) ||
+                 (/^[\*_]{0,2}\d+[.)]\s/.test(line) && line.length > 5 && !line.includes('|'));
+    const isHeader = isH2;
+
+    if (isSubHeader && !isH2) {
+      flushPending();
+      const subTitle = line.replace(/^#+\s*/, '').replace(/^[\*_]+|[\*_]+$/g, '').trim();
+      currentSection.blocks.push({ type: 'subsection', lines: [subTitle] });
+      continue;
+    }
 
     if (isHeader) {
       flushPending();
@@ -165,7 +182,10 @@ function parseIntoSections(raw: string): Section[] {
         .replace(/[\*_]+$/, '')
         .replace(/^\d+[.)]\s*/, '')
         .trim();
-      currentSection = { title: titleClean, icon: getSectionIcon(titleClean), blocks: [] };
+      // Extract section number from title (e.g. "1. Drug Profile" → 1)
+      const numMatch = titleClean.match(/^(\d+)[.)]?\s/) || line.match(/^#{1,2}\s+[^\d]*(\d+)[.)]?/);
+      const secNum = numMatch ? parseInt(numMatch[1]) : null;
+      currentSection = { title: titleClean, icon: getSectionIcon(titleClean), secNum, blocks: [] };
       continue;
     }
 
@@ -213,7 +233,7 @@ function classifyLines(lines: string[]): Block | null {
   }
 
   // Bullets
-  if (nonEmpty.every(l => /^[-•*]\s/.test(l.trim()))) {
+  if (nonEmpty.length > 0 && nonEmpty.every(l => /^[-•*]\s/.test(l.trim()))) {
     return { type: 'bullets', lines: nonEmpty.map(l => l.trim()) };
   }
 
