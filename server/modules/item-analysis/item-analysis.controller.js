@@ -87,15 +87,13 @@ export async function listReps(req, res, next) {
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // ── 1. Get manager's company IDs ───────────────────────────────────────
+    // ── 1. Get manager's company IDs ──────────────────────────────────────
     const companyAssignments = await prisma.userCompanyAssignment.findMany({
       where: { userId }, select: { companyId: true },
     });
     const companyIds = companyAssignments.map(a => a.companyId);
 
-    // ── 2. ALL rep users in same companies (no hierarchy restriction) ───────
-    // For item analysis the company manager should see every rep in his
-    // company, including those under team leaders (grandchildren).
+    // ── 2. ALL rep users in same companies (no hierarchy restriction) ─────
     const repUsersRaw = companyIds.length > 0
       ? await prisma.user.findMany({
           where: {
@@ -107,23 +105,30 @@ export async function listReps(req, res, next) {
         })
       : [];
 
-    // ── 3. Resolve ScientificRepresentative record for each rep user ───────
+    // ── 3. Find-or-create ScientificRepresentative for each system user ───
+    // (same pattern as scientific-reps.service.js so no rep is silently skipped)
     const systemRepIds = new Set();
     const allRepRecords = []; // { repId, name }
     for (const u of repUsersRaw) {
       let repId = u.linkedRepId;
       if (!repId) {
-        const rep = await prisma.scientificRepresentative.findFirst({
+        let rep = await prisma.scientificRepresentative.findFirst({
           where: { userId: u.id }, select: { id: true },
         });
-        repId = rep?.id ?? null;
+        if (!rep) {
+          // Auto-create the record so the rep can appear in the dropdown
+          rep = await prisma.scientificRepresentative.create({
+            data: { name: u.displayName || u.username, userId: u.id },
+          });
+          await prisma.user.update({ where: { id: u.id }, data: { linkedRepId: rep.id } });
+        }
+        repId = rep.id;
       }
-      if (!repId) continue;
       systemRepIds.add(repId);
       allRepRecords.push({ repId, name: u.displayName || u.username });
     }
 
-    // ── 4. Standalone reps (manually added by manager, not system users) ───
+    // ── 4. Standalone reps (manually added by manager, not system users) ──
     const standaloneReps = await prisma.scientificRepresentative.findMany({
       where: {
         userId,
@@ -136,8 +141,12 @@ export async function listReps(req, res, next) {
 
     if (!allRepRecords.length) return res.json({ reps: [] });
 
-    // ── 5. Load areas for all reps ─────────────────────────────────────────
-    const allIds = [...new Set(allRepRecords.map(r => r.repId))];
+    // ── 5. Deduplicate by repId ───────────────────────────────────────────
+    const seen = new Set();
+    const uniqueRecs = allRepRecords.filter(r => !seen.has(r.repId) && seen.add(r.repId));
+
+    // ── 6. Load areas for all reps ────────────────────────────────────────
+    const allIds = uniqueRecs.map(r => r.repId);
     const areaRows = await prisma.scientificRepArea.findMany({
       where: { scientificRepId: { in: allIds } },
       select: { scientificRepId: true, areaId: true },
@@ -148,14 +157,7 @@ export async function listReps(req, res, next) {
       areasByRepId.get(row.scientificRepId).push(row.areaId);
     }
 
-    // ── 6. Item's sales area IDs ───────────────────────────────────────────
-    const salesAreaRows = await prisma.sale.findMany({
-      where: { userId, itemId, ...buildFileFilter(fileIds) },
-      select: { areaId: true }, distinct: ['areaId'],
-    });
-    const salesAreaIds = new Set(salesAreaRows.map(s => s.areaId).filter(Boolean));
-
-    // ── 7. Sales value/qty per area ────────────────────────────────────────
+    // ── 7. Sales value/qty per area (for rep-specific sales estimate) ─────
     const salesByAreaRaw = await prisma.sale.groupBy({
       by: ['areaId'],
       where: { userId, itemId, ...buildFileFilter(fileIds), recordType: 'sale' },
@@ -164,7 +166,7 @@ export async function listReps(req, res, next) {
     const salesValueByArea = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.totalValue || 0]));
     const salesQtyByArea   = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.quantity  || 0]));
 
-    // ── 8. Doctor visit counts per rep ────────────────────────────────────
+    // ── 8. Doctor visit counts per rep for this item ──────────────────────
     const drVisits = await prisma.doctorVisit.findMany({
       where: { userId, itemId, visitDate: { gte: since } },
       select: { scientificRepId: true },
@@ -175,7 +177,7 @@ export async function listReps(req, res, next) {
         visitCountById.set(v.scientificRepId, (visitCountById.get(v.scientificRepId) || 0) + 1);
     }
 
-    // ── 9. Pharmacy visit counts per rep ─────────────────────────────────
+    // ── 9. Pharmacy visit counts per rep for this item ────────────────────
     const phVisits = await prisma.pharmacyVisit.findMany({
       where: { userId, visitDate: { gte: since }, visitItems: { some: { itemId } } },
       select: { scientificRepId: true },
@@ -186,35 +188,31 @@ export async function listReps(req, res, next) {
         pvCountById.set(v.scientificRepId, (pvCountById.get(v.scientificRepId) || 0) + 1);
     }
 
-    // ── 10. Filter & shape ────────────────────────────────────────────────
-    const seen = new Set();
-    const reps = allRepRecords
-      .filter(r => !seen.has(r.repId) && seen.add(r.repId)) // deduplicate
+    // ── 10. Shape all reps (show ALL — no area filter exclusion) ─────────
+    const reps = uniqueRecs
       .map(({ repId, name }) => {
         const repAreaIds = areasByRepId.get(repId) || [];
-        const intersectsAreas = salesAreaIds.size === 0 || repAreaIds.some(aid => salesAreaIds.has(aid));
         const visitsCount         = visitCountById.get(repId) || 0;
         const pharmacyVisitsCount = pvCountById.get(repId)    || 0;
         const areasSalesValue = repAreaIds.reduce((s, aid) => s + (salesValueByArea.get(aid) || 0), 0);
         const areasSalesQty   = repAreaIds.reduce((s, aid) => s + (salesQtyByArea.get(aid)   || 0), 0);
-        const include = intersectsAreas || visitsCount > 0 || pharmacyVisitsCount > 0;
         let source;
         if (areasSalesValue > 0 && (visitsCount > 0 || pharmacyVisitsCount > 0)) source = 'both';
         else if (visitsCount > 0 || pharmacyVisitsCount > 0) source = 'visits';
-        else source = 'area-sales';
+        else if (areasSalesValue > 0) source = 'area-sales';
+        else source = 'none';
         return {
           id: repId, name, repType: 'scientific',
           salesValue: areasSalesValue, salesQty: areasSalesQty,
           visitsCount, pharmacyVisitsCount,
           areaIds: repAreaIds, areasCount: repAreaIds.length,
-          source, include,
+          source,
         };
       })
-      .filter(r => r.include)
-      .map(({ include, ...r }) => r)
       .sort((a, b) =>
         (b.visitsCount + b.pharmacyVisitsCount * 0.5) - (a.visitsCount + a.pharmacyVisitsCount * 0.5) ||
-        b.salesValue - a.salesValue
+        b.salesValue - a.salesValue ||
+        a.name.localeCompare(b.name, 'ar')
       );
 
     res.json({ reps });
