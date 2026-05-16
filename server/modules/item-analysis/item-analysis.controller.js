@@ -77,6 +77,84 @@ export async function listItems(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ─── GET /api/item-analysis/:itemId/reps — reps linked to this item ─
+export async function listReps(req, res, next) {
+  try {
+    const userId = req.user.id;
+    const itemId = Number(req.params.itemId);
+    const fileIds = req.query.fileIds || null;
+    const days = Math.max(7, Math.min(730, Number(req.query.days) || 180));
+    if (!itemId) return res.status(400).json({ error: 'itemId required' });
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // From sales (medical reps)
+    const salesByRep = await prisma.sale.groupBy({
+      by: ['representativeId'],
+      where: { userId, itemId, ...buildFileFilter(fileIds), recordType: 'sale' },
+      _sum: { totalValue: true, quantity: true },
+    });
+    const medRepIds = salesByRep.map(s => s.representativeId).filter(Boolean);
+    const medReps = medRepIds.length
+      ? await prisma.medicalRepresentative.findMany({
+          where: { id: { in: medRepIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const medById = new Map(medReps.map(r => [r.id, r]));
+
+    // From doctor visits
+    const drVisits = await prisma.doctorVisit.findMany({
+      where: { userId, itemId, visitDate: { gte: since } },
+      select: { scientificRepId: true, scientificRep: { select: { id: true, name: true } } },
+    });
+
+    // From pharmacy visits
+    const phVisitItems = await prisma.pharmacyVisitItem.findMany({
+      where: { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } },
+      select: { pharmacyVisit: { select: { scientificRep: { select: { id: true, name: true } } } } },
+    });
+
+    // Merge by normalized name
+    const merged = new Map(); // normName -> entry
+    const upsert = (name, source, salesValue = 0, visits = 0, pharmacyVisits = 0) => {
+      if (!name) return;
+      const key = norm(name);
+      if (!merged.has(key)) {
+        merged.set(key, { name, salesValue: 0, visitsCount: 0, pharmacyVisitsCount: 0, sources: new Set() });
+      }
+      const e = merged.get(key);
+      e.salesValue += salesValue;
+      e.visitsCount += visits;
+      e.pharmacyVisitsCount += pharmacyVisits;
+      e.sources.add(source);
+    };
+
+    for (const s of salesByRep) {
+      const r = medById.get(s.representativeId);
+      if (r?.name) upsert(r.name, 'sales', s._sum.totalValue || 0, 0, 0);
+    }
+    for (const v of drVisits) {
+      if (v.scientificRep?.name) upsert(v.scientificRep.name, 'visits', 0, 1, 0);
+    }
+    for (const pv of phVisitItems) {
+      const r = pv.pharmacyVisit?.scientificRep;
+      if (r?.name) upsert(r.name, 'visits', 0, 0, 1);
+    }
+
+    const reps = [...merged.values()]
+      .map(e => ({
+        name: e.name,
+        salesValue: e.salesValue,
+        visitsCount: e.visitsCount,
+        pharmacyVisitsCount: e.pharmacyVisitsCount,
+        source: e.sources.size > 1 ? 'both' : [...e.sources][0],
+      }))
+      .sort((a, b) => (b.salesValue + b.visitsCount * 100000) - (a.salesValue + a.visitsCount * 100000));
+
+    res.json({ reps });
+  } catch (e) { next(e); }
+}
+
 // ─── GET /api/item-analysis/:itemId — full aggregator ───────
 export async function getItemAnalytics(req, res, next) {
   try {
@@ -84,6 +162,9 @@ export async function getItemAnalytics(req, res, next) {
     const itemId = Number(req.params.itemId);
     const fileIds = req.query.fileIds || null;
     const days = Math.max(7, Math.min(730, Number(req.query.days) || 180));
+    const repNameRaw = (req.query.repName || '').trim();
+    const repName = repNameRaw || null;
+    const repNameN = repName ? norm(repName) : null;
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -96,8 +177,12 @@ export async function getItemAnalytics(req, res, next) {
     if (!item) return res.status(404).json({ error: 'الإيتم غير موجود' });
 
     // ── 2. Sales (filtered by uploadedFileId + userId + itemId) ──
+    const salesWhere = { userId, itemId, ...buildFileFilter(fileIds) };
+    if (repName) {
+      salesWhere.representative = { name: { equals: repName, mode: 'insensitive' } };
+    }
     const sales = await prisma.sale.findMany({
-      where: { userId, itemId, ...buildFileFilter(fileIds) },
+      where: salesWhere,
       select: {
         quantity: true, totalValue: true, saleDate: true, recordType: true,
         area:           { select: { name: true } },
@@ -147,8 +232,10 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 3. Doctor visits for this item (within window) ─────
+    const dvWhere = { userId, itemId, visitDate: { gte: since } };
+    if (repName) dvWhere.scientificRep = { name: { equals: repName, mode: 'insensitive' } };
     const doctorVisits = await prisma.doctorVisit.findMany({
-      where: { userId, itemId, visitDate: { gte: since } },
+      where: dvWhere,
       select: {
         visitDate: true, feedback: true, notes: true, isDoubleVisit: true,
         doctor:        { select: { id: true, name: true, specialty: true, area: { select: { name: true } } } },
@@ -188,8 +275,15 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 4. Pharmacy visits for this item ───────────────────
+    const pvWhere = { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } };
+    if (repName) {
+      pvWhere.pharmacyVisit = {
+        ...pvWhere.pharmacyVisit,
+        scientificRep: { name: { equals: repName, mode: 'insensitive' } },
+      };
+    }
     const pharmacyVisitItems = await prisma.pharmacyVisitItem.findMany({
-      where: { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } },
+      where: pvWhere,
       select: {
         notes: true, itemName: true,
         pharmacyVisit: {
@@ -252,6 +346,113 @@ export async function getItemAnalytics(req, res, next) {
       }));
     }
 
+    // ── 6. Per-rep diagnostic block (when repName given) ────
+    let repDiagnostic = null;
+    if (repName) {
+      // doctors visited stats
+      const doctorVisitsByDoc = new Map();
+      for (const v of doctorVisits) {
+        const d = v.doctor?.name || 'غير محدد';
+        doctorVisitsByDoc.set(d, (doctorVisitsByDoc.get(d) || 0) + 1);
+      }
+      const counts = [...doctorVisitsByDoc.values()];
+      const singleVisitDoctors  = counts.filter(c => c === 1).length;
+      const repeatedVisitDoctors = counts.filter(c => c >= 2).length;
+      const doctorsVisited = doctorVisitsByDoc.size;
+      const avgVisitsPerDoctor = doctorsVisited ? (doctorVisits.length / doctorsVisited) : 0;
+
+      // monthly mismatch: sales vs visits
+      const salesMonths = new Set();
+      for (const s of sales) {
+        if (s.recordType === 'return') continue;
+        const m = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 7) : '';
+        if (m) salesMonths.add(m);
+      }
+      const visitMonths = new Set();
+      for (const v of doctorVisits) {
+        const m = v.visitDate ? new Date(v.visitDate).toISOString().slice(0, 7) : '';
+        if (m) visitMonths.add(m);
+      }
+      const salesNoVisits = [...salesMonths].filter(m => !visitMonths.has(m)).length;
+      const visitsNoSales = [...visitMonths].filter(m => !salesMonths.has(m)).length;
+
+      // pharmacy visits count for this rep
+      const pharmacyVisitsCount = pharmacyVisitItems.length;
+      const doctorPharmacyRatio = pharmacyVisitsCount > 0
+        ? doctorVisits.length / pharmacyVisitsCount
+        : (doctorVisits.length > 0 ? 999 : 0);
+
+      // feedback breakdown for this rep
+      const positiveFeedback = (feedbackCounts.writing || 0) + (feedbackCounts.interested || 0) + (feedbackCounts.stocked || 0);
+      const negativeFeedback = (feedbackCounts.not_interested || 0) + (feedbackCounts.unavailable || 0);
+
+      // sales totals for this rep
+      const repSalesValue = totalSalesValue;
+      const repReturnsValue = totalReturnsValue;
+      const repNetValue = repSalesValue - repReturnsValue;
+
+      // plan coverage: scientific reps' monthly plans
+      let planCoverage = { totalPlans: 0, plansWithItem: 0, coveragePct: 0 };
+      try {
+        const plans = await prisma.monthlyPlan.findMany({
+          where: {
+            userId,
+            scientificRep: { name: { equals: repName, mode: 'insensitive' } },
+          },
+          select: {
+            id: true, month: true, year: true,
+            entries: { select: { targetItems: { where: { itemId }, select: { id: true } } } },
+          },
+        });
+        const total = plans.length;
+        const withItem = plans.filter(p => p.entries.some(e => e.targetItems.length > 0)).length;
+        planCoverage = {
+          totalPlans: total,
+          plansWithItem: withItem,
+          coveragePct: total > 0 ? Math.round((withItem / total) * 100) : 0,
+        };
+      } catch (err) {
+        console.warn('[item-analysis] plan coverage failed:', err?.message);
+      }
+
+      // Build human-readable signals (rule-based diagnostic hints for AI)
+      const signals = [];
+      if (doctorVisits.length < 5) signals.push('قلة الكولات الطبية (أقل من 5 زيارات)');
+      if (planCoverage.totalPlans > 0 && planCoverage.plansWithItem === 0)
+        signals.push('الإيتم غير مدرج في أي بلان شهري لهذا المندوب');
+      if (doctorsVisited > 0 && singleVisitDoctors > repeatedVisitDoctors * 2)
+        signals.push('ضعف المتابعة: غالبية الأطباء بزيارة وحيدة بدون زيارة ثانية');
+      if (positiveFeedback >= 3 && repNetValue < 100)
+        signals.push('فيدباك إيجابي متعدد لكن المبيعات شبه معدومة → مشكلة من جهة الصيدلية أو ضعف إغلاق المبيع');
+      if (repSalesValue > 0 && doctorVisits.length === 0)
+        signals.push('مبيعات بدون أي كولات طبية → اعتماد كامل على الصيدليات (ضعف الكول العلمي)');
+      if (pharmacyVisitsCount > 0 && doctorPharmacyRatio < 0.3)
+        signals.push('تركيز على الصيدليات أكثر من الأطباء بكثير (نسبة كولات الأطباء/الصيدليات منخفضة)');
+      if (visitsNoSales >= 2 && salesMonths.size === 0)
+        signals.push('زيارات بدون أي مبيعات على الإطلاق');
+
+      repDiagnostic = {
+        repName,
+        callCount: doctorVisits.length,
+        pharmacyVisitsCount,
+        doctorsVisited,
+        singleVisitDoctors,
+        repeatedVisitDoctors,
+        avgVisitsPerDoctor: Math.round(avgVisitsPerDoctor * 10) / 10,
+        positiveFeedback,
+        negativeFeedback,
+        feedbackCounts,
+        salesNoVisits,
+        visitsNoSales,
+        doctorPharmacyRatio: Math.round(doctorPharmacyRatio * 100) / 100,
+        planCoverage,
+        salesValue: repSalesValue,
+        returnsValue: repReturnsValue,
+        netValue: repNetValue,
+        signals,
+      };
+    }
+
     res.json({
       item: {
         id: item.id, name: item.name, scientificName: item.scientificName,
@@ -260,6 +461,8 @@ export async function getItemAnalytics(req, res, next) {
         company: item.company ? { id: item.company.id, name: item.company.name } : null,
       },
       windowDays: days,
+      repName: repName || null,
+      repDiagnostic,
       overview: {
         salesQty: totalSalesQty,
         salesValue: totalSalesValue,
@@ -305,12 +508,13 @@ export async function getAIInsight(req, res, next) {
     const userId = req.user.id;
     const itemId = Number(req.params.itemId);
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
-    const { fileIds = null, days = 180 } = req.body || {};
+    const { fileIds = null, days = 180, repName = null } = req.body || {};
 
     // Re-run aggregator inline to get fresh data
     req.params.itemId = itemId;
     req.query.fileIds = fileIds || '';
     req.query.days = days;
+    if (repName) req.query.repName = repName;
 
     // Capture aggregator output without sending response
     let aggregated = null;
@@ -327,6 +531,7 @@ export async function getAIInsight(req, res, next) {
     const slim = {
       item: aggregated.item,
       windowDays: aggregated.windowDays,
+      repName: aggregated.repName,
       overview: aggregated.overview,
       topAreas: aggregated.salesByArea.slice(0, 10),
       bottomAreas: [...aggregated.salesByArea].reverse().slice(0, 5),
@@ -342,10 +547,33 @@ export async function getAIInsight(req, res, next) {
       },
       pharmacyVisits: aggregated.pharmacyVisits,
       competitors: aggregated.competitors,
+      repDiagnostic: aggregated.repDiagnostic,
     };
 
     const it = slim.item;
-    const prompt = `أنت محلل مبيعات أدوية خبير ومستشار طبي. حلل أداء الإيتم التالي تحليلاً عميقاً وشاملاً ومنظماً بالعربية الفصحى.
+    const hasRep = !!slim.repName && !!slim.repDiagnostic;
+
+    const repBlock = hasRep ? `
+
+# ⚠️ تشخيص خاص بالمندوب: ${slim.repName}
+البيانات التالية تخص هذا المندوب فقط (مفلترة):
+${JSON.stringify(slim.repDiagnostic, null, 2)}
+
+## القواعد التشخيصية الواجب تطبيقها
+طبّق القواعد التالية بحرفية على بيانات هذا المندوب أعلاه:
+1. إذا كان \`callCount < 5\` → السبب الرئيسي قلة الكولات → اقترح زيادة الكولات.
+2. إذا كان \`planCoverage.plansWithItem == 0\` بينما \`planCoverage.totalPlans > 0\` → الإيتم خارج بلانات هذا المندوب → اقترح إدراجه في البلان القادم.
+3. إذا كان \`singleVisitDoctors > repeatedVisitDoctors * 2\` → ضعف المتابعة بعد الزيارة الأولى → اقترح خطة زيارة ثانية لكل طبيب خلال أسبوعين.
+4. إذا كان \`positiveFeedback >= 3\` ولكن \`netValue\` منخفض → فيدباك إيجابي لكن لا توجد طلبيات → المشكلة من جهة الصيدلية (عدم توفر، عدم طلب، مشكلة سعر) → اقترح جولة صيدليات مع الأطباء.
+5. إذا كان \`salesValue > 0\` ولكن \`callCount == 0\` → مبيعات بدون كولات → اعتماد على الصيدلي وضعف الكول العلمي → اقترح تدريب على المحادثة العلمية.
+6. إذا كان \`doctorPharmacyRatio < 0.3\` → تركيز خاطئ على الصيدليات → اقترح إعادة توازن الجدول.
+7. إذا كان \`visitsNoSales >= 2\` ولكن \`salesMonths == 0\` → زيارات بدون نتائج → اقترح مراجعة الرسالة العلمية وأسلوب الـClosing.
+
+## إشارات تلقائية مستخلصة من البيانات
+${slim.repDiagnostic.signals.length > 0 ? slim.repDiagnostic.signals.map(s => `- ${s}`).join('\n') : '- لا توجد إشارات تلقائية واضحة، حلل البيانات يدوياً'}
+` : '';
+
+    const prompt = `أنت محلل مبيعات أدوية خبير ومستشار طبي علمي عميق. حلل أداء الإيتم التالي تحليلاً شاملاً ومنظماً بالعربية الفصحى.
 
 # بيانات الإيتم
 - الاسم التجاري: ${it.name}
@@ -357,9 +585,9 @@ export async function getAIInsight(req, res, next) {
 - الرسالة العلمية المسجّلة: ${it.scientificMessage || 'لا توجد'}
 
 # نافذة التحليل
-آخر ${slim.windowDays} يوم.
+آخر ${slim.windowDays} يوم.${hasRep ? ` — التحليل مفلتر على المندوب: ${slim.repName}` : ' — التحليل عام لجميع المندوبين'}
 
-# ملخص الأداء
+# ملخص الأداء${hasRep ? ' (للمندوب المحدد)' : ' (الكلي)'}
 ${JSON.stringify(slim.overview, null, 2)}
 
 # أعلى المناطق مبيعاً
@@ -368,49 +596,79 @@ ${JSON.stringify(slim.topAreas, null, 2)}
 # أضعف المناطق
 ${JSON.stringify(slim.bottomAreas, null, 2)}
 
-# أعلى المندوبين مبيعاً
+# المندوبون (مرجعي إذا التحليل عام)
 ${JSON.stringify(slim.topReps, null, 2)}
-
-# أضعف المندوبين
-${JSON.stringify(slim.bottomReps, null, 2)}
 
 # التطور الشهري
 ${JSON.stringify(slim.monthlyTrend, null, 2)}
 
-# أعلى الصيدليات شراءً
+# الصيدليات
 ${JSON.stringify(slim.topPharmacies, null, 2)}
 
-# زيارات الأطباء لهذا الإيتم
+# زيارات الأطباء
 ${JSON.stringify(slim.doctorVisits, null, 2)}
 
 # زيارات الصيدليات
 ${JSON.stringify(slim.pharmacyVisits, null, 2)}
 
-# منافسون داخل نفس الشركة (مقارنة مرجعية)
+# منافسون داخل نفس الشركة
 ${JSON.stringify(slim.competitors, null, 2)}
+${repBlock}
 
 # المطلوب
-اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي):
+اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي). لا تكتفِ بالعموميات، اربط كل استنتاج بأرقام محددة من البيانات أعلاه.
 
-## 💊 المعلومات العلمية عن الدواء
-استنتج من الاسم التجاري والعلمي والجرعة: المكونات الفعالة، آلية العمل، الاستخدامات والأمراض المعالجة، الفئة العلاجية، التداخلات الدوائية الأهم، الفئات العمرية المستهدفة، نقاط القوة العلمية مقارنة بالبدائل، الأطباء الذين يصفونه عادةً (التخصصات).
+## 💊 1. المعلومات العلمية الشاملة عن الدواء
+استنتج من الاسم العلمي والجرعة والشكل:
+- **المكونات الفعالة والفئة الدوائية** (drug class)
+- **ميكانيزم العمل (Mechanism of Action)** — كيف يعمل في الجسم
+- **الفارماكوكاينيتيك** (الامتصاص، التوزيع، الأيض، الإخراج)
+- **الاستخدامات الرئيسية والأمراض المعالجة** (Indications)
+- **الاستخدامات الإضافية** (Off-label uses)
+- **الموانع (Contraindications)** — متى يُمنع استخدامه
+- **الأعراض الجانبية**: الشائعة + الخطيرة
+- **الحمل والإرضاع**: تصنيف الحمل (FDA category) + الإرضاع
+- **التداخلات الدوائية الأهم** (Top 5)
+- **الفئات العمرية المستهدفة** والاحتياطات
 
-## 🔍 تشخيص سبب ضعف المبيع
-حلل البيانات (لا تكتفِ بالأرقام، استنتج الأسباب الجذرية): مقارنة مع المنافسين، تحليل المناطق الضعيفة، أداء المندوبين، الموسمية، علاقة الفيدباك بالمبيعات.
+## 🩺 2. التخصصات الطبية الأكثر وصفاً
+استنتج علمياً + استدل من بيانات الزيارات: ما هي التخصصات التي تصف هذا الدواء عادةً؟ (Cardiologist, GP, Pediatrician, OB-GYN, ...) رتّبها حسب الأهمية.
 
-## 🩺 تحليل سلوك الأطباء
-كم نسبة "يكتب" مقابل "غير مهتم"؟ ماذا تقول ملاحظات الزيارات؟ ما الأنماط؟ أين الفرص؟ أي تخصصات تستجيب أكثر؟
+## 🏆 3. تحليل المنافسة العميق
+### أ. منافسون بنفس الاسم العلمي (Generic equivalents)
+اذكر أبرز البدائل بنفس المكون الفعّال في السوق العراقي/الإقليمي، مع نقاط التميّز عنها.
+### ب. منافسون بفئة علاجية مماثلة (Class competitors)
+أدوية مختلفة الاسم العلمي لكن تعطي نفس التأثير العلاجي.
+### ج. نقاط القوة والضعف لإيتمنا
+قارن صراحةً: ما الذي يجعل إيتمنا أفضل/أسوأ من المنافسين؟ السعر، الجرعة، الأعراض، الشكل، الشركة، الـbioavailability.
 
-## 🏪 تحليل الصيدليات
-أيهما نشط وأيها خامل؟ ما تردد الزيارات؟ ملاحظات الصيادلة.
+## 📊 4. انتشار السوق
+بناءً على بيانات الزيارات والمبيعات: ما تقديرك لانتشار هذا الدواء في السوق؟ ما حصته السوقية النسبية؟ هل هو في طور النمو أم التراجع؟
 
-## 🎯 اقتراحات عملية للمندوب (5-7 نقاط مرقّمة وقابلة للتنفيذ)
-رسائل علمية محددة، استراتيجيات الزيارة، مناطق وأطباء يحتاجون تركيز، التعامل مع الاعتراضات الشائعة.
+## 🔍 5. التشخيص العام لضعف المبيع
+حلل الأسباب الجذرية (ليس فقط الأرقام): مقارنة المناطق، الموسمية، علاقة الفيدباك بالمبيعات، فجوات التوزيع.
+${hasRep ? `
+## 👤 6. التشخيص الخاص بالمندوب: ${slim.repName}
+طبّق القواعد التشخيصية السبع المذكورة أعلاه على بيانات هذا المندوب. لكل قاعدة تنطبق:
+- **اذكر الرقم المحدد** من البيانات (مثلاً: "callCount=3 < 5 → قلة كولات واضحة")
+- **حدد السبب الجذري**
+- **اقترح إجراءً تصحيحياً محدداً** قابلاً للقياس
 
-## 📅 خطة عمل 30 يوم
-جدول | الأسبوع | الإجراء | المخرج المتوقع |
+لا تذكر القواعد التي لا تنطبق. ركّز على الأكثر تأثيراً.
+` : ''}
+## 🎯 ${hasRep ? '7' : '6'}. اقتراحات عملية ${hasRep ? `للمندوب ${slim.repName}` : 'لفريق المبيعات'} (5-7 نقاط مرقّمة)
+رسائل علمية محددة لكل تخصص، استراتيجيات زيارة، التعامل مع الاعتراضات الشائعة، أطباء وصيدليات تستحق التركيز.
 
-اجعل التقرير دقيقاً وعملياً ومبنياً على البيانات أعلاه. تجنّب العموميات. استشهد بأرقام محددة. اكتب كأنك تخاطب فريق مبيعات يريد رفع أداء هذا الإيتم خلال الشهر القادم.`;
+## 📅 ${hasRep ? '8' : '7'}. خطة عمل 30 يوم تنفيذية
+جدول بأربعة أعمدة | الأسبوع | الإجراء | المخرج المتوقع | المؤشر |
+خطة مرتبطة مباشرةً بالتشخيص أعلاه. ${hasRep ? 'خاصة بهذا المندوب.' : 'موجّهة للفريق ككل.'}
+
+# قواعد عامة
+- استشهد بأرقام محددة في كل استنتاج
+- تجنّب العموميات والكلام الإنشائي
+- إذا كانت بيانات معيّنة غير متوفرة، قل ذلك صراحةً بدلاً من اختلاق أرقام
+- المعلومات العلمية يجب أن تكون دقيقة طبياً ومستندة إلى مصادر معروفة
+- في قسم التشخيص الخاص بالمندوب، طبّق القواعد بحرفية ولا تخترع قواعد جديدة`;
 
     let insight;
     try {
@@ -423,6 +681,7 @@ ${JSON.stringify(slim.competitors, null, 2)}
     res.json({
       itemId,
       itemName: it.name,
+      repName: slim.repName || null,
       insight,
       generatedAt: new Date().toISOString(),
     });

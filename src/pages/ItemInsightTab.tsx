@@ -22,6 +22,35 @@ interface DoctorVisitTop {
 
 interface NoteSample { doctor?: string; pharmacy?: string; feedback?: string; date?: string | null; notes: string; }
 
+interface RepDiagnostic {
+  repName: string;
+  callCount: number;
+  pharmacyVisitsCount: number;
+  doctorsVisited: number;
+  singleVisitDoctors: number;
+  repeatedVisitDoctors: number;
+  avgVisitsPerDoctor: number;
+  positiveFeedback: number;
+  negativeFeedback: number;
+  feedbackCounts: Record<string, number>;
+  salesNoVisits: number;
+  visitsNoSales: number;
+  doctorPharmacyRatio: number;
+  planCoverage: { totalPlans: number; plansWithItem: number; coveragePct: number };
+  salesValue: number;
+  returnsValue: number;
+  netValue: number;
+  signals: string[];
+}
+
+interface RepListEntry {
+  name: string;
+  salesValue: number;
+  visitsCount: number;
+  pharmacyVisitsCount: number;
+  source: 'sales' | 'visits' | 'both';
+}
+
 interface Analytics {
   item: {
     id: number; name: string; scientificName?: string | null;
@@ -30,6 +59,8 @@ interface Analytics {
     company?: { id: number; name: string } | null;
   };
   windowDays: number;
+  repName?: string | null;
+  repDiagnostic?: RepDiagnostic | null;
   overview: {
     salesQty: number; salesValue: number;
     returnsQty: number; returnsValue: number;
@@ -78,7 +109,23 @@ function fmtDate(d: string | null) {
   catch { return d; }
 }
 
-const CACHE_PREFIX = 'item_ai_insight_v1:';
+const CACHE_PREFIX = 'item_ai_insight_v2:';
+const SKIP_INFO_PREFIX = 'item_skip_info:';
+
+const COMMON_FORMS = [
+  'أقراص (Tablet)',
+  'كبسولات (Capsule)',
+  'شراب (Syrup)',
+  'حقن (Injection)',
+  'قطرة (Drops)',
+  'مرهم (Ointment)',
+  'كريم (Cream)',
+  'تحاميل (Suppository)',
+  'بخاخ (Spray)',
+  'فيال (Vial)',
+  'محلول (Solution)',
+  'أخرى',
+];
 
 export default function ItemInsightTab({ fileIdsParam }: Props) {
   const { token } = useAuth();
@@ -101,6 +148,16 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   const [aiError, setAIError]       = useState<string | null>(null);
   const [aiCachedAt, setAICachedAt] = useState<string | null>(null);
 
+  // Per-rep selector & list
+  const [reps, setReps]             = useState<RepListEntry[]>([]);
+  const [selectedRep, setSelectedRep] = useState<string>(''); // '' = general
+
+  // Missing-info modal
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [infoForm, setInfoForm] = useState({ scientificName: '', dosage: '', form: '' });
+  const [infoSaving, setInfoSaving] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+
   // ── Load items list ───────────────────────────────────────
   useEffect(() => {
     setItemsLoading(true);
@@ -120,25 +177,91 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
     const qs = new URLSearchParams();
     if (fileIdsParam) qs.set('fileIds', fileIdsParam);
     qs.set('days', String(days));
+    if (selectedRep) qs.set('repName', selectedRep);
     fetch(`${API}/api/item-analysis/${selectedId}?${qs.toString()}`, { headers })
       .then(async r => {
         if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل تحميل البيانات'); }
         return r.json();
       })
-      .then((d: Analytics) => setData(d))
+      .then((d: Analytics) => {
+        setData(d);
+        // Auto-open missing-info modal once per item (unless previously skipped)
+        const needs = !d.item.scientificName || !d.item.dosage || !d.item.form;
+        const skipped = localStorage.getItem(`${SKIP_INFO_PREFIX}${d.item.id}`) === '1';
+        if (needs && !skipped && !selectedRep) {
+          setInfoForm({
+            scientificName: d.item.scientificName || '',
+            dosage:         d.item.dosage         || '',
+            form:           d.item.form           || '',
+          });
+          setInfoError(null);
+          setShowInfoModal(true);
+        }
+      })
       .catch(e => setError(String(e.message || e)))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, fileIdsParam, days, token]);
+  }, [selectedId, fileIdsParam, days, selectedRep, token]);
 
   useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
 
-  // ── Load AI insight from cache when item changes ─────────
+  // ── Reset rep & load reps list when item changes ─────────
+  useEffect(() => {
+    setSelectedRep('');
+    if (!selectedId) { setReps([]); return; }
+    const qs = new URLSearchParams();
+    if (fileIdsParam) qs.set('fileIds', fileIdsParam);
+    qs.set('days', String(days));
+    fetch(`${API}/api/item-analysis/${selectedId}/reps?${qs.toString()}`, { headers })
+      .then(r => r.json())
+      .then(j => setReps(j.reps || []))
+      .catch(() => setReps([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, fileIdsParam, days, token]);
+
+  // ── Save missing info ────────────────────────────────────
+  const saveItemInfo = async () => {
+    if (!selectedId) return;
+    if (!infoForm.scientificName.trim() && !infoForm.dosage.trim() && !infoForm.form.trim()) {
+      setInfoError('أدخل بياناً واحداً على الأقل');
+      return;
+    }
+    setInfoSaving(true); setInfoError(null);
+    try {
+      const r = await fetch(`${API}/api/items/${selectedId}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scientificName: infoForm.scientificName.trim() || undefined,
+          dosage:         infoForm.dosage.trim()         || undefined,
+          form:           infoForm.form.trim()           || undefined,
+        }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل الحفظ'); }
+      setShowInfoModal(false);
+      // Refresh items list + analytics
+      const qs = fileIdsParam ? `?fileIds=${fileIdsParam}` : '';
+      fetch(`${API}/api/item-analysis/items${qs}`, { headers })
+        .then(rr => rr.json()).then(rr => setItems(rr.items || [])).catch(() => {});
+      loadAnalytics();
+    } catch (e: any) {
+      setInfoError(String(e.message || e));
+    } finally {
+      setInfoSaving(false);
+    }
+  };
+
+  const skipItemInfo = () => {
+    if (selectedId) localStorage.setItem(`${SKIP_INFO_PREFIX}${selectedId}`, '1');
+    setShowInfoModal(false);
+  };
+
+  // ── Load AI insight from cache when item/rep changes ─────
   useEffect(() => {
     setAIInsight(null); setAIError(null); setAICachedAt(null);
     if (!selectedId) return;
     try {
-      const key = `${CACHE_PREFIX}${selectedId}:${fileIdsParam || 'all'}:${days}`;
+      const key = `${CACHE_PREFIX}${selectedId}:${fileIdsParam || 'all'}:${days}:${selectedRep || 'all'}`;
       const raw = localStorage.getItem(key);
       if (raw) {
         const obj = JSON.parse(raw);
@@ -149,7 +272,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
         }
       }
     } catch {}
-  }, [selectedId, fileIdsParam, days]);
+  }, [selectedId, fileIdsParam, days, selectedRep]);
 
   const requestAI = async () => {
     if (!selectedId) return;
@@ -158,14 +281,14 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
       const r = await fetch(`${API}/api/item-analysis/${selectedId}/ai-insight`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileIds: fileIdsParam || null, days }),
+        body: JSON.stringify({ fileIds: fileIdsParam || null, days, repName: selectedRep || null }),
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل التحليل الذكي'); }
       const j = await r.json();
       setAIInsight(j.insight);
       setAICachedAt(j.generatedAt);
       try {
-        const key = `${CACHE_PREFIX}${selectedId}:${fileIdsParam || 'all'}:${days}`;
+        const key = `${CACHE_PREFIX}${selectedId}:${fileIdsParam || 'all'}:${days}:${selectedRep || 'all'}`;
         localStorage.setItem(key, JSON.stringify({ insight: j.insight, generatedAt: j.generatedAt }));
       } catch {}
     } catch (e: any) {
@@ -177,10 +300,14 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
 
   const exportAIInsight = () => {
     if (!aiInsight || !data) return;
-    const blob = new Blob([`# تحليل الإيتم: ${data.item.name}\n\n${aiInsight}`], { type: 'text/markdown;charset=utf-8' });
+    const heading = selectedRep
+      ? `# تحليل الإيتم: ${data.item.name} — المندوب: ${selectedRep}`
+      : `# تحليل الإيتم: ${data.item.name}`;
+    const blob = new Blob([`${heading}\n\n${aiInsight}`], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `تحليل_${data.item.name.replace(/[^\u0600-\u06FFa-zA-Z0-9]+/g, '_')}.md`;
+    const repSuffix = selectedRep ? `_${selectedRep.replace(/[^\u0600-\u06FFa-zA-Z0-9]+/g, '_')}` : '';
+    a.href = url; a.download = `تحليل_${data.item.name.replace(/[^\u0600-\u06FFa-zA-Z0-9]+/g, '_')}${repSuffix}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -372,8 +499,39 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
           {/* ── Subtab: AI insight ─────────────────────── */}
           {subTab === 'ai' && (
             <div style={cardStyle}>
+              {/* Rep selector */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 14, padding: 10, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>👤 نطاق التحليل:</label>
+                <select
+                  value={selectedRep}
+                  onChange={e => setSelectedRep(e.target.value)}
+                  style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, minWidth: 220 }}
+                >
+                  <option value="">تحليل عام (جميع المندوبين)</option>
+                  {reps.map(r => (
+                    <option key={r.name} value={r.name}>
+                      {r.name} — {r.source === 'both' ? '🟣 كولات+مبيع' : r.source === 'sales' ? '💰 مبيع' : '🩺 كولات'}
+                      {r.visitsCount ? ` • ${r.visitsCount} زيارة` : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedRep && (
+                  <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>
+                    🎯 التحليل مفلتر على هذا المندوب فقط
+                  </span>
+                )}
+              </div>
+
+              {/* Per-rep diagnostic card (when rep selected & data has diagnostic) */}
+              {selectedRep && data.repDiagnostic && (
+                <RepDiagnosticCard d={data.repDiagnostic} />
+              )}
+
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-                <h3 style={{ margin: 0, color: '#1e40af' }}>🤖 التحليل الذكي عبر Gemini</h3>
+                <h3 style={{ margin: 0, color: '#1e40af' }}>
+                  🤖 التحليل الذكي عبر Gemini
+                  {selectedRep && <span style={{ fontSize: 12, color: '#7c3aed', marginRight: 8 }}>(للمندوب: {selectedRep})</span>}
+                </h3>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {aiInsight && (
                     <button onClick={exportAIInsight} style={{
@@ -436,6 +594,83 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Missing-info modal ──────────────────────────── */}
+      {showInfoModal && data && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }} onClick={() => setShowInfoModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: 12, padding: 22, maxWidth: 520, width: '100%',
+            boxShadow: '0 20px 50px rgba(0,0,0,.3)',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#1e3a8a', marginBottom: 6 }}>
+              📋 معلومات الإيتم ناقصة
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.7 }}>
+              لتحليل أعمق وأكثر دقة (المكونات، الميكانيزم، الأعراض الجانبية، المنافسين)، الرجاء إكمال البيانات التالية لـ <b>{data.item.name}</b>:
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>🧪 الاسم العلمي (Active ingredient)</label>
+                <input
+                  type="text" placeholder="مثال: Paracetamol 500mg أو Amoxicillin + Clavulanic acid"
+                  value={infoForm.scientificName}
+                  onChange={e => setInfoForm({ ...infoForm, scientificName: e.target.value })}
+                  style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>💊 الجرعة</label>
+                <input
+                  type="text" placeholder="مثال: 500mg / 5ml / 250mg+125mg"
+                  value={infoForm.dosage}
+                  onChange={e => setInfoForm({ ...infoForm, dosage: e.target.value })}
+                  style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>📦 الشكل الدوائي</label>
+                <select
+                  value={COMMON_FORMS.includes(infoForm.form) ? infoForm.form : (infoForm.form ? 'أخرى' : '')}
+                  onChange={e => setInfoForm({ ...infoForm, form: e.target.value === 'أخرى' ? '' : e.target.value })}
+                  style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 4 }}
+                >
+                  <option value="">— اختر —</option>
+                  {COMMON_FORMS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+                {(!COMMON_FORMS.includes(infoForm.form) || infoForm.form === '') && (
+                  <input
+                    type="text" placeholder="أو اكتب الشكل الدوائي يدوياً..."
+                    value={COMMON_FORMS.includes(infoForm.form) ? '' : infoForm.form}
+                    onChange={e => setInfoForm({ ...infoForm, form: e.target.value })}
+                    style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 6 }}
+                  />
+                )}
+              </div>
+            </div>
+            {infoError && (
+              <div style={{ marginTop: 10, padding: 8, background: '#fef2f2', color: '#dc2626', borderRadius: 6, fontSize: 12 }}>
+                ⚠️ {infoError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button onClick={skipItemInfo} disabled={infoSaving} style={{
+                padding: '9px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff',
+                color: '#475569', fontSize: 13, cursor: 'pointer', fontWeight: 600,
+              }}>تخطّي</button>
+              <button onClick={saveItemInfo} disabled={infoSaving} style={{
+                padding: '9px 16px', borderRadius: 6, border: 'none',
+                background: infoSaving ? '#94a3b8' : 'linear-gradient(135deg, #1e40af, #6366f1)',
+                color: '#fff', fontSize: 13, cursor: infoSaving ? 'not-allowed' : 'pointer', fontWeight: 700,
+              }}>
+                {infoSaving ? '⏳ جاري الحفظ...' : '💾 حفظ ومتابعة'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -645,6 +880,57 @@ function VisitsPanel({ data }: { data: Analytics }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
+  const tile = (label: string, value: string | number, color: string, sub?: string): JSX.Element => (
+    <div style={{
+      background: '#fff', borderRadius: 8, padding: 10, border: '1px solid #e5e7eb',
+      borderRight: `4px solid ${color}`, minWidth: 130,
+    }}>
+      <div style={{ fontSize: 10, color: '#6b7280' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #fef3c7 0%, #fee2e2 100%)',
+      borderRadius: 10, padding: 14, marginBottom: 14, border: '1px solid #fde68a',
+    }}>
+      <h4 style={{ margin: '0 0 12px 0', color: '#92400e', fontSize: 14 }}>
+        🎯 مؤشرات التشخيص — المندوب: {d.repName}
+      </h4>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        {tile('عدد الكولات', d.callCount, '#1e40af')}
+        {tile('زيارات صيدليات', d.pharmacyVisitsCount, '#0891b2')}
+        {tile('أطباء مزارون', d.doctorsVisited, '#7c3aed')}
+        {tile('زيارة وحيدة', d.singleVisitDoctors, '#ef4444', 'ضعف متابعة')}
+        {tile('زيارة مكررة', d.repeatedVisitDoctors, '#10b981', 'متابعة جيدة')}
+        {tile('متوسط زيارات/طبيب', d.avgVisitsPerDoctor, '#0e7490')}
+        {tile('فيدباك إيجابي', d.positiveFeedback, '#10b981')}
+        {tile('فيدباك سلبي', d.negativeFeedback, '#dc2626')}
+        {tile('تغطية البلان', `${d.planCoverage.coveragePct}%`, d.planCoverage.coveragePct > 0 ? '#10b981' : '#dc2626', `${d.planCoverage.plansWithItem}/${d.planCoverage.totalPlans} بلان`)}
+        {tile('نسبة أطباء/صيدليات', d.doctorPharmacyRatio, d.doctorPharmacyRatio < 0.3 ? '#dc2626' : '#1e40af')}
+        {tile('صافي المبيع', Math.round(d.netValue).toLocaleString('ar-IQ'), d.netValue > 0 ? '#065f46' : '#991b1b')}
+      </div>
+      {d.signals.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 8, padding: 10, border: '1px solid #fde68a' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+            ⚠️ إشارات تشخيصية مكتشفة تلقائياً:
+          </div>
+          <ul style={{ margin: 0, paddingRight: 20, fontSize: 12, color: '#7c2d12', lineHeight: 1.8 }}>
+            {d.signals.map((s, i) => <li key={i}>{s}</li>)}
+          </ul>
+        </div>
+      )}
+      {d.signals.length === 0 && (
+        <div style={{ fontSize: 12, color: '#065f46', background: '#fff', padding: 8, borderRadius: 6 }}>
+          ✅ لا توجد إشارات سلبية تلقائية — الأداء ضمن المعدل.
         </div>
       )}
     </div>
