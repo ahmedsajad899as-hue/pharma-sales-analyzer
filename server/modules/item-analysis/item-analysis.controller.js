@@ -1,6 +1,5 @@
 import prisma from '../../lib/prisma.js';
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
-import { list as listSciReps } from '../scientific-reps/scientific-reps.service.js';
 
 // ─── Helpers ────────────────────────────────────────────────
 function norm(s = '') {
@@ -88,20 +87,75 @@ export async function listReps(req, res, next) {
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // 1. Get all scientific reps visible to this manager (same logic as ScientificRepsPage)
-    //    This handles both system users (created by master) and standalone reps.
-    const allReps = await listSciReps({}, req.user, { standalone: false }).catch(() => []);
-    if (!allReps.length) return res.json({ reps: [] });
+    // ── 1. Get manager's company IDs ───────────────────────────────────────
+    const companyAssignments = await prisma.userCompanyAssignment.findMany({
+      where: { userId }, select: { companyId: true },
+    });
+    const companyIds = companyAssignments.map(a => a.companyId);
 
-    // 2. Distinct area IDs from this item's sales (for intersection check)
+    // ── 2. ALL rep users in same companies (no hierarchy restriction) ───────
+    // For item analysis the company manager should see every rep in his
+    // company, including those under team leaders (grandchildren).
+    const repUsersRaw = companyIds.length > 0
+      ? await prisma.user.findMany({
+          where: {
+            role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
+            isActive: true,
+            companyAssignments: { some: { companyId: { in: companyIds } } },
+          },
+          select: { id: true, displayName: true, username: true, linkedRepId: true },
+        })
+      : [];
+
+    // ── 3. Resolve ScientificRepresentative record for each rep user ───────
+    const systemRepIds = new Set();
+    const allRepRecords = []; // { repId, name }
+    for (const u of repUsersRaw) {
+      let repId = u.linkedRepId;
+      if (!repId) {
+        const rep = await prisma.scientificRepresentative.findFirst({
+          where: { userId: u.id }, select: { id: true },
+        });
+        repId = rep?.id ?? null;
+      }
+      if (!repId) continue;
+      systemRepIds.add(repId);
+      allRepRecords.push({ repId, name: u.displayName || u.username });
+    }
+
+    // ── 4. Standalone reps (manually added by manager, not system users) ───
+    const standaloneReps = await prisma.scientificRepresentative.findMany({
+      where: {
+        userId,
+        isActive: true,
+        ...(systemRepIds.size > 0 ? { id: { notIn: [...systemRepIds] } } : {}),
+      },
+      select: { id: true, name: true },
+    });
+    for (const r of standaloneReps) allRepRecords.push({ repId: r.id, name: r.name });
+
+    if (!allRepRecords.length) return res.json({ reps: [] });
+
+    // ── 5. Load areas for all reps ─────────────────────────────────────────
+    const allIds = [...new Set(allRepRecords.map(r => r.repId))];
+    const areaRows = await prisma.scientificRepArea.findMany({
+      where: { scientificRepId: { in: allIds } },
+      select: { scientificRepId: true, areaId: true },
+    });
+    const areasByRepId = new Map();
+    for (const row of areaRows) {
+      if (!areasByRepId.has(row.scientificRepId)) areasByRepId.set(row.scientificRepId, []);
+      areasByRepId.get(row.scientificRepId).push(row.areaId);
+    }
+
+    // ── 6. Item's sales area IDs ───────────────────────────────────────────
     const salesAreaRows = await prisma.sale.findMany({
       where: { userId, itemId, ...buildFileFilter(fileIds) },
-      select: { areaId: true },
-      distinct: ['areaId'],
+      select: { areaId: true }, distinct: ['areaId'],
     });
     const salesAreaIds = new Set(salesAreaRows.map(s => s.areaId).filter(Boolean));
 
-    // 3. Sales value/qty aggregated by area
+    // ── 7. Sales value/qty per area ────────────────────────────────────────
     const salesByAreaRaw = await prisma.sale.groupBy({
       by: ['areaId'],
       where: { userId, itemId, ...buildFileFilter(fileIds), recordType: 'sale' },
@@ -110,7 +164,7 @@ export async function listReps(req, res, next) {
     const salesValueByArea = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.totalValue || 0]));
     const salesQtyByArea   = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.quantity  || 0]));
 
-    // 4. Doctor visit counts per scientific rep ID for this item
+    // ── 8. Doctor visit counts per rep ────────────────────────────────────
     const drVisits = await prisma.doctorVisit.findMany({
       where: { userId, itemId, visitDate: { gte: since } },
       select: { scientificRepId: true },
@@ -121,12 +175,9 @@ export async function listReps(req, res, next) {
         visitCountById.set(v.scientificRepId, (visitCountById.get(v.scientificRepId) || 0) + 1);
     }
 
-    // 5. Pharmacy visit counts per scientific rep ID for this item
+    // ── 9. Pharmacy visit counts per rep ─────────────────────────────────
     const phVisits = await prisma.pharmacyVisit.findMany({
-      where: {
-        userId, visitDate: { gte: since },
-        visitItems: { some: { itemId } },
-      },
+      where: { userId, visitDate: { gte: since }, visitItems: { some: { itemId } } },
       select: { scientificRepId: true },
     }).catch(() => []);
     const pvCountById = new Map();
@@ -135,22 +186,24 @@ export async function listReps(req, res, next) {
         pvCountById.set(v.scientificRepId, (pvCountById.get(v.scientificRepId) || 0) + 1);
     }
 
-    // 6. Map reps, filter by area intersection OR visits
-    const reps = allReps
-      .map(r => {
-        const repAreaIds = (r.areas || []).map(a => a.id ?? a);
+    // ── 10. Filter & shape ────────────────────────────────────────────────
+    const seen = new Set();
+    const reps = allRepRecords
+      .filter(r => !seen.has(r.repId) && seen.add(r.repId)) // deduplicate
+      .map(({ repId, name }) => {
+        const repAreaIds = areasByRepId.get(repId) || [];
         const intersectsAreas = salesAreaIds.size === 0 || repAreaIds.some(aid => salesAreaIds.has(aid));
-        const visitsCount         = visitCountById.get(r.id) || 0;
-        const pharmacyVisitsCount = pvCountById.get(r.id)    || 0;
+        const visitsCount         = visitCountById.get(repId) || 0;
+        const pharmacyVisitsCount = pvCountById.get(repId)    || 0;
         const areasSalesValue = repAreaIds.reduce((s, aid) => s + (salesValueByArea.get(aid) || 0), 0);
         const areasSalesQty   = repAreaIds.reduce((s, aid) => s + (salesQtyByArea.get(aid)   || 0), 0);
         const include = intersectsAreas || visitsCount > 0 || pharmacyVisitsCount > 0;
         let source;
-        if (areasSalesValue > 0 && visitsCount > 0) source = 'both';
+        if (areasSalesValue > 0 && (visitsCount > 0 || pharmacyVisitsCount > 0)) source = 'both';
         else if (visitsCount > 0 || pharmacyVisitsCount > 0) source = 'visits';
         else source = 'area-sales';
         return {
-          id: r.id, name: r.name, repType: 'scientific',
+          id: repId, name, repType: 'scientific',
           salesValue: areasSalesValue, salesQty: areasSalesQty,
           visitsCount, pharmacyVisitsCount,
           areaIds: repAreaIds, areasCount: repAreaIds.length,
@@ -190,24 +243,55 @@ export async function getItemAnalytics(req, res, next) {
     if (!item) return res.status(404).json({ error: 'الإيتم غير موجود' });
 
     // ── 1b. Resolve scientific rep (if repName given) ──────
-    // Look up this manager's scientific rep by name — check both:
-    // (a) ScientificRepresentative.userId = manager (standalone reps)
-    // (b) ScientificRepresentative linked via User.linkedRepId where user is a subordinate
+    // Search across ALL reps in this manager's companies (not just direct subordinates)
     let sciRep = null; // { id, areaIds }
     if (repName) {
-      // Try to find the rep from the service pool (same logic as dropdown)
-      const allReps = await listSciReps({}, req.user, { standalone: false }).catch(() => []);
-      const matched = allReps.find(r => norm(r.name) === norm(repName));
-      if (matched) {
-        const areaIds = (matched.areas || []).map(a => a.id ?? a);
-        sciRep = { id: matched.id, areaIds };
-      } else {
-        // Fallback: direct DB lookup
-        const found = await prisma.scientificRepresentative.findFirst({
-          where: { name: { equals: repName, mode: 'insensitive' } },
-          select: { id: true, areas: { select: { areaId: true } } },
+      // Build full rep pool: system users in same companies + standalone
+      const coAssignments = await prisma.userCompanyAssignment.findMany({
+        where: { userId }, select: { companyId: true },
+      });
+      const cIds = coAssignments.map(a => a.companyId);
+
+      let matchedRepId = null;
+
+      if (cIds.length > 0) {
+        const repUsersPool = await prisma.user.findMany({
+          where: {
+            role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
+            isActive: true,
+            companyAssignments: { some: { companyId: { in: cIds } } },
+          },
+          select: { id: true, displayName: true, username: true, linkedRepId: true },
         });
-        if (found) sciRep = { id: found.id, areaIds: found.areas.map(a => a.areaId) };
+        for (const u of repUsersPool) {
+          const uName = u.displayName || u.username || '';
+          if (norm(uName) === repNameN) {
+            matchedRepId = u.linkedRepId;
+            if (!matchedRepId) {
+              const rep = await prisma.scientificRepresentative.findFirst({
+                where: { userId: u.id }, select: { id: true },
+              });
+              matchedRepId = rep?.id ?? null;
+            }
+            break;
+          }
+        }
+      }
+
+      // Fallback: check standalone reps
+      if (!matchedRepId) {
+        const standalone = await prisma.scientificRepresentative.findFirst({
+          where: { userId, name: { equals: repName, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        matchedRepId = standalone?.id ?? null;
+      }
+
+      if (matchedRepId) {
+        const repAreas = await prisma.scientificRepArea.findMany({
+          where: { scientificRepId: matchedRepId }, select: { areaId: true },
+        });
+        sciRep = { id: matchedRepId, areaIds: repAreas.map(a => a.areaId) };
       }
     }
 
