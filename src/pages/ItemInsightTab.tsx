@@ -100,7 +100,20 @@ interface Analytics {
 
 interface Props { fileIdsParam: string; }
 
-type SubTab = 'overview' | 'sales' | 'visits' | 'science' | 'ai';
+interface MarketPriceEntry {
+  id: number;
+  surveyId: number;
+  surveyName: string;
+  brandName: string;
+  company?: string | null;
+  dosageForm?: string | null;
+  priceOfficeToWholesaler?: number | null;
+  priceWholesalerToPharmacy?: number | null;
+  pricePharmacyToPatient?: number | null;
+  notes?: string | null;
+}
+
+type SubTab = 'overview' | 'sales' | 'visits' | 'science' | 'ai' | 'market';
 
 const SUB_TABS: { id: SubTab; label: string; icon: string }[] = [
   { id: 'overview', label: 'نظرة عامة',     icon: '📊' },
@@ -108,6 +121,7 @@ const SUB_TABS: { id: SubTab; label: string; icon: string }[] = [
   { id: 'visits',   label: 'الزيارات',        icon: '🩺' },
   { id: 'science',  label: 'المعلومات العلمية', icon: '💊' },
   { id: 'ai',       label: 'تحليل ذكي (AI)',  icon: '🤖' },
+  { id: 'market',   label: 'أسعار السوق',     icon: '💰' },
 ];
 
 function fmt(n: number) { return Math.round(n || 0).toLocaleString('ar-IQ'); }
@@ -159,6 +173,10 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   // Per-rep selector & list
   const [reps, setReps]             = useState<RepListEntry[]>([]);
   const [selectedRep, setSelectedRep] = useState<string>(''); // '' = general
+
+  // Market prices
+  const [marketPrices, setMarketPrices]         = useState<MarketPriceEntry[]>([]);
+  const [marketLoading, setMarketLoading]       = useState(false);
 
   // Missing-info modal
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -216,6 +234,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   // ── Reset rep & load reps list when item changes ─────────
   useEffect(() => {
     setSelectedRep('');
+    setMarketPrices([]);
     if (!selectedId) { setReps([]); return; }
     const qs = new URLSearchParams();
     if (fileIdsParam) qs.set('fileIds', fileIdsParam);
@@ -224,6 +243,13 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
       .then(r => r.json())
       .then(j => setReps(j.reps || []))
       .catch(() => setReps([]));
+    // Fetch market prices
+    setMarketLoading(true);
+    fetch(`${API}/api/item-analysis/${selectedId}/market-prices`, { headers })
+      .then(r => r.json())
+      .then(j => setMarketPrices(j.data || []))
+      .catch(() => setMarketPrices([]))
+      .finally(() => setMarketLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, fileIdsParam, days, token]);
 
@@ -655,6 +681,80 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 <div style={{ background: '#fff' }}>
                   <AnalysisRenderer text={aiInsight} />
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Market Prices Tab ─────────────────── */}
+          {subTab === 'market' && (
+            <div style={{ padding: '4px 0' }}>
+              <div style={{
+                background: 'linear-gradient(135deg, #065f46, #059669)',
+                borderRadius: 12, padding: '14px 18px', marginBottom: 16, color: '#fff',
+              }}>
+                <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>💰 أسعار السوق والمنافسون</div>
+                <div style={{ fontSize: 12, opacity: 0.85 }}>
+                  بيانات مُستخرجة من سيرفيات أسعار الأدوية — مُحدّثة من قِبل الإدارة
+                </div>
+              </div>
+
+              {marketLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>⏳ جاري التحميل...</div>
+              ) : marketPrices.length === 0 ? (
+                <div style={{
+                  textAlign: 'center', padding: 40, background: '#f8fafc',
+                  borderRadius: 12, border: '1.5px dashed #cbd5e1', color: '#94a3b8',
+                }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>💊</div>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>لا توجد بيانات أسعار حتى الآن</div>
+                  <div style={{ fontSize: 12 }}>يمكن للمدير إضافة أسعار هذا الدواء من صفحة السيرفيات</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ overflowX: 'auto', borderRadius: 10, boxShadow: '0 1px 8px rgba(0,0,0,0.07)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: '#f0fdf4' }}>
+                          {['الاسم التجاري','الشكل الدوائي','الشركة / المصنع','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','المصدر'].map(h => (
+                            <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#065f46', borderBottom: '2px solid #bbf7d0', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {marketPrices.map((entry, i) => {
+                          const isCurrentItem = data?.item?.name && entry.brandName.toLowerCase().includes(data.item.name.toLowerCase());
+                          return (
+                            <tr key={entry.id} style={{
+                              background: isCurrentItem ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#fafafa'),
+                              borderBottom: '1px solid #f1f5f9',
+                              borderRight: isCurrentItem ? '3px solid #059669' : 'none',
+                            }}>
+                              <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>
+                                {entry.brandName}
+                                {isCurrentItem && <span style={{ marginRight: 6, fontSize: 10, background: '#059669', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>حاليًا</span>}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                              <td style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
+                              <td style={{ padding: '10px 12px', color: '#059669', fontWeight: 700 }}>
+                                {entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: '#d97706', fontWeight: 700 }}>
+                                {entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: '#dc2626', fontWeight: 700 }}>
+                                {entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : '—'}
+                              </td>
+                              <td style={{ padding: '10px 12px', fontSize: 11, color: '#94a3b8' }}>{entry.surveyName}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>
+                    {marketPrices.length} نتيجة من سيرفيات الأسعار
+                  </div>
+                </>
               )}
             </div>
           )}

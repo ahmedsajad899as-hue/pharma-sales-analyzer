@@ -828,3 +828,55 @@ ${hasRep ? `
     });
   } catch (e) { next(e); }
 }
+
+// ─── GET /api/item-analysis/:itemId/market-prices ─────────────
+// Returns drug price data from all active drug_price surveys that match this item's name
+export async function getMarketPrices(req, res, next) {
+  try {
+    const itemId = Number(req.params.itemId);
+    if (!itemId) return res.status(400).json({ error: 'itemId required' });
+
+    // Get the item name
+    const item = await prisma.item.findUnique({ where: { id: itemId }, select: { name: true, scientificName: true } });
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    const normalizedName = item.name.trim().toLowerCase();
+
+    // Find all active drug_prices surveys
+    const surveys = await prisma.masterSurvey.findMany({
+      where: { surveyType: 'drug_prices', isActive: true },
+      select: { id: true, name: true },
+    });
+
+    if (!surveys.length) return res.json({ data: [], surveyCount: 0 });
+
+    const surveyIds = surveys.map(s => s.id);
+    const surveyMap = Object.fromEntries(surveys.map(s => [s.id, s.name]));
+
+    // Get all entries from those surveys where brandName loosely matches item name
+    // We fetch all and filter in JS for flexibility (fuzzy match)
+    const allEntries = await prisma.drugPriceSurveyEntry.findMany({
+      where: { surveyId: { in: surveyIds } },
+      orderBy: [{ brandName: 'asc' }, { company: 'asc' }],
+    });
+
+    // Fuzzy match: include if item name contains entry brand OR entry brand contains item name
+    // Or if item scientificName matches
+    const sciName = item.scientificName?.trim().toLowerCase() || '';
+    const matched = allEntries.filter(e => {
+      const bn = e.brandName.trim().toLowerCase();
+      return (
+        bn.includes(normalizedName) ||
+        normalizedName.includes(bn) ||
+        (sciName && (bn.includes(sciName) || sciName.includes(bn)))
+      );
+    });
+
+    const data = matched.map(e => ({
+      ...e,
+      surveyName: surveyMap[e.surveyId] || '',
+    }));
+
+    res.json({ data, surveyCount: surveys.length });
+  } catch (e) { next(e); }
+}

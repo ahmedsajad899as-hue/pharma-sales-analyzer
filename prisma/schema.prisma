@@ -1098,6 +1098,7 @@ model MasterSurvey {
   id          Int      @id @default(autoincrement())
   name        String
   description String?
+  surveyType  String   @default("general") // "general" | "drug_prices"
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1105,13 +1106,38 @@ model MasterSurvey {
   createdById Int?
   createdBy   SuperAdmin? @relation("SurveyCreator", fields: [createdById], references: [id])
 
-  doctors      MasterSurveyDoctor[]
-  pharmacies   MasterSurveyPharmacy[]
-  editLogs     MasterSurveyEditLog[]
-  hiddenUsers  MasterSurveyHiddenUser[]
-  hiddenOffices MasterSurveyHiddenOffice[]
+  doctors        MasterSurveyDoctor[]
+  pharmacies     MasterSurveyPharmacy[]
+  editLogs       MasterSurveyEditLog[]
+  hiddenUsers    MasterSurveyHiddenUser[]
+  hiddenOffices  MasterSurveyHiddenOffice[]
+  drugEntries    DrugPriceSurveyEntry[]
 
   @@map("master_surveys")
+}
+
+// ─── Drug Price Survey Entry (سعر دواء) ────────────────────────
+model DrugPriceSurveyEntry {
+  id          Int      @id @default(autoincrement())
+  surveyId    Int
+
+  brandName   String   // الاسم التجاري
+  company     String?  // اسم الشركة / المصنع
+  dosageForm  String?  // الشكل الدوائي
+
+  priceOfficeToWholesaler   Float?   // سعر بيع المكتب للمذخر
+  priceWholesalerToPharmacy Float?   // سعر بيع المذخر للصيدلية
+  pricePharmacyToPatient    Float?   // سعر بيع الصيدلية للمريض
+
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  survey MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+  @@index([brandName])
+  @@map("drug_price_survey_entries")
 }
 
 // ─── Master Survey Doctor (طبيب داخل السيرفي) ───────────────

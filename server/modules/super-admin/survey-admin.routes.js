@@ -6,6 +6,7 @@ import {
   addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies,
   getVisibility, hideUser, showUser, hideOffice, showOffice,
   getSurveyLogs,
+  listDrugEntries, addDrugEntry, updateDrugEntry, deleteDrugEntry, bulkImportDrugEntries,
 } from './survey-admin.controller.js';
 
 const router = Router();
@@ -41,5 +42,12 @@ router.delete('/:id/visibility/hide-office/:officeId', showOffice);
 
 // Audit log
 router.get('/:id/logs', getSurveyLogs);
+
+// Drug price entries
+router.get('/:id/drug-entries',               listDrugEntries);
+router.post('/:id/drug-entries',              addDrugEntry);
+router.post('/:id/drug-entries/bulk',         bulkImportDrugEntries);
+router.put('/:id/drug-entries/:entryId',      updateDrugEntry);
+router.delete('/:id/drug-entries/:entryId',   deleteDrugEntry);
 
 export default router;

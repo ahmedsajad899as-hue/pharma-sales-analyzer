@@ -8,8 +8,17 @@ interface DocImportRow { name: string; specialty: string; areaName: string; phar
 interface PharmaImportRow { name: string; ownerName: string; pharmacyName: string; phone: string; address: string; areaName: string; notes: string; }
 interface Survey {
   id: number; name: string; description?: string; isActive: boolean;
+  surveyType: string;
   createdAt: string;
   _count?: { doctors: number; pharmacies: number };
+}
+interface DrugEntry {
+  id: number; surveyId: number;
+  brandName: string; company?: string; dosageForm?: string;
+  priceOfficeToWholesaler?: number | null;
+  priceWholesalerToPharmacy?: number | null;
+  pricePharmacyToPatient?: number | null;
+  notes?: string;
 }
 interface SurveyDoctor {
   id: number; surveyId: number; name: string; specialty?: string; areaName?: string;
@@ -171,8 +180,8 @@ export default function MasterSurveyPage() {
   const [surveys,        setSurveys]        = useState<Survey[]>([]);
   const [loading,        setLoading]        = useState(true);
   const [apiError,       setApiError]       = useState<string | null>(null);
-  const [selectedSurvey, setSelectedSurvey] = useState<(Survey & { doctors: SurveyDoctor[]; pharmacies: SurveyPharmacy[] }) | null>(null);
-  const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'visibility' | 'logs'>('doctors');
+  const [selectedSurvey, setSelectedSurvey] = useState<(Survey & { doctors: SurveyDoctor[]; pharmacies: SurveyPharmacy[]; drugEntries?: DrugEntry[] }) | null>(null);
+  const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'drug_prices' | 'visibility' | 'logs'>('doctors');
 
   // modals
   const [showSurveyForm,   setShowSurveyForm]   = useState(false);
@@ -200,6 +209,17 @@ export default function MasterSurveyPage() {
   const [showDoctorsImport,    setShowDoctorsImport]    = useState(false);
   const [importPharmasPreview, setImportPharmasPreview] = useState<PharmaImportRow[]>([]);
   const [showPharmasImport,    setShowPharmasImport]    = useState(false);
+
+  // drug entries state
+  const [drugEntries,          setDrugEntries]          = useState<DrugEntry[]>([]);
+  const [drugEntriesLoading,   setDrugEntriesLoading]   = useState(false);
+  const [showDrugEntryForm,    setShowDrugEntryForm]    = useState(false);
+  const [editingDrugEntry,     setEditingDrugEntry]     = useState<DrugEntry | null>(null);
+  const [drugEntrySearch,      setDrugEntrySearch]      = useState('');
+  const [importDrugPreview,    setImportDrugPreview]    = useState<Partial<DrugEntry>[]>([]);
+  const [showDrugImport,       setShowDrugImport]       = useState(false);
+  const drugFileRef = useRef<HTMLInputElement>(null);
+
   const [importing,            setImporting]            = useState(false);
   const [importProgress,       setImportProgress]       = useState('');
   const [detectedDocMapping,   setDetectedDocMapping]   = useState<Record<string,string>>({});
@@ -253,14 +273,25 @@ export default function MasterSurveyPage() {
   }, [H]);
 
   const openSurvey = (s: Survey) => {
-    setTab('doctors');
+    setTab(s.surveyType === 'drug_prices' ? 'drug_prices' : 'doctors');
     fetchSurvey(s.id);
   };
 
+  // Fetch drug entries when drug_prices tab opened
+  const fetchDrugEntries = useCallback(async (surveyId: number) => {
+    setDrugEntriesLoading(true);
+    try {
+      const r = await fetch(`/api/super-admin/surveys/${surveyId}/drug-entries`, { headers: H() });
+      const d = await r.json();
+      if (d.success) setDrugEntries(d.data);
+    } finally { setDrugEntriesLoading(false); }
+  }, [H]);
+
   useEffect(() => {
     if (!selectedSurvey) return;
-    if (tab === 'visibility') fetchVisibility(selectedSurvey.id);
-    if (tab === 'logs')       fetchLogs(selectedSurvey.id);
+    if (tab === 'visibility')  fetchVisibility(selectedSurvey.id);
+    if (tab === 'logs')        fetchLogs(selectedSurvey.id);
+    if (tab === 'drug_prices') fetchDrugEntries(selectedSurvey.id);
   }, [tab, selectedSurvey?.id]);
 
   // ── Excel import handlers ───────────────────────────────────
@@ -507,6 +538,7 @@ export default function MasterSurveyPage() {
     const [name,        setName]        = useState(editingSurvey?.name ?? '');
     const [description, setDescription] = useState(editingSurvey?.description ?? '');
     const [isActive,    setIsActive]    = useState(editingSurvey?.isActive !== false);
+    const [surveyType,  setSurveyType]  = useState(editingSurvey?.surveyType ?? 'general');
     const [saving, setSaving] = useState(false);
 
     const save = async () => {
@@ -515,7 +547,7 @@ export default function MasterSurveyPage() {
       const url    = editingSurvey ? `/api/super-admin/surveys/${editingSurvey.id}` : '/api/super-admin/surveys';
       const method = editingSurvey ? 'PUT' : 'POST';
       try {
-        const r = await fetch(url, { method, headers: H(), body: JSON.stringify({ name, description, isActive }) });
+        const r = await fetch(url, { method, headers: H(), body: JSON.stringify({ name, description, isActive, surveyType }) });
         const d = await r.json();
         if (!r.ok || !d.success) {
           alert(`❌ فشل الحفظ: ${d?.error || r.status}`);
@@ -539,6 +571,12 @@ export default function MasterSurveyPage() {
         </h3>
         <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>الاسم *</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="اسم السيرفي" style={inputStyle} />
+        <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', margin: '12px 0 6px' }}>نوع السيرفي</label>
+        <select value={surveyType} onChange={e => setSurveyType(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }} disabled={!!editingSurvey}>
+          <option value="general">🩺 عام (أطباء وصيدليات)</option>
+          <option value="drug_prices">💊 أسعار الأدوية</option>
+        </select>
+        {!!editingSurvey && <p style={{ fontSize: 11, color: '#94a3b8', margin: '4px 0 0' }}>لا يمكن تغيير نوع السيرفي بعد الإنشاء</p>}
         <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', margin: '12px 0 6px' }}>الوصف</label>
         <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="وصف اختياري" rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0' }}>
@@ -715,8 +753,13 @@ export default function MasterSurveyPage() {
                     </div>
                     {s.description && <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{s.description}</p>}
                     <div style={{ display: 'flex', gap: 12 }}>
-                      <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>🩺 {s._count?.doctors ?? 0} طبيب</span>
-                      <span style={{ fontSize: 12, color: '#f97316', fontWeight: 600 }}>🏪 {s._count?.pharmacies ?? 0} صيدلية</span>
+                      {s.surveyType === 'drug_prices'
+                        ? <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>💊 أسعار الأدوية</span>
+                        : <>
+                            <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>🩺 {s._count?.doctors ?? 0} طبيب</span>
+                            <span style={{ fontSize: 12, color: '#f97316', fontWeight: 600 }}>🏪 {s._count?.pharmacies ?? 0} صيدلية</span>
+                          </>
+                      }
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -736,12 +779,101 @@ export default function MasterSurveyPage() {
   }
 
   // ── Survey Detail View ────────────────────────────────────────
-  const tabs: { id: typeof tab; label: string; icon: string }[] = [
-    { id: 'doctors',    label: `الأطباء (${selectedSurvey.doctors.length})`,       icon: '🩺' },
-    { id: 'pharmacies', label: `الصيدليات (${selectedSurvey.pharmacies.length})`,  icon: '🏪' },
-    { id: 'visibility', label: 'الصلاحيات',                                         icon: '👁️' },
-    { id: 'logs',       label: 'سجل التعديلات',                                     icon: '📋' },
-  ];
+
+  // Drug Entry Form (inside detail view scope)
+  function DrugEntryForm() {
+    const [form, setForm] = useState({
+      brandName:                editingDrugEntry?.brandName ?? '',
+      company:                  editingDrugEntry?.company ?? '',
+      dosageForm:               editingDrugEntry?.dosageForm ?? '',
+      priceOfficeToWholesaler:  editingDrugEntry?.priceOfficeToWholesaler?.toString() ?? '',
+      priceWholesalerToPharmacy:editingDrugEntry?.priceWholesalerToPharmacy?.toString() ?? '',
+      pricePharmacyToPatient:   editingDrugEntry?.pricePharmacyToPatient?.toString() ?? '',
+      notes:                    editingDrugEntry?.notes ?? '',
+    });
+    const [saving, setSaving] = useState(false);
+    const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+    const save = async () => {
+      if (!form.brandName.trim() || !selectedSurvey) return;
+      setSaving(true);
+      const url    = editingDrugEntry ? `/api/super-admin/surveys/${selectedSurvey.id}/drug-entries/${editingDrugEntry.id}` : `/api/super-admin/surveys/${selectedSurvey.id}/drug-entries`;
+      const method = editingDrugEntry ? 'PUT' : 'POST';
+      const body = {
+        brandName:                form.brandName.trim(),
+        company:                  form.company.trim() || null,
+        dosageForm:               form.dosageForm.trim() || null,
+        priceOfficeToWholesaler:  form.priceOfficeToWholesaler  ? Number(form.priceOfficeToWholesaler)  : null,
+        priceWholesalerToPharmacy:form.priceWholesalerToPharmacy? Number(form.priceWholesalerToPharmacy): null,
+        pricePharmacyToPatient:   form.pricePharmacyToPatient   ? Number(form.pricePharmacyToPatient)   : null,
+        notes:                    form.notes.trim() || null,
+      };
+      try {
+        const r = await fetch(url, { method, headers: H(), body: JSON.stringify(body) });
+        const d = await r.json();
+        if (!r.ok || !d.success) { alert(`❌ فشل الحفظ: ${d?.error || r.status}`); setSaving(false); return; }
+        setShowDrugEntryForm(false); setEditingDrugEntry(null);
+        fetchDrugEntries(selectedSurvey.id);
+      } catch { alert('❌ تعذّر الاتصال'); }
+      setSaving(false);
+    };
+
+    const inputSt = { ...inputStyle, marginBottom: 0 };
+    return (
+      <ModalOverlay onClose={() => { setShowDrugEntryForm(false); setEditingDrugEntry(null); }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 800, color: '#1e1b4b' }}>
+          {editingDrugEntry ? '✏️ تعديل دواء' : '➕ إضافة دواء'}
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>الاسم التجاري *</label>
+            <input value={form.brandName} onChange={set('brandName')} placeholder="مثال: Lipitor 20mg" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>الشركة / المصنع</label>
+            <input value={form.company} onChange={set('company')} placeholder="مثال: Pfizer" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>الشكل الدوائي</label>
+            <input value={form.dosageForm} onChange={set('dosageForm')} placeholder="مثال: أقراص" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#059669', display: 'block', marginBottom: 4 }}>سعر المكتب ← المذخر</label>
+            <input type="number" step="0.001" value={form.priceOfficeToWholesaler} onChange={set('priceOfficeToWholesaler')} placeholder="0.000" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#d97706', display: 'block', marginBottom: 4 }}>سعر المذخر ← الصيدلية</label>
+            <input type="number" step="0.001" value={form.priceWholesalerToPharmacy} onChange={set('priceWholesalerToPharmacy')} placeholder="0.000" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#dc2626', display: 'block', marginBottom: 4 }}>سعر الصيدلية ← المريض</label>
+            <input type="number" step="0.001" value={form.pricePharmacyToPatient} onChange={set('pricePharmacyToPatient')} placeholder="0.000" style={inputSt} />
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>ملاحظات</label>
+            <textarea value={form.notes} onChange={set('notes')} rows={2} style={{ ...inputSt, resize: 'vertical' }} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={() => { setShowDrugEntryForm(false); setEditingDrugEntry(null); }} style={btnSecondary}>إلغاء</button>
+          <button onClick={save} disabled={saving || !form.brandName.trim()} style={btnPrimary}>{saving ? 'جاري الحفظ...' : 'حفظ'}</button>
+        </div>
+      </ModalOverlay>
+    );
+  }
+
+  const tabs: { id: typeof tab; label: string; icon: string }[] = selectedSurvey.surveyType === 'drug_prices'
+    ? [
+        { id: 'drug_prices', label: `أسعار الأدوية (${selectedSurvey.drugEntries?.length ?? drugEntries.length})`, icon: '💊' },
+        { id: 'visibility',  label: 'الصلاحيات',                                          icon: '👁️' },
+        { id: 'logs',        label: 'سجل التعديلات',                                      icon: '📋' },
+      ]
+    : [
+        { id: 'doctors',    label: `الأطباء (${selectedSurvey.doctors.length})`,       icon: '🩺' },
+        { id: 'pharmacies', label: `الصيدليات (${selectedSurvey.pharmacies.length})`,  icon: '🏪' },
+        { id: 'visibility', label: 'الصلاحيات',                                         icon: '👁️' },
+        { id: 'logs',       label: 'سجل التعديلات',                                     icon: '📋' },
+      ];
 
   return (
     <div style={{ direction: 'rtl' }}>
@@ -971,6 +1103,149 @@ export default function MasterSurveyPage() {
         </div>
       )}
 
+      {/* Drug Prices Tab */}
+      {tab === 'drug_prices' && (
+        <div>
+          {/* toolbar */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+            <input
+              value={drugEntrySearch}
+              onChange={e => setDrugEntrySearch(e.target.value)}
+              placeholder="🔍 بحث بالاسم التجاري أو الشركة..."
+              style={{ flex: 1, minWidth: 220, padding: '9px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', direction: 'rtl' }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
+              <button onClick={() => {
+                const hdrs = ['الاسم التجاري','الشكل الدوائي','الشركة','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
+                const ex   = ['Lipitor 20mg','أقراص','Pfizer','5.000','6.500','8.750'];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([hdrs, ex]), 'أسعار الأدوية');
+                XLSX.writeFile(wb, 'نموذج_أسعار_الأدوية.xlsx');
+              }} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
+              <button onClick={() => drugFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
+              <input ref={drugFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={async e => {
+                const file = e.target.files?.[0]; if (!file) return;
+                const rows = await parseExcelFile(file);
+                if (!rows.length) return;
+                // Map columns: A=brandName, B=dosageForm, C=company, D=priceOfficeToWholesaler, E=priceWholesalerToPharmacy, F=pricePharmacyToPatient
+                const headers = Object.keys(rows[0] as Record<string,unknown>);
+                const h = (i: number) => headers[i] ?? '';
+                const mapped = (rows as Record<string,unknown>[]).map(r => ({
+                  brandName:                String(r[h(0)] ?? '').trim(),
+                  dosageForm:               String(r[h(1)] ?? '').trim() || undefined,
+                  company:                  String(r[h(2)] ?? '').trim() || undefined,
+                  priceOfficeToWholesaler:  r[h(3)] != null && r[h(3)] !== '' ? Number(r[h(3)]) : undefined,
+                  priceWholesalerToPharmacy:r[h(4)] != null && r[h(4)] !== '' ? Number(r[h(4)]) : undefined,
+                  pricePharmacyToPatient:   r[h(5)] != null && r[h(5)] !== '' ? Number(r[h(5)]) : undefined,
+                })).filter(r => r.brandName);
+                setImportDrugPreview(mapped);
+                setShowDrugImport(true);
+                e.target.value = '';
+              }} />
+              <button onClick={() => { setEditingDrugEntry(null); setShowDrugEntryForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة دواء</button>
+            </div>
+          </div>
+
+          {/* import preview modal */}
+          {showDrugImport && importDrugPreview.length > 0 && (
+            <ModalOverlay onClose={() => setShowDrugImport(false)}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 800, color: '#1e1b4b' }}>استيراد {importDrugPreview.length} دواء</h3>
+              <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 14 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead><tr style={{ background: '#f1f5f9' }}>
+                    {['الاسم','الشكل','الشركة','م→م','م→ص','ص→م'].map(h => <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#374151' }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {importDrugPreview.slice(0, 100).map((e, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '5px 8px' }}>{e.brandName}</td>
+                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.dosageForm || '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.company || '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#059669' }}>{e.priceOfficeToWholesaler?.toFixed(3) ?? '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#d97706' }}>{e.priceWholesalerToPharmacy?.toFixed(3) ?? '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#dc2626' }}>{e.pricePharmacyToPatient?.toFixed(3) ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                {importProgress && <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>{importProgress}</span>}
+                <button onClick={() => setShowDrugImport(false)} disabled={importing} style={btnSecondary}>إلغاء</button>
+                <button onClick={async () => {
+                  if (!selectedSurvey) return;
+                  setImporting(true);
+                  const BATCH = 500;
+                  try {
+                    for (let i = 0; i < importDrugPreview.length; i += BATCH) {
+                      setImportProgress(`جاري... ${Math.min(i + BATCH, importDrugPreview.length)}/${importDrugPreview.length}`);
+                      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/drug-entries/bulk`, {
+                        method: 'POST', headers: H(), body: JSON.stringify({ entries: importDrugPreview.slice(i, i + BATCH) }),
+                      });
+                      if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.status); }
+                    }
+                    setShowDrugImport(false); setImportDrugPreview([]);
+                    fetchDrugEntries(selectedSurvey.id);
+                  } catch (err: any) { alert(`❌ فشل الاستيراد: ${err.message}`); }
+                  finally { setImporting(false); setImportProgress(''); }
+                }} disabled={importing} style={btnPrimary}>
+                  {importing ? (importProgress || '...') : `✅ استيراد ${importDrugPreview.length} دواء`}
+                </button>
+              </div>
+            </ModalOverlay>
+          )}
+
+          {/* entries table */}
+          {drugEntriesLoading ? <Spinner /> : (() => {
+            const q = drugEntrySearch.trim().toLowerCase();
+            const filtered = q
+              ? drugEntries.filter(e => e.brandName.toLowerCase().includes(q) || (e.company?.toLowerCase().includes(q)))
+              : drugEntries;
+            if (filtered.length === 0) return <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>لا توجد أدوية في هذا السيرفي بعد</div>;
+            return (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      {['الاسم التجاري','الشكل الدوائي','الشركة','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','ملاحظات',''].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(entry => (
+                      <tr key={entry.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '9px 12px', fontWeight: 600, color: '#1e293b' }}>{entry.brandName}</td>
+                        <td style={{ padding: '9px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                        <td style={{ padding: '9px 12px', color: '#64748b' }}>{entry.company || '—'}</td>
+                        <td style={{ padding: '9px 12px', color: '#059669', fontWeight: 600 }}>
+                          {entry.priceOfficeToWholesaler != null ? entry.priceOfficeToWholesaler.toFixed(3) : '—'}
+                        </td>
+                        <td style={{ padding: '9px 12px', color: '#d97706', fontWeight: 600 }}>
+                          {entry.priceWholesalerToPharmacy != null ? entry.priceWholesalerToPharmacy.toFixed(3) : '—'}
+                        </td>
+                        <td style={{ padding: '9px 12px', color: '#dc2626', fontWeight: 600 }}>
+                          {entry.pricePharmacyToPatient != null ? entry.pricePharmacyToPatient.toFixed(3) : '—'}
+                        </td>
+                        <td style={{ padding: '9px 12px', color: '#94a3b8', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.notes || '—'}</td>
+                        <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
+                          <button onClick={() => { setEditingDrugEntry(entry); setShowDrugEntryForm(true); }} style={{ ...btnSecondary, padding: '5px 10px', fontSize: 12, marginLeft: 6 }}>تعديل</button>
+                          <button onClick={async () => {
+                            if (!selectedSurvey || !confirm('حذف هذا الدواء؟')) return;
+                            await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/drug-entries/${entry.id}`, { method: 'DELETE', headers: H() });
+                            fetchDrugEntries(selectedSurvey.id);
+                          }} style={{ ...btnDanger, padding: '5px 10px', fontSize: 12 }}>حذف</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Logs Tab */}
       {tab === 'logs' && (
         <div>
@@ -1027,6 +1302,7 @@ export default function MasterSurveyPage() {
       {showSurveyForm     && <SurveyForm />}
       {showDocForm        && <DoctorForm />}
       {showPharmaForm     && <PharmacyForm />}
+      {showDrugEntryForm  && <DrugEntryForm />}
       {showDoctorsImport  && <DocImportModal />}
       {showPharmasImport  && <PharmaImportModal />}
     </div>

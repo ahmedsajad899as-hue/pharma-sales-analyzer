@@ -49,6 +49,7 @@ export async function getSurvey(req, res, next) {
       include: {
         doctors:    { orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
         pharmacies: { orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
+        drugEntries: { orderBy: { brandName: 'asc' } },
         _count: { select: { hiddenUsers: true, hiddenOffices: true } },
       },
     });
@@ -59,13 +60,14 @@ export async function getSurvey(req, res, next) {
 
 export async function createSurvey(req, res, next) {
   try {
-    const { name, description, isActive } = req.body;
+    const { name, description, isActive, surveyType } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'الاسم مطلوب' });
     const survey = await prisma.masterSurvey.create({
       data: {
         name: name.trim(),
         description: description?.trim() ?? null,
         isActive: isActive !== false,
+        surveyType: surveyType === 'drug_prices' ? 'drug_prices' : 'general',
         createdById: req.superAdmin?.id ?? null,
       },
     });
@@ -76,11 +78,12 @@ export async function createSurvey(req, res, next) {
 export async function updateSurvey(req, res, next) {
   try {
     const id = parseInt(req.params.id);
-    const { name, description, isActive } = req.body;
+    const { name, description, isActive, surveyType } = req.body;
     const data = {};
     if (name       !== undefined) data.name        = name.trim();
     if (description !== undefined) data.description = description?.trim() ?? null;
     if (isActive   !== undefined) data.isActive    = !!isActive;
+    if (surveyType !== undefined) data.surveyType  = surveyType === 'drug_prices' ? 'drug_prices' : 'general';
     const survey = await prisma.masterSurvey.update({ where: { id }, data });
     res.json({ success: true, data: survey });
   } catch (e) { next(e); }
@@ -358,5 +361,97 @@ export async function getSurveyLogs(req, res, next) {
       prisma.masterSurveyEditLog.count({ where: { surveyId } }),
     ]);
     res.json({ success: true, data: logs, total, page, limit });
+  } catch (e) { next(e); }
+}
+
+// ── Drug Price Survey Entries ─────────────────────────────────
+
+export async function listDrugEntries(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const search = (req.query.search || '').trim().toLowerCase();
+    const where = { surveyId, ...(search ? { brandName: { contains: search, mode: 'insensitive' } } : {}) };
+    const entries = await prisma.drugPriceSurveyEntry.findMany({
+      where,
+      orderBy: [{ brandName: 'asc' }, { company: 'asc' }],
+    });
+    res.json({ success: true, data: entries });
+  } catch (e) { next(e); }
+}
+
+export async function addDrugEntry(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const { brandName, company, dosageForm, priceOfficeToWholesaler, priceWholesalerToPharmacy, pricePharmacyToPatient, notes } = req.body;
+    if (!brandName?.trim()) return res.status(400).json({ success: false, error: 'الاسم التجاري مطلوب' });
+    const entry = await prisma.drugPriceSurveyEntry.create({
+      data: {
+        surveyId,
+        brandName: brandName.trim(),
+        company: company?.trim() || null,
+        dosageForm: dosageForm?.trim() || null,
+        priceOfficeToWholesaler: priceOfficeToWholesaler != null ? Number(priceOfficeToWholesaler) : null,
+        priceWholesalerToPharmacy: priceWholesalerToPharmacy != null ? Number(priceWholesalerToPharmacy) : null,
+        pricePharmacyToPatient: pricePharmacyToPatient != null ? Number(pricePharmacyToPatient) : null,
+        notes: notes?.trim() || null,
+      },
+    });
+    res.status(201).json({ success: true, data: entry });
+  } catch (e) { next(e); }
+}
+
+export async function updateDrugEntry(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const entryId  = parseInt(req.params.entryId);
+    const old = await prisma.drugPriceSurveyEntry.findUnique({ where: { id: entryId } });
+    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
+    const { brandName, company, dosageForm, priceOfficeToWholesaler, priceWholesalerToPharmacy, pricePharmacyToPatient, notes } = req.body;
+    const data = {};
+    if (brandName  !== undefined) data.brandName  = brandName.trim();
+    if (company    !== undefined) data.company    = company?.trim() || null;
+    if (dosageForm !== undefined) data.dosageForm = dosageForm?.trim() || null;
+    if (priceOfficeToWholesaler   !== undefined) data.priceOfficeToWholesaler   = priceOfficeToWholesaler   != null ? Number(priceOfficeToWholesaler)   : null;
+    if (priceWholesalerToPharmacy !== undefined) data.priceWholesalerToPharmacy = priceWholesalerToPharmacy != null ? Number(priceWholesalerToPharmacy) : null;
+    if (pricePharmacyToPatient    !== undefined) data.pricePharmacyToPatient    = pricePharmacyToPatient    != null ? Number(pricePharmacyToPatient)    : null;
+    if (notes      !== undefined) data.notes      = notes?.trim() || null;
+    const entry = await prisma.drugPriceSurveyEntry.update({ where: { id: entryId }, data });
+    res.json({ success: true, data: entry });
+  } catch (e) { next(e); }
+}
+
+export async function deleteDrugEntry(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const entryId  = parseInt(req.params.entryId);
+    const entry = await prisma.drugPriceSurveyEntry.findUnique({ where: { id: entryId } });
+    if (!entry || entry.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
+    await prisma.drugPriceSurveyEntry.delete({ where: { id: entryId } });
+    res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+export async function bulkImportDrugEntries(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const { entries } = req.body;
+    if (!Array.isArray(entries) || !entries.length)
+      return res.status(400).json({ success: false, error: 'لا توجد بيانات' });
+    const rows = entries
+      .filter(e => e.brandName?.trim())
+      .map(e => ({
+        surveyId,
+        brandName: String(e.brandName).trim(),
+        company: e.company?.trim() || null,
+        dosageForm: e.dosageForm?.trim() || null,
+        priceOfficeToWholesaler:   e.priceOfficeToWholesaler   != null ? Number(e.priceOfficeToWholesaler)   : null,
+        priceWholesalerToPharmacy: e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy) : null,
+        pricePharmacyToPatient:    e.pricePharmacyToPatient    != null ? Number(e.pricePharmacyToPatient)    : null,
+        notes: e.notes?.trim() || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    await prisma.drugPriceSurveyEntry.createMany({ data: rows, skipDuplicates: false });
+    res.json({ success: true, count: rows.length });
   } catch (e) { next(e); }
 }

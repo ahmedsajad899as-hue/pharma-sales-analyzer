@@ -12,6 +12,9 @@ router.get('/:itemId/reps', ctrl.listReps);
 // GET /api/item-analysis/:itemId?fileIds=&days=&repName=  — aggregated analytics
 router.get('/:itemId', ctrl.getItemAnalytics);
 
+// GET /api/item-analysis/:itemId/market-prices  — drug price survey data for competitor comparison
+router.get('/:itemId/market-prices', ctrl.getMarketPrices);
+
 // POST /api/item-analysis/:itemId/ai-insight  — Gemini insight (body may include repName)
 router.post('/:itemId/ai-insight', ctrl.getAIInsight);
 
