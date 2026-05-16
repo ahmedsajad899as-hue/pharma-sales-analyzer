@@ -77,7 +77,7 @@ export async function listItems(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// ─── GET /api/item-analysis/:itemId/reps — reps linked to this item ─
+// ─── GET /api/item-analysis/:itemId/reps — scientific reps linked to manager ─
 export async function listReps(req, res, next) {
   try {
     const userId = req.user.id;
@@ -87,69 +87,88 @@ export async function listReps(req, res, next) {
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // From sales (medical reps)
-    const salesByRep = await prisma.sale.groupBy({
-      by: ['representativeId'],
+    // 1. All active scientific reps owned by this manager
+    const sciReps = await prisma.scientificRepresentative.findMany({
+      where: { userId, isActive: true },
+      select: {
+        id: true, name: true,
+        areas: { select: { areaId: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    if (!sciReps.length) return res.json({ reps: [] });
+
+    // 2. Distinct area IDs from this item's sales (for intersection check)
+    const salesAreaRows = await prisma.sale.findMany({
+      where: { userId, itemId, ...buildFileFilter(fileIds) },
+      select: { areaId: true },
+      distinct: ['areaId'],
+    });
+    const salesAreaIds = new Set(salesAreaRows.map(s => s.areaId).filter(Boolean));
+
+    // 3. Sales value aggregated by area (for computing each rep's area-based sales)
+    const salesByAreaRaw = await prisma.sale.groupBy({
+      by: ['areaId'],
       where: { userId, itemId, ...buildFileFilter(fileIds), recordType: 'sale' },
       _sum: { totalValue: true, quantity: true },
     });
-    const medRepIds = salesByRep.map(s => s.representativeId).filter(Boolean);
-    const medReps = medRepIds.length
-      ? await prisma.medicalRepresentative.findMany({
-          where: { id: { in: medRepIds } },
-          select: { id: true, name: true },
-        })
-      : [];
-    const medById = new Map(medReps.map(r => [r.id, r]));
+    const salesValueByArea = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.totalValue || 0]));
+    const salesQtyByArea   = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.quantity  || 0]));
 
-    // From doctor visits
+    // 4. Doctor visit counts per scientific rep ID for this item
     const drVisits = await prisma.doctorVisit.findMany({
       where: { userId, itemId, visitDate: { gte: since } },
-      select: { scientificRepId: true, scientificRep: { select: { id: true, name: true } } },
+      select: { scientificRepId: true },
     });
-
-    // From pharmacy visits
-    const phVisitItems = await prisma.pharmacyVisitItem.findMany({
-      where: { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } },
-      select: { pharmacyVisit: { select: { scientificRep: { select: { id: true, name: true } } } } },
-    });
-
-    // Merge by normalized name
-    const merged = new Map(); // normName -> entry
-    const upsert = (name, source, salesValue = 0, visits = 0, pharmacyVisits = 0) => {
-      if (!name) return;
-      const key = norm(name);
-      if (!merged.has(key)) {
-        merged.set(key, { name, salesValue: 0, visitsCount: 0, pharmacyVisitsCount: 0, sources: new Set() });
-      }
-      const e = merged.get(key);
-      e.salesValue += salesValue;
-      e.visitsCount += visits;
-      e.pharmacyVisitsCount += pharmacyVisits;
-      e.sources.add(source);
-    };
-
-    for (const s of salesByRep) {
-      const r = medById.get(s.representativeId);
-      if (r?.name) upsert(r.name, 'sales', s._sum.totalValue || 0, 0, 0);
-    }
+    const visitCountById = new Map();
     for (const v of drVisits) {
-      if (v.scientificRep?.name) upsert(v.scientificRep.name, 'visits', 0, 1, 0);
-    }
-    for (const pv of phVisitItems) {
-      const r = pv.pharmacyVisit?.scientificRep;
-      if (r?.name) upsert(r.name, 'visits', 0, 0, 1);
+      if (v.scientificRepId != null)
+        visitCountById.set(v.scientificRepId, (visitCountById.get(v.scientificRepId) || 0) + 1);
     }
 
-    const reps = [...merged.values()]
-      .map(e => ({
-        name: e.name,
-        salesValue: e.salesValue,
-        visitsCount: e.visitsCount,
-        pharmacyVisitsCount: e.pharmacyVisitsCount,
-        source: e.sources.size > 1 ? 'both' : [...e.sources][0],
-      }))
-      .sort((a, b) => (b.salesValue + b.visitsCount * 100000) - (a.salesValue + a.visitsCount * 100000));
+    // 5. Pharmacy visit counts per scientific rep ID for this item
+    const phVisits = await prisma.pharmacyVisit.findMany({
+      where: {
+        userId, visitDate: { gte: since },
+        visitItems: { some: { itemId } },
+      },
+      select: { scientificRepId: true },
+    });
+    const pvCountById = new Map();
+    for (const v of phVisits) {
+      if (v.scientificRepId != null)
+        pvCountById.set(v.scientificRepId, (pvCountById.get(v.scientificRepId) || 0) + 1);
+    }
+
+    // 6. Filter by area intersection + map
+    const reps = sciReps
+      .map(r => {
+        const repAreaIds = r.areas.map(a => a.areaId);
+        const intersectsAreas = salesAreaIds.size === 0 || repAreaIds.some(aid => salesAreaIds.has(aid));
+        const visitsCount         = visitCountById.get(r.id) || 0;
+        const pharmacyVisitsCount = pvCountById.get(r.id)    || 0;
+        const areasSalesValue = repAreaIds.reduce((s, aid) => s + (salesValueByArea.get(aid) || 0), 0);
+        const areasSalesQty   = repAreaIds.reduce((s, aid) => s + (salesQtyByArea.get(aid)   || 0), 0);
+        // Include rep if their areas intersect OR they have visits for this item
+        const include = intersectsAreas || visitsCount > 0 || pharmacyVisitsCount > 0;
+        let source: string;
+        if (areasSalesValue > 0 && visitsCount > 0) source = 'both';
+        else if (visitsCount > 0 || pharmacyVisitsCount > 0)  source = 'visits';
+        else source = 'area-sales';
+        return {
+          id: r.id, name: r.name, repType: 'scientific',
+          salesValue: areasSalesValue, salesQty: areasSalesQty,
+          visitsCount, pharmacyVisitsCount,
+          areaIds: repAreaIds, areasCount: repAreaIds.length,
+          source, include,
+        };
+      })
+      .filter(r => r.include)
+      .map(({ include, ...r }) => r)
+      .sort((a, b) =>
+        (b.visitsCount + b.pharmacyVisitsCount * 0.5) - (a.visitsCount + a.pharmacyVisitsCount * 0.5) ||
+        b.salesValue - a.salesValue
+      );
 
     res.json({ reps });
   } catch (e) { next(e); }
@@ -176,9 +195,32 @@ export async function getItemAnalytics(req, res, next) {
     });
     if (!item) return res.status(404).json({ error: 'الإيتم غير موجود' });
 
+    // ── 1b. Resolve scientific rep (if repName given) ──────
+    // Look up this manager's scientific rep by name
+    let sciRep = null; // { id, areaIds }
+    if (repName) {
+      const found = await prisma.scientificRepresentative.findFirst({
+        where: { userId, name: { equals: repName, mode: 'insensitive' } },
+        select: { id: true, areas: { select: { areaId: true } } },
+      });
+      if (found) {
+        sciRep = { id: found.id, areaIds: found.areas.map(a => a.areaId) };
+      }
+    }
+
     // ── 2. Sales (filtered by uploadedFileId + userId + itemId) ──
     const salesWhere = { userId, itemId, ...buildFileFilter(fileIds) };
-    if (repName) {
+    if (sciRep) {
+      // Scientific rep: filter sales by their assigned areas
+      if (sciRep.areaIds.length > 0) {
+        salesWhere.areaId = sciRep.areaIds.length === 1
+          ? sciRep.areaIds[0]
+          : { in: sciRep.areaIds };
+      } else {
+        salesWhere.areaId = -1; // rep has no areas → no sales
+      }
+    } else if (repName) {
+      // Fallback: filter by medical rep name (legacy)
       salesWhere.representative = { name: { equals: repName, mode: 'insensitive' } };
     }
     const sales = await prisma.sale.findMany({
@@ -233,7 +275,11 @@ export async function getItemAnalytics(req, res, next) {
 
     // ── 3. Doctor visits for this item (within window) ─────
     const dvWhere = { userId, itemId, visitDate: { gte: since } };
-    if (repName) dvWhere.scientificRep = { name: { equals: repName, mode: 'insensitive' } };
+    if (sciRep) {
+      dvWhere.scientificRepId = sciRep.id; // exact ID match
+    } else if (repName) {
+      dvWhere.scientificRep = { name: { equals: repName, mode: 'insensitive' } };
+    }
     const doctorVisits = await prisma.doctorVisit.findMany({
       where: dvWhere,
       select: {
@@ -276,7 +322,9 @@ export async function getItemAnalytics(req, res, next) {
 
     // ── 4. Pharmacy visits for this item ───────────────────
     const pvWhere = { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } };
-    if (repName) {
+    if (sciRep) {
+      pvWhere.pharmacyVisit = { ...pvWhere.pharmacyVisit, scientificRepId: sciRep.id };
+    } else if (repName) {
       pvWhere.pharmacyVisit = {
         ...pvWhere.pharmacyVisit,
         scientificRep: { name: { equals: repName, mode: 'insensitive' } },
@@ -394,11 +442,14 @@ export async function getItemAnalytics(req, res, next) {
       // plan coverage: scientific reps' monthly plans
       let planCoverage = { totalPlans: 0, plansWithItem: 0, coveragePct: 0 };
       try {
+        const planWhere = { userId };
+        if (sciRep) {
+          planWhere.scientificRepId = sciRep.id;
+        } else {
+          planWhere.scientificRep = { name: { equals: repName, mode: 'insensitive' } };
+        }
         const plans = await prisma.monthlyPlan.findMany({
-          where: {
-            userId,
-            scientificRep: { name: { equals: repName, mode: 'insensitive' } },
-          },
+          where: planWhere,
           select: {
             id: true, month: true, year: true,
             entries: { select: { targetItems: { where: { itemId }, select: { id: true } } } },
@@ -433,6 +484,9 @@ export async function getItemAnalytics(req, res, next) {
 
       repDiagnostic = {
         repName,
+        repType: sciRep ? 'scientific' : 'medical',
+        sciRepId: sciRep?.id || null,
+        repAreaIds: sciRep?.areaIds || [],
         callCount: doctorVisits.length,
         pharmacyVisitsCount,
         doctorsVisited,

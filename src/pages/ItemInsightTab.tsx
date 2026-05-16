@@ -24,6 +24,9 @@ interface NoteSample { doctor?: string; pharmacy?: string; feedback?: string; da
 
 interface RepDiagnostic {
   repName: string;
+  repType: 'scientific' | 'medical';
+  sciRepId: number | null;
+  repAreaIds: number[];
   callCount: number;
   pharmacyVisitsCount: number;
   doctorsVisited: number;
@@ -44,11 +47,16 @@ interface RepDiagnostic {
 }
 
 interface RepListEntry {
+  id: number;
   name: string;
+  repType: 'scientific' | 'medical';
   salesValue: number;
+  salesQty: number;
   visitsCount: number;
   pharmacyVisitsCount: number;
-  source: 'sales' | 'visits' | 'both';
+  areaIds: number[];
+  areasCount: number;
+  source: 'both' | 'visits' | 'area-sales';
 }
 
 interface Analytics {
@@ -510,14 +518,17 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                   <option value="">تحليل عام (جميع المندوبين)</option>
                   {reps.map(r => (
                     <option key={r.name} value={r.name}>
-                      {r.name} — {r.source === 'both' ? '🟣 كولات+مبيع' : r.source === 'sales' ? '💰 مبيع' : '🩺 كولات'}
-                      {r.visitsCount ? ` • ${r.visitsCount} زيارة` : ''}
+                      {r.name}
+                      {r.visitsCount > 0 ? ` — 🩺 ${r.visitsCount} كول` : ''}
+                      {r.pharmacyVisitsCount > 0 ? ` • 🏪 ${r.pharmacyVisitsCount}` : ''}
+                      {r.salesValue > 0 ? ' — 💰 مبيع في مناطقه' : ''}
+                      {r.areasCount > 0 ? ` • ${r.areasCount} منطقة` : ''}
                     </option>
                   ))}
                 </select>
                 {selectedRep && (
                   <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>
-                    🎯 التحليل مفلتر على هذا المندوب فقط
+                    🎯 مبيع مفلتر بمناطق المندوب • كولات مفلترة باسمه
                   </span>
                 )}
               </div>
@@ -903,7 +914,12 @@ function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
       borderRadius: 10, padding: 14, marginBottom: 14, border: '1px solid #fde68a',
     }}>
       <h4 style={{ margin: '0 0 12px 0', color: '#92400e', fontSize: 14 }}>
-        🎯 مؤشرات التشخيص — المندوب: {d.repName}
+        🎯 مؤشرات التشخيص — المندوب العلمي: {d.repName}
+        {d.repAreaIds && d.repAreaIds.length > 0 && (
+          <span style={{ fontSize: 11, color: '#7c3aed', marginRight: 8, fontWeight: 400 }}>
+            ({d.repAreaIds.length} منطقة مخصصة • المبيع مفلتر بها)
+          </span>
+        )}
       </h4>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         {tile('عدد الكولات', d.callCount, '#1e40af')}
