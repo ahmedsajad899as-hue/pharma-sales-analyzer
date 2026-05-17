@@ -449,7 +449,7 @@ export async function getReport(id, query = {}) {
   // ── A. Shared files ────────────────────────────────────────────────────────
   // If the rep has commercial-rep or area/item assignments, apply the same
   // filter as non-shared files so only the rep's relevant data is shown.
-  // If the rep has NO assignments (dedicated single-rep file), include all rows.
+  // If the rep has NO assignments, skip — we can't identify their data.
   if (sharedFileIds.length > 0) {
     const sharedBase = {
       ...(sharedFileIds.length === 1 ? { uploadedFileId: sharedFileIds[0] } : { uploadedFileId: { in: sharedFileIds } }),
@@ -497,11 +497,9 @@ export async function getReport(id, query = {}) {
         select: salesSelect,
       });
       rawSales = rawSales.concat(sharedSales);
-    } else {
-      // No assignments at all → dedicated file for this rep: include all rows
-      const sharedSales = await prisma.sale.findMany({ where: sharedBase, select: salesSelect });
-      rawSales = rawSales.concat(sharedSales);
     }
+    // If no rep IDs, areas, or items → cannot identify the rep's data → skip.
+    // The old "include all rows" fallback was incorrect for multi-rep files.
   }
 
   // ── B. Non-shared files: use name-match + explicit-rep + area/item filter ─

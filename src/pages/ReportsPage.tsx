@@ -483,6 +483,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
   // Target comparison state
   const [showTargets, setShowTargets]           = useState(false);
+  const [showOverallTargets, setShowOverallTargets] = useState(false);
   const [targetData, setTargetData]             = useState<{ itemId: number; itemName: string; target: number }[]>([]);
   const [targetsLoading, setTargetsLoading]     = useState(false);
   const [hideEmptyTargetRows, setHideEmptyTargetRows] = useState(true);
@@ -713,7 +714,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const loadOverallReport = async () => {
     const fid = overallFileId || (activeFileIds.length > 0 ? String(activeFileIds[activeFileIds.length - 1]) : '');
     if (!fid) { setError('يرجى اختيار ملف للتحليل'); return; }
-    setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null);
+    setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); setTargetData([]);
     try {
       const parseOverall = (d: any): OverallReport => ({
         totalQuantity: d.totalQuantity ?? 0,
@@ -1442,7 +1443,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
         {([['overall','تحليل شامل'], ['scientific',t.reports.modeScientific], ['commercial',t.reports.modeCommercial]] as [string,string][]).map(([id, label]) => (
           <button key={id} onClick={() => {
-            if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); }
+            if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
             if (id === 'scientific') { setMode('scientific'); setError(''); setSciReport(null); }
             if (id === 'commercial') { setMode('commercial'); setError(''); setCommReport(null); }
           }} style={{
@@ -1962,6 +1963,97 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {overallTab === 'area'    && renderNetTable(finalSalesAreas,   finalRetAreas,   t.reports.colArea, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'item'    && renderNetTable(finalSalesItems,   finalRetItems,   t.reports.colItem, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'company' && renderNetTable(finalSalesCompany, finalRetCompany, 'الشركة',          false, overallViewMode, overallExcluded, toggleExcluded)}
+
+            {/* ── Target vs Net comparison — shown only for scientific_rep in Items tab ── */}
+            {overallTab === 'item' && user?.role === 'scientific_rep' && sciRepId && (
+              <div style={{ marginTop: 16 }}>
+                <button
+                  style={{ marginBottom: 10, fontSize: 13, padding: '7px 18px', borderRadius: 8, border: '1.5px solid #6366f1', background: showOverallTargets ? '#eef2ff' : '#f9fafb', color: '#4f46e5', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => {
+                    if (!showOverallTargets) { loadTargetsForRep('scientific', sciRepId); setShowOverallTargets(true); }
+                    else { setShowOverallTargets(false); }
+                  }}
+                >
+                  🎯 {showOverallTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
+                </button>
+                {showOverallTargets && (
+                  targetsLoading ? <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>جاري التحميل...</div> : (
+                    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af' }}>🎯 مقارنة التارگت بالمبيعات</span>
+                        <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151' }}>
+                          {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
+                        </button>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: '#1e40af' }}>
+                              <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#fff', borderLeft: '1px solid rgba(255,255,255,.15)' }}>المادة</th>
+                              <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', borderLeft: '1px solid rgba(255,255,255,.15)' }}>التارگت</th>
+                              <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', background: 'rgba(255,255,255,.12)', borderLeft: '1px solid rgba(255,255,255,.15)' }}>صافي الكمية</th>
+                              <th style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13, color: '#fff', background: 'rgba(255,255,255,.12)' }}>نسبة التحقق</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {targetData.length === 0 ? (
+                              <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 28, fontSize: 13 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
+                            ) : targetData.filter(td => {
+                              if (!hideEmptyTargetRows) return true;
+                              const salesRow = finalSalesItems.find(r => r.name === td.itemName);
+                              const retRow   = finalRetItems.find(r => r.name === td.itemName);
+                              const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                              return td.target > 0 || netQty !== 0;
+                            }).map((td, i) => {
+                              const salesRow = finalSalesItems.find(r => r.name === td.itemName);
+                              const retRow   = finalRetItems.find(r => r.name === td.itemName);
+                              const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                              const pct      = td.target > 0 ? (netQty / td.target) * 100 : null;
+                              const color    = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
+                              const rowBg    = i % 2 === 0 ? '#fff' : '#f9fafb';
+                              return (
+                                <tr key={td.itemId} style={{ background: rowBg }} onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')} onMouseLeave={e => (e.currentTarget.style.background = rowBg)}>
+                                  <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 600, color: '#1e293b', borderBottom: '1px solid #f1f5f9' }}>{td.itemName}</td>
+                                  <td style={{ padding: '8px 14px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600, borderBottom: '1px solid #f1f5f9' }}>{fmt(td.target)}</td>
+                                  <td style={{ padding: '8px 14px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                    <span style={{ background: netQty >= 0 ? '#ecfdf5' : '#fef2f2', color: netQty >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 12 }}>{fmtSigned(netQty)}</span>
+                                  </td>
+                                  <td style={{ padding: '8px 14px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
+                                    {pct !== null ? (
+                                      <span style={{ background: color + '22', color, borderRadius: 5, padding: '2px 10px', fontWeight: 800, fontSize: 13 }}>{Math.round(pct)}%</span>
+                                    ) : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          {targetData.length > 0 && (() => {
+                            const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
+                            const totalNet    = targetData.reduce((s, td) => {
+                              const salesRow = finalSalesItems.find(r => r.name === td.itemName);
+                              const retRow   = finalRetItems.find(r => r.name === td.itemName);
+                              return s + (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                            }, 0);
+                            const totalPct  = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
+                            const pctColor  = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
+                            return (
+                              <tfoot>
+                                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 800 }}>
+                                  <td style={{ padding: '10px 14px', color: '#065f46', textAlign: 'right' }}>الإجمالي</td>
+                                  <td style={{ padding: '10px 14px', color: '#1d4ed8', textAlign: 'center' }}>{fmt(totalTarget)}</td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}><span style={{ background: totalNet >= 0 ? '#ecfdf5' : '#fef2f2', color: totalNet >= 0 ? '#065f46' : '#991b1b', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 13 }}>{fmtSigned(totalNet)}</span></td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{totalPct !== null ? <span style={{ background: pctColor + '22', color: pctColor, borderRadius: 5, padding: '2px 10px', fontWeight: 800, fontSize: 15 }}>{totalPct}%</span> : '—'}</td>
+                                </tr>
+                              </tfoot>
+                            );
+                          })()}
+                        </table>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
           </>
         );
       })()}
