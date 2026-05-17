@@ -51,20 +51,14 @@ router.get('/overall', async (req, res) => {
         if (userAreaRows.length > 0) {
           areaIds = userAreaRows.map(a => a.areaId);
         } else {
-          // Check if this user is a linked scientific rep
-          const linkedRep = await prisma.scientificRepresentative.findFirst({
-            where: { linkedUserId: userId },
-            select: { id: true },
-          }).catch(() => null);
-          // Also check via user.linkedRepId
+          // Check if this user is linked to a scientific rep (via user.linkedRepId)
           const userRow = await prisma.user.findUnique({
             where: { id: userId },
             select: { linkedRepId: true },
-          }).catch(() => null);
-          const sciRepId = linkedRep?.id ?? userRow?.linkedRepId ?? null;
-          if (sciRepId) {
+          });
+          if (userRow?.linkedRepId) {
             const sciAreaRows = await prisma.scientificRepArea.findMany({
-              where: { scientificRepId: sciRepId },
+              where: { scientificRepId: userRow.linkedRepId },
               select: { areaId: true },
             });
             if (sciAreaRows.length > 0) {
