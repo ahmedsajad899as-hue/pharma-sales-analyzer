@@ -450,7 +450,7 @@ export async function deleteDrugEntry(req, res, next) {
 export async function bulkImportDrugEntries(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
-    const { entries } = req.body;
+    const { entries, mode } = req.body;  // mode: 'insert' (default) | 'upsert' (update prices of existing entries)
     if (!Array.isArray(entries) || !entries.length)
       return res.status(400).json({ success: false, error: 'لا توجد بيانات' });
     const rows = entries
@@ -467,6 +467,28 @@ export async function bulkImportDrugEntries(req, res, next) {
         createdAt: new Date(),
         updatedAt: new Date(),
       }));
+
+    if (mode === 'upsert') {
+      // Update prices on existing entries matched by brandName (case-insensitive) within same survey
+      let updated = 0;
+      for (const row of rows) {
+        const result = await prisma.drugPriceSurveyEntry.updateMany({
+          where: {
+            surveyId,
+            brandName: { equals: row.brandName, mode: 'insensitive' },
+          },
+          data: {
+            priceOfficeToWholesaler:   row.priceOfficeToWholesaler,
+            priceWholesalerToPharmacy: row.priceWholesalerToPharmacy,
+            pricePharmacyToPatient:    row.pricePharmacyToPatient,
+            updatedAt: new Date(),
+          },
+        });
+        updated += result.count;
+      }
+      return res.json({ success: true, count: updated, mode: 'upsert' });
+    }
+
     await prisma.drugPriceSurveyEntry.createMany({ data: rows, skipDuplicates: false });
     res.json({ success: true, count: rows.length });
   } catch (e) { next(e); }

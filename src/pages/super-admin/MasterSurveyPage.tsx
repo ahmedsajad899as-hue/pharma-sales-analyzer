@@ -138,14 +138,32 @@ function downloadTemplate(type: 'doctors' | 'pharmacies') {
 type DrugField = 'brandName' | 'dosageForm' | 'company' | 'priceOfficeToWholesaler' | 'priceWholesalerToPharmacy' | 'pricePharmacyToPatient' | 'notes';
 
 const DRUG_FIELD_KEYWORDS: Array<[DrugField, string[]]> = [
-  ['brandName',                ['الاسم التجاري','اسم الايتم','اسم الدواء','الايتم','الاسم','brand name','brand','drug name','item','name']],
-  ['dosageForm',               ['الشكل الدوائي','الشكل','شكل','dosage form','form','dosageform']],
-  ['company',                  ['اسم الشركه','اسم المصنع','الشركه','المصنع','الشركة','المصنعة','company','manufacturer','manuf']],
-  ['priceOfficeToWholesaler',  ['سعر بيع المكتب','سعر المكتب','مكتب','office','office to wholesaler','office wholesaler']],
-  ['priceWholesalerToPharmacy',['سعر بيع المذخر','سعر المذخر','مذخر','wholesaler','wholesaler to pharmacy','wholesaler pharmacy']],
-  ['pricePharmacyToPatient',   ['سعر بيع الصيدليه','سعر الصيدليه','سعر بيع الصيدلية','سعر الصيدلية','صيدلية','صيدليه','pharmacy','pharmacy to patient','patient']],
-  ['notes',                    ['ملاحظات','ملاحظه','notes','note','remarks']],
+  ['brandName',                ['الاسم التجاري','اسم الايتم','اسم الدواء','الايتم','الاسم','brand name','brand','drug name','item','name','drug']],
+  ['dosageForm',               ['الشكل الدوائي','الشكل','شكل','dosage form','form','dosageform','الصيغه','الصيغة','صيغه']],
+  ['company',                  ['اسم الشركه','اسم المصنع','الشركه','المصنع','الشركة','المصنعة','company','manufacturer','manuf','الوكيل','الموزع']],
+  ['priceOfficeToWholesaler',  ['سعر بيع المكتب','سعر المكتب','ثمن المكتب','مكتب→مستودع','مكتب-مستودع','سعر الوكيل','office','office to wholesaler','office wholesaler','مكتب','p1','price1','price 1','السعر الاول','السعر ١','سعر 1']],
+  ['priceWholesalerToPharmacy',['سعر بيع المذخر','سعر المذخر','سعر بيع المستودع','سعر المستودع','ثمن المستودع','مستودع→صيدليه','مستودع-صيدليه','مستودع→صيدلية','مذخر','مستودع','wholesaler','wholesaler to pharmacy','wholesale','جمله','جملة','p2','price2','price 2','السعر الثاني','السعر ٢','سعر 2']],
+  ['pricePharmacyToPatient',   ['سعر بيع الصيدليه','سعر الصيدليه','سعر بيع الصيدلية','سعر الصيدلية','ثمن الصيدلية','صيدليه→مريض','مفرق','سعر المفرق','للمريض','صيدلية','صيدليه','pharmacy','pharmacy to patient','patient','retail','p3','price3','price 3','السعر الثالث','السعر ٣','سعر 3']],
+  ['notes',                    ['ملاحظات','ملاحظه','ملاحظة','notes','note','remarks','تعليق']],
 ];
+
+// Convert any price-like value to number (handles comma-decimal, Arabic digits, currency symbols)
+function parsePrice(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return isNaN(v) ? null : v;
+  let s = String(v).trim()
+    // Arabic-Indic digits → Western
+    .replace(/[٠١٢٣٤٥٦٧٨٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    // Remove currency symbols, spaces, Arabic letters
+    .replace(/[^\d,.\ \-]/g, '').trim();
+  // If comma appears before 1-2 digits at end: treat as decimal separator
+  s = s.replace(/,(\d{1,2})$/, '.$1');
+  // Remove remaining commas (thousands separators)
+  s = s.replace(/,/g, '');
+  const n = Number(s);
+  return isNaN(n) ? null : n;
+}
+
 function detectDrugField(header: string): DrugField | null {
   const h = normalizeHdr(header);
   for (const [field, kws] of DRUG_FIELD_KEYWORDS) {
@@ -156,12 +174,32 @@ function detectDrugField(header: string): DrugField | null {
   }
   return null;
 }
-function buildDrugHeaderMap(row: Record<string,unknown>): Record<string, DrugField> {
+function buildDrugHeaderMap(
+  firstRow: Record<string,unknown>,
+  allRows?: Record<string,unknown>[],
+): Record<string, DrugField> {
   const map: Record<string, DrugField> = {};
   const used = new Set<DrugField>();
-  for (const header of Object.keys(row)) {
+  for (const header of Object.keys(firstRow)) {
     const field = detectDrugField(header);
     if (field && !used.has(field)) { map[header] = field; used.add(field); }
+  }
+  // Numeric fallback: if price fields not found by keywords, auto-detect numeric columns
+  const priceFields: DrugField[] = ['priceOfficeToWholesaler','priceWholesalerToPharmacy','pricePharmacyToPatient'];
+  const missingPrices = priceFields.filter(f => !used.has(f));
+  if (missingPrices.length > 0 && allRows && allRows.length > 0) {
+    const unmapped = Object.keys(firstRow).filter(h => !map[h]);
+    const sample = allRows.slice(0, Math.min(20, allRows.length));
+    const numericCols = unmapped.filter(h => {
+      const vals = sample.map(r => r[h]).filter(v => v != null && v !== '');
+      if (!vals.length) return false;
+      const numCount = vals.filter(v => parsePrice(v) !== null).length;
+      return numCount / vals.length >= 0.5;
+    });
+    for (let i = 0; i < Math.min(missingPrices.length, numericCols.length); i++) {
+      map[numericCols[i]] = missingPrices[i];
+      used.add(missingPrices[i]);
+    }
   }
   return map;
 }
@@ -171,8 +209,7 @@ function smartMapDrugRow(row: Record<string,unknown>, headerMap: Record<string, 
     const v = row[header];
     if (v == null || v === '') continue;
     if (['priceOfficeToWholesaler','priceWholesalerToPharmacy','pricePharmacyToPatient'].includes(field)) {
-      const n = Number(v);
-      r[field] = isNaN(n) ? null : n;
+      r[field] = parsePrice(v);
     } else {
       r[field] = String(v).trim();
     }
@@ -267,6 +304,8 @@ export default function MasterSurveyPage() {
   const [drugEntrySearch,      setDrugEntrySearch]      = useState('');
   const [importDrugPreview,    setImportDrugPreview]    = useState<Partial<DrugEntry>[]>([]);
   const [showDrugImport,       setShowDrugImport]       = useState(false);
+  const [importDrugMode,       setImportDrugMode]       = useState<'insert' | 'upsert'>('insert');
+  const [detectedDrugFields,   setDetectedDrugFields]   = useState<Record<string, DrugField>>({});
   const drugFileRef = useRef<HTMLInputElement>(null);
   const drugSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1198,9 +1237,12 @@ export default function MasterSurveyPage() {
                 const file = e.target.files?.[0]; if (!file) return;
                 const rows = await parseExcelFile(file);
                 if (!rows.length) return;
-                // Smart header detection — works with any column order/language
-                const headerMap = buildDrugHeaderMap(rows[0] as Record<string,unknown>);
-                const mapped = (rows as Record<string,unknown>[])
+                // Smart header detection — keyword-based + numeric fallback
+                const allRows = rows as Record<string,unknown>[];
+                const headerMap = buildDrugHeaderMap(allRows[0], allRows);
+                setDetectedDrugFields(headerMap);
+                setImportDrugMode('insert');
+                const mapped = allRows
                   .map(r => smartMapDrugRow(r, headerMap))
                   .filter(r => r.brandName && String(r.brandName).trim());
                 setImportDrugPreview(mapped as Partial<DrugEntry>[]);
@@ -1214,11 +1256,58 @@ export default function MasterSurveyPage() {
           {/* import preview modal */}
           {showDrugImport && importDrugPreview.length > 0 && (
             <ModalOverlay onClose={() => setShowDrugImport(false)}>
-              <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 800, color: '#1e1b4b' }}>استيراد {importDrugPreview.length} دواء</h3>
-              <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 14 }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 800, color: '#1e1b4b' }}>استيراد {importDrugPreview.length.toLocaleString()} دواء</h3>
+
+              {/* Column detection summary */}
+              {(() => {
+                const FIELD_LABELS: Record<string, string> = {
+                  brandName: 'الاسم التجاري', dosageForm: 'الشكل الدوائي', company: 'الشركة',
+                  priceOfficeToWholesaler: 'سعر المكتب', priceWholesalerToPharmacy: 'سعر المستودع', pricePharmacyToPatient: 'سعر الصيدلية',
+                };
+                const detected = Object.entries(detectedDrugFields);
+                return (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12 }}>
+                    <strong style={{ color: '#374151' }}>الأعمدة المكتشفة:</strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                      {Object.keys(FIELD_LABELS).map(field => {
+                        const col = detected.find(([,f]) => f === field)?.[0];
+                        return (
+                          <span key={field} style={{
+                            padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                            background: col ? '#dcfce7' : '#fee2e2',
+                            color: col ? '#16a34a' : '#dc2626',
+                            border: `1px solid ${col ? '#86efac' : '#fca5a5'}`,
+                          }}>
+                            {col ? '✓' : '✗'} {FIELD_LABELS[field]}{col ? ` ← "${col}"` : ''}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {Object.keys(FIELD_LABELS).filter(f => f.startsWith('price')).some(f => !detected.find(([,df]) => df === f)) && (
+                      <div style={{ marginTop: 6, color: '#dc2626', fontSize: 11 }}>
+                        ⚠️ بعض أعمدة الأسعار لم تُكتشف. تأكد أن عناوين الأعمدة في ملف Excel تحتوي على كلمات مثل: مكتب، مستودع، صيدلية.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Import mode selector */}
+              <div style={{ display: 'flex', gap: 16, marginBottom: 10, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: importDrugMode === 'insert' ? 700 : 400 }}>
+                  <input type="radio" checked={importDrugMode === 'insert'} onChange={() => setImportDrugMode('insert')} />
+                  ➕ إضافة جديد (يضيف صفوف جديدة)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: importDrugMode === 'upsert' ? 700 : 400 }}>
+                  <input type="radio" checked={importDrugMode === 'upsert'} onChange={() => setImportDrugMode('upsert')} />
+                  🔄 تحديث الأسعار فقط (يُحدّث الموجود بدون إضافة تكرار)
+                </label>
+              </div>
+
+              <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ background: '#f1f5f9' }}>
-                    {['الاسم','الشكل','الشركة','مكتب→مذخر','مذخر→صيدلية','صيدلية→مريض'].map(h => (
+                    {['الاسم','الشكل','الشركة','مكتب→مستودع','مستودع→صيدلية','صيدلية→مريض'].map(h => (
                       <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#374151' }}>{h}</th>
                     ))}
                   </tr></thead>
@@ -1228,14 +1317,14 @@ export default function MasterSurveyPage() {
                         <td style={{ padding: '5px 8px', fontWeight: 600 }}>{String(e.brandName ?? '')}</td>
                         <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.dosageForm ? String(e.dosageForm) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.company ? String(e.company) : '—'}</td>
-                        <td style={{ padding: '5px 8px', color: '#059669' }}>
-                          {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : '—'}
+                        <td style={{ padding: '5px 8px', color: '#059669', fontWeight: 600 }}>
+                          {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: '#fca5a5' }}>—</span>}
                         </td>
-                        <td style={{ padding: '5px 8px', color: '#d97706' }}>
-                          {e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : '—'}
+                        <td style={{ padding: '5px 8px', color: '#d97706', fontWeight: 600 }}>
+                          {e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : <span style={{ color: '#fca5a5' }}>—</span>}
                         </td>
-                        <td style={{ padding: '5px 8px', color: '#dc2626' }}>
-                          {e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : '—'}
+                        <td style={{ padding: '5px 8px', color: '#dc2626', fontWeight: 600 }}>
+                          {e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : <span style={{ color: '#fca5a5' }}>—</span>}
                         </td>
                       </tr>
                     ))}
@@ -1243,7 +1332,7 @@ export default function MasterSurveyPage() {
                 </table>
                 {importDrugPreview.length > 100 && (
                   <div style={{ textAlign: 'center', padding: 8, fontSize: 12, color: '#64748b' }}>
-                    يُعرض 100 من أصل {importDrugPreview.length}
+                    يُعرض 100 من أصل {importDrugPreview.length.toLocaleString()}
                   </div>
                 )}
               </div>
@@ -1258,18 +1347,21 @@ export default function MasterSurveyPage() {
                     for (let i = 0; i < importDrugPreview.length; i += BATCH) {
                       setImportProgress(`جاري... ${Math.min(i + BATCH, importDrugPreview.length)}/${importDrugPreview.length}`);
                       const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/drug-entries/bulk`, {
-                        method: 'POST', headers: H(), body: JSON.stringify({ entries: importDrugPreview.slice(i, i + BATCH) }),
+                        method: 'POST', headers: H(),
+                        body: JSON.stringify({ entries: importDrugPreview.slice(i, i + BATCH), mode: importDrugMode }),
                       });
                       if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.status); }
                     }
                     setShowDrugImport(false); setImportDrugPreview([]);
                     setDrugEntrySearch('');
                     fetchDrugEntries(selectedSurvey.id, '', 1);
-                    fetchSurveys(); // refresh count
+                    fetchSurveys();
                   } catch (err: any) { alert(`❌ فشل الاستيراد: ${err.message}`); }
                   finally { setImporting(false); setImportProgress(''); }
                 }} disabled={importing} style={btnPrimary}>
-                  {importing ? (importProgress || '...') : `✅ استيراد ${importDrugPreview.length} دواء`}
+                  {importing ? (importProgress || '...') : importDrugMode === 'upsert'
+                    ? `🔄 تحديث أسعار ${importDrugPreview.length.toLocaleString()} دواء`
+                    : `✅ استيراد ${importDrugPreview.length.toLocaleString()} دواء`}
                 </button>
               </div>
             </ModalOverlay>
