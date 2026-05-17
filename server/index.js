@@ -955,11 +955,16 @@ app.get('/api/files', async (req, res) => {
 
     let whereClause;
     if (userId) {
-      const orClauses = [{ userId, ...typeFilter }];
-      if (linkedRepId) orClauses.push({ sharedWithRepId: linkedRepId, ...typeFilter });
-      // Files shared with this user via the junction table
-      orClauses.push({ fileShares: { some: { userId } }, ...typeFilter });
-      whereClause = { OR: orClauses };
+      // pharmacy_net files are strictly private — never shared across users
+      if (context === 'pharmacy_net') {
+        whereClause = { userId, ...typeFilter };
+      } else {
+        const orClauses = [{ userId, ...typeFilter }];
+        if (linkedRepId) orClauses.push({ sharedWithRepId: linkedRepId, ...typeFilter });
+        // Files shared with this user via the junction table
+        orClauses.push({ fileShares: { some: { userId } }, ...typeFilter });
+        whereClause = { OR: orClauses };
+      }
     } else {
       whereClause = { ...typeFilter };
     }
