@@ -2874,13 +2874,24 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
         });
         if (subordinateRows.length > 0) {
           const subUserIds = subordinateRows.map(r => r.userId);
-          const subUsers = await prisma.user.findMany({
-            where: { id: { in: subUserIds }, linkedRepId: { not: null } },
-            select: { linkedRepId: true },
-          });
-          const subRepIds = subUsers.map(u => u.linkedRepId).filter(Boolean);
+          // Get repIds via linkedRepId AND via ScientificRepresentative.userId (covers all link types)
+          const [subUsersWithLink, subRepRecords] = await Promise.all([
+            prisma.user.findMany({
+              where: { id: { in: subUserIds }, linkedRepId: { not: null } },
+              select: { linkedRepId: true },
+            }),
+            prisma.scientificRepresentative.findMany({
+              where: { userId: { in: subUserIds } },
+              select: { id: true },
+            }),
+          ]);
+          const subRepIds = [...new Set([
+            ...subUsersWithLink.map(u => u.linkedRepId).filter(Boolean),
+            ...subRepRecords.map(r => r.id),
+          ])];
           where.OR = [
             ...(subRepIds.length > 0 ? [{ scientificRepId: { in: subRepIds } }] : []),
+            { userId: { in: subUserIds } },  // visits recorded directly by sub user accounts
             { userId },  // manager's own visits
           ];
         } else if (role === 'team_leader') {
