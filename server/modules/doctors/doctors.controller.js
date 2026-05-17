@@ -315,7 +315,13 @@ export async function visitsByArea(req, res, next) {
     const areas = filteredAreaEntries.map(([, g]) => toStats(g))
       .sort((a, b) => b.visitedCount - a.visitedCount);
 
-    res.json({ areas });
+    const noAreaStats = {
+      total:   noAreaDocs.length,
+      visited: noAreaDocs.filter(d => d.visited).length,
+      writing: noAreaDocs.filter(d => d.isWriting).length,
+    };
+
+    res.json({ areas, noAreaStats });
   } catch (e) { next(e); }
 }
 

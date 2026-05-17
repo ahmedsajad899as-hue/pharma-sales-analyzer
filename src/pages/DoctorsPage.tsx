@@ -268,6 +268,7 @@ export default function DoctorsPage() {
 
   // ── Visits analysis ─────────────────────────────────────────
   const [visitAreas, setVisitAreas]         = useState<VisitArea[]>([]);
+  const [noAreaStats, setNoAreaStats]       = useState<{ total: number; visited: number; writing: number }>({ total: 0, visited: 0, writing: 0 });
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
@@ -614,6 +615,7 @@ export default function DoctorsPage() {
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
       setVisitAreas(Array.isArray(j.areas) ? j.areas : []);
+      setNoAreaStats(j.noAreaStats ?? { total: 0, visited: 0, writing: 0 });
     } catch (e) { console.error('[visitsByArea] fetch error:', e); }
     finally { setVisitLoading(false); }
   }, [token, visitMonthFilter, visitRepFilter]);
@@ -1715,9 +1717,9 @@ export default function DoctorsPage() {
 
           {/* Summary strip */}
           {!visitLoading && visitAreas.length > 0 && (() => {
-            const total   = visitAreas.reduce((s, a) => s + a.totalDoctors, 0);
-            const visited = visitAreas.reduce((s, a) => s + a.visitedCount, 0);
-            const writing = visitAreas.reduce((s, a) => s + a.writingCount, 0);
+            const total   = visitAreas.reduce((s, a) => s + a.totalDoctors, 0) + noAreaStats.total;
+            const visited = visitAreas.reduce((s, a) => s + a.visitedCount, 0) + noAreaStats.visited;
+            const writing = visitAreas.reduce((s, a) => s + a.writingCount, 0) + noAreaStats.writing;
             const pct = total > 0 ? Math.round(visited / total * 100) : 0;
             const sortedAreas = [...visitAreas].sort((a, b) => {
               const pa = a.totalDoctors > 0 ? a.visitedCount / a.totalDoctors : 0;
