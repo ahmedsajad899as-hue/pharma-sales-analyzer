@@ -142,6 +142,11 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     .map(n => existingByName.get(n))
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  // If survey has no area data, fall back to all areas in the Area table
+  if (result.length === 0) {
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    return res.json({ success: true, data: allAreas });
+  }
   res.json({ success: true, data: result });
 });
 
