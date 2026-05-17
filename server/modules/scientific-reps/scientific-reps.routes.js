@@ -6,7 +6,8 @@ const router = Router();
 // CRUD
 router.post('/',          ctrl.createRep);
 router.get('/',           ctrl.listReps);
-router.get('/my-areas',   ctrl.getMyAreas); // must be before /:id
+router.get('/my-areas',            ctrl.getMyAreas);            // must be before /:id
+router.get('/my-commercial-reps',  ctrl.getMyCommercialReps);    // must be before /:id
 router.get('/:id',        ctrl.getRep);
 router.patch('/:id', ctrl.updateRep);
 router.delete('/:id', ctrl.deleteRep);

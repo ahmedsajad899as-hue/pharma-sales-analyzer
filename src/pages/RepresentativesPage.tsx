@@ -47,6 +47,24 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
   const [assignedAreas, setAssignedAreas] = useState<AreaItem[]>([]);
 
   const loadReps = async () => {
+    if (isSciRep) {
+      // For scientific_rep: load their directly-assigned commercial reps
+      // (independent of any active file)
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`${API}/api/scientific-reps/my-commercial-reps`, { headers: { Authorization: `Bearer ${token}` } });
+        let json: any;
+        try { json = await res.json(); } catch { throw new Error(`${t.common.serverError} (HTTP ${res.status})`); }
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        setReps(Array.isArray(json.data) ? json.data : []);
+      } catch (err: any) {
+        setError(`${t.reps.errorLoad}: ${err.message || t.common.error}`);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (activeFileIds.length === 0) {
       setReps([]);
       setLoading(false);
@@ -82,7 +100,7 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSciRep, token]);
 
-  useEffect(() => { loadReps(); }, [activeFileIds.join(','), token]);
+  useEffect(() => { loadReps(); }, [isSciRep ? token : activeFileIds.join(','), token]);
 
   // AI assistant page-action listener
   useEffect(() => {
@@ -240,9 +258,11 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
                 {displayReps.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="empty-row">
-                    {activeFileIds.length === 0
-                      ? t.reps.noFileWarning
-                      : t.reps.noReps}
+                    {isSciRep
+                      ? t.reps.noAssignedReps
+                      : activeFileIds.length === 0
+                        ? t.reps.noFileWarning
+                        : t.reps.noReps}
                   </td>
                 </tr>
                 ) : displayReps.map(rep => (
@@ -280,7 +300,11 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
           <div className="rep-mobile-cards">
             {displayReps.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '32px 0', fontSize: 14 }}>
-                {activeFileIds.length === 0 ? t.reps.noFileWarning : t.reps.noReps}
+                {isSciRep
+                  ? t.reps.noAssignedReps
+                  : activeFileIds.length === 0
+                    ? t.reps.noFileWarning
+                    : t.reps.noReps}
               </div>
             ) : displayReps.map(rep => (
               <div key={rep.id} className="rep-mobile-card">
@@ -385,8 +409,8 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
         </div>
       )}
 
-      {/* Bottom warning when no file active */}
-      {activeFileIds.length === 0 && (
+      {/* Bottom warning when no file active (not shown for sci reps) */}
+      {activeFileIds.length === 0 && !isSciRep && (
         <div style={{
           position: 'sticky', bottom: 0, left: 0, right: 0,
           background: 'linear-gradient(135deg, #1e1b4b 0%, #3730a3 50%, #6d28d9 100%)',

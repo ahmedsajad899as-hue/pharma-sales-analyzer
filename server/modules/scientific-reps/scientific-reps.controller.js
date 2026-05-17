@@ -45,6 +45,13 @@ export async function getMyAreas(req, res, next) {
   } catch (err) { next(err); }
 }
 
+export async function getMyCommercialReps(req, res, next) {
+  try {
+    const reps = await svc.getMyCommercialReps(req.user?.id ?? null);
+    res.json({ success: true, data: reps });
+  } catch (err) { next(err); }
+}
+
 export async function updateRep(req, res, next) {
   try {
     const rep = await svc.update(+req.params.id, req.body);

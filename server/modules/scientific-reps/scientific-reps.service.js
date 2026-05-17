@@ -248,6 +248,31 @@ export async function getMyAreas(userId) {
   return rows.map(r => r.area);
 }
 
+export async function getMyCommercialReps(userId) {
+  if (!userId) return [];
+  const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+  let repId = userRow?.linkedRepId ?? null;
+  if (!repId) {
+    const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+    repId = rep?.id ?? null;
+  }
+  if (!repId) return [];
+  const rows = await prisma.scientificRepCommercial.findMany({
+    where: { scientificRepId: repId },
+    select: {
+      commercialRep: {
+        select: {
+          id: true, name: true, phone: true, email: true, isActive: true,
+          areas: { select: { area: { select: { id: true, name: true } } } },
+          items: { select: { item: { select: { id: true, name: true } } } },
+        },
+      },
+    },
+    orderBy: { commercialRep: { name: 'asc' } },
+  });
+  return rows.map(r => r.commercialRep);
+}
+
 // ─── Assignments ─────────────────────────────────────────────
 
 /**
