@@ -134,6 +134,52 @@ function downloadTemplate(type: 'doctors' | 'pharmacies') {
   XLSX.writeFile(wb, type === 'doctors' ? 'نموذج_أطباء.xlsx' : 'نموذج_صيدليات.xlsx');
 }
 
+// ── Drug price smart Excel detection ─────────────────────────
+type DrugField = 'brandName' | 'dosageForm' | 'company' | 'priceOfficeToWholesaler' | 'priceWholesalerToPharmacy' | 'pricePharmacyToPatient' | 'notes';
+
+const DRUG_FIELD_KEYWORDS: Array<[DrugField, string[]]> = [
+  ['brandName',                ['الاسم التجاري','اسم الايتم','اسم الدواء','الايتم','الاسم','brand name','brand','drug name','item','name']],
+  ['dosageForm',               ['الشكل الدوائي','الشكل','شكل','dosage form','form','dosageform']],
+  ['company',                  ['اسم الشركه','اسم المصنع','الشركه','المصنع','الشركة','المصنعة','company','manufacturer','manuf']],
+  ['priceOfficeToWholesaler',  ['سعر بيع المكتب','سعر المكتب','مكتب','office','office to wholesaler','office wholesaler']],
+  ['priceWholesalerToPharmacy',['سعر بيع المذخر','سعر المذخر','مذخر','wholesaler','wholesaler to pharmacy','wholesaler pharmacy']],
+  ['pricePharmacyToPatient',   ['سعر بيع الصيدليه','سعر الصيدليه','سعر بيع الصيدلية','سعر الصيدلية','صيدلية','صيدليه','pharmacy','pharmacy to patient','patient']],
+  ['notes',                    ['ملاحظات','ملاحظه','notes','note','remarks']],
+];
+function detectDrugField(header: string): DrugField | null {
+  const h = normalizeHdr(header);
+  for (const [field, kws] of DRUG_FIELD_KEYWORDS) {
+    for (const kw of kws) {
+      const nkw = normalizeHdr(kw);
+      if (h === nkw || h.includes(nkw) || nkw.includes(h)) return field;
+    }
+  }
+  return null;
+}
+function buildDrugHeaderMap(row: Record<string,unknown>): Record<string, DrugField> {
+  const map: Record<string, DrugField> = {};
+  const used = new Set<DrugField>();
+  for (const header of Object.keys(row)) {
+    const field = detectDrugField(header);
+    if (field && !used.has(field)) { map[header] = field; used.add(field); }
+  }
+  return map;
+}
+function smartMapDrugRow(row: Record<string,unknown>, headerMap: Record<string, DrugField>): Partial<Record<DrugField, string | number | null>> {
+  const r: Partial<Record<DrugField, string | number | null>> = {};
+  for (const [header, field] of Object.entries(headerMap)) {
+    const v = row[header];
+    if (v == null || v === '') continue;
+    if (['priceOfficeToWholesaler','priceWholesalerToPharmacy','pricePharmacyToPatient'].includes(field)) {
+      const n = Number(v);
+      r[field] = isNaN(n) ? null : n;
+    } else {
+      r[field] = String(v).trim();
+    }
+  }
+  return r;
+}
+
 // ── Small helpers ─────────────────────────────────────────────
 const actionColor: Record<string,string> = { create: '#10b981', update: '#f59e0b', delete: '#ef4444', create_external: '#6366f1' };
 const actionLabel: Record<string,string> = { create: 'أضاف', update: 'عدّل', delete: 'حذف', create_external: 'أضاف خارجياً' };
@@ -213,12 +259,16 @@ export default function MasterSurveyPage() {
   // drug entries state
   const [drugEntries,          setDrugEntries]          = useState<DrugEntry[]>([]);
   const [drugEntriesLoading,   setDrugEntriesLoading]   = useState(false);
+  const [drugEntriesTotal,     setDrugEntriesTotal]     = useState(0);
+  const [drugEntriesPage,      setDrugEntriesPage]      = useState(1);
+  const [drugEntriesPages,     setDrugEntriesPages]     = useState(1);
   const [showDrugEntryForm,    setShowDrugEntryForm]    = useState(false);
   const [editingDrugEntry,     setEditingDrugEntry]     = useState<DrugEntry | null>(null);
   const [drugEntrySearch,      setDrugEntrySearch]      = useState('');
   const [importDrugPreview,    setImportDrugPreview]    = useState<Partial<DrugEntry>[]>([]);
   const [showDrugImport,       setShowDrugImport]       = useState(false);
   const drugFileRef = useRef<HTMLInputElement>(null);
+  const drugSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [importing,            setImporting]            = useState(false);
   const [importProgress,       setImportProgress]       = useState('');
@@ -277,13 +327,20 @@ export default function MasterSurveyPage() {
     fetchSurvey(s.id);
   };
 
-  // Fetch drug entries when drug_prices tab opened
-  const fetchDrugEntries = useCallback(async (surveyId: number) => {
+  // Fetch drug entries when drug_prices tab opened (server-side pagination + search)
+  const fetchDrugEntries = useCallback(async (surveyId: number, search = '', page = 1) => {
     setDrugEntriesLoading(true);
     try {
-      const r = await fetch(`/api/super-admin/surveys/${surveyId}/drug-entries`, { headers: H() });
+      const qs = new URLSearchParams({ page: String(page), limit: '100' });
+      if (search.trim()) qs.set('search', search.trim());
+      const r = await fetch(`/api/super-admin/surveys/${surveyId}/drug-entries?${qs}`, { headers: H() });
       const d = await r.json();
-      if (d.success) setDrugEntries(d.data);
+      if (d.success) {
+        setDrugEntries(d.data);
+        setDrugEntriesTotal(d.total ?? 0);
+        setDrugEntriesPage(d.page ?? 1);
+        setDrugEntriesPages(d.pages ?? 1);
+      }
     } finally { setDrugEntriesLoading(false); }
   }, [H]);
 
@@ -291,7 +348,7 @@ export default function MasterSurveyPage() {
     if (!selectedSurvey) return;
     if (tab === 'visibility')  fetchVisibility(selectedSurvey.id);
     if (tab === 'logs')        fetchLogs(selectedSurvey.id);
-    if (tab === 'drug_prices') fetchDrugEntries(selectedSurvey.id);
+    if (tab === 'drug_prices') { setDrugEntrySearch(''); setDrugEntriesPage(1); fetchDrugEntries(selectedSurvey.id, '', 1); }
   }, [tab, selectedSurvey?.id]);
 
   // ── Excel import handlers ───────────────────────────────────
@@ -864,7 +921,7 @@ export default function MasterSurveyPage() {
 
   const tabs: { id: typeof tab; label: string; icon: string }[] = selectedSurvey.surveyType === 'drug_prices'
     ? [
-        { id: 'drug_prices', label: `أسعار الأدوية (${selectedSurvey.drugEntries?.length ?? drugEntries.length})`, icon: '💊' },
+        { id: 'drug_prices', label: `أسعار الأدوية (${(selectedSurvey._count as any)?.drugEntries ?? drugEntriesTotal})`, icon: '💊' },
         { id: 'visibility',  label: 'الصلاحيات',                                          icon: '👁️' },
         { id: 'logs',        label: 'سجل التعديلات',                                      icon: '📋' },
       ]
@@ -1110,13 +1167,27 @@ export default function MasterSurveyPage() {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
             <input
               value={drugEntrySearch}
-              onChange={e => setDrugEntrySearch(e.target.value)}
-              placeholder="🔍 بحث بالاسم التجاري أو الشركة..."
-              style={{ flex: 1, minWidth: 220, padding: '9px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', direction: 'rtl' }}
+              onChange={e => {
+                const val = e.target.value;
+                setDrugEntrySearch(val);
+                // debounce server-side search
+                if (drugSearchTimer.current) clearTimeout(drugSearchTimer.current);
+                drugSearchTimer.current = setTimeout(() => {
+                  if (selectedSurvey) { setDrugEntriesPage(1); fetchDrugEntries(selectedSurvey.id, val, 1); }
+                }, 400);
+              }}
+              placeholder="🔍 بحث بالاسم التجاري، الشركة، الشكل الدوائي..."
+              style={{ flex: 1, minWidth: 220, padding: '9px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', direction: 'rtl', position: 'relative', zIndex: 1 }}
             />
+            {drugEntrySearch && (
+              <button onClick={() => {
+                setDrugEntrySearch('');
+                if (selectedSurvey) fetchDrugEntries(selectedSurvey.id, '', 1);
+              }} style={{ ...btnSecondary, padding: '9px 12px', fontSize: 12 }}>✕ مسح</button>
+            )}
             <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
               <button onClick={() => {
-                const hdrs = ['الاسم التجاري','الشكل الدوائي','الشركة','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
+                const hdrs = ['الاسم التجاري','الشكل الدوائي','اسم الشركة/المصنع','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
                 const ex   = ['Lipitor 20mg','أقراص','Pfizer','5.000','6.500','8.750'];
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([hdrs, ex]), 'أسعار الأدوية');
@@ -1127,18 +1198,12 @@ export default function MasterSurveyPage() {
                 const file = e.target.files?.[0]; if (!file) return;
                 const rows = await parseExcelFile(file);
                 if (!rows.length) return;
-                // Map columns: A=brandName, B=dosageForm, C=company, D=priceOfficeToWholesaler, E=priceWholesalerToPharmacy, F=pricePharmacyToPatient
-                const headers = Object.keys(rows[0] as Record<string,unknown>);
-                const h = (i: number) => headers[i] ?? '';
-                const mapped = (rows as Record<string,unknown>[]).map(r => ({
-                  brandName:                String(r[h(0)] ?? '').trim(),
-                  dosageForm:               String(r[h(1)] ?? '').trim() || undefined,
-                  company:                  String(r[h(2)] ?? '').trim() || undefined,
-                  priceOfficeToWholesaler:  r[h(3)] != null && r[h(3)] !== '' ? Number(r[h(3)]) : undefined,
-                  priceWholesalerToPharmacy:r[h(4)] != null && r[h(4)] !== '' ? Number(r[h(4)]) : undefined,
-                  pricePharmacyToPatient:   r[h(5)] != null && r[h(5)] !== '' ? Number(r[h(5)]) : undefined,
-                })).filter(r => r.brandName);
-                setImportDrugPreview(mapped);
+                // Smart header detection — works with any column order/language
+                const headerMap = buildDrugHeaderMap(rows[0] as Record<string,unknown>);
+                const mapped = (rows as Record<string,unknown>[])
+                  .map(r => smartMapDrugRow(r, headerMap))
+                  .filter(r => r.brandName && String(r.brandName).trim());
+                setImportDrugPreview(mapped as Partial<DrugEntry>[]);
                 setShowDrugImport(true);
                 e.target.value = '';
               }} />
@@ -1153,23 +1218,36 @@ export default function MasterSurveyPage() {
               <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 14 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ background: '#f1f5f9' }}>
-                    {['الاسم','الشكل','الشركة','م→م','م→ص','ص→م'].map(h => <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#374151' }}>{h}</th>)}
+                    {['الاسم','الشكل','الشركة','مكتب→مذخر','مذخر→صيدلية','صيدلية→مريض'].map(h => (
+                      <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#374151' }}>{h}</th>
+                    ))}
                   </tr></thead>
                   <tbody>
                     {importDrugPreview.slice(0, 100).map((e, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '5px 8px' }}>{e.brandName}</td>
-                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.dosageForm || '—'}</td>
-                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.company || '—'}</td>
-                        <td style={{ padding: '5px 8px', color: '#059669' }}>{e.priceOfficeToWholesaler?.toFixed(3) ?? '—'}</td>
-                        <td style={{ padding: '5px 8px', color: '#d97706' }}>{e.priceWholesalerToPharmacy?.toFixed(3) ?? '—'}</td>
-                        <td style={{ padding: '5px 8px', color: '#dc2626' }}>{e.pricePharmacyToPatient?.toFixed(3) ?? '—'}</td>
+                        <td style={{ padding: '5px 8px', fontWeight: 600 }}>{String(e.brandName ?? '')}</td>
+                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.dosageForm ? String(e.dosageForm) : '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.company ? String(e.company) : '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#059669' }}>
+                          {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : '—'}
+                        </td>
+                        <td style={{ padding: '5px 8px', color: '#d97706' }}>
+                          {e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : '—'}
+                        </td>
+                        <td style={{ padding: '5px 8px', color: '#dc2626' }}>
+                          {e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {importDrugPreview.length > 100 && (
+                  <div style={{ textAlign: 'center', padding: 8, fontSize: 12, color: '#64748b' }}>
+                    يُعرض 100 من أصل {importDrugPreview.length}
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
                 {importProgress && <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>{importProgress}</span>}
                 <button onClick={() => setShowDrugImport(false)} disabled={importing} style={btnSecondary}>إلغاء</button>
                 <button onClick={async () => {
@@ -1185,7 +1263,9 @@ export default function MasterSurveyPage() {
                       if (!r.ok) { const d = await r.json(); throw new Error(d.error || r.status); }
                     }
                     setShowDrugImport(false); setImportDrugPreview([]);
-                    fetchDrugEntries(selectedSurvey.id);
+                    setDrugEntrySearch('');
+                    fetchDrugEntries(selectedSurvey.id, '', 1);
+                    fetchSurveys(); // refresh count
                   } catch (err: any) { alert(`❌ فشل الاستيراد: ${err.message}`); }
                   finally { setImporting(false); setImportProgress(''); }
                 }} disabled={importing} style={btnPrimary}>
@@ -1196,53 +1276,74 @@ export default function MasterSurveyPage() {
           )}
 
           {/* entries table */}
-          {drugEntriesLoading ? <Spinner /> : (() => {
-            const q = drugEntrySearch.trim().toLowerCase();
-            const filtered = q
-              ? drugEntries.filter(e => e.brandName.toLowerCase().includes(q) || (e.company?.toLowerCase().includes(q)))
-              : drugEntries;
-            if (filtered.length === 0) return <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>لا توجد أدوية في هذا السيرفي بعد</div>;
-            return (
-              <div style={{ overflowX: 'auto' }}>
+          {drugEntriesLoading ? <Spinner /> : drugEntries.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+              {drugEntrySearch ? `لا توجد نتائج للبحث عن "${drugEntrySearch}"` : 'لا توجد أدوية في هذا السيرفي بعد'}
+            </div>
+          ) : (
+            <>
+              {/* count + pagination */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, fontSize: 12, color: '#64748b' }}>
+                <span>{drugEntriesTotal.toLocaleString('ar-IQ')} دواء إجمالاً</span>
+                {drugEntriesPages > 1 && (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button
+                      disabled={drugEntriesPage <= 1}
+                      onClick={() => { const p = drugEntriesPage - 1; setDrugEntriesPage(p); fetchDrugEntries(selectedSurvey.id, drugEntrySearch, p); }}
+                      style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage <= 1 ? 0.4 : 1 }}>
+                      ←
+                    </button>
+                    <span style={{ fontWeight: 600, color: '#374151' }}>{drugEntriesPage} / {drugEntriesPages}</span>
+                    <button
+                      disabled={drugEntriesPage >= drugEntriesPages}
+                      onClick={() => { const p = drugEntriesPage + 1; setDrugEntriesPage(p); fetchDrugEntries(selectedSurvey.id, drugEntrySearch, p); }}
+                      style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage >= drugEntriesPages ? 0.4 : 1 }}>
+                      →
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid #e8edf5' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc' }}>
                       {['الاسم التجاري','الشكل الدوائي','الشركة','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','ملاحظات',''].map(h => (
-                        <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap' }}>{h}</th>
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(entry => (
-                      <tr key={entry.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '9px 12px', fontWeight: 600, color: '#1e293b' }}>{entry.brandName}</td>
-                        <td style={{ padding: '9px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
-                        <td style={{ padding: '9px 12px', color: '#64748b' }}>{entry.company || '—'}</td>
-                        <td style={{ padding: '9px 12px', color: '#059669', fontWeight: 600 }}>
-                          {entry.priceOfficeToWholesaler != null ? entry.priceOfficeToWholesaler.toFixed(3) : '—'}
+                    {drugEntries.map((entry, i) => (
+                      <tr key={entry.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{entry.brandName}</td>
+                        <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                        <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.company || '—'}</td>
+                        <td style={{ padding: '8px 12px', color: '#059669', fontWeight: 600 }}>
+                          {entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
-                        <td style={{ padding: '9px 12px', color: '#d97706', fontWeight: 600 }}>
-                          {entry.priceWholesalerToPharmacy != null ? entry.priceWholesalerToPharmacy.toFixed(3) : '—'}
+                        <td style={{ padding: '8px 12px', color: '#d97706', fontWeight: 600 }}>
+                          {entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
-                        <td style={{ padding: '9px 12px', color: '#dc2626', fontWeight: 600 }}>
-                          {entry.pricePharmacyToPatient != null ? entry.pricePharmacyToPatient.toFixed(3) : '—'}
+                        <td style={{ padding: '8px 12px', color: '#dc2626', fontWeight: 600 }}>
+                          {entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
-                        <td style={{ padding: '9px 12px', color: '#94a3b8', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.notes || '—'}</td>
-                        <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
-                          <button onClick={() => { setEditingDrugEntry(entry); setShowDrugEntryForm(true); }} style={{ ...btnSecondary, padding: '5px 10px', fontSize: 12, marginLeft: 6 }}>تعديل</button>
+                        <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.notes || '—'}</td>
+                        <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                          <button onClick={() => { setEditingDrugEntry(entry); setShowDrugEntryForm(true); }} style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, marginLeft: 6 }}>تعديل</button>
                           <button onClick={async () => {
                             if (!selectedSurvey || !confirm('حذف هذا الدواء؟')) return;
                             await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/drug-entries/${entry.id}`, { method: 'DELETE', headers: H() });
-                            fetchDrugEntries(selectedSurvey.id);
-                          }} style={{ ...btnDanger, padding: '5px 10px', fontSize: 12 }}>حذف</button>
+                            fetchDrugEntries(selectedSurvey.id, drugEntrySearch, drugEntriesPage);
+                          }} style={{ ...btnDanger, padding: '4px 10px', fontSize: 12 }}>حذف</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            );
-          })()}
+            </>
+          )}
         </div>
       )}
 

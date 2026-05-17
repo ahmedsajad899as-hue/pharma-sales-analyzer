@@ -49,8 +49,7 @@ export async function getSurvey(req, res, next) {
       include: {
         doctors:    { orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
         pharmacies: { orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
-        drugEntries: { orderBy: { brandName: 'asc' } },
-        _count: { select: { hiddenUsers: true, hiddenOffices: true } },
+        _count: { select: { hiddenUsers: true, hiddenOffices: true, drugEntries: true } },
       },
     });
     if (!survey) return res.status(404).json({ success: false, error: 'لم يُعثر على السيرفي' });
@@ -369,13 +368,30 @@ export async function getSurveyLogs(req, res, next) {
 export async function listDrugEntries(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
-    const search = (req.query.search || '').trim().toLowerCase();
-    const where = { surveyId, ...(search ? { brandName: { contains: search, mode: 'insensitive' } } : {}) };
-    const entries = await prisma.drugPriceSurveyEntry.findMany({
-      where,
-      orderBy: [{ brandName: 'asc' }, { company: 'asc' }],
-    });
-    res.json({ success: true, data: entries });
+    const search = (req.query.search || '').trim();
+    const page  = Math.max(1, parseInt(req.query.page  || '1'));
+    const limit = Math.min(200, Math.max(10, parseInt(req.query.limit || '100')));
+    const skip  = (page - 1) * limit;
+    const where = {
+      surveyId,
+      ...(search ? {
+        OR: [
+          { brandName: { contains: search, mode: 'insensitive' } },
+          { company:   { contains: search, mode: 'insensitive' } },
+          { dosageForm:{ contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+    const [entries, total] = await Promise.all([
+      prisma.drugPriceSurveyEntry.findMany({
+        where,
+        orderBy: [{ brandName: 'asc' }, { company: 'asc' }],
+        skip,
+        take: limit,
+      }),
+      prisma.drugPriceSurveyEntry.count({ where }),
+    ]);
+    res.json({ success: true, data: entries, total, page, limit, pages: Math.ceil(total / limit) });
   } catch (e) { next(e); }
 }
 
