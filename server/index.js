@@ -142,10 +142,16 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     .map(n => existingByName.get(n))
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  // If survey has no area data, fall back to all areas in the Area table
+  // If survey has no area data, fall back to all areas in the Area table (deduplicated by name)
   if (result.length === 0) {
-    const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
-    return res.json({ success: true, data: allAreas });
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    const seen = new Map();
+    for (const a of allAreas) {
+      const key = a.name.trim();
+      if (!seen.has(key)) seen.set(key, a);
+    }
+    const deduped = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    return res.json({ success: true, data: deduped });
   }
   res.json({ success: true, data: result });
 });
