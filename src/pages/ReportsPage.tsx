@@ -427,7 +427,7 @@ interface OverallReport { totalQuantity: number; totalValue: number; byItem: Bre
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
 export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'scientific');
@@ -585,6 +585,33 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const autoLoaded = useRef(false);
   useEffect(() => {
     if (autoLoaded.current) return;
+
+    // scientific_rep role: auto-select their linked rep by linkedRepId or name match
+    if (user?.role === 'scientific_rep' && sciReps.length > 0) {
+      let targetId: string | null = null;
+
+      // Primary: match by linkedRepId (set when manager used company_manager mode)
+      if (user.linkedRepId && sciReps.some(r => r.id === user.linkedRepId)) {
+        targetId = String(user.linkedRepId);
+      }
+      // Fallback: match by display name / username
+      if (!targetId) {
+        const myName = (user.displayName || user.username || '').toLowerCase().trim();
+        if (myName) {
+          const byName = sciReps.find(r => r.name.toLowerCase().trim() === myName);
+          if (byName) targetId = String(byName.id);
+        }
+      }
+
+      if (targetId) {
+        autoLoaded.current = true;
+        setSciRepId(prev => prev || targetId!);
+        setMode('scientific');
+        loadSciReport(targetId);
+        return;
+      }
+    }
+
     if (mode === 'commercial' && commRepId && commReps.length > 0) {
       autoLoaded.current = true;
       loadCommReport(commRepId);

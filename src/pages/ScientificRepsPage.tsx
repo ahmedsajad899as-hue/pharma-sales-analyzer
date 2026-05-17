@@ -10,6 +10,7 @@ interface Company    { id: number; name: string; items: NamedItem[]; }
 interface ScientificRep {
   id: number; name: string; phone?: string; email?: string; company?: string; notes?: string; isActive: boolean;
   areas: NamedItem[]; items: NamedItem[]; companies: NamedItem[]; commercialReps: NamedItem[];
+  _isUser?: boolean; // true for company-linked reps (not standalone)
 }
 
 type ModalType = 'add' | 'edit' | 'assign' | null;
@@ -18,7 +19,7 @@ type AreaViewMode = 'flat' | 'byRep';
 interface CommercialWithAreas { id: number; name: string; areas: NamedItem[]; }
 
 export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [reps, setReps]         = useState<ScientificRep[]>([]);
@@ -65,14 +66,21 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/scientific-reps?standalone=1`, { headers: authH() });
+      // company_manager: use non-standalone mode so assignments go to the rep's own linked record
+      // (syncs with what the scientific rep sees on their own login via standalone=1)
+      // scientific_rep / others: standalone mode — see own records only
+      const isCompanyMgr = user?.role === 'company_manager';
+      const apiUrl = isCompanyMgr
+        ? `${API}/api/scientific-reps`
+        : `${API}/api/scientific-reps?standalone=1`;
+      const r = await fetch(apiUrl, { headers: authH() });
       let j: any;
       try { j = await r.json(); } catch { throw new Error(`${t.common.serverError} (HTTP ${r.status})`); }
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setReps(Array.isArray(j.data) ? j.data : []);
     } catch (err: any) { setError(`${t.sciReps.errorLoad}: ${err.message || t.sciReps.errorUnknown}`); }
     finally { setLoading(false); }
-  }, [token]);
+  }, [token, user?.role]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -444,7 +452,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                       <div className="action-btns">
                         <button className="btn-icon btn-icon--blue"   onClick={() => openEdit(rep)}   title={t.sciReps.editTooltip}>✏️</button>
                         <button className="btn-icon btn-icon--green"  onClick={() => openAssign(rep)} title={t.sciReps.assignTooltip}>🔗</button>
-                        <button className="btn-icon btn-icon--red"    onClick={() => deleteRep(rep.id)} title={t.sciReps.deleteTooltip}>🗑️</button>
+                        {!rep._isUser && <button className="btn-icon btn-icon--red"    onClick={() => deleteRep(rep.id)} title={t.sciReps.deleteTooltip}>🗑️</button>}
                       </div>
                     </td>
                   </tr>
@@ -472,7 +480,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     <div className="rep-mobile-card-actions">
                       <button className="btn-icon btn-icon--blue"  onClick={() => openEdit(rep)}    title={t.sciReps.editTooltip}>✏️</button>
                       <button className="btn-icon btn-icon--green" onClick={() => openAssign(rep)}  title={t.sciReps.assignTooltip}>🔗</button>
-                      <button className="btn-icon btn-icon--red"   onClick={() => deleteRep(rep.id)} title={t.sciReps.deleteTooltip}>🗑️</button>
+                      {!rep._isUser && <button className="btn-icon btn-icon--red"   onClick={() => deleteRep(rep.id)} title={t.sciReps.deleteTooltip}>🗑️</button>}
                     </div>
                   </div>
                 </div>
