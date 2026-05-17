@@ -215,6 +215,23 @@ export async function setUserAreas(req, res) {
     })] : []),
   ]);
 
+  // Sync to ScientificRepArea if this user is linked to a ScientificRepresentative
+  try {
+    const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+    if (userRow?.linkedRepId) {
+      const repId = userRow.linkedRepId;
+      await prisma.$transaction([
+        prisma.scientificRepArea.deleteMany({ where: { scientificRepId: repId } }),
+        ...(finalAreaIds.length ? [prisma.scientificRepArea.createMany({
+          data: finalAreaIds.map(areaId => ({ scientificRepId: repId, areaId })),
+          skipDuplicates: true,
+        })] : []),
+      ]);
+    }
+  } catch (e) {
+    console.warn('[setUserAreas] ScientificRepArea sync failed (non-fatal):', e.message);
+  }
+
   res.json({ success: true });
 }
 
