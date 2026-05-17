@@ -32,13 +32,19 @@ export async function visitsByArea(req, res, next) {
     if (isFieldRep) {
       const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = userRow?.linkedRepId;
+      // Also resolve via ScientificRepresentative.userId (same logic as visit creation)
+      let ownRepId = linkedRepId;
+      if (!ownRepId) {
+        const ownRep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+        ownRepId = ownRep?.id ?? null;
+      }
 
       // ── 1. Get rep's assigned area IDs ────────────────────────
       // Union of both sources using raw areaId column (same as list endpoint)
       const [uaRows, saRows] = await Promise.all([
         prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
+        ownRepId
+          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: ownRepId }, select: { areaId: true } })
           : Promise.resolve([]),
       ]);
       const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
@@ -71,9 +77,13 @@ export async function visitsByArea(req, res, next) {
       }
 
       // ── 4. Get rep's visits and map by masterSurveyDoctorId + name fallback ───
+      // OR: visits stored with scientificRepId OR directly with userId (covers all recording paths)
+      const visitOrClauses = [];
+      if (ownRepId) visitOrClauses.push({ scientificRepId: ownRepId });
+      visitOrClauses.push({ userId });
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
-          scientificRepId: linkedRepId ?? -1,
+          OR: visitOrClauses,
           ...(dateFilter ? { visitDate: dateFilter } : {}),
         },
         select: {
@@ -123,23 +133,31 @@ export async function visitsByArea(req, res, next) {
           select: { linkedRepId: true },
         });
         const subLinkedRepId = subUser?.linkedRepId ?? null;
+        // Also resolve via ScientificRepresentative.userId
+        let subOwnRepId = subLinkedRepId;
+        if (!subOwnRepId) {
+          const subOwnRep = await prisma.scientificRepresentative.findFirst({ where: { userId: repUserId }, select: { id: true } });
+          subOwnRepId = subOwnRep?.id ?? null;
+        }
 
         // مناطق المندوب
         const [uaRows, saRows] = await Promise.all([
           prisma.userAreaAssignment.findMany({ where: { userId: repUserId }, select: { areaId: true } }),
-          subLinkedRepId
-            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: subLinkedRepId }, select: { areaId: true } })
+          subOwnRepId
+            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: subOwnRepId }, select: { areaId: true } })
             : Promise.resolve([]),
         ]);
         const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
 
-        // زيارات المندوب المحدد فقط
-        // — إذا توفر linkedRepId نبحث بـ scientificRepId، وإلا بـ userId للمندوب
-        const visitWhereRep = subLinkedRepId
-          ? { scientificRepId: subLinkedRepId, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-          : { userId: repUserId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
+        // زيارات المندوب المحدد — OR: scientificRepId OR userId (يشمل جميع مسارات التسجيل)
+        const subOrClauses = [];
+        if (subOwnRepId) subOrClauses.push({ scientificRepId: subOwnRepId });
+        subOrClauses.push({ userId: repUserId });
         const repVisits = await prisma.doctorVisit.findMany({
-          where: visitWhereRep,
+          where: {
+            OR: subOrClauses,
+            ...(dateFilter ? { visitDate: dateFilter } : {}),
+          },
           select: {
             id: true, visitDate: true, feedback: true, notes: true,
             item: { select: { id: true, name: true } },
