@@ -1422,13 +1422,24 @@ app.post('/api/files/:id/sync-assignments', async (req, res) => {
 });
 
 // ── Delete uploaded file ─────────────────────────────────────
-app.delete('/api/files/:id', async (req, res) => {
-  const id = parseInt(req.params.id);
+app.delete('/api/files/:id', requireAuth, async (req, res) => {
+  const id       = parseInt(req.params.id);
+  const callerId = req.user?.id ?? null;
   if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
   try {
     // Check file exists
     const file = await prisma.uploadedFile.findUnique({ where: { id } });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+
+    // ── If caller is NOT the file owner, only remove their share record ──
+    // This prevents a shared rep from deleting the manager's original file.
+    if (file.userId !== callerId) {
+      const deleted = await prisma.fileUserShare.deleteMany({
+        where: { fileId: id, userId: callerId },
+      });
+      if (deleted.count === 0) return res.status(403).json({ error: 'ليس لديك صلاحية حذف هذا الملف' });
+      return res.json({ success: true, message: 'تمت إزالة الملف من قائمتك' });
+    }
 
     // 1. Find all commercial reps that have sales in this file
     const repIdsInFile = await prisma.sale.findMany({

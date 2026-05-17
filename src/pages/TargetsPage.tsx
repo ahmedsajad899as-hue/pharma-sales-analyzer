@@ -45,6 +45,22 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [syncing, setSyncing]             = useState(false);
   const [syncResult, setSyncResult]       = useState<string | null>(null);
 
+  // Load MY targets (scientific rep view — read-only)
+  useEffect(() => {
+    if (isManager) return;
+    setLoading(true);
+    const qs = new URLSearchParams({ month: String(month), year: String(year) });
+    fetch(`${API}/api/targets/mine?${qs}`, { headers: H() })
+      .then(r => r.json())
+      .then(j => {
+        const data: SavedTarget[] = j.data ?? [];
+        setRows(data.map(t => ({ itemId: t.item.id, itemName: t.item.name, target: String(t.target) })));
+      })
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isManager, month, year, token]);
+
   // Load reps — standalone=1 so only manually-created reps scoped to this user
   // (created inside ScientificRepsPage / تحليل ملفات المندوبين) are shown.
   useEffect(() => {
@@ -247,10 +263,21 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
 
       <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 800, color: '#0f172a' }}>🎯 التارگت الشهري</h2>
 
+      {/* ── Rep-only banner ── */}
+      {!isManager && (
+        <div style={{ background: '#eef2ff', border: '1.5px solid #c7d2fe', borderRadius: 12, padding: '12px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, direction: 'rtl' }}>
+          <span style={{ fontSize: 22 }}>🎯</span>
+          <div>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#3730a3' }}>تارگتاتك الشهرية</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6366f1' }}>هذه هي التارگتات المعيّنة لك من قبل مدير الشركة — للاطلاع فقط</p>
+          </div>
+        </div>
+      )}
+
       {/* ── Controls ── */}
       <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: '18px 20px', marginBottom: 20, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
-        {/* Rep type toggle */}
-        <div>
+        {/* Rep type toggle — manager only */}
+        {isManager && <div>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 5, fontWeight: 600 }}>نوع المندوب</div>
           <div style={{ display: 'flex', gap: 6 }}>
             {(['scientific', 'commercial'] as const).map(t => (
@@ -264,10 +291,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
-        {/* Rep selector */}
-        <div style={{ flex: 1, minWidth: 180 }}>
+        {/* Rep selector — manager only */}
+        {isManager && <div style={{ flex: 1, minWidth: 180 }}>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 5, fontWeight: 600 }}>المندوب</div>
           <select
             value={selRepId}
@@ -277,7 +304,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
             <option value="">— اختر مندوباً —</option>
             {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-        </div>
+        </div>}
 
         {/* Month */}
         <div>
@@ -303,18 +330,18 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           </select>
         </div>
 
-        {/* Sync to system rep */}
-        <button
+        {/* Sync to system rep — manager only */}
+        {isManager && <button
           className="tgt-btn"
           onClick={() => { setSyncSelIds(new Set()); setSyncResult(null); setShowSyncModal(true); }}
           disabled={!selRepId || rows.length === 0}
           style={{ background: '#6366f1', color: '#fff', minWidth: 130, opacity: (!selRepId || rows.length === 0) ? 0.5 : 1 }}
         >
           🔄 مزامنة مع المندوب
-        </button>
+        </button>}
 
-        {/* Broadcast */}
-        <button
+        {/* Broadcast — manager only */}
+        {isManager && <button
           className="tgt-btn"
           onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
           disabled={!selRepId || rows.length === 0}
@@ -322,11 +349,11 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           style={{ background: showBroadcast ? '#f59e0b' : '#fff', color: showBroadcast ? '#fff' : '#f59e0b', border: '1.5px solid #f59e0b', opacity: (!selRepId || rows.length === 0) ? 0.4 : 1 }}
         >
           🔄 مزامنة مع مندوبين آخرين
-        </button>
+        </button>}
       </div>
 
-      {/* ── Sync to System Rep Modal ── */}
-      {showSyncModal && (
+      {/* ── Sync to System Rep Modal — manager only ── */}
+      {isManager && showSyncModal && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => { if (!syncing) { setShowSyncModal(false); setSyncSelIds(new Set()); } }}
@@ -441,8 +468,8 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         </div>
       )}
 
-      {/* ── Broadcast Panel ── */}
-      {showBroadcast && selRepId && rows.length > 0 && (
+      {/* ── Broadcast Panel — manager only ── */}
+      {isManager && showBroadcast && selRepId && rows.length > 0 && (
         <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div>
@@ -509,25 +536,25 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       )}
 
       {/* ── Items Table ── */}
-      {!selRepId && (
+      {isManager && !selRepId && (
         <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8', fontSize: 15 }}>
           اختر مندوباً لعرض التارگت الخاص به
         </div>
       )}
 
-      {selRepId && loading && (
+      {(isManager ? !!selRepId : true) && loading && (
         <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>⏳ جاري التحميل...</div>
       )}
 
-      {selRepId && !loading && rows.length === 0 && (
+      {(isManager ? !!selRepId : true) && !loading && rows.length === 0 && (
         <div style={{ textAlign: 'center', padding: 48, background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', color: '#94a3b8' }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
-          <div>لا توجد ايتمات مخصصة لهذا المندوب</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>قم بتعيين الايتمات من قسم المندوبين العلميين</div>
+          <div>{isManager ? 'لا توجد ايتمات مخصصة لهذا المندوب' : 'لم يتم تعيين أي تارگت لك هذا الشهر'}</div>
+          {isManager && <div style={{ fontSize: 12, marginTop: 4 }}>قم بتعيين الايتمات من قسم المندوبين العلميين</div>}
         </div>
       )}
 
-      {selRepId && !loading && rows.length > 0 && (
+      {(isManager ? !!selRepId : true) && !loading && rows.length > 0 && (
         <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           <div style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>
@@ -549,23 +576,29 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                 <tr key={row.itemId} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                   <td style={{ padding: '10px 16px', fontSize: 13, color: '#94a3b8', width: 40 }}>{i + 1}</td>
                   <td style={{ padding: '10px 16px', fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{row.itemName}</td>
-                  <td style={{ padding: '8px 16px' }}>
-                    <input
-                      className="tgt-input"
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      value={row.target}
-                      onChange={e => updateRow(i, e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const inputs = document.querySelectorAll<HTMLInputElement>('.tgt-input');
-                          const next = inputs[i + 1];
-                          if (next) { next.focus(); next.select(); }
-                        }
-                      }}
-                    />
+                  <td style={{ padding: '8px 16px', textAlign: 'center' }}>
+                    {isManager ? (
+                      <input
+                        className="tgt-input"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={row.target}
+                        onChange={e => updateRow(i, e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const inputs = document.querySelectorAll<HTMLInputElement>('.tgt-input');
+                            const next = inputs[i + 1];
+                            if (next) { next.focus(); next.select(); }
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span style={{ fontWeight: 800, fontSize: 15, color: '#4f46e5' }}>
+                        {(parseFloat(row.target) || 0).toLocaleString('ar-IQ-u-nu-latn')}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
