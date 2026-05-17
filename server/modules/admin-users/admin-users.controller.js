@@ -257,14 +257,28 @@ export async function setUserAreas(req, res) {
         // Find MedicalRepresentative records that cover those areas
         const commercialReps = await prisma.medicalRepresentative.findMany({
           where: { areas: { some: { areaId: { in: matchingAreaIds } } } },
-          select: { id: true },
+          select: { id: true, name: true },
+          orderBy: { id: 'asc' },
+        });
+
+        // Deduplicate by normalized name — keep only the first record per unique name
+        // (same real person can exist as multiple DB records from different uploaded files)
+        const normName = s => String(s || '').trim()
+          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
+        const seenNames = new Set();
+        const uniqueReps = commercialReps.filter(r => {
+          const n = normName(r.name);
+          if (seenNames.has(n)) return false;
+          seenNames.add(n);
+          return true;
         });
 
         // Full-replace ScientificRepCommercial based on area-derived reps
         await prisma.$transaction([
           prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } }),
-          ...(commercialReps.length ? [prisma.scientificRepCommercial.createMany({
-            data: commercialReps.map(r => ({ scientificRepId: repId, commercialRepId: r.id })),
+          ...(uniqueReps.length ? [prisma.scientificRepCommercial.createMany({
+            data: uniqueReps.map(r => ({ scientificRepId: repId, commercialRepId: r.id })),
             skipDuplicates: true,
           })] : []),
         ]);
