@@ -155,18 +155,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     setAssignError('');
     setModal('assign');           // افتح المودال أولاً حتى لو فشل التحميل
     try {
-      const { crWithAreas } = await loadAllOptions();
-      // Auto-add commercial reps whose sales areas match the already-assigned areas
-      const currentAreas = rep.areas ?? [];
-      if (currentAreas.length > 0 && crWithAreas.length > 0) {
-        const savedCommIds = new Set((rep.commercialReps ?? []).map(c => c.id));
-        const autoReps: NamedItem[] = crWithAreas
-          .filter(cr => !savedCommIds.has(cr.id) &&
-            cr.areas.some(ca => currentAreas.some(sa => sa.name.trim() === ca.name.trim())))
-          .map(cr => ({ id: cr.id, name: cr.name }));
-        if (autoReps.length > 0)
-          setSelCommercial(prev => [...prev, ...autoReps]);
-      }
+      await loadAllOptions();
+      // NOTE: Auto-add removed intentionally.
+      // Previously, this block auto-added commercial reps whose sales areas matched
+      // the scientific rep's assigned areas. This caused a bug: any rep removed by
+      // the user would be re-added automatically on the next modal open, making
+      // removal impossible. Area-based auto-add is handled by toggleArea() instead.
     } catch (err: any) {
       setError(`${t.sciReps.errorAssignLoad}: ${err.message}`);
     }

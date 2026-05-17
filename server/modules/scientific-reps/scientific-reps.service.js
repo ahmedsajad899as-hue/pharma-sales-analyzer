@@ -422,25 +422,57 @@ export async function getReport(id, query = {}) {
 
   let rawSales = [];
 
-  // ── A. Shared files: include ALL sales (no rep/area/item filter) ──────────
+  // ── A. Shared files ────────────────────────────────────────────────────────
+  // If the rep has commercial-rep or area/item assignments, apply the same
+  // filter as non-shared files so only the rep's relevant data is shown.
+  // If the rep has NO assignments (dedicated single-rep file), include all rows.
   if (sharedFileIds.length > 0) {
-    const sharedBaseWhere = {
+    const sharedBase = {
       ...(sharedFileIds.length === 1 ? { uploadedFileId: sharedFileIds[0] } : { uploadedFileId: { in: sharedFileIds } }),
       ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
       ...(recordType ? { recordType } : {}),
     };
-    const sharedSales = await prisma.sale.findMany({
-      where: sharedBaseWhere,
-      select: {
-        quantity: true, totalValue: true,
-        areaId: true, itemId: true,
-        saleDate: true, recordType: true,
-        area: { select: { id: true, name: true } },
-        item: { select: { id: true, name: true } },
-        representative: { select: { id: true, name: true } },
-      },
-    });
-    rawSales = rawSales.concat(sharedSales);
+    const salesSelect = {
+      quantity: true, totalValue: true,
+      areaId: true, itemId: true,
+      saleDate: true, recordType: true,
+      area: { select: { id: true, name: true } },
+      item: { select: { id: true, name: true } },
+      representative: { select: { id: true, name: true } },
+    };
+
+    if (allRepIds.length > 0) {
+      // Has commercial-rep assignments → filter by rep IDs + row-level area/item
+      let sharedSales = await prisma.sale.findMany({
+        where: { ...sharedBase, representativeId: { in: allRepIds } },
+        select: salesSelect,
+      });
+      const areaSet = hasAreas ? new Set(areaIds) : null;
+      const itemSet = hasItems ? new Set(itemIds) : null;
+      sharedSales = sharedSales.filter(s => {
+        const repId = s.representative.id;
+        if (nameMatchSet.has(repId)) return true;
+        if (areaSet && !areaSet.has(s.areaId)) return false;
+        if (itemSet && !itemSet.has(s.itemId)) return false;
+        return true;
+      });
+      rawSales = rawSales.concat(sharedSales);
+    } else if (hasAreas || hasItems) {
+      // No commercial-rep assignments but has area/item scope
+      const sharedSales = await prisma.sale.findMany({
+        where: {
+          ...sharedBase,
+          ...(hasAreas ? { areaId: { in: areaIds } } : {}),
+          ...(hasItems ? { itemId: { in: itemIds } } : {}),
+        },
+        select: salesSelect,
+      });
+      rawSales = rawSales.concat(sharedSales);
+    } else {
+      // No assignments at all → dedicated file for this rep: include all rows
+      const sharedSales = await prisma.sale.findMany({ where: sharedBase, select: salesSelect });
+      rawSales = rawSales.concat(sharedSales);
+    }
   }
 
   // ── B. Non-shared files: use name-match + explicit-rep + area/item filter ─

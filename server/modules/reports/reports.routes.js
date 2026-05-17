@@ -41,12 +41,39 @@ router.get('/overall', async (req, res) => {
         select: { id: true },
       });
       if (sharedFiles.length > 0) {
+        // Try userAreaAssignment first, then fall back to scientificRepArea
+        // (scientific reps have areas in scientificRepArea, not userAreaAssignment)
+        let areaIds = [];
         const userAreaRows = await prisma.userAreaAssignment.findMany({
           where: { userId },
           select: { areaId: true },
         });
         if (userAreaRows.length > 0) {
-          areaFilter = { areaId: { in: userAreaRows.map(a => a.areaId) } };
+          areaIds = userAreaRows.map(a => a.areaId);
+        } else {
+          // Check if this user is a linked scientific rep
+          const linkedRep = await prisma.scientificRepresentative.findFirst({
+            where: { linkedUserId: userId },
+            select: { id: true },
+          }).catch(() => null);
+          // Also check via user.linkedRepId
+          const userRow = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { linkedRepId: true },
+          }).catch(() => null);
+          const sciRepId = linkedRep?.id ?? userRow?.linkedRepId ?? null;
+          if (sciRepId) {
+            const sciAreaRows = await prisma.scientificRepArea.findMany({
+              where: { scientificRepId: sciRepId },
+              select: { areaId: true },
+            });
+            if (sciAreaRows.length > 0) {
+              areaIds = sciAreaRows.map(a => a.areaId);
+            }
+          }
+        }
+        if (areaIds.length > 0) {
+          areaFilter = { areaId: { in: areaIds } };
         }
       }
     }
