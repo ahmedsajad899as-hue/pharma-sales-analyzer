@@ -9,8 +9,7 @@ const parseFileIds = (raw) => {
 
 export async function createRep(req, res, next) {
   try {
-    // managerId = the manager who creates this standalone rep (not userId, which is reserved for the rep's own user account)
-    const rep = await svc.create({ ...req.body, managerId: req.user?.id ?? null }, req.user);
+    const rep = await svc.create({ ...req.body }, req.user);
     res.status(201).json({ success: true, data: rep });
   } catch (err) { next(err); }
 }
