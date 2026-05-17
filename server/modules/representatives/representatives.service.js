@@ -36,8 +36,13 @@ export async function getRepresentativeById(id) {
  * @param {{ isActive?: boolean }} filters
  */
 export async function listRepresentatives(filters = {}, fileIds = null, userId = null) {
+  // When fileIds are provided the sales-in-file filter already scopes the results.
+  // Do NOT add a userId filter in that case — MedicalRepresentative records belong
+  // to the file OWNER's userId, so a rep viewing a shared file would find nothing
+  // if we filtered by their own userId.
+  const effectiveUserId = (fileIds && fileIds.length > 0) ? null : userId;
   const reps = await repRepo.listRepresentatives(
-    { ...filters, ...(userId != null ? { userId } : {}) },
+    { ...filters, ...(effectiveUserId != null ? { userId: effectiveUserId } : {}) },
     fileIds
   );
   return reps.map(r => ({
