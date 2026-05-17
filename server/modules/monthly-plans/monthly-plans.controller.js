@@ -2290,7 +2290,26 @@ export async function getTransferTargets(req, res, next) {
       if (repUser) users.push(repUser);
     }
 
-    res.json({ success: true, data: users });
+    // Fallback: if no linked user found, return all active field-rep users who report to the plan owner
+    // so the manager can still assign the plan to any rep.
+    if (users.length === 0 && plan.userId) {
+      const repRoles = ['user', 'scientific_rep', 'team_leader', 'supervisor', 'commercial_rep'];
+      // Get subordinate user IDs via UserManagerAssignment
+      const subordinateLinks = await prisma.userManagerAssignment.findMany({
+        where: { managerId: plan.userId },
+        select: { userId: true },
+      });
+      const subordinateIds = subordinateLinks.map(l => l.userId);
+      if (subordinateIds.length > 0) {
+        users = await prisma.user.findMany({
+          where: { id: { in: subordinateIds }, isActive: true, role: { in: repRoles } },
+          select: { id: true, username: true, displayName: true, role: true, linkedRepId: true },
+          orderBy: { username: 'asc' },
+        });
+      }
+    }
+
+    res.json({ success: true, data: users, noLinkedUser: byLinkedRepId.length === 0 && !repRecord?.userId });
   } catch (e) { next(e); }
 }
 
@@ -2442,7 +2461,9 @@ export async function transferPlan(req, res, next) {
       });
       const linkedByRepId  = targetUser.linkedRepId === plan.scientificRepId;
       const linkedByUserId = scientificRep?.userId === targetUser.id;
-      if (!linkedByRepId && !linkedByUserId) {
+      // If the scientific rep has NO linked user at all, allow any rep user (fallback mode)
+      const repHasNoLink   = !scientificRep?.userId && !(await prisma.user.findFirst({ where: { linkedRepId: plan.scientificRepId } }));
+      if (!linkedByRepId && !linkedByUserId && !repHasNoLink) {
         return res.status(400).json({ error: 'حساب المستخدم المحدد غير مرتبط بنفس المندوب العلمي الخاص بهذا البلان.' });
       }
     }

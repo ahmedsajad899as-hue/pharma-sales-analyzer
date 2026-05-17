@@ -364,6 +364,7 @@ export default function MonthlyPlansPage() {
   const [transferTarget, setTransferTarget] = useState<number | ''>('');
   const [transferring, setTransferring]   = useState(false);
   const [transferError, setTransferError] = useState('');
+  const [noLinkedUser, setNoLinkedUser]   = useState(false);
   const [refreshing, setRefreshing]       = useState(false);
 
   // Scroll-to-entry highlight
@@ -1384,11 +1385,13 @@ export default function MonthlyPlansPage() {
     e.stopPropagation();
     setTransferError('');
     setTransferTarget('');
+    setNoLinkedUser(false);
     setTransferPlan(plan);
     try {
       const r = await fetch(`${API}/api/monthly-plans/${plan.id}/transfer-targets`, { headers: H() });
       const j = await r.json();
       setRepUsers(Array.isArray(j.data) ? j.data : []);
+      setNoLinkedUser(!!j.noLinkedUser);
     } catch { setRepUsers([]); }
   };
 
@@ -4619,17 +4622,24 @@ export default function MonthlyPlansPage() {
             </p>
             {repUsers.length === 0 ? (
               <p style={{ color: '#ef4444', fontSize: 13, background: '#fee2e2', borderRadius: 8, padding: '10px 14px' }}>
-                ⚠️ لا يوجد حساب مندوب مرتبط بهذا المندوب العلمي. قم بربط حساب مستخدم بالمندوب أولاً من صفحة المستخدمين.
+                ⚠️ لا يوجد حساب مندوب مرتبط بهذا المندوب العلمي ولا يوجد مندوبون تحت إدارتك.
               </p>
             ) : (
-              <label style={labelStyle}>
-                اختر حساب المندوب
-                <select style={inputStyle} value={transferTarget}
-                  onChange={e => setTransferTarget(e.target.value === '' ? '' : parseInt(e.target.value))}>
-                  <option value="">— اختر —</option>
-                  {repUsers.map(u => <option key={u.id} value={u.id}>👤 {u.username}</option>)}
-                </select>
-              </label>
+              <>
+                {noLinkedUser && (
+                  <p style={{ color: '#92400e', fontSize: 12, background: '#fef3c7', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
+                    ⚠️ لا يوجد حساب مرتبط بهذا المندوب مباشرةً — اختر أي حساب مندوب من القائمة.
+                  </p>
+                )}
+                <label style={labelStyle}>
+                  اختر حساب المندوب
+                  <select style={inputStyle} value={transferTarget}
+                    onChange={e => setTransferTarget(e.target.value === '' ? '' : parseInt(e.target.value))}>
+                    <option value="">— اختر —</option>
+                    {repUsers.map(u => <option key={u.id} value={u.id}>👤 {u.username}</option>)}
+                  </select>
+                </label>
+              </>
             )}
             {transferError && (
               <p style={{ color: '#ef4444', fontSize: 13, marginTop: 10 }}>{transferError}</p>
