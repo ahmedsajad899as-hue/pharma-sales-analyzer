@@ -131,7 +131,7 @@ export async function listReps(req, res, next) {
     // ── 4. Standalone reps (manually added by manager, not system users) ──
     const standaloneReps = await prisma.scientificRepresentative.findMany({
       where: {
-        userId,
+        managerId: userId,
         isActive: true,
         ...(systemRepIds.size > 0 ? { id: { notIn: [...systemRepIds] } } : {}),
       },

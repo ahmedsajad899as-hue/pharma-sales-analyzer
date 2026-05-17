@@ -41,7 +41,8 @@ model User {
   companies      Company[]
   customers      Customer[]
   medicalReps    MedicalRepresentative[]
-  scientificReps ScientificRepresentative[]
+  scientificReps         ScientificRepresentative[] @relation("RepUser")
+  managedScientificReps   ScientificRepresentative[] @relation("RepManager")
   uploadedFiles              UploadedFile[]
   distributorUploads         DistributorSalesUpload[]
   distributorSaleRecords     DistributorSaleRecord[]
@@ -397,8 +398,10 @@ model ScientificRepresentative {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userId Int?
-  user   User? @relation(fields: [userId], references: [id])
+  userId    Int?
+  user      User? @relation("RepUser", fields: [userId], references: [id])
+  managerId Int?
+  manager   User? @relation("RepManager", fields: [managerId], references: [id])
 
   // Assigned areas, items, companies, and commercial reps
   areas          ScientificRepArea[]
@@ -415,6 +418,7 @@ model ScientificRepresentative {
 
   @@unique([name, userId])
   @@index([userId])
+  @@index([managerId])
   @@map("scientific_representatives")
 }
 

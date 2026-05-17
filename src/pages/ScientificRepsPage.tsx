@@ -89,12 +89,11 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // company_manager: use non-standalone mode so assignments go to the rep's own linked record
-      // (syncs with what the scientific rep sees on their own login via standalone=1)
-      // scientific_rep / others: standalone mode — see own records only
+      // company_manager: show only system reps (created by Master Admin, linked via company assignments)
+      // Other roles: standalone mode — show only manually-created reps scoped to this user
       const isCompanyMgr = user?.role === 'company_manager';
       const apiUrl = isCompanyMgr
-        ? `${API}/api/scientific-reps`
+        ? `${API}/api/scientific-reps?excludeStandalone=1`
         : `${API}/api/scientific-reps?standalone=1`;
       const r = await fetch(apiUrl, { headers: authH() });
       let j: any;

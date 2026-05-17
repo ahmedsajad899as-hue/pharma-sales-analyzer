@@ -38,13 +38,6 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [broadcasting, setBroadcasting]     = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
 
-  // Sync-to-system-rep modal state
-  const [sysReps, setSysReps]           = useState<ScientificRep[]>([]);
-  const [showSyncModal, setShowSyncModal] = useState(false);
-  const [syncSelIds, setSyncSelIds]       = useState<Set<number>>(new Set());
-  const [syncing, setSyncing]             = useState(false);
-  const [syncResult, setSyncResult]       = useState<string | null>(null);
-
   // Load MY targets (scientific rep view — read-only)
   useEffect(() => {
     if (isManager) return;
@@ -61,25 +54,14 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isManager, month, year, token]);
 
-  // Load reps — standalone=1 so only manually-created reps scoped to this user
-  // (created inside ScientificRepsPage / تحليل ملفات المندوبين) are shown.
+  // Load reps — unified list (system reps + standalone reps created by this manager)
   useEffect(() => {
-    fetch(`${API}/api/scientific-reps?standalone=1`, { headers: H() })
+    fetch(`${API}/api/scientific-reps`, { headers: H() })
       .then(r => r.json())
       .then(j => setSciReps(Array.isArray(j) ? j : (j.data ?? [])))
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
-
-  // Load system reps (created by master, linked to company manager) for sync modal
-  useEffect(() => {
-    if (repType !== 'scientific') return;
-    fetch(`${API}/api/scientific-reps?excludeStandalone=1`, { headers: H() })
-      .then(r => r.json())
-      .then(j => setSysReps(Array.isArray(j) ? j : (j.data ?? [])))
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, repType]);
 
   useEffect(() => {
     if (activeFileIds.length === 0) { setCommReps([]); return; }
@@ -170,47 +152,6 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     } finally {
       setSaving(false);
     }
-  };
-
-  // Sync current targets to selected system reps (also saves to standalone rep first)
-  const syncToSystemReps = async () => {
-    if (syncSelIds.size === 0 || rows.length === 0) return;
-    setSyncing(true);
-    setSyncResult(null);
-    // Save to standalone rep first as reference
-    if (selRepId) {
-      try {
-        await fetch(`${API}/api/targets`, {
-          method: 'PUT', headers: H(),
-          body: JSON.stringify({
-            repType, repId: parseInt(selRepId), month, year,
-            targets: rows.map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 })),
-          }),
-        });
-      } catch { /* ignore standalone save error */ }
-    }
-    // Sync to each selected system rep
-    let ok = 0, fail = 0;
-    for (const repId of syncSelIds) {
-      try {
-        const sysRep = sysReps.find(r => r.id === repId);
-        const sysItemIds = new Set((sysRep?.items ?? []).map(i => i.id));
-        // Apply only items the system rep has assigned; if none assigned use all rows
-        const targets = sysItemIds.size > 0
-          ? rows.filter(r => sysItemIds.has(r.itemId)).map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 }))
-          : rows.map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 }));
-        const res = await fetch(`${API}/api/targets`, {
-          method: 'PUT', headers: H(),
-          body: JSON.stringify({ repType: 'scientific', repId, month, year, targets }),
-        });
-        if (res.ok) ok++; else fail++;
-      } catch { fail++; }
-    }
-    setSyncing(false);
-    setSyncResult(fail === 0
-      ? `✅ تمت المزامنة مع ${ok} مندوب بنجاح — سيرى كل مندوب تارگته فوراً`
-      : `⚠️ نجح ${ok} وفشل ${fail}`);
-    setTimeout(() => { setSyncResult(null); setShowSyncModal(false); setSyncSelIds(new Set()); }, 3000);
   };
 
   const broadcast = async () => {
@@ -330,16 +271,6 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           </select>
         </div>
 
-        {/* Sync to system rep — manager only */}
-        {isManager && <button
-          className="tgt-btn"
-          onClick={() => { setSyncSelIds(new Set()); setSyncResult(null); setShowSyncModal(true); }}
-          disabled={!selRepId || rows.length === 0}
-          style={{ background: '#6366f1', color: '#fff', minWidth: 130, opacity: (!selRepId || rows.length === 0) ? 0.5 : 1 }}
-        >
-          🔄 مزامنة مع المندوب
-        </button>}
-
         {/* Broadcast — manager only */}
         {isManager && <button
           className="tgt-btn"
@@ -351,122 +282,6 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           🔄 مزامنة مع مندوبين آخرين
         </button>}
       </div>
-
-      {/* ── Sync to System Rep Modal — manager only ── */}
-      {isManager && showSyncModal && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => { if (!syncing) { setShowSyncModal(false); setSyncSelIds(new Set()); } }}
-        >
-          <div
-            style={{ background: '#fff', borderRadius: 16, padding: 24, width: '92%', maxWidth: 460, maxHeight: '85vh', overflowY: 'auto', direction: 'rtl', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: '#1e293b' }}>🔄 مزامنة مع المندوب</p>
-                <p style={{ margin: '3px 0 0', fontSize: 12, color: '#64748b' }}>
-                  اختر المندوب/ين الذين سيُرسل لهم تارگت {months[month - 1]} {year}
-                </p>
-              </div>
-              <button onClick={() => { setShowSyncModal(false); setSyncSelIds(new Set()); }}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
-            </div>
-
-            {/* Select all / clear */}
-            {sysReps.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                <button
-                  onClick={() => setSyncSelIds(new Set(sysReps.map(r => r.id)))}
-                  style={{ fontSize: 12, padding: '4px 12px', borderRadius: 7, background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', cursor: 'pointer', fontWeight: 600 }}
-                >تحديد الكل</button>
-                <button
-                  onClick={() => setSyncSelIds(new Set())}
-                  style={{ fontSize: 12, padding: '4px 12px', borderRadius: 7, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', cursor: 'pointer', fontWeight: 600 }}
-                >إلغاء الكل</button>
-              </div>
-            )}
-
-            {/* Reps list */}
-            {sysReps.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8' }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>👤</div>
-                <p style={{ margin: 0, fontSize: 13 }}>لا يوجد مندوبون مرتبطون بهذا الحساب</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, maxHeight: 300, overflowY: 'auto' }}>
-                {sysReps.map(r => {
-                  const checked = syncSelIds.has(r.id);
-                  return (
-                    <div
-                      key={r.id}
-                      onClick={() => setSyncSelIds(prev => { const s = new Set(prev); checked ? s.delete(r.id) : s.add(r.id); return s; })}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                        borderRadius: 10, cursor: 'pointer',
-                        border: checked ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0',
-                        background: checked ? '#eef2ff' : '#fafafa',
-                        transition: 'all .12s',
-                      }}
-                    >
-                      <div style={{
-                        width: 20, height: 20, borderRadius: 5, flexShrink: 0,
-                        border: checked ? 'none' : '2px solid #cbd5e1',
-                        background: checked ? '#6366f1' : '#fff',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        {checked && <span style={{ color: '#fff', fontSize: 13, fontWeight: 900 }}>✓</span>}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{r.name}</p>
-                        {r.items.length > 0 && (
-                          <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                            {r.items.length} ايتم مخصص
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Sync result */}
-            {syncResult && (
-              <div style={{
-                padding: '10px 14px', borderRadius: 9, marginBottom: 12, fontSize: 13, fontWeight: 700,
-                background: syncResult.startsWith('✅') ? '#f0fdf4' : '#fffbeb',
-                color:      syncResult.startsWith('✅') ? '#166534' : '#92400e',
-                border:     `1px solid ${syncResult.startsWith('✅') ? '#bbf7d0' : '#fcd34d'}`,
-              }}>
-                {syncResult}
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={syncToSystemReps}
-                disabled={syncing || syncSelIds.size === 0}
-                style={{
-                  flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', cursor: 'pointer',
-                  background: syncing || syncSelIds.size === 0 ? '#e2e8f0' : '#6366f1',
-                  color: syncing || syncSelIds.size === 0 ? '#94a3b8' : '#fff',
-                  fontWeight: 700, fontSize: 14,
-                }}
-              >
-                {syncing ? '⏳ جاري المزامنة...' : `🔄 مزامنة مع ${syncSelIds.size} مندوب`}
-              </button>
-              <button
-                onClick={() => { setShowSyncModal(false); setSyncSelIds(new Set()); }}
-                disabled={syncing}
-                style={{ padding: '10px 20px', borderRadius: 9, border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-              >إلغاء</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Broadcast Panel — manager only ── */}
       {isManager && showBroadcast && selRepId && rows.length > 0 && (

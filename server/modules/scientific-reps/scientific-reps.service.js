@@ -42,7 +42,7 @@ export async function list(filters, user = null, options = {}) {
     // Data is fully scoped per account — no cross-account sharing.
     if (standalone) {
       const myReps = await prisma.scientificRepresentative.findMany({
-        where: { userId: user.id },
+        where: { managerId: user.id },
         select: {
           id: true, name: true, phone: true, email: true, company: true,
           isActive: true, notes: true,
@@ -164,7 +164,7 @@ export async function list(filters, user = null, options = {}) {
     const userRepIds = new Set(repsWithIds.map(r => r.id));
     const standaloneReps = await prisma.scientificRepresentative.findMany({
       where: {
-        userId: user.id,
+        managerId: user.id,
         ...(userRepIds.size > 0 ? { id: { notIn: [...userRepIds] } } : {}),
       },
       select: {
