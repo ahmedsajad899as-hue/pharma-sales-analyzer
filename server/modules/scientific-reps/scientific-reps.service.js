@@ -229,6 +229,25 @@ export async function remove(id) {
   return repo.deleteScientificRep(id);
 }
 
+// Returns areas for the currently logged-in scientific rep (by userId)
+export async function getMyAreas(userId) {
+  if (!userId) return [];
+  // Try linkedRepId first via User lookup, then fall back to findFirst
+  const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+  let repId = userRow?.linkedRepId ?? null;
+  if (!repId) {
+    const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+    repId = rep?.id ?? null;
+  }
+  if (!repId) return [];
+  const rows = await prisma.scientificRepArea.findMany({
+    where: { scientificRepId: repId },
+    select: { area: { select: { id: true, name: true } } },
+    orderBy: { area: { name: 'asc' } },
+  });
+  return rows.map(r => r.area);
+}
+
 // ─── Assignments ─────────────────────────────────────────────
 
 /**

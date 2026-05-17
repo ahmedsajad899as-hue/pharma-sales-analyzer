@@ -4,9 +4,10 @@ import * as ctrl from './scientific-reps.controller.js';
 const router = Router();
 
 // CRUD
-router.post('/',     ctrl.createRep);
-router.get('/',      ctrl.listReps);
-router.get('/:id',   ctrl.getRep);
+router.post('/',          ctrl.createRep);
+router.get('/',           ctrl.listReps);
+router.get('/my-areas',   ctrl.getMyAreas); // must be before /:id
+router.get('/:id',        ctrl.getRep);
 router.patch('/:id', ctrl.updateRep);
 router.delete('/:id', ctrl.deleteRep);
 

@@ -36,6 +36,15 @@ export async function getRep(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// GET /api/scientific-reps/my-areas
+// Returns the areas assigned to the currently logged-in scientific rep
+export async function getMyAreas(req, res, next) {
+  try {
+    const areas = await svc.getMyAreas(req.user?.id ?? null);
+    res.json({ success: true, data: areas });
+  } catch (err) { next(err); }
+}
+
 export async function updateRep(req, res, next) {
   try {
     const rep = await svc.update(+req.params.id, req.body);

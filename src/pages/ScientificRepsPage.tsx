@@ -336,7 +336,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
           <h1 className="page-title">{t.sciReps.title}</h1>
           <p className="page-subtitle">{t.sciReps.subtitle}</p>
         </div>
-        <button className="btn btn--primary" onClick={openAdd}>{t.sciReps.addBtn}</button>
+        {user?.role !== 'scientific_rep' && (
+          <button className="btn btn--primary" onClick={openAdd}>{t.sciReps.addBtn}</button>
+        )}
       </div>
 
       {error && (

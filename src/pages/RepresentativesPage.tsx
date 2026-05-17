@@ -21,10 +21,12 @@ interface AreaItem { id: number; name: string; }
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
 export default function RepresentativesPage({ activeFileIds, onNavigate }: Props) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
+  const isSciRep = user?.role === 'scientific_rep';
   const [reps, setReps]       = useState<Rep[]>([]);
+  const [sciRepAreaIds, setSciRepAreaIds] = useState<Set<number> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const [modal, setModal]     = useState<'add' | 'edit' | 'assign' | null>(null);
@@ -66,6 +68,19 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
       setLoading(false);
     }
   };
+
+  // Load sci rep's assigned area IDs once (only for scientific_rep role)
+  useEffect(() => {
+    if (!isSciRep || !token) return;
+    fetch(`${API}/api/scientific-reps/my-areas`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(j => {
+        const areas: { id: number }[] = j.data ?? [];
+        setSciRepAreaIds(areas.length > 0 ? new Set(areas.map(a => a.id)) : null);
+      })
+      .catch(() => setSciRepAreaIds(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSciRep, token]);
 
   useEffect(() => { loadReps(); }, [activeFileIds.join(','), token]);
 
@@ -154,6 +169,14 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
 
   const removeArea = (id: number) => setAssignedAreas(prev => prev.filter(a => a.id !== id));
 
+  // Filter commercial reps to the sci rep's assigned areas only
+  const displayReps = (isSciRep && sciRepAreaIds)
+    ? reps.filter(rep =>
+        rep.areas.length === 0 || // rep covers all areas
+        rep.areas.some(a => sciRepAreaIds.has(a.area.id))
+      )
+    : reps;
+
   return (
     <div className="page">
       <div className="page-header">
@@ -161,7 +184,7 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
           <h1 className="page-title">{t.reps.title}</h1>
           <p className="page-subtitle">{t.reps.subtitle}</p>
         </div>
-        <button className="btn btn--primary" onClick={openAdd}>{t.reps.addBtn}</button>
+        {!isSciRep && <button className="btn btn--primary" onClick={openAdd}>{t.reps.addBtn}</button>}
       </div>
 
       {error && (
@@ -214,7 +237,7 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
                 </tr>
               </thead>
               <tbody>
-                {reps.length === 0 ? (
+                {displayReps.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="empty-row">
                     {activeFileIds.length === 0
@@ -222,7 +245,7 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
                       : t.reps.noReps}
                   </td>
                 </tr>
-                ) : reps.map(rep => (
+                ) : displayReps.map(rep => (
                   <tr key={rep.id}>
                     <td>{rep.id}</td>
                     <td><strong>{rep.name}</strong></td>
@@ -244,7 +267,7 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
                       <div className="action-btns">
                         <button className="btn-icon btn-icon--blue" onClick={() => openEdit(rep)} title={t.reps.editBtn}>✏️</button>
                         <button className="btn-icon btn-icon--green" onClick={() => openAssign(rep)} title={t.reps.assignBtn}>📍</button>
-                        <button className="btn-icon btn-icon--red" onClick={() => deleteRep(rep.id)} title={t.reps.deleteBtn}>🗑️</button>
+                        {!isSciRep && <button className="btn-icon btn-icon--red" onClick={() => deleteRep(rep.id)} title={t.reps.deleteBtn}>🗑️</button>}
                       </div>
                     </td>
                   </tr>
@@ -255,11 +278,11 @@ export default function RepresentativesPage({ activeFileIds, onNavigate }: Props
 
           {/* ── Mobile card list ── */}
           <div className="rep-mobile-cards">
-            {reps.length === 0 ? (
+            {displayReps.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '32px 0', fontSize: 14 }}>
                 {activeFileIds.length === 0 ? t.reps.noFileWarning : t.reps.noReps}
               </div>
-            ) : reps.map(rep => (
+            ) : displayReps.map(rep => (
               <div key={rep.id} className="rep-mobile-card">
                 <div className="rep-mobile-card-header">
                   <div>
