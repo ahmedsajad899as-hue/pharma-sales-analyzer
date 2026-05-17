@@ -114,5 +114,8 @@ export async function getRepReport(req, res, next) {
     };
     const report = await svc.getReport(id, query);
     res.json({ success: true, data: report });
-  } catch (err) { next(err); }
+  } catch (err) {
+    console.error('[getRepReport] ERROR id=%s query=%j err=%s', req.params.id, req.query, err?.message, err?.stack);
+    next(err);
+  }
 }

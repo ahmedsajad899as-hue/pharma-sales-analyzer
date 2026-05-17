@@ -59,7 +59,7 @@ export function errorHandler(err, req, res, _next) {
   return res.status(500).json({
     success: false,
     code: 'INTERNAL_ERROR',
-    message: isDev ? (err?.message || 'An unexpected error occurred.') : 'An unexpected error occurred.',
-    ...(isDev && err?.code ? { prismaCode: err.code } : {}),
+    message: err?.message || 'An unexpected error occurred.',
+    ...(err?.code ? { prismaCode: err.code } : {}),
   });
 }
