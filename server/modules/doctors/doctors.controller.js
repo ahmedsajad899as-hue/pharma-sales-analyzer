@@ -94,14 +94,14 @@ export async function visitsByArea(req, res, next) {
 
       // ── 5. Build doctors array from survey ────────────────────
       doctors = surveyDoctors.map(d => {
-        const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? { id: null, name: d.areaName ?? 'بدون منطقة' };
+        const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? (d.areaName?.trim() ? { id: null, name: d.areaName.trim() } : null);
         return {
           id: d.id, name: d.name, specialty: d.specialty ?? null,
           pharmacyName: d.pharmacyName ?? null,
           area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
           visits: visitsBySurveyDocId.get(d.id) ?? [],
         };
-      });
+      }).filter(d => d.area !== null);
       console.log('[visitsByArea] repAreaIds count:', repAreaIds.length, 'surveyDoctors:', doctors.length);
 
     } else {
@@ -174,14 +174,14 @@ export async function visitsByArea(req, res, next) {
         }
 
         doctors = surveyDoctors.map(d => {
-          const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? { id: null, name: d.areaName ?? 'بدون منطقة' };
+          const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? (d.areaName?.trim() ? { id: null, name: d.areaName.trim() } : null);
           return {
             id: d.id, name: d.name, specialty: d.specialty ?? null,
             pharmacyName: d.pharmacyName ?? null,
             area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
             visits: visitsBySurveyDocId.get(d.id) ?? [],
           };
-        });
+        }).filter(d => d.area !== null);
       } else {
       // الكل: جلب أطباءه جميعاً دائماً، وفلتر الزيارات فقط حسب الشهر
       doctors = await prisma.doctor.findMany({
@@ -298,9 +298,6 @@ export async function visitsByArea(req, res, next) {
 
     const areas = filteredAreaEntries.map(([, g]) => toStats(g))
       .sort((a, b) => b.visitedCount - a.visitedCount);
-
-    if (noAreaDocs.length > 0)
-      areas.push(toStats({ id: null, name: 'بدون منطقة', doctors: noAreaDocs }));
 
     res.json({ areas });
   } catch (e) { next(e); }
