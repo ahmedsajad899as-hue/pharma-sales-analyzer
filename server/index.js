@@ -1198,9 +1198,22 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     // Build headers: use original Excel columns if available, otherwise fallback
     const useRaw = allRawKeys.size > 0;
     const rawHeaders = useRaw ? [...allRawKeys] : [];
-    const headers = useRaw
-      ? rawHeaders  // exactly the original Excel columns
+
+    // Column names used for merging السعر الكلي → مبلغ الإجمالي
+    const COL_TOTAL_AMOUNT = 'مبلغ الإجمالي';
+    const COL_TOTAL_PRICE  = 'السعر الكلي';
+
+    // Strip السعر الكلي from output headers (its value will be merged into مبلغ الإجمالي)
+    const outputHeaders = useRaw
+      ? rawHeaders.filter(h => h !== COL_TOTAL_PRICE)
       : ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
+
+    // Strip time portion from ISO datetime strings (e.g. "2026-03-08T00:00:00" → "2026-03-08")
+    const stripDatetime = (v) => {
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return v.slice(0, 10);
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      return v;
+    };
 
     const salesRows  = sales.filter(s => s.recordType !== 'return');
     const returnRows = sales.filter(s => s.recordType === 'return');
@@ -1210,49 +1223,63 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
       if (useRaw && s.rawData) {
         try {
           const raw = JSON.parse(s.rawData);
-          return rawHeaders.map(k => {
-            const v = raw[k];
-            return v !== undefined ? v : '';
+          // Merge السعر الكلي into مبلغ الإجمالي: use whichever is non-zero
+          const rawAmount = raw[COL_TOTAL_AMOUNT];
+          const rawPrice  = raw[COL_TOTAL_PRICE];
+          const numAmount = typeof rawAmount === 'number' ? rawAmount : (parseFloat(rawAmount) || 0);
+          const numPrice  = typeof rawPrice  === 'number' ? rawPrice  : (parseFloat(rawPrice)  || 0);
+          const merged    = numPrice !== 0 ? numPrice : numAmount;
+          const finalTotal = negate ? -Math.abs(merged) : Math.abs(merged);
+
+          return outputHeaders.map(k => {
+            if (k === COL_TOTAL_AMOUNT) return Math.round(finalTotal);
+            let v = raw[k];
+            if (v === undefined || v === null) return '';
+            v = stripDatetime(v);
+            if (typeof v === 'number') return Math.round(v);
+            return v;
           });
         } catch {}
       }
       // Fallback: structured fields
       const qty = negate ? -(Math.abs(s.quantity)) : s.quantity;
-      const val = negate ? -(Math.abs(s.totalValue)) : s.totalValue;
+      const val = negate ? -Math.abs(s.totalValue) : Math.abs(s.totalValue);
       return [
         s.representative?.name ?? '',
         s.area?.name          ?? '',
         s.item?.name          ?? '',
-        qty, val,
+        qty, Math.round(val),
         s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
         s.saleDate ? new Date(s.saleDate).toLocaleDateString('ar-IQ') : '',
       ];
     });
 
-    const colWidths = headers.map(h => ({ wch: Math.max(14, String(h).length + 4) }));
+    const colWidths = outputHeaders.map(h => ({ wch: Math.max(14, String(h).length + 4) }));
 
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1 – مبيعات (sales only)
-    const wsSales = XLSX.utils.aoa_to_sheet([headers, ...makeRows(salesRows)]);
+    // Sheet 1 – مبيعات (sales only, totals positive)
+    const wsSales = XLSX.utils.aoa_to_sheet([outputHeaders, ...makeRows(salesRows)]);
     wsSales['!cols'] = colWidths;
     XLSX.utils.book_append_sheet(wb, wsSales, 'مبيعات');
 
-    // Sheet 2 – ارجاع (returns as negative)
-    const wsReturns = XLSX.utils.aoa_to_sheet([headers, ...makeRows(returnRows, true)]);
+    // Sheet 2 – ارجاع (returns, totals positive in their own sheet)
+    const wsReturns = XLSX.utils.aoa_to_sheet([outputHeaders, ...makeRows(returnRows)]);
     wsReturns['!cols'] = colWidths;
     XLSX.utils.book_append_sheet(wb, wsReturns, 'ارجاع');
 
-    // Sheet 3 – الصافي (all rows: returns negative so SUM = sales – returns)
+    // Sheet 3 – الصافي (sales positive, returns negative so SUM = sales – returns)
     const netRows = [
       ...makeRows(salesRows),
-      ...makeRows(returnRows, true),
+      ...makeRows(returnRows, true),   // returns shown as negative
     ];
-    const wsNet = XLSX.utils.aoa_to_sheet([headers, ...netRows]);
+    const wsNet = XLSX.utils.aoa_to_sheet([outputHeaders, ...netRows]);
     wsNet['!cols'] = colWidths;
     XLSX.utils.book_append_sheet(wb, wsNet, 'الصافي (مبيع - ارجاع)');
 
     // Sheet 4 – ملخص
+    const totalSalesVal   = Math.round(salesRows.reduce((a, s)  => a + s.totalValue, 0));
+    const totalReturnsVal = Math.round(returnRows.reduce((a, s) => a + s.totalValue, 0));
     const wsSummary = XLSX.utils.aoa_to_sheet([
       ['ملخص بيانات المستخدم'],
       [''],
@@ -1260,9 +1287,9 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
       ['عدد المناطق المعيّنة',      areaIds.length],
       ['إجمالي صفوف المبيعات',     salesRows.length],
       ['إجمالي صفوف المرتجعات',    returnRows.length],
-      ['إجمالي قيمة المبيعات',     salesRows.reduce((a, s) => a + s.totalValue, 0)],
-      ['إجمالي قيمة المرتجعات',    returnRows.reduce((a, s) => a + s.totalValue, 0)],
-      ['الصافي',                   salesRows.reduce((a, s) => a + s.totalValue, 0) - returnRows.reduce((a, s) => a + s.totalValue, 0)],
+      ['إجمالي قيمة المبيعات',     totalSalesVal],
+      ['إجمالي قيمة المرتجعات',    totalReturnsVal],
+      ['الصافي',                   totalSalesVal - totalReturnsVal],
     ]);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
 
