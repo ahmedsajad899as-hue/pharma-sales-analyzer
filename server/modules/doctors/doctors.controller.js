@@ -70,7 +70,7 @@ export async function visitsByArea(req, res, next) {
           : allSurveyDocs;
       }
 
-      // ── 4. Get rep's visits and map by masterSurveyDoctorId ───
+      // ── 4. Get rep's visits and map by masterSurveyDoctorId + name fallback ───
       const allVisits = await prisma.doctorVisit.findMany({
         where: {
           scientificRepId: linkedRepId ?? -1,
@@ -79,27 +79,35 @@ export async function visitsByArea(req, res, next) {
         select: {
           id: true, visitDate: true, feedback: true, notes: true,
           item: { select: { id: true, name: true } },
-          doctor: { select: { masterSurveyDoctorId: true } },
+          doctor: { select: { masterSurveyDoctorId: true, name: true } },
         },
         orderBy: { visitDate: 'desc' },
       });
       const visitsBySurveyDocId = new Map();
+      const visitsByDoctorName  = new Map();
       for (const v of allVisits) {
+        const vEntry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item };
         const msId = v.doctor?.masterSurveyDoctorId;
         if (msId != null) {
           if (!visitsBySurveyDocId.has(msId)) visitsBySurveyDocId.set(msId, []);
-          visitsBySurveyDocId.get(msId).push({ id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item });
+          visitsBySurveyDocId.get(msId).push(vEntry);
+        }
+        if (v.doctor?.name) {
+          const nk = normArea(v.doctor.name);
+          if (!visitsByDoctorName.has(nk)) visitsByDoctorName.set(nk, []);
+          visitsByDoctorName.get(nk).push(vEntry);
         }
       }
 
       // ── 5. Build doctors array from survey ────────────────────
       doctors = surveyDoctors.map(d => {
         const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? (d.areaName?.trim() ? { id: null, name: d.areaName.trim() } : null);
+        const visits = visitsBySurveyDocId.get(d.id) ?? visitsByDoctorName.get(normArea(d.name)) ?? [];
         return {
           id: d.id, name: d.name, specialty: d.specialty ?? null,
           pharmacyName: d.pharmacyName ?? null,
           area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
-          visits: visitsBySurveyDocId.get(d.id) ?? [],
+          visits,
         };
       }).filter(d => d.area !== null);
       console.log('[visitsByArea] repAreaIds count:', repAreaIds.length, 'surveyDoctors:', doctors.length);
@@ -135,7 +143,7 @@ export async function visitsByArea(req, res, next) {
           select: {
             id: true, visitDate: true, feedback: true, notes: true,
             item: { select: { id: true, name: true } },
-            doctor: { select: { masterSurveyDoctorId: true } },
+            doctor: { select: { masterSurveyDoctorId: true, name: true } },
           },
           orderBy: { visitDate: 'desc' },
         });
@@ -163,23 +171,31 @@ export async function visitsByArea(req, res, next) {
             : allSurveyDocs;
         }
 
-        // Map visits by masterSurveyDoctorId
+        // Map visits by masterSurveyDoctorId (primary) and doctor name (fallback)
         const visitsBySurveyDocId = new Map();
+        const visitsByDoctorName  = new Map();
         for (const v of repVisits) {
+          const vEntry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item };
           const msId = v.doctor?.masterSurveyDoctorId;
           if (msId != null) {
             if (!visitsBySurveyDocId.has(msId)) visitsBySurveyDocId.set(msId, []);
-            visitsBySurveyDocId.get(msId).push({ id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item });
+            visitsBySurveyDocId.get(msId).push(vEntry);
+          }
+          if (v.doctor?.name) {
+            const nk = normArea(v.doctor.name);
+            if (!visitsByDoctorName.has(nk)) visitsByDoctorName.set(nk, []);
+            visitsByDoctorName.get(nk).push(vEntry);
           }
         }
 
         doctors = surveyDoctors.map(d => {
           const resolvedArea = normToArea.get(normArea(d.areaName ?? '')) ?? (d.areaName?.trim() ? { id: null, name: d.areaName.trim() } : null);
+          const visits = visitsBySurveyDocId.get(d.id) ?? visitsByDoctorName.get(normArea(d.name)) ?? [];
           return {
             id: d.id, name: d.name, specialty: d.specialty ?? null,
             pharmacyName: d.pharmacyName ?? null,
             area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
-            visits: visitsBySurveyDocId.get(d.id) ?? [],
+            visits,
           };
         }).filter(d => d.area !== null);
       } else {
