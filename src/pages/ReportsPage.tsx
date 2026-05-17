@@ -507,9 +507,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
 // Always load scientific reps — doctor-visit reports don't require uploaded Excel files
   useEffect(() => {
-    // For scientific_rep: standalone=1 returns only their own record
-    // For managers/company roles: no standalone so they get all company-scoped reps
-    const qs = user?.role === 'scientific_rep' ? '?standalone=1' : '';
+    // Mirror ScientificRepsPage logic:
+    // - scientific_rep: standalone=1 (only their own record)
+    // - company_manager: excludeStandalone=1 (company-linked system reps)
+    // - others (manager, admin): no params (all reps via repo.listAll)
+    const qs = user?.role === 'scientific_rep'
+      ? '?standalone=1'
+      : user?.role === 'company_manager'
+        ? '?excludeStandalone=1'
+        : '';
     fetch(`/api/scientific-reps${qs}`, { headers: authH() })
       .then(r => r.json())
       .then(json => {
