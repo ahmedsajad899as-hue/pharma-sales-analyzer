@@ -74,10 +74,11 @@ export async function deleteScientificRep(id) {
 // ─── Assignments ─────────────────────────────────────────────
 
 export async function setAreas(scientificRepId, areaIds) {
+  const uniqueIds = [...new Set(areaIds)];  // deduplicate to prevent unique-constraint errors
   return prisma.$transaction([
     prisma.scientificRepArea.deleteMany({ where: { scientificRepId } }),
-    ...(areaIds.length ? [prisma.scientificRepArea.createMany({
-      data: areaIds.map(areaId => ({ scientificRepId, areaId })),
+    ...(uniqueIds.length ? [prisma.scientificRepArea.createMany({
+      data: uniqueIds.map(areaId => ({ scientificRepId, areaId })),
     })] : []),
   ]);
 }

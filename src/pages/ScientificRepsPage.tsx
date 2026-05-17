@@ -5,6 +5,29 @@ import { useLanguage } from '../context/LanguageContext';
 
 const API = import.meta.env.VITE_API_URL || '';
 
+/** Normalize Arabic for fuzzy comparison: strip ال, unify أإآ→ا, ة/ه→ه, ى→ي, no diacritics */
+const normalizeAr = (s: string): string =>
+  s.trim()
+    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')  // أ إ آ → ا
+    .replace(/[\u0629\u0647]/g, '\u0647')               // ة/ه → ه
+    .replace(/\u0649/g, '\u064A')                        // ى → ي
+    .replace(/\u0640/g, '')                              // tatweel
+    .replace(/[\u064B-\u065F]/g, '')                    // diacritics
+    .replace(/(^|\s)\u0627\u0644/g, '$1')               // remove ال
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** Keep first occurrence of each area by normalized name */
+const deduplicateAreas = (areas: NamedItem[]): NamedItem[] => {
+  const seen = new Set<string>();
+  return areas.filter(a => {
+    const key = normalizeAr(a.name);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 interface NamedItem  { id: number; name: string; }
 interface Company    { id: number; name: string; items: NamedItem[]; }
 interface ScientificRep {
@@ -124,7 +147,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       safe(fetch(`${API}/api/representatives/with-sales-areas`,   { headers: authH() }).then(r => r.json())),
       safe(fetch(`${API}/api/companies`,                          { headers: authH() }).then(r => r.json())),
     ]);
-    setAllAreas(Array.isArray(ar.data) ? ar.data : []);
+    setAllAreas(deduplicateAreas(Array.isArray(ar.data) ? ar.data : []));
     setAllItems(Array.isArray(it.data) ? it.data : []);
     setAllCompanies(Array.isArray(co.data) ? co.data : []);
     const crList = Array.isArray(cr.data) ? cr.data : (Array.isArray(cr) ? cr : []);
@@ -242,9 +265,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     const isSelected = selAreas.some(x => x.id === a.id);
     setSelAreas(prev => isSelected ? prev.filter(x => x.id !== a.id) : [...prev, a]);
 
-    // Auto-add/remove commercial reps whose sales areas include this area (matched by name)
+    // Auto-add/remove commercial reps whose sales areas include this area (matched by normalized name)
     const repsForArea = allCommercialWithAreas.filter(cr =>
-      cr.areas.some(ca => ca.name.trim() === a.name.trim())
+      cr.areas.some(ca => normalizeAr(ca.name) === normalizeAr(a.name))
     );
     if (repsForArea.length === 0) return;
 
@@ -254,7 +277,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       setSelCommercial(prev => prev.filter(cr => {
         const repFull = allCommercialWithAreas.find(r => r.id === cr.id);
         if (!repFull) return true; // keep unknown
-        const stillNeeded = repFull.areas.some(ra => remainingAreas.some(sel => sel.name.trim() === ra.name.trim()));
+        const stillNeeded = repFull.areas.some(ra => remainingAreas.some(sel => normalizeAr(sel.name) === normalizeAr(ra.name)));
         return stillNeeded;
       }));
     } else {
@@ -316,7 +339,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
 
   const addCustomArea = () => {
     const name = newAreaName.trim();
-    if (!name || selAreas.some(a => a.name === name)) return;
+    if (!name || selAreas.some(a => normalizeAr(a.name) === normalizeAr(name))) return;
     setSelAreas(prev => [...prev, { id: Date.now(), name }]);
     setNewAreaName('');
   };

@@ -19,8 +19,10 @@ function normalizeArabic(str) {
     .trim()
     .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')  // أ إ آ ٱ → ا
     .replace(/\u0629/g, '\u0647')                        // ة → ه
+    .replace(/\u0649/g, '\u064A')                        // ى (alef maqsura) → ي
     .replace(/\u0640/g, '')                              // ـ Tatweel
     .replace(/[\u064B-\u065F]/g, '')                    // diacritics
+    .replace(/(^|\s)\u0627\u0644/g, '$1')               // remove ال (definite article) at word start
     .replace(/\s+/g, ' ')
     .trim();
 }
