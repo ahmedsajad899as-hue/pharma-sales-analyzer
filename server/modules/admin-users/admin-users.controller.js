@@ -215,11 +215,13 @@ export async function setUserAreas(req, res) {
     })] : []),
   ]);
 
-  // Sync to ScientificRepArea if this user is linked to a ScientificRepresentative
+  // Sync to ScientificRepArea + auto-assign commercial reps if this user is a scientific rep
   try {
     const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
     if (userRow?.linkedRepId) {
       const repId = userRow.linkedRepId;
+
+      // 1. Sync ScientificRepArea
       await prisma.$transaction([
         prisma.scientificRepArea.deleteMany({ where: { scientificRepId: repId } }),
         ...(finalAreaIds.length ? [prisma.scientificRepArea.createMany({
@@ -227,9 +229,52 @@ export async function setUserAreas(req, res) {
           skipDuplicates: true,
         })] : []),
       ]);
+
+      // 2. Auto-assign commercial reps based on area name matching
+      if (finalAreaIds.length > 0) {
+        const normA = s => String(s || '').trim()
+          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
+          .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
+          .toLowerCase().trim();
+
+        // Get the names of the assigned areas
+        const assignedAreas = await prisma.area.findMany({
+          where: { id: { in: finalAreaIds } },
+          select: { id: true, name: true },
+        });
+        const assignedNorms = assignedAreas.map(a => normA(a.name));
+
+        // Find all Area records (any scope) whose normalized name matches
+        const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+        const matchingAreaIds = allAreas
+          .filter(a => assignedNorms.some(n => {
+            const mN = normA(a.name);
+            return mN === n || mN.includes(n) || n.includes(mN);
+          }))
+          .map(a => a.id);
+
+        // Find MedicalRepresentative records that cover those areas
+        const commercialReps = await prisma.medicalRepresentative.findMany({
+          where: { areas: { some: { areaId: { in: matchingAreaIds } } } },
+          select: { id: true },
+        });
+
+        // Full-replace ScientificRepCommercial based on area-derived reps
+        await prisma.$transaction([
+          prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } }),
+          ...(commercialReps.length ? [prisma.scientificRepCommercial.createMany({
+            data: commercialReps.map(r => ({ scientificRepId: repId, commercialRepId: r.id })),
+            skipDuplicates: true,
+          })] : []),
+        ]);
+      } else {
+        // No areas → clear commercial reps too
+        await prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } });
+      }
     }
   } catch (e) {
-    console.warn('[setUserAreas] ScientificRepArea sync failed (non-fatal):', e.message);
+    console.warn('[setUserAreas] ScientificRepArea/commercial sync failed (non-fatal):', e.message);
   }
 
   res.json({ success: true });
