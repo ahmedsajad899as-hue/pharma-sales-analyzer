@@ -31,6 +31,8 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [saved,  setSaved]  = useState(false);
   const [loading, setLoading] = useState(false);
   const [allItems, setAllItems] = useState<NamedItem[]>([]);
+  const [actuals, setActuals] = useState<Map<number, number>>(new Map());
+  const [loadingActuals, setLoadingActuals] = useState(false);
 
   // Broadcast state
   const [showBroadcast, setShowBroadcast]   = useState(false);
@@ -81,6 +83,29 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // Load actual net sales for selected sci rep/period to compare with targets
+  useEffect(() => {
+    if (!isManager || !selRepId || repType !== 'scientific' || activeFileIds.length === 0) {
+      setActuals(new Map());
+      return;
+    }
+    setLoadingActuals(true);
+    const lastDay = new Date(year, month, 0).getDate();
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate   = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const qs = new URLSearchParams({ fileIds: activeFileIds.join(','), startDate, endDate });
+    fetch(`${API}/api/scientific-reps/${selRepId}/report?${qs}`, { headers: H() })
+      .then(r => r.json())
+      .then(j => {
+        const map = new Map<number, number>();
+        (j.byItem ?? []).forEach((it: any) => { map.set(it.itemId, it.totalQuantity); });
+        setActuals(map);
+      })
+      .catch(() => setActuals(new Map()))
+      .finally(() => setLoadingActuals(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selRepId, repType, month, year, isManager, activeFileIds.join(','), token]);
+
   // When rep/period changes: load existing targets + build rows from rep's items
   const loadTargets = useCallback(async () => {
     if (!selRepId) { setRows([]); return; }
@@ -91,6 +116,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       if (repType === 'scientific') {
         const rep = sciReps.find(r => r.id === parseInt(selRepId));
         items = rep?.items ?? [];
+        // If no items explicitly assigned, treat all items as assigned automatically
+        if (items.length === 0) {
+          items = allItems.filter(i => !i.name.includes('(مؤقت)'));
+        }
       } else {
         // For commercial: use all items
         items = allItems.filter(i => !i.name.includes('(مؤقت)'));
@@ -118,7 +147,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   useEffect(() => { loadTargets(); }, [loadTargets]);
 
   // Reset rep selection when switching type
-  useEffect(() => { setSelRepId(''); setRows([]); }, [repType]);
+  useEffect(() => { setSelRepId(''); setRows([]); setActuals(new Map()); }, [repType]);
 
   const updateRow = (idx: number, val: string) => {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, target: val } : r));
@@ -384,10 +413,20 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                 <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0' }}>#</th>
                 <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0' }}>اسم الايتم</th>
                 <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#6366f1', borderBottom: '1px solid #e2e8f0', width: 140 }}>🎯 التارگت (عدد)</th>
+                {isManager && selRepId && repType === 'scientific' && <>
+                  <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#0891b2', borderBottom: '1px solid #e2e8f0', width: 120 }}>📦 المبيع النت</th>
+                  <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#059669', borderBottom: '1px solid #e2e8f0', width: 90 }}>✓ الانجاز</th>
+                </>}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
+              {rows.map((row, i) => {
+                const actual = actuals.get(row.itemId) ?? 0;
+                const tgt = parseFloat(row.target) || 0;
+                const showActualCols = isManager && !!selRepId && repType === 'scientific';
+                const pct = showActualCols && tgt > 0 ? Math.round((actual / tgt) * 100) : null;
+                const pctColor = pct === null ? '#94a3b8' : pct >= 100 ? '#059669' : pct >= 70 ? '#d97706' : '#dc2626';
+                return (
                 <tr key={row.itemId} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                   <td style={{ padding: '10px 16px', fontSize: 13, color: '#94a3b8', width: 40 }}>{i + 1}</td>
                   <td style={{ padding: '10px 16px', fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{row.itemName}</td>
@@ -415,17 +454,44 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                       </span>
                     )}
                   </td>
+                  {showActualCols && <>
+                    <td style={{ padding: '10px 16px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#0e7490' }}>
+                      {loadingActuals ? <span style={{ color: '#cbd5e1' }}>⋯</span> : actual.toLocaleString('ar-IQ-u-nu-latn')}
+                    </td>
+                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                      {pct === null || loadingActuals ? (
+                        <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>
+                      ) : (
+                        <span style={{ fontWeight: 800, fontSize: 13, color: pctColor }}>{pct}%</span>
+                      )}
+                    </td>
+                  </>}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr style={{ background: '#f0f9ff', borderTop: '2px solid #bae6fd' }}>
                 <td colSpan={2} style={{ padding: '10px 16px', fontWeight: 700, fontSize: 13, color: '#0369a1' }}>
-                  إجمالي التارگت
+                  الإجمالي
                 </td>
                 <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: '#0369a1' }}>
                   {rows.reduce((s, r) => s + (parseFloat(r.target) || 0), 0).toLocaleString('ar-IQ-u-nu-latn')}
                 </td>
+                {isManager && selRepId && repType === 'scientific' && (() => {
+                  const totalActual = rows.reduce((s, r) => s + (actuals.get(r.itemId) ?? 0), 0);
+                  const totalTarget = rows.reduce((s, r) => s + (parseFloat(r.target) || 0), 0);
+                  const overallPct = totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100) : null;
+                  const pctColor = overallPct === null ? '#94a3b8' : overallPct >= 100 ? '#059669' : overallPct >= 70 ? '#d97706' : '#dc2626';
+                  return <>
+                    <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: '#0e7490' }}>
+                      {totalActual.toLocaleString('ar-IQ-u-nu-latn')}
+                    </td>
+                    <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: pctColor }}>
+                      {overallPct !== null ? `${overallPct}%` : '—'}
+                    </td>
+                  </>;
+                })()}
               </tr>
             </tfoot>
           </table>
