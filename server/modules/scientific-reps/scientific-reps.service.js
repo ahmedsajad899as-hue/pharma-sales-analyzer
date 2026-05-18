@@ -286,6 +286,19 @@ export async function getReport(id, query = {}) {
   });
   const explicitCommRepIds = commercialLinks.map(l => l.commercialRepId);
 
+  // Expand commercial rep IDs by name to catch the same rep appearing in multiple
+  // uploaded files (each upload can create a separate MedicalRepresentative record
+  // for the same real person, but with a different DB id).
+  let expandedCommRepIds = [...explicitCommRepIds];
+  if (explicitCommRepIds.length > 0) {
+    const commRepNames = commercialLinks.map(l => _normalizeAr(l.commercialRep.name));
+    const allMedRepsForExpand = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
+    const extraIds = allMedRepsForExpand
+      .filter(r => commRepNames.includes(_normalizeAr(r.name)))
+      .map(r => r.id);
+    expandedCommRepIds = [...new Set([...explicitCommRepIds, ...extraIds])];
+  }
+
   // ── 2. Find MedicalRepresentative records whose name matches the sci rep ──
   // IMPORTANT: scope to only reps that actually have sales in the active files.
   // This prevents data leakage from old/unrelated uploads that share the same rep name.
@@ -347,20 +360,44 @@ export async function getReport(id, query = {}) {
     itemIds = [...new Set([...directItemIds, ...allMatchingItems.map(i => i.id)])];
   }
 
-  // ── 4. Row-level approach: fetch all relevant sales once, filter in memory ──
-  // This avoids any Prisma OR-query weirdness and makes filtering bulletproof.
   const hasAreas = areaIds && areaIds.length > 0;
   const hasItems = itemIds && itemIds.length > 0;
+  const hasCommReps = expandedCommRepIds.length > 0;
 
   const nameMatchSet = new Set(nameMatchIds);
   const explicitSet  = new Set(explicitCommRepIds);
-  const allRepIds    = [...new Set([...nameMatchIds, ...explicitCommRepIds])];
+  const allRepIds    = [...new Set([...nameMatchIds, ...expandedCommRepIds])];
+
+  // ── Helper: build the sales-row WHERE filter ──────────────────────────────
+  // RULE: always restrict to assigned commercial reps (or name-match) FIRST,
+  // then intersect with area/item filters. This ensures sales from unassigned
+  // commercial reps are never included even if they share the same area.
+  const buildSalesWhere = () => {
+    const repFilter = hasCommReps
+      ? { representativeId: { in: expandedCommRepIds } }
+      : nameMatchIds.length > 0
+        ? { representativeId: { in: nameMatchIds } }
+        : null;
+
+    if (!repFilter) return null; // no rep info → return nothing
+
+    if (hasAreas && hasItems) {
+      return { AND: [repFilter, { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] }] };
+    } else if (hasAreas) {
+      return { AND: [repFilter, { areaId: { in: areaIds } }] };
+    } else if (hasItems) {
+      return { AND: [repFilter, { itemId: { in: itemIds } }] };
+    } else {
+      return repFilter;
+    }
+  };
 
   console.log('[SciRep.getReport] DEBUG', JSON.stringify({
     repId: id, repName: rep.name, fileIds,
     nameMatchCandidates: nameMatchCandidates.length,
     nameMatchIds,
     explicitCommRepIds,
+    expandedCommRepIds,
     allRepIds,
     areaIds,
     itemIds,
@@ -425,21 +462,8 @@ export async function getReport(id, query = {}) {
       representative: { select: { id: true, name: true } },
     };
 
-    // Priority: areas → items → name-match only (no area/item assigned)
-    // NOTE: explicit commercial-rep assignments are intentionally excluded from the
-    // no-area fallback — showing all their sales across every area would include
-    // territories not assigned to this sci rep. Name-matching is safe because it
-    // only returns rows where the rep column literally contains the sci rep's name.
-    let sharedWhere = null;
-    if (hasAreas && hasItems) {
-      sharedWhere = { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] };
-    } else if (hasAreas) {
-      sharedWhere = { areaId: { in: areaIds } };
-    } else if (hasItems) {
-      sharedWhere = { itemId: { in: itemIds } };
-    } else if (nameMatchIds.length > 0) {
-      sharedWhere = { representativeId: { in: nameMatchIds } };
-    }
+    // Always restrict to assigned commercial reps first, then area/item.
+    const sharedWhere = buildSalesWhere();
 
     if (sharedWhere) {
       const sharedSales = await prisma.sale.findMany({
@@ -467,18 +491,8 @@ export async function getReport(id, query = {}) {
       representative: { select: { id: true, name: true } },
     };
 
-    // Priority: areas → items → name-match only (no area/item assigned)
-    // See comment above (section A) — explicit commercial-rep IDs excluded from fallback.
-    let nonSharedWhere = null;
-    if (hasAreas && hasItems) {
-      nonSharedWhere = { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] };
-    } else if (hasAreas) {
-      nonSharedWhere = { areaId: { in: areaIds } };
-    } else if (hasItems) {
-      nonSharedWhere = { itemId: { in: itemIds } };
-    } else if (nameMatchIds.length > 0) {
-      nonSharedWhere = { representativeId: { in: nameMatchIds } };
-    }
+    // Always restrict to assigned commercial reps first, then area/item.
+    const nonSharedWhere = buildSalesWhere();
 
     if (nonSharedWhere) {
       const nonSharedSales = await prisma.sale.findMany({
@@ -523,6 +537,7 @@ export async function getReport(id, query = {}) {
       linkedUserId: linkedUser?.id ?? null,
       nameMatchIds,
       explicitCommRepIds,
+      expandedCommRepIds,
       areaIds,
       itemIds,
       rawRowCount: rawSales.length,

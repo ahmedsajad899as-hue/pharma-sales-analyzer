@@ -1183,12 +1183,9 @@ table{border-collapse:collapse;width:100%}
   }, [activeFile, regionFilter, selectedRegions, warehouseKeys, sortAFirst, getCategory]);
 
   // Auto-detect company column
-  const companyCol = useMemo(() => {
-    if (!activeFile) return '';
-    const keywords = ['company', 'comp', 'شركة', 'الشركة', 'vendor', 'supplier', 'brand', 'manufacture', 'principal', 'item code', 'itemcode'];
-    const lower = activeFile.fixedCols.map(c => c.toLowerCase().trim());
-    return activeFile.fixedCols.find((_, i) => keywords.some(k => lower[i].includes(k))) ?? '';
-  }, [activeFile]);
+  // Use the shared detectCompanyCol helper (COMPANY_KW + normColHeader) so Arabic
+  // variants like "الشركه" (ه) are matched the same way as "الشركة" (ة).
+  const companyCol = useMemo(() => activeFile ? detectCompanyCol(activeFile) : '', [activeFile]);
 
   // Unique company values for pills
   const companies = useMemo(() => {
