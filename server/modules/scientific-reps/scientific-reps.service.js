@@ -425,7 +425,11 @@ export async function getReport(id, query = {}) {
       representative: { select: { id: true, name: true } },
     };
 
-    // Priority: areas → items → commercial reps (as fallback only when no area/item assigned)
+    // Priority: areas → items → name-match only (no area/item assigned)
+    // NOTE: explicit commercial-rep assignments are intentionally excluded from the
+    // no-area fallback — showing all their sales across every area would include
+    // territories not assigned to this sci rep. Name-matching is safe because it
+    // only returns rows where the rep column literally contains the sci rep's name.
     let sharedWhere = null;
     if (hasAreas && hasItems) {
       sharedWhere = { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] };
@@ -433,8 +437,8 @@ export async function getReport(id, query = {}) {
       sharedWhere = { areaId: { in: areaIds } };
     } else if (hasItems) {
       sharedWhere = { itemId: { in: itemIds } };
-    } else if (allRepIds.length > 0) {
-      sharedWhere = { representativeId: { in: allRepIds } };
+    } else if (nameMatchIds.length > 0) {
+      sharedWhere = { representativeId: { in: nameMatchIds } };
     }
 
     if (sharedWhere) {
@@ -463,7 +467,8 @@ export async function getReport(id, query = {}) {
       representative: { select: { id: true, name: true } },
     };
 
-    // Priority: areas → items → commercial reps (as fallback only when no area/item assigned)
+    // Priority: areas → items → name-match only (no area/item assigned)
+    // See comment above (section A) — explicit commercial-rep IDs excluded from fallback.
     let nonSharedWhere = null;
     if (hasAreas && hasItems) {
       nonSharedWhere = { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] };
@@ -471,8 +476,8 @@ export async function getReport(id, query = {}) {
       nonSharedWhere = { areaId: { in: areaIds } };
     } else if (hasItems) {
       nonSharedWhere = { itemId: { in: itemIds } };
-    } else if (allRepIds.length > 0) {
-      nonSharedWhere = { representativeId: { in: allRepIds } };
+    } else if (nameMatchIds.length > 0) {
+      nonSharedWhere = { representativeId: { in: nameMatchIds } };
     }
 
     if (nonSharedWhere) {
