@@ -142,6 +142,25 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     // Detect where area/quantity columns start.
     // Primary: first column in regionByCol that has a region name.
     // Fallback for single-row headers (no region row): first mostly-numeric col >= 3.
+
+    // Pre-detect price/currency header columns so they are not mistaken for
+    // warehouse columns. Handles merged "price" headers spanning two cells:
+    //   Col C header = "price",  Col D header = "" (merged),
+    //   Col C data   = "IQD",    Col D data   = 510
+    // The companion column (empty header after a price keyword) is also marked.
+    const PRICE_HDR_RE = /^(price|سعر|السعر|unit\s*price|سعر\s*الوحده?|cost|تكلفه?|currency|عمله?|عملة)$/i;
+    const priceSkipCols = new Set<number>();
+    for (let ci = 2; ci < wRow.length; ci++) {
+      const h = String(wRow[ci] ?? '').trim();
+      if (PRICE_HDR_RE.test(h)) {
+        priceSkipCols.add(ci);
+        // Companion: next column has empty header (merged price cell)
+        if (ci + 1 < wRow.length && !String(wRow[ci + 1] ?? '').trim()) {
+          priceSkipCols.add(ci + 1);
+        }
+      }
+    }
+
     let areaStart = Math.min(3, wRow.length);
     if (rRowIdx >= 0) {
       const firstRegCol = regionByCol.findIndex(r => r !== '');
@@ -150,6 +169,7 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       } else {
         // Region row exists but no region names found — fall back to numeric
         for (let ci = 3; ci < wRow.length; ci++) {
+          if (priceSkipCols.has(ci)) continue; // skip price/currency columns
           let hits = 0, checked = 0;
           for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 8, raw.length); ri++) {
             const v = String((raw[ri] as unknown[])[ci] ?? '').replace(/,/g, '');
@@ -161,6 +181,7 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     } else {
       // No region row — single-row header
       for (let ci = 3; ci < wRow.length; ci++) {
+        if (priceSkipCols.has(ci)) continue; // skip price/currency columns
         let hits = 0, checked = 0;
         for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 8, raw.length); ri++) {
           const v = String((raw[ri] as unknown[])[ci] ?? '').replace(/,/g, '');
@@ -217,6 +238,24 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     }
 
     if (rows.length === 0) return 'لم يتم العثور على صفوف بيانات';
+
+    // Post-process: merge split price columns (currency label + amount number).
+    // Pattern: fixedCols[i] matches price keyword, fixedCols[i+1] is "col_N"
+    // (auto-named empty header = companion of merged price cell).
+    // Replace fixedCols[i] value with the numeric amount from the companion.
+    {
+      const pci = fixedCols.findIndex(c => PRICE_HDR_RE.test(c));
+      if (pci >= 0 && pci + 1 < fixedCols.length && /^col_\d+$/.test(fixedCols[pci + 1])) {
+        const companionKey = fixedCols[pci + 1];
+        const priceKey     = fixedCols[pci];
+        rows.forEach(r => {
+          const amount = (r[companionKey] ?? '').trim();
+          if (amount) r[priceKey] = amount; // use numeric amount, drop currency text
+          delete r[companionKey];
+        });
+        fixedCols.splice(pci + 1, 1); // remove companion from fixedCols
+      }
+    }
 
     return {
       id: uid(),
