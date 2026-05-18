@@ -425,41 +425,25 @@ export async function getReport(id, query = {}) {
       representative: { select: { id: true, name: true } },
     };
 
-    if (allRepIds.length > 0) {
-      // Has commercial-rep assignments → fetch ALL their sales without area/item filter.
-      // Explicit commercial-rep assignment means the manager has designated that rep
-      // as fully belonging to this sci rep — ALL their sales should be counted.
-      // Name-match reps are similarly unrestricted.
+    // Priority: areas → items → commercial reps (as fallback only when no area/item assigned)
+    let sharedWhere = null;
+    if (hasAreas && hasItems) {
+      sharedWhere = { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] };
+    } else if (hasAreas) {
+      sharedWhere = { areaId: { in: areaIds } };
+    } else if (hasItems) {
+      sharedWhere = { itemId: { in: itemIds } };
+    } else if (allRepIds.length > 0) {
+      sharedWhere = { representativeId: { in: allRepIds } };
+    }
+
+    if (sharedWhere) {
       const sharedSales = await prisma.sale.findMany({
-        where: { ...sharedBase, representativeId: { in: allRepIds } },
-        select: salesSelect,
-      });
-      rawSales = rawSales.concat(sharedSales);
-      // ALSO include rows from other reps in the file that fall within this rep's
-      // area OR item scope (OR logic — matches either condition).
-      if (hasAreas || hasItems) {
-        const extraWhere = hasAreas && hasItems
-          ? { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] }
-          : hasAreas ? { areaId: { in: areaIds } } : { itemId: { in: itemIds } };
-        const extraSales = await prisma.sale.findMany({
-          where: { ...sharedBase, NOT: { representativeId: { in: allRepIds } }, ...extraWhere },
-          select: salesSelect,
-        });
-        rawSales = rawSales.concat(extraSales);
-      }
-    } else if (hasAreas || hasItems) {
-      // No commercial-rep assignments — use area OR item scope (OR logic)
-      const areaItemWhere = hasAreas && hasItems
-        ? { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] }
-        : hasAreas ? { areaId: { in: areaIds } } : { itemId: { in: itemIds } };
-      const sharedSales = await prisma.sale.findMany({
-        where: { ...sharedBase, ...areaItemWhere },
+        where: { ...sharedBase, ...sharedWhere },
         select: salesSelect,
       });
       rawSales = rawSales.concat(sharedSales);
     }
-    // If no rep IDs, areas, or items → cannot identify the rep's data → skip.
-    // The old "include all rows" fallback was incorrect for multi-rep files.
   }
 
   // ── B. Non-shared files: use name-match + explicit-rep + area/item filter ─
@@ -479,36 +463,24 @@ export async function getReport(id, query = {}) {
       representative: { select: { id: true, name: true } },
     };
 
-    if (allRepIds.length > 0) {
-      // Fetch ALL sales for involved reps — explicit + name-match — no area/item filter.
-      // Explicit assignment means the manager designated this commercial rep as fully
-      // belonging to the sci rep, so all their rows should be counted.
+    // Priority: areas → items → commercial reps (as fallback only when no area/item assigned)
+    let nonSharedWhere = null;
+    if (hasAreas && hasItems) {
+      nonSharedWhere = { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] };
+    } else if (hasAreas) {
+      nonSharedWhere = { areaId: { in: areaIds } };
+    } else if (hasItems) {
+      nonSharedWhere = { itemId: { in: itemIds } };
+    } else if (allRepIds.length > 0) {
+      nonSharedWhere = { representativeId: { in: allRepIds } };
+    }
+
+    if (nonSharedWhere) {
       const nonSharedSales = await prisma.sale.findMany({
-        where: { ...nonSharedBase, representativeId: { in: allRepIds } },
+        where: { ...nonSharedBase, ...nonSharedWhere },
         select: nonSharedSalesSelect,
       });
       rawSales = rawSales.concat(nonSharedSales);
-      // ALSO pull rows from other reps whose area OR item falls in scope
-      if (hasAreas || hasItems) {
-        const extraWhere = hasAreas && hasItems
-          ? { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] }
-          : hasAreas ? { areaId: { in: areaIds } } : { itemId: { in: itemIds } };
-        const extraSales = await prisma.sale.findMany({
-          where: { ...nonSharedBase, NOT: { representativeId: { in: allRepIds } }, ...extraWhere },
-          select: nonSharedSalesSelect,
-        });
-        rawSales = rawSales.concat(extraSales);
-      }
-    } else if (hasAreas || hasItems) {
-      // No rep assignments — area OR item scope (OR logic)
-      const areaItemWhere = hasAreas && hasItems
-        ? { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] }
-        : hasAreas ? { areaId: { in: areaIds } } : { itemId: { in: itemIds } };
-      const legacySales = await prisma.sale.findMany({
-        where: { ...nonSharedBase, ...areaItemWhere },
-        select: nonSharedSalesSelect,
-      });
-      rawSales = rawSales.concat(legacySales);
     }
   }
 
