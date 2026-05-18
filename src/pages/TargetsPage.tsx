@@ -497,6 +497,19 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           </table>
         </div>
       )}
+      {isManager && !!selRepId && !loading && rows.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14, gap: 12, alignItems: 'center' }}>
+          {saved && <span style={{ color: '#059669', fontWeight: 700, fontSize: 13 }}>✓ تم الحفظ بنجاح</span>}
+          <button
+            className="tgt-btn"
+            onClick={save}
+            disabled={saving}
+            style={{ background: '#6366f1', color: '#fff', minWidth: 150, opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? '⏳ جاري الحفظ...' : '💾 حفظ التارگت'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
