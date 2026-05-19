@@ -376,9 +376,10 @@ export async function listDrugEntries(req, res, next) {
       surveyId,
       ...(search ? {
         OR: [
-          { brandName: { contains: search, mode: 'insensitive' } },
-          { company:   { contains: search, mode: 'insensitive' } },
-          { dosageForm:{ contains: search, mode: 'insensitive' } },
+          { brandName:     { contains: search, mode: 'insensitive' } },
+          { scientificName:{ contains: search, mode: 'insensitive' } },
+          { company:       { contains: search, mode: 'insensitive' } },
+          { dosageForm:    { contains: search, mode: 'insensitive' } },
         ],
       } : {}),
     };
@@ -398,12 +399,13 @@ export async function listDrugEntries(req, res, next) {
 export async function addDrugEntry(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
-    const { brandName, company, dosageForm, priceOfficeToWholesaler, priceWholesalerToPharmacy, pricePharmacyToPatient, notes } = req.body;
-    if (!brandName?.trim()) return res.status(400).json({ success: false, error: 'الاسم التجاري مطلوب' });
+    const { brandName, scientificName, company, dosageForm, priceOfficeToWholesaler, priceWholesalerToPharmacy, pricePharmacyToPatient, notes } = req.body;
+    if (!brandName?.trim()) return res.status(400).json({ success: false, error: '\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u062a\u062c\u0627\u0631\u064a \u0645\u0637\u0644\u0648\u0628' });
     const entry = await prisma.drugPriceSurveyEntry.create({
       data: {
         surveyId,
         brandName: brandName.trim(),
+        scientificName: scientificName?.trim() || null,
         company: company?.trim() || null,
         dosageForm: dosageForm?.trim() || null,
         priceOfficeToWholesaler: priceOfficeToWholesaler != null ? Number(priceOfficeToWholesaler) : null,
@@ -422,15 +424,16 @@ export async function updateDrugEntry(req, res, next) {
     const entryId  = parseInt(req.params.entryId);
     const old = await prisma.drugPriceSurveyEntry.findUnique({ where: { id: entryId } });
     if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-    const { brandName, company, dosageForm, priceOfficeToWholesaler, priceWholesalerToPharmacy, pricePharmacyToPatient, notes } = req.body;
+    const { brandName, scientificName, company, dosageForm, priceOfficeToWholesaler, priceWholesalerToPharmacy, pricePharmacyToPatient, notes } = req.body;
     const data = {};
-    if (brandName  !== undefined) data.brandName  = brandName.trim();
-    if (company    !== undefined) data.company    = company?.trim() || null;
-    if (dosageForm !== undefined) data.dosageForm = dosageForm?.trim() || null;
+    if (brandName      !== undefined) data.brandName      = brandName.trim();
+    if (scientificName !== undefined) data.scientificName = scientificName?.trim() || null;
+    if (company        !== undefined) data.company        = company?.trim() || null;
+    if (dosageForm     !== undefined) data.dosageForm     = dosageForm?.trim() || null;
     if (priceOfficeToWholesaler   !== undefined) data.priceOfficeToWholesaler   = priceOfficeToWholesaler   != null ? Number(priceOfficeToWholesaler)   : null;
     if (priceWholesalerToPharmacy !== undefined) data.priceWholesalerToPharmacy = priceWholesalerToPharmacy != null ? Number(priceWholesalerToPharmacy) : null;
     if (pricePharmacyToPatient    !== undefined) data.pricePharmacyToPatient    = pricePharmacyToPatient    != null ? Number(pricePharmacyToPatient)    : null;
-    if (notes      !== undefined) data.notes      = notes?.trim() || null;
+    if (notes          !== undefined) data.notes          = notes?.trim() || null;
     const entry = await prisma.drugPriceSurveyEntry.update({ where: { id: entryId }, data });
     res.json({ success: true, data: entry });
   } catch (e) { next(e); }
@@ -457,13 +460,14 @@ export async function bulkImportDrugEntries(req, res, next) {
       .filter(e => e.brandName?.trim())
       .map(e => ({
         surveyId,
-        brandName: String(e.brandName).trim(),
-        company: e.company?.trim() || null,
-        dosageForm: e.dosageForm?.trim() || null,
+        brandName:     String(e.brandName).trim(),
+        scientificName: e.scientificName?.trim() || null,
+        company:        e.company?.trim() || null,
+        dosageForm:     e.dosageForm?.trim() || null,
         priceOfficeToWholesaler:   e.priceOfficeToWholesaler   != null ? Number(e.priceOfficeToWholesaler)   : null,
         priceWholesalerToPharmacy: e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy) : null,
         pricePharmacyToPatient:    e.pricePharmacyToPatient    != null ? Number(e.pricePharmacyToPatient)    : null,
-        notes: e.notes?.trim() || null,
+        notes:          e.notes?.trim() || null,
         createdAt: new Date(),
         updatedAt: new Date(),
       }));
@@ -478,6 +482,7 @@ export async function bulkImportDrugEntries(req, res, next) {
             brandName: { equals: row.brandName, mode: 'insensitive' },
           },
           data: {
+            ...(row.scientificName !== null ? { scientificName: row.scientificName } : {}),
             priceOfficeToWholesaler:   row.priceOfficeToWholesaler,
             priceWholesalerToPharmacy: row.priceWholesalerToPharmacy,
             pricePharmacyToPatient:    row.pricePharmacyToPatient,

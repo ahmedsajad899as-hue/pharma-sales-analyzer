@@ -1064,9 +1064,10 @@ model DrugPriceSurveyEntry {
   id          Int      @id @default(autoincrement())
   surveyId    Int
 
-  brandName   String
-  company     String?
-  dosageForm  String?
+  brandName      String
+  scientificName String?
+  company        String?
+  dosageForm     String?
 
   priceOfficeToWholesaler   Float?
   priceWholesalerToPharmacy Float?

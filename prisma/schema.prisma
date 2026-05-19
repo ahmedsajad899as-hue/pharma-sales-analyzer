@@ -1125,9 +1125,10 @@ model DrugPriceSurveyEntry {
   id          Int      @id @default(autoincrement())
   surveyId    Int
 
-  brandName   String   // الاسم التجاري
-  company     String?  // اسم الشركة / المصنع
-  dosageForm  String?  // الشكل الدوائي
+  brandName      String   // الاسم التجاري
+  scientificName String?  // الاسم العلمي
+  company        String?  // اسم الشركة / المصنع
+  dosageForm     String?  // الشكل الدوائي
 
   priceOfficeToWholesaler   Float?   // سعر بيع المكتب للمذخر
   priceWholesalerToPharmacy Float?   // سعر بيع المذخر للصيدلية

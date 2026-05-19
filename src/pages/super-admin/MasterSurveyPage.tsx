@@ -14,7 +14,7 @@ interface Survey {
 }
 interface DrugEntry {
   id: number; surveyId: number;
-  brandName: string; company?: string; dosageForm?: string;
+  brandName: string; scientificName?: string; company?: string; dosageForm?: string;
   priceOfficeToWholesaler?: number | null;
   priceWholesalerToPharmacy?: number | null;
   pricePharmacyToPatient?: number | null;
@@ -135,9 +135,10 @@ function downloadTemplate(type: 'doctors' | 'pharmacies') {
 }
 
 // ── Drug price smart Excel detection ─────────────────────────
-type DrugField = 'brandName' | 'dosageForm' | 'company' | 'priceOfficeToWholesaler' | 'priceWholesalerToPharmacy' | 'pricePharmacyToPatient' | 'notes';
+type DrugField = 'brandName' | 'scientificName' | 'dosageForm' | 'company' | 'priceOfficeToWholesaler' | 'priceWholesalerToPharmacy' | 'pricePharmacyToPatient' | 'notes';
 
 const DRUG_FIELD_KEYWORDS: Array<[DrugField, string[]]> = [
+  ['scientificName',           ['الاسم العلمي','الاسم الدوائي','اسم علمي','اسم دوائي','scientific name','scientificname','scientific','generic name','generic','chemical name']],
   ['brandName',                ['الاسم التجاري','اسم الايتم','اسم الدواء','الايتم','الاسم','brand name','brand','drug name','item','name','drug']],
   ['dosageForm',               ['الشكل الدوائي','الشكل','شكل','dosage form','form','dosageform','الصيغه','الصيغة','صيغه']],
   ['company',                  ['اسم الشركه','اسم المصنع','الشركه','المصنع','الشركة','المصنعة','company','manufacturer','manuf','الوكيل','الموزع']],
@@ -880,6 +881,7 @@ export default function MasterSurveyPage() {
   function DrugEntryForm() {
     const [form, setForm] = useState({
       brandName:                editingDrugEntry?.brandName ?? '',
+      scientificName:           editingDrugEntry?.scientificName ?? '',
       company:                  editingDrugEntry?.company ?? '',
       dosageForm:               editingDrugEntry?.dosageForm ?? '',
       priceOfficeToWholesaler:  editingDrugEntry?.priceOfficeToWholesaler?.toString() ?? '',
@@ -897,6 +899,7 @@ export default function MasterSurveyPage() {
       const method = editingDrugEntry ? 'PUT' : 'POST';
       const body = {
         brandName:                form.brandName.trim(),
+        scientificName:           form.scientificName.trim() || null,
         company:                  form.company.trim() || null,
         dosageForm:               form.dosageForm.trim() || null,
         priceOfficeToWholesaler:  form.priceOfficeToWholesaler  ? Number(form.priceOfficeToWholesaler)  : null,
@@ -924,6 +927,10 @@ export default function MasterSurveyPage() {
           <div style={{ gridColumn: '1/-1' }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>الاسم التجاري *</label>
             <input value={form.brandName} onChange={set('brandName')} placeholder="مثال: Lipitor 20mg" style={inputSt} />
+          </div>
+          <div style={{ gridColumn: '1/-1' }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#6366f1', display: 'block', marginBottom: 4 }}>الاسم العلمي (Scientific Name)</label>
+            <input value={form.scientificName} onChange={set('scientificName')} placeholder="مثال: Atorvastatin" style={inputSt} />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>الشركة / المصنع</label>
@@ -1226,8 +1233,8 @@ export default function MasterSurveyPage() {
             )}
             <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
               <button onClick={() => {
-                const hdrs = ['الاسم التجاري','الشكل الدوائي','اسم الشركة/المصنع','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
-                const ex   = ['Lipitor 20mg','أقراص','Pfizer','5.000','6.500','8.750'];
+                const hdrs = ['الاسم التجاري','الاسم العلمي','الشكل الدوائي','اسم الشركة/المصنع','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
+                const ex   = ['Lipitor 20mg','Atorvastatin','أقراص','Pfizer','5.000','6.500','8.750'];
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([hdrs, ex]), 'أسعار الأدوية');
                 XLSX.writeFile(wb, 'نموذج_أسعار_الأدوية.xlsx');
@@ -1261,7 +1268,7 @@ export default function MasterSurveyPage() {
               {/* Column detection summary */}
               {(() => {
                 const FIELD_LABELS: Record<string, string> = {
-                  brandName: 'الاسم التجاري', dosageForm: 'الشكل الدوائي', company: 'الشركة',
+                  brandName: 'الاسم التجاري', scientificName: 'الاسم العلمي', dosageForm: 'الشكل الدوائي', company: 'الشركة',
                   priceOfficeToWholesaler: 'سعر المكتب', priceWholesalerToPharmacy: 'سعر المستودع', pricePharmacyToPatient: 'سعر الصيدلية',
                 };
                 const detected = Object.entries(detectedDrugFields);
@@ -1307,7 +1314,7 @@ export default function MasterSurveyPage() {
               <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ background: '#f1f5f9' }}>
-                    {['الاسم','الشكل','الشركة','مكتب→مستودع','مستودع→صيدلية','صيدلية→مريض'].map(h => (
+                    {['الاسم التجاري','الاسم العلمي','الشكل','الشركة','مكتب→مستودع','مستودع→صيدلية','صيدلية→مريض'].map(h => (
                       <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#374151' }}>{h}</th>
                     ))}
                   </tr></thead>
@@ -1315,6 +1322,7 @@ export default function MasterSurveyPage() {
                     {importDrugPreview.slice(0, 100).map((e, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '5px 8px', fontWeight: 600 }}>{String(e.brandName ?? '')}</td>
+                        <td style={{ padding: '5px 8px', color: '#6366f1' }}>{e.scientificName ? String(e.scientificName) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.dosageForm ? String(e.dosageForm) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.company ? String(e.company) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#059669', fontWeight: 600 }}>
@@ -1400,7 +1408,7 @@ export default function MasterSurveyPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc' }}>
-                      {['الاسم التجاري','الشكل الدوائي','الشركة','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','ملاحظات',''].map(h => (
+                      {['الاسم التجاري','الاسم العلمي','الشكل الدوائي','الشركة','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','ملاحظات',''].map(h => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
                       ))}
                     </tr>
@@ -1409,6 +1417,7 @@ export default function MasterSurveyPage() {
                     {drugEntries.map((entry, i) => (
                       <tr key={entry.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                         <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{entry.brandName}</td>
+                        <td style={{ padding: '8px 12px', color: '#6366f1', fontSize: 12 }}>{entry.scientificName || '—'}</td>
                         <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
                         <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.company || '—'}</td>
                         <td style={{ padding: '8px 12px', color: '#059669', fontWeight: 600 }}>
