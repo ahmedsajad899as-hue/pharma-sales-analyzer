@@ -370,8 +370,10 @@ export async function getReport(id, query = {}) {
 
   // ── Helper: build the sales-row WHERE filter ──────────────────────────────
   // RULE: always restrict to assigned commercial reps (or name-match) FIRST,
-  // then intersect with area/item filters. This ensures sales from unassigned
-  // commercial reps are never included even if they share the same area.
+  // then intersect with area/item filters using AND.
+  // Areas and items both narrow the scope — never expand it with OR.
+  // This ensures a commercial rep's sales in areas NOT assigned to the
+  // scientific rep are never included, even if the item matches.
   const buildSalesWhere = () => {
     const repFilter = hasCommReps
       ? { representativeId: { in: expandedCommRepIds } }
@@ -381,15 +383,10 @@ export async function getReport(id, query = {}) {
 
     if (!repFilter) return null; // no rep info → return nothing
 
-    if (hasAreas && hasItems) {
-      return { AND: [repFilter, { OR: [{ areaId: { in: areaIds } }, { itemId: { in: itemIds } }] }] };
-    } else if (hasAreas) {
-      return { AND: [repFilter, { areaId: { in: areaIds } }] };
-    } else if (hasItems) {
-      return { AND: [repFilter, { itemId: { in: itemIds } }] };
-    } else {
-      return repFilter;
-    }
+    const conditions = [repFilter];
+    if (hasAreas) conditions.push({ areaId: { in: areaIds } });
+    if (hasItems) conditions.push({ itemId: { in: itemIds } });
+    return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 
   console.log('[SciRep.getReport] DEBUG', JSON.stringify({
