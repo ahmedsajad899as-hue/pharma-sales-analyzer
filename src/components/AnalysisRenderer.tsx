@@ -4,11 +4,13 @@
  * Handles: headers, | pipe tables |, bullet lists, bold, numbered lists.
  */
 
-interface Props { text: string; onlySecNum?: number | null; }
+interface Props { text: string; onlySecNum?: number | null; skipSecNums?: number[]; }
 
-export default function AnalysisRenderer({ text, onlySecNum }: Props) {
+export default function AnalysisRenderer({ text, onlySecNum, skipSecNums }: Props) {
   const allSections = parseIntoSections(text);
-  const sections = onlySecNum != null ? allSections.filter(s => s.secNum === onlySecNum) : allSections;
+  let sections = allSections;
+  if (onlySecNum != null) sections = sections.filter(s => s.secNum === onlySecNum);
+  if (skipSecNums && skipSecNums.length) sections = sections.filter(s => s.secNum == null || !skipSecNums.includes(s.secNum));
   return (
     <div className="ar-root">
       {sections.map((sec, i) => (

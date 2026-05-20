@@ -728,6 +728,27 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 </div>
               )}
 
+              {/* Survey competitors info banner */}
+              {marketResult && (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 8, marginBottom: 10,
+                  background: marketPrices.length > 0 ? '#f0fdf4' : '#fffbeb',
+                  border: `1px solid ${marketPrices.length > 0 ? '#bbf7d0' : '#fde68a'}`,
+                  fontSize: 12, color: marketPrices.length > 0 ? '#065f46' : '#92400e',
+                  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                }}>
+                  <span>🔬</span>
+                  {marketPrices.length > 0 ? (
+                    <>
+                      <span><b>{marketPrices.filter(e => !e.isOwnProduct).length}</b> منافس من السيرفي سيُستخدم في التحليل التنافسي</span>
+                      {marketResult.matchMode === 'ai' && <span style={{ background: '#dcfce7', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>تطابق ذكي</span>}
+                    </>
+                  ) : (
+                    <span>لا توجد بيانات منافسين في السيرفي — التحليل سيعتمد على البيانات الداخلية فقط. ارفع سيرفي أسعار للحصول على تحليل تنافسي حقيقي.</span>
+                  )}
+                </div>
+              )}
+
               {aiError && (
                 <div style={{ padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#dc2626', fontSize: 13 }}>
                   ⚠️ {aiError}
@@ -738,14 +759,18 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 <div style={{ padding: 24, background: '#f8fafc', borderRadius: 8, textAlign: 'center', color: '#64748b' }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>🤖</div>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>اضغط الزر أعلاه لتشغيل التحليل الذكي</div>
-                  <div style={{ fontSize: 12, marginTop: 6 }}>سيقوم النظام بتحليل بيانات الإيتم وإصدار تقرير شامل يشمل:</div>
-                  <ul style={{ textAlign: 'right', display: 'inline-block', fontSize: 12, marginTop: 8, color: '#475569' }}>
-                    <li>المعلومات العلمية والمكونات الفعالة</li>
-                    <li>تشخيص أسباب ضعف المبيع</li>
-                    <li>تحليل سلوك الأطباء والصيدليات</li>
-                    <li>5-7 اقتراحات عملية للمندوب</li>
-                    <li>خطة عمل 30 يوم</li>
+                  <div style={{ fontSize: 12, marginTop: 6 }}>سيقارن النظام منتجك بالمنافسين الفعليين من السيرفي ويُصدر تقريراً يشمل:</div>
+                  <ul style={{ textAlign: 'right', display: 'inline-block', fontSize: 12, marginTop: 8, color: '#475569', lineHeight: 1.9 }}>
+                    <li>🏆 جدول مقارنة الأسعار مع المنافسين</li>
+                    <li>💪 نقاط القوة لمنتجك مقابل كل منافس</li>
+                    <li>🎯 تموضع المنتج في السوق</li>
+                    <li>🔍 تشخيص أسباب أداء المبيع</li>
+                    <li>🩺 5-7 اقتراحات عملية للمندوب</li>
+                    <li>📅 خطة عمل 30 يوم تنفيذية</li>
                   </ul>
+                  <div style={{ fontSize: 11, marginTop: 10, color: '#94a3b8', fontStyle: 'italic' }}>
+                    💊 الملف العلمي والأطباء المستهدفون يظهرون في تبويب "المعلومات العلمية"
+                  </div>
                 </div>
               )}
 
@@ -758,7 +783,16 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
 
               {aiInsight && !aiLoading && (
                 <div style={{ background: '#fff' }}>
-                  <AnalysisRenderer text={aiInsight} />
+                  {/* Note: section 1 (Drug Profile) is shown only in the Science tab to avoid duplication */}
+                  <div style={{
+                    padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe',
+                    borderRadius: 8, fontSize: 11, color: '#1d4ed8', marginBottom: 12,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <span>💊</span>
+                    <span>الملف العلمي والأطباء المستهدفون متوفّرون في تبويب <b>المعلومات العلمية</b></span>
+                  </div>
+                  <AnalysisRenderer text={aiInsight} skipSecNums={[1]} />
                 </div>
               )}
             </div>

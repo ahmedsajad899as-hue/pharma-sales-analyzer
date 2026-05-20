@@ -630,6 +630,123 @@ export async function getAIInsight(req, res, next) {
       repDiagnostic: aggregated.repDiagnostic,
     };
 
+    // ── Fetch real survey-based competitor data (drug_prices surveys) ──────
+    // Reuses the same matching logic as getMarketPrices to ensure consistency.
+    let surveyMarket = { ownProduct: null, competitors: [], surveyCount: 0, matchMode: 'none' };
+    try {
+      const surveys = await prisma.masterSurvey.findMany({
+        where: { surveyType: 'drug_prices', isActive: true },
+        select: { id: true, name: true },
+      });
+      if (surveys.length) {
+        const surveyIds = surveys.map(s => s.id);
+        const surveyMap = Object.fromEntries(surveys.map(s => [s.id, s.name]));
+        const allEntries = await prisma.drugPriceSurveyEntry.findMany({
+          where: { surveyId: { in: surveyIds } },
+          orderBy: [{ brandName: 'asc' }],
+        });
+        const aiAnalyses = await prisma.surveyAIAnalysis.findMany({
+          where: { surveyId: { in: surveyIds }, status: 'done' },
+          select: { surveyId: true, analysisJson: true },
+        });
+        const entryMap = Object.fromEntries(allEntries.map(e => [e.id, e]));
+
+        const it = aggregated.item;
+        const normalName = it.name.trim().toLowerCase().replace(/\s+/g, '');
+        const sciName = (it.scientificName || '').trim().toLowerCase();
+
+        if (aiAnalyses.length > 0) {
+          const analyzedEntries = [];
+          for (const ai of aiAnalyses) {
+            try {
+              const arr = JSON.parse(ai.analysisJson);
+              for (const a of arr) analyzedEntries.push({ ...a, _surveyId: ai.surveyId });
+            } catch {}
+          }
+
+          let ownEntry = null;
+          let ownCompetitorGroup = null;
+
+          for (const a of analyzedEntries) {
+            const raw = entryMap[a.entryId];
+            if (!raw) continue;
+            const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
+            const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+            const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+            if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
+              ownEntry = a; ownCompetitorGroup = a.competitorGroup; break;
+            }
+          }
+          if (!ownEntry && sciName) {
+            for (const a of analyzedEntries) {
+              const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
+              if (sciName && ai_sci && (sciName.includes(ai_sci) || ai_sci.includes(sciName))) {
+                ownEntry = a; ownCompetitorGroup = a.competitorGroup; break;
+              }
+            }
+          }
+
+          const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
+          const buildEntry = (e) => {
+            const a = aiMap[e.id] || {};
+            return {
+              brand: e.brandName,
+              company: e.company || null,
+              scientificName: e.scientificName || null,
+              activeIngredient: a.activeIngredient || null,
+              drugClass: a.drugClass || null,
+              dosage: [a.dosageAmount, a.dosageUnit].filter(Boolean).join('') || null,
+              form: a.dosageForm || e.dosageForm || null,
+              packaging: e.packaging || null,
+              priceOfficeToWholesaler: e.priceOfficeToWholesaler ?? null,
+              priceWholesalerToPharmacy: e.priceWholesalerToPharmacy ?? null,
+              pricePharmacyToPatient: e.pricePharmacyToPatient ?? null,
+              surveyName: surveyMap[e.surveyId] || '',
+            };
+          };
+
+          if (ownCompetitorGroup) {
+            const competitorIds = new Set(
+              analyzedEntries.filter(a => a.competitorGroup === ownCompetitorGroup).map(a => a.entryId)
+            );
+            const matched = allEntries.filter(e => competitorIds.has(e.id));
+            const ownRaw = ownEntry ? entryMap[ownEntry.entryId] : null;
+            surveyMarket.ownProduct = ownRaw ? buildEntry(ownRaw) : null;
+            surveyMarket.competitors = matched
+              .filter(e => !ownRaw || e.id !== ownRaw.id)
+              .map(buildEntry);
+            surveyMarket.matchMode = 'ai';
+          }
+        }
+
+        // Fallback fuzzy match if AI did not yield results
+        if (surveyMarket.matchMode === 'none') {
+          const matched = allEntries.filter(e => {
+            const bn = e.brandName.trim().toLowerCase();
+            return bn.includes(normalName) || normalName.includes(bn) ||
+              (sciName && (bn.includes(sciName) || sciName.includes(bn)));
+          });
+          if (matched.length) {
+            surveyMarket.competitors = matched.map(e => ({
+              brand: e.brandName,
+              company: e.company || null,
+              scientificName: e.scientificName || null,
+              form: e.dosageForm || null,
+              packaging: e.packaging || null,
+              priceOfficeToWholesaler: e.priceOfficeToWholesaler ?? null,
+              priceWholesalerToPharmacy: e.priceWholesalerToPharmacy ?? null,
+              pricePharmacyToPatient: e.pricePharmacyToPatient ?? null,
+              surveyName: surveyMap[e.surveyId] || '',
+            }));
+            surveyMarket.matchMode = 'fuzzy';
+          }
+        }
+        surveyMarket.surveyCount = surveys.length;
+      }
+    } catch (err) {
+      console.warn('[item-analysis] survey market fetch failed:', err?.message);
+    }
+
     const it = slim.item;
     const hasRep = !!slim.repName && !!slim.repDiagnostic;
 
@@ -691,66 +808,104 @@ ${JSON.stringify(slim.doctorVisits, null, 2)}
 # زيارات الصيدليات
 ${JSON.stringify(slim.pharmacyVisits, null, 2)}
 
-# منافسون داخل نفس الشركة
+# منافسون داخل نفس الشركة (مبيع داخلي)
 ${JSON.stringify(slim.competitors, null, 2)}
+
+# 🔬 بيانات السيرفي الحقيقية للمنافسين (من ملف السوبر ادمن)
+نمط التطابق: ${surveyMarket.matchMode} — عدد السيرفيات الفعّالة: ${surveyMarket.surveyCount}
+${surveyMarket.ownProduct ? `## منتجنا (مُطابَق من السيرفي):
+${JSON.stringify(surveyMarket.ownProduct, null, 2)}` : '## منتجنا غير موجود في السيرفي — اعتمد على بيانات الإيتم أعلاه فقط.'}
+
+## المنافسون من السيرفي (${surveyMarket.competitors.length} منافس بنفس المادة الفعالة/الجرعة/الشكل):
+${surveyMarket.competitors.length ? JSON.stringify(surveyMarket.competitors, null, 2) : 'لا توجد منافسين في السيرفي.'}
 ${repBlock}
 
 # المطلوب
-اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي). لا تكتفِ بالعموميات، اربط كل استنتاج بأرقام محددة من البيانات أعلاه.
+اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط. استخدم العناوين الرئيسية بصيغة (## رقم. عنوان) كما هي. اربط كل استنتاج بأرقام محددة من البيانات أعلاه. تجنّب الإطالة والعموميات.
 
-## 💊 1. Scientific Drug Profile (الملف العلمي)
-Write this section **in English medical terminology**. Use Arabic only in parentheses for critical label terms. Keep all phrases short, factual, and clinically precise. Use the following exact structure (one compact line or 2-3 words per field, no verbose sentences):
+## 💊 1. الملف العلمي للدواء (Drug Profile)
+هذا القسم يُعرض في تبويب "المعلومات العلمية" — اجعله ملف علمي رسمي ومرجعي. استخدم تنسيق KV (مفتاح: قيمة) مختصر ومرتّب.
 
-**Brand:** [name] | **Generic (الاسم العلمي):** [active ingredient(s)]
-**Drug Class (الفئة):** [class] | **Form (الشكل):** [dosage form] | **Strength:** [dosage]
-**Mechanism (آلية العمل):** [1 concise sentence — how it works at cellular/molecular level]
-**Indications (الاستخدامات):** [comma-separated, 4-6 items max]
-**Off-label Uses:** [2-3 items or "Not established"]
-**Contraindications (الموانع):** [key contraindications as comma-separated]
-**Side Effects — Common (شائعة):** [list] | **Serious (خطيرة):** [list]
-**Pregnancy (الحمل):** FDA Cat. [X] — [brief 1-line note] | **Breastfeeding:** [Safe / Avoid / Caution]
-**Drug Interactions (تداخلات):** [Top 3-5 as comma-separated]
-**Pharmacokinetics:** Onset [X] | T½ [X] | Bioavailability [X%] | Excretion [renal/hepatic]
-**Target Population (الفئة المستهدفة):** [Adults / Children / Both] — [key cautions]
+**Brand:** [اسم] | **Generic (الاسم العلمي):** [المادة الفعّالة]
+**Drug Class (الفئة):** [الفئة العلاجية]
+**Mechanism of Action (آلية العمل):** [جملة واحدة دقيقة]
+**Indications (الاستخدامات الرئيسية):** [4-6 استخدامات]
+**Contraindications (موانع الاستعمال):** [أهم 3-5]
+**Common Side Effects (الأعراض الشائعة):** [قائمة]
+**Serious Side Effects (الأعراض الخطيرة):** [قائمة]
+**Pregnancy Category:** [FDA Cat. X — ملاحظة]
+**Drug Interactions (تداخلات دوائية رئيسية):** [أهم 3-5]
+**Pharmacokinetics:** Onset [..] | T½ [..] | Bioavailability [..] | Excretion [renal/hepatic]
 
-## 🩺 2. التخصصات الطبية الأكثر وصفاً
-استنتج علمياً + استدل من بيانات الزيارات: ما هي التخصصات التي تصف هذا الدواء عادةً؟ (Cardiologist, GP, Pediatrician, OB-GYN, ...) رتّبها حسب الأهمية.
+### 🩺 الأطباء المستهدفون والأكثر وصفاً
+استنتج علمياً + استدل من بيانات الزيارات أعلاه:
+- اذكر تخصصات الأطباء الذين يصفون هذا الدواء عادة (Cardiologist, GP, Pediatrician, ...)
+- رتّبهم حسب الأهمية (الأكثر وصفاً أولاً)
+- لكل تخصص، اذكر السبب باختصار (لماذا هذا التخصص مهم لهذا الدواء)
 
-## 🏆 3. تحليل المنافسة العميق
-### أ. منافسون بنفس الاسم العلمي (Generic equivalents)
-اذكر أبرز البدائل بنفس المكون الفعّال في السوق العراقي/الإقليمي، مع نقاط التميّز عنها.
-### ب. منافسون بفئة علاجية مماثلة (Class competitors)
-أدوية مختلفة الاسم العلمي لكن تعطي نفس التأثير العلاجي.
-### ج. نقاط القوة والضعف لإيتمنا
-قارن صراحةً: ما الذي يجعل إيتمنا أفضل/أسوأ من المنافسين؟ السعر، الجرعة، الأعراض، الشكل، الشركة، الـbioavailability.
+### 💡 الرسالة العلمية المختصرة
+3 نقاط رئيسية يمكن للمندوب استخدامها مع الطبيب — صياغة قصيرة وواضحة.
 
-## 📊 4. انتشار السوق
-بناءً على بيانات الزيارات والمبيعات: ما تقديرك لانتشار هذا الدواء في السوق؟ ما حصته السوقية النسبية؟ هل هو في طور النمو أم التراجع؟
+## 🏆 2. التحليل التنافسي العميق (Competitive Analysis)
+هذا أهم قسم — اعتمد بشكل أساسي على بيانات السيرفي الحقيقية أعلاه (\`surveyMarket\`) ولا تخترع منافسين غير موجودين فيها.
 
-## 🔍 5. التشخيص العام لضعف المبيع
-حلل الأسباب الجذرية (ليس فقط الأرقام): مقارنة المناطق، الموسمية، علاقة الفيدباك بالمبيعات، فجوات التوزيع.
+### أ. جدول مقارنة الأسعار (من السيرفي)
+${surveyMarket.competitors.length || surveyMarket.ownProduct ? 'أنشئ جدولاً Markdown بالأعمدة التالية لكل منتج (منتجنا أولاً ثم المنافسون):' : 'لا توجد بيانات سيرفي — اذكر ذلك صراحةً واطلب رفع سيرفي أسعار.'}
+
+| المنتج | الشركة | الجرعة | الشكل | التعبئة | مكتب←مذخر | مذخر←صيدلية | صيدلية←مريض |
+|---|---|---|---|---|---|---|---|
+
+استخدم الأرقام كما هي من \`surveyMarket\`. ضع منتجنا في السطر الأول. إذا حقل غير موجود ضع "—".
+
+### ب. تحليل نقاط القوة لمنتجنا مقابل كل منافس
+لكل منافس في \`surveyMarket.competitors\`، اكتب فقرة قصيرة (سطرين) تقارن:
+- **السعر**: هل منتجنا أرخص/أغلى؟ بكم نسبة مئوية؟
+- **التعبئة والشكل الدوائي**: ميزة لنا أو للمنافس؟
+- **الشركة المُصنّعة**: السمعة، التوفر في السوق
+- **خلاصة**: نقطة قوة محددة يمكن للمندوب استخدامها
+
+### ج. تموضع منتجنا في السوق (Market Positioning)
+- أين يقع منتجنا في خانة السعر (أرخص / متوسط / أغلى)؟
+- ما الفئة المستهدفة المثالية بناءً على هذا التموضع؟
+- استراتيجية البيع المقترحة (سعر تنافسي، جودة عالية، توفر، علاقة مع طبيب…)
+
+## 🔍 3. تشخيص أداء المبيع
+حلل الأسباب الجذرية بالاعتماد على الأرقام:
+- **نمط النمو**: هل المبيع ينمو، مستقر، أم يتراجع؟ (من \`monthlyTrend\`)
+- **التوزيع الجغرافي**: مناطق قوية vs مناطق ضعيفة، وما السبب
+- **العلاقة بين الزيارات والمبيع**: هل الزيارات تتحول إلى طلبات؟
+- **سلوك الفيدباك**: ماذا تقول ملاحظات الأطباء؟ (من \`notesSamples\`)
+- **فجوات التوزيع**: صيدليات بدون مبيع، مناطق غير مغطاة
 ${hasRep ? `
-## 👤 6. التشخيص الخاص بالمندوب: ${slim.repName}
+## 👤 4. التشخيص الخاص بالمندوب: ${slim.repName}
 طبّق القواعد التشخيصية السبع المذكورة أعلاه على بيانات هذا المندوب. لكل قاعدة تنطبق:
-- **اذكر الرقم المحدد** من البيانات (مثلاً: "callCount=3 < 5 → قلة كولات واضحة")
+- **اذكر الرقم المحدد** (مثلاً: "callCount=3 < 5 → قلة كولات واضحة")
 - **حدد السبب الجذري**
 - **اقترح إجراءً تصحيحياً محدداً** قابلاً للقياس
-
 لا تذكر القواعد التي لا تنطبق. ركّز على الأكثر تأثيراً.
 ` : ''}
-## 🎯 ${hasRep ? '7' : '6'}. اقتراحات عملية ${hasRep ? `للمندوب ${slim.repName}` : 'لفريق المبيعات'} (5-7 نقاط مرقّمة)
-رسائل علمية محددة لكل تخصص، استراتيجيات زيارة، التعامل مع الاعتراضات الشائعة، أطباء وصيدليات تستحق التركيز.
+## 🎯 ${hasRep ? '5' : '4'}. اقتراحات عملية ${hasRep ? `للمندوب ${slim.repName}` : 'لفريق المبيعات'}
+5-7 نقاط مرقّمة. كل نقطة:
+- **الفعل المحدد** (ماذا يفعل بالضبط)
+- **مع من** (طبيب، صيدلية، منطقة)
+- **متى** (الأسبوع القادم، خلال شهر)
+- **النتيجة المتوقعة** (قابلة للقياس)
 
-## 📅 ${hasRep ? '8' : '7'}. خطة عمل 30 يوم تنفيذية
-جدول بأربعة أعمدة | الأسبوع | الإجراء | المخرج المتوقع | المؤشر |
+## 📅 ${hasRep ? '6' : '5'}. خطة عمل 30 يوم تنفيذية
+جدول بأربعة أعمدة:
+
+| الأسبوع | الإجراء | المخرج المتوقع | المؤشر |
+|---|---|---|---|
+
 خطة مرتبطة مباشرةً بالتشخيص أعلاه. ${hasRep ? 'خاصة بهذا المندوب.' : 'موجّهة للفريق ككل.'}
 
-# قواعد عامة
-- استشهد بأرقام محددة في كل استنتاج
-- تجنّب العموميات والكلام الإنشائي
-- إذا كانت بيانات معيّنة غير متوفرة، قل ذلك صراحةً بدلاً من اختلاق أرقام
-- المعلومات العلمية يجب أن تكون دقيقة طبياً ومستندة إلى مصادر معروفة
-- في قسم التشخيص الخاص بالمندوب، طبّق القواعد بحرفية ولا تخترع قواعد جديدة`;
+# قواعد عامة صارمة
+- ⚠️ **لا تخترع منافسين غير موجودين في \`surveyMarket\`** — إذا كانت قائمة المنافسين فارغة، قل ذلك صراحةً
+- استشهد بأرقام محددة في كل استنتاج (سعر، عدد، نسبة)
+- لا تكتب فقرات إنشائية طويلة — كل فكرة في سطر أو سطرين
+- استخدم الجداول والقوائم بدل الفقرات الطويلة
+- المعلومات العلمية يجب أن تكون دقيقة طبياً
+- لا تكرر العناوين، لا تخلط الأقسام، التزم بالترقيم بدقة`;
 
     let insight;
     try {
