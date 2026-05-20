@@ -13,6 +13,62 @@ function norm(s = '') {
     .toLowerCase();
 }
 
+// ─── Active ingredient fuzzy matching ────────────────────────
+// Strips salt forms, dosage, and non-letters to compare ingredient stems.
+const SALT_SUFFIX_RX = /\b(as|the|of|and|or|with|free\s*base|anhydrous|sodium|potassium|calcium|magnesium|zinc|hcl|hbr|hydrochloride|hydrobromide|sulfate|sulphate|phosphate|sesquihydrate|monohydrate|dihydrate|trihydrate|maleate|fumarate|tartrate|citrate|succinate|besylate|mesylate|tosylate|acetate|chloride|bromide|nitrate|carbonate|bicarbonate|gluconate|lactate|oxalate|salicylate|stearate|palmitate|hemifumarate|disoproxil|alafenamide|propionate|valerate|benzoate|dipropionate|furoate|pivalate|enanthate|decanoate|undecanoate|cypionate|fumar|maleat|tartrat|citrat|sulf|phosph)\b/g;
+function normalizeActive(s) {
+  if (!s) return '';
+  return String(s).toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\d+(\.\d+)?\s*(mg|mcg|g|ml|iu|%|units?)/g, ' ')
+    .replace(SALT_SUFFIX_RX, ' ')
+    .replace(/[^a-z]/g, '');
+}
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const m = [];
+  for (let i = 0; i <= b.length; i++) m[i] = [i];
+  for (let j = 0; j <= a.length; j++) m[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      m[i][j] = b.charAt(i - 1) === a.charAt(j - 1)
+        ? m[i - 1][j - 1]
+        : Math.min(m[i - 1][j - 1] + 1, m[i][j - 1] + 1, m[i - 1][j] + 1);
+    }
+  }
+  return m[b.length][a.length];
+}
+// Returns true if the two raw ingredient strings refer to the same active substance
+// (handles typos, salt suffixes, and one-side multi-ingredient combos).
+function isSimilarActive(a, b) {
+  const na = normalizeActive(a);
+  const nb = normalizeActive(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  // Substring (must be at least 5 chars) — handles "pantoprazole" inside "pantoprazolesodium"
+  const minLen = Math.min(na.length, nb.length);
+  if (minLen >= 5 && (na.includes(nb) || nb.includes(na))) return true;
+  // Edit distance threshold scales with length: catches common typos like
+  //   pantoprazol vs pantaprazol (1) or amoxicillin vs amoxycillin (1)
+  const maxLen = Math.max(na.length, nb.length);
+  const threshold = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
+  return levenshtein(na, nb) <= threshold;
+}
+// Multi-ingredient awareness: split on '+' or '/' or ',' and try any token match
+function activeMatchesAny(itemActive, candidate) {
+  if (!itemActive || !candidate) return false;
+  const itemTokens = String(itemActive).split(/[+/,]+/).map(t => t.trim()).filter(Boolean);
+  const candTokens = String(candidate).split(/[+/,]+/).map(t => t.trim()).filter(Boolean);
+  for (const a of itemTokens) {
+    for (const b of candTokens) {
+      if (isSimilarActive(a, b)) return true;
+    }
+  }
+  return false;
+}
+
 function buildFileFilter(fileIds) {
   if (!fileIds) return {};
   const ids = String(fileIds).split(',').map(Number).filter(Boolean);
@@ -679,8 +735,7 @@ export async function getAIInsight(req, res, next) {
           }
           if (!ownEntry && sciName) {
             for (const a of analyzedEntries) {
-              const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
-              if (sciName && ai_sci && (sciName.includes(ai_sci) || ai_sci.includes(sciName))) {
+              if (activeMatchesAny(sciName, a.activeIngredient)) {
                 ownEntry = a; ownCompetitorGroup = a.competitorGroup; break;
               }
             }
@@ -705,26 +760,32 @@ export async function getAIInsight(req, res, next) {
             };
           };
 
-          if (ownCompetitorGroup) {
-            const competitorIds = new Set(
-              analyzedEntries.filter(a => a.competitorGroup === ownCompetitorGroup).map(a => a.entryId)
-            );
-            const matched = allEntries.filter(e => competitorIds.has(e.id));
-            const ownRaw = ownEntry ? entryMap[ownEntry.entryId] : null;
-            surveyMarket.ownProduct = ownRaw ? buildEntry(ownRaw) : null;
-            surveyMarket.competitors = matched
-              .filter(e => !ownRaw || e.id !== ownRaw.id)
-              .map(buildEntry);
-            surveyMarket.matchMode = 'ai';
-          }
+          // Match ALL entries with similar active ingredient (any dosage/form),
+          // using fuzzy comparison to catch typos like pantoprazol vs pantaprazol.
+          const ownActive = ownEntry?.activeIngredient || sciName || it.name;
+          const matched = allEntries.filter(e => {
+            const ai = aiMap[e.id];
+            const candidate = ai?.activeIngredient || e.scientificName;
+            if (activeMatchesAny(ownActive, candidate)) return true;
+            if (!candidate && e.brandName && activeMatchesAny(ownActive, e.brandName)) return true;
+            return false;
+          });
+
+          const ownRaw = ownEntry ? entryMap[ownEntry.entryId] : null;
+          surveyMarket.ownProduct = ownRaw ? buildEntry(ownRaw) : null;
+          surveyMarket.competitors = matched
+            .filter(e => !ownRaw || e.id !== ownRaw.id)
+            .map(buildEntry);
+          if (matched.length) surveyMarket.matchMode = 'ai';
         }
 
         // Fallback fuzzy match if AI did not yield results
         if (surveyMarket.matchMode === 'none') {
+          const searchActive = sciName || it.name;
           const matched = allEntries.filter(e => {
-            const bn = e.brandName.trim().toLowerCase();
-            return bn.includes(normalName) || normalName.includes(bn) ||
-              (sciName && (bn.includes(sciName) || sciName.includes(bn)));
+            if (e.scientificName && activeMatchesAny(searchActive, e.scientificName)) return true;
+            if (!e.scientificName && e.brandName && activeMatchesAny(searchActive, e.brandName)) return true;
+            return false;
           });
           if (matched.length) {
             surveyMarket.competitors = matched.map(e => ({
@@ -1154,63 +1215,52 @@ export async function getMarketPrices(req, res, next) {
       }
 
       const normalName = item.name.trim().toLowerCase().replace(/\s+/g, '');
-      const sciName = (item.scientificName || '').trim().toLowerCase();
+      const sciName = (item.scientificName || '').trim();
 
       // Step 1: Find the own-product entry (closest brand name match)
       let ownEntry = null;
-      let ownCompetitorGroup = null;
 
       // Try exact/near brand match first
       for (const a of analyzedEntries) {
         const raw = entryMap[a.entryId];
         if (!raw) continue;
         const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
-        // Match if one contains the other (brand name without dosage suffix)
         const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
         const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
         if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
           ownEntry = a;
-          ownCompetitorGroup = a.competitorGroup;
           break;
         }
       }
 
-      // Fallback: match by activeIngredient vs scientificName
+      // Fallback: fuzzy active-ingredient match (handles typos)
       if (!ownEntry && sciName) {
         for (const a of analyzedEntries) {
-          const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
-          if (sciName && ai_sci && (sciName.includes(ai_sci) || ai_sci.includes(sciName))) {
+          if (activeMatchesAny(sciName, a.activeIngredient)) {
             ownEntry = a;
-            ownCompetitorGroup = a.competitorGroup;
             break;
           }
         }
       }
 
-      // Step 2: Find all competitors in same competitorGroup
-      let matchedEntries;
-      if (ownCompetitorGroup) {
-        const competitorIds = new Set(
-          analyzedEntries
-            .filter(a => a.competitorGroup === ownCompetitorGroup)
-            .map(a => a.entryId)
-        );
-        matchedEntries = allEntries.filter(e => competitorIds.has(e.id));
-      } else {
-        // No AI match found — fallback to fuzzy text match
-        const normalizedName = item.name.trim().toLowerCase();
-        matchedEntries = allEntries.filter(e => {
-          const bn = e.brandName.trim().toLowerCase();
-          return (
-            bn.includes(normalizedName) ||
-            normalizedName.includes(bn) ||
-            (sciName && (bn.includes(sciName) || sciName.includes(bn)))
-          );
-        });
-      }
+      // Step 2: Determine the canonical active ingredient to search by.
+      // Priority: AI-identified own product → item's scientific name → item brand name
+      const ownActive = ownEntry?.activeIngredient || sciName || item.name;
 
-      // Build the AI analysis map for richer frontend data
+      // Match ALL entries whose active ingredient is similar — across any
+      // dosage / form / packaging — so the user sees every related competitor.
       const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
+
+      const matchedEntries = allEntries.filter(e => {
+        const ai = aiMap[e.id];
+        // Try AI-extracted active ingredient first; fall back to raw scientific name
+        const candidate = ai?.activeIngredient || e.scientificName;
+        if (activeMatchesAny(ownActive, candidate)) return true;
+        // Also catch entries whose brand name itself contains the active stem
+        // (rare cases where AI failed and scientific name is empty)
+        if (!candidate && e.brandName && activeMatchesAny(ownActive, e.brandName)) return true;
+        return false;
+      });
 
       const data = matchedEntries.map(e => {
         const ai = aiMap[e.id];
@@ -1231,22 +1281,29 @@ export async function getMarketPrices(req, res, next) {
       // Sort: own product first, then competitors
       data.sort((a, b) => (b.isOwnProduct ? 1 : 0) - (a.isOwnProduct ? 1 : 0));
 
-      return res.json({ data, surveyCount: surveys.length, matchMode: 'ai', surveysAnalyzed: aiAnalyses.length });
+      return res.json({
+        data, surveyCount: surveys.length, matchMode: 'ai', surveysAnalyzed: aiAnalyses.length,
+        searchedActive: ownActive,
+      });
     }
 
-    // ── Fallback: simple fuzzy matching (no AI analysis available) ────────
-    const normalizedName = item.name.trim().toLowerCase();
-    const sciName = (item.scientificName || '').trim().toLowerCase();
+    // ── Fallback: fuzzy active-ingredient matching (no AI analysis available) ────────
+    // Even without survey AI analysis, still match by similar scientific names so
+    // typos like "pantaprazol" vs "pantoprazole" are caught.
+    const sciName = (item.scientificName || '').trim();
+    const searchActive = sciName || item.name;
     const matched = allEntries.filter(e => {
-      const bn = e.brandName.trim().toLowerCase();
-      return (
-        bn.includes(normalizedName) ||
-        normalizedName.includes(bn) ||
-        (sciName && (bn.includes(sciName) || sciName.includes(bn)))
-      );
+      // Compare the item's active ingredient against the entry's scientific name
+      // (preferred) and brand name (fallback).
+      if (e.scientificName && activeMatchesAny(searchActive, e.scientificName)) return true;
+      if (!e.scientificName && e.brandName && activeMatchesAny(searchActive, e.brandName)) return true;
+      return false;
     });
 
     const data = matched.map(e => ({ ...e, surveyName: surveyMap[e.surveyId] || '' }));
-    res.json({ data, surveyCount: surveys.length, matchMode: 'fuzzy', surveysAnalyzed: 0 });
+    res.json({
+      data, surveyCount: surveys.length, matchMode: 'fuzzy', surveysAnalyzed: 0,
+      searchedActive: searchActive,
+    });
   } catch (e) { next(e); }
 }

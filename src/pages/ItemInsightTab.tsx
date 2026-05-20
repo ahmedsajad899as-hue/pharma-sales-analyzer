@@ -126,6 +126,7 @@ interface MarketPricesResult {
   surveyCount: number;
   matchMode: 'ai' | 'fuzzy' | 'none';
   surveysAnalyzed: number;
+  searchedActive?: string | null;
 }
 
 type SubTab = 'overview' | 'sales' | 'visits' | 'science' | 'ai' | 'market';
@@ -811,9 +812,14 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                   <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>💰 أسعار السوق والمنافسون</div>
                   <div style={{ fontSize: 12, opacity: 0.85 }}>
                     بيانات مُستخرجة من سيرفيات أسعار الأدوية
-                    {marketResult?.matchMode === 'ai' && <span style={{ marginRight: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>🤖 تطابق ذكي</span>}
-                    {marketResult?.matchMode === 'fuzzy' && <span style={{ marginRight: 8, background: 'rgba(255,255,255,0.15)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>🔍 تطابق نصي</span>}
+                    {marketResult?.matchMode === 'ai' && <span style={{ marginRight: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>🤖 بحث ذكي بالاسم العلمي</span>}
+                    {marketResult?.matchMode === 'fuzzy' && <span style={{ marginRight: 8, background: 'rgba(255,255,255,0.15)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>🔍 بحث نصي ذكي</span>}
                   </div>
+                  {marketResult?.searchedActive && (
+                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 3 }}>
+                      🧪 يتم البحث عن المنافسين بالمكوّن الفعّال: <strong>{marketResult.searchedActive}</strong>
+                    </div>
+                  )}
                 </div>
                 {isManagerOrAdmin && (
                   <button
