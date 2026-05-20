@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 
 // ── Types ────────────────────────────────────────────────────
 interface Survey {
-  id: number; name: string; description?: string;
-  _count: { doctors: number; pharmacies: number };
+  id: number; name: string; description?: string; surveyType: string;
+  _count: { doctors: number; pharmacies: number; drugEntries?: number };
 }
 interface SurveyDoctor {
   id: number; name: string; specialty?: string; areaName?: string;
@@ -16,6 +16,14 @@ interface SurveyPharmacy {
   id: number; name: string; ownerName?: string; phone?: string;
   address?: string; areaName?: string; notes?: string;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
+}
+interface DrugEntry {
+  id: number; surveyId: number;
+  brandName: string; scientificName?: string; company?: string; dosageForm?: string; packaging?: string | null;
+  priceOfficeToWholesaler?: number | null;
+  priceWholesalerToPharmacy?: number | null;
+  pricePharmacyToPatient?: number | null;
+  notes?: string;
 }
 interface SurveyDetail extends Survey {
   doctors: SurveyDoctor[];
@@ -70,7 +78,7 @@ export default function SurveyPage() {
 
   const [surveys,        setSurveys]        = useState<Survey[]>([]);
   const [selectedSurvey, setSelectedSurvey] = useState<SurveyDetail | null>(null);
-  const [tab,            setTab]            = useState<'doctors' | 'pharmacies'>('doctors');
+  const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'drug_prices'>('doctors');
   const [loading,        setLoading]        = useState(true);
   const [toast,          setToast]          = useState<string | null>(null);
 
@@ -84,6 +92,15 @@ export default function SurveyPage() {
   const [addingDoc,      setAddingDoc]      = useState(false);
   const [addingPharma,   setAddingPharma]   = useState(false);
 
+  // Drug entries state
+  const [drugEntries,        setDrugEntries]        = useState<DrugEntry[]>([]);
+  const [drugEntriesTotal,   setDrugEntriesTotal]   = useState(0);
+  const [drugEntriesPage,    setDrugEntriesPage]    = useState(1);
+  const [drugEntriesPages,   setDrugEntriesPages]   = useState(1);
+  const [drugEntriesLoading, setDrugEntriesLoading] = useState(false);
+  const [drugSearch,         setDrugSearch]         = useState('');
+  const drugSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Back button: close open modals in priority order
   useBackHandler([
     [editingDoc !== null,    () => setEditingDoc(null)],
@@ -94,6 +111,23 @@ export default function SurveyPage() {
   ]);
 
   const showToast = (msg: string) => setToast(msg);
+
+  // ── Fetch drug entries ──
+  const loadDrugEntries = useCallback(async (id: number, search = '', page = 1) => {
+    setDrugEntriesLoading(true);
+    try {
+      const qs = new URLSearchParams({ page: String(page), limit: '100' });
+      if (search.trim()) qs.set('search', search.trim());
+      const r = await fetch(`/api/master-surveys/${id}/drug-entries?${qs}`, { headers: H() });
+      const d = await r.json();
+      if (d.success) {
+        setDrugEntries(d.data);
+        setDrugEntriesTotal(d.total ?? 0);
+        setDrugEntriesPage(d.page ?? 1);
+        setDrugEntriesPages(d.pages ?? 1);
+      }
+    } finally { setDrugEntriesLoading(false); }
+  }, [H]);
 
   // ── Fetch surveys ──
   const fetchSurveys = useCallback(async () => {
@@ -127,7 +161,12 @@ export default function SurveyPage() {
   const openSurvey = async (id: number) => {
     const r = await fetch(`/api/master-surveys/${id}${repParam}`, { headers: H() });
     const d = await r.json();
-    if (d.success) { setSelectedSurvey(d.data); setTab('doctors'); }
+    if (d.success) {
+      setSelectedSurvey(d.data);
+      const isDrug = d.data.surveyType === 'drug_prices';
+      setTab(isDrug ? 'drug_prices' : 'doctors');
+      if (isDrug) { setDrugSearch(''); setDrugEntriesPage(1); loadDrugEntries(id, '', 1); }
+    }
   };
 
   const reloadSurvey = async () => {
@@ -317,8 +356,13 @@ export default function SurveyPage() {
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>{s.name}</div>
                 {s.description && <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{s.description}</p>}
                 <div style={{ display: 'flex', gap: 14 }}>
-                  <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700 }}>🩺 {s._count.doctors} طبيب</span>
-                  <span style={{ fontSize: 13, color: '#f97316', fontWeight: 700 }}>🏪 {s._count.pharmacies} صيدلية</span>
+                  {s.surveyType === 'drug_prices'
+                    ? <span style={{ fontSize: 13, color: '#059669', fontWeight: 700 }}>💊 {(s._count.drugEntries ?? 0).toLocaleString('ar-IQ')} دواء</span>
+                    : <>
+                        <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700 }}>🩺 {s._count.doctors} طبيب</span>
+                        <span style={{ fontSize: 13, color: '#f97316', fontWeight: 700 }}>🏪 {s._count.pharmacies} صيدلية</span>
+                      </>
+                  }
                 </div>
               </button>
             ))}
@@ -358,8 +402,8 @@ export default function SurveyPage() {
         </div>
       )}
 
-      {/* Rep Selector (company_manager only) */}
-      {isCompanyManager && reps.length > 0 && (
+      {/* Rep Selector (company_manager only, only for non-drug-prices surveys) */}
+      {isCompanyManager && reps.length > 0 && selectedSurvey.surveyType !== 'drug_prices' && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10,
           background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12,
@@ -390,11 +434,17 @@ export default function SurveyPage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #f1f5f9', marginBottom: 20 }}>
-        {[
+        {selectedSurvey.surveyType === 'drug_prices' ? (
+          <button style={{
+            padding: '10px 18px', border: 'none', cursor: 'default', fontWeight: 700, fontSize: 13,
+            background: 'transparent', fontFamily: 'inherit',
+            borderBottom: '2px solid #059669', color: '#059669', marginBottom: -2,
+          }}>💊 أسعار الأدوية ({drugEntriesTotal.toLocaleString('ar-IQ')})</button>
+        ) : [
           { id: 'doctors' as const,    label: `🩺 الأطباء (${selectedSurvey.doctors.length})` },
           { id: 'pharmacies' as const, label: `🏪 الصيدليات (${selectedSurvey.pharmacies.length})` },
         ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
+          <button key={t.id} onClick={() => setTab(t.id as any)} style={{
             padding: '10px 18px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13,
             background: 'transparent', fontFamily: 'inherit',
             borderBottom: tab === t.id ? '2px solid #8B1A1A' : '2px solid transparent',
@@ -429,6 +479,22 @@ export default function SurveyPage() {
                 ➕ إضافة صيدلية
               </button>
             </>
+          )}
+          {tab === 'drug_prices' && (
+            <input
+              placeholder="🔍 ابحث عن دواء..."
+              value={drugSearch}
+              onChange={e => {
+                const v = e.target.value;
+                setDrugSearch(v);
+                if (drugSearchTimer.current) clearTimeout(drugSearchTimer.current);
+                drugSearchTimer.current = setTimeout(() => {
+                  setDrugEntriesPage(1);
+                  loadDrugEntries(selectedSurvey.id, v, 1);
+                }, 350);
+              }}
+              style={inputStyleInline}
+            />
           )}
         </div>
       </div>
@@ -516,6 +582,63 @@ export default function SurveyPage() {
         )
       )}
 
+      {/* Drug Prices Table */}
+      {tab === 'drug_prices' && (
+        drugEntriesLoading ? <Spinner /> : drugEntries.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f8fafc', borderRadius: 14, border: '1.5px dashed #e2e8f0' }}>
+            {drugSearch ? `لا توجد نتائج لـ “${drugSearch}”` : 'لا توجد بيانات أسعار بعد'}
+          </div>
+        ) : (
+          <>
+            {/* pagination */}
+            {drugEntriesPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, fontSize: 12, color: '#64748b' }}>
+                <span>{drugEntriesTotal.toLocaleString('ar-IQ')} دواء إجمالاً</span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button disabled={drugEntriesPage <= 1} onClick={() => { const p = drugEntriesPage - 1; loadDrugEntries(selectedSurvey.id, drugSearch, p); }}
+                    style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage <= 1 ? 0.4 : 1 }}>←</button>
+                  <span style={{ fontWeight: 600, color: '#374151' }}>{drugEntriesPage} / {drugEntriesPages}</span>
+                  <button disabled={drugEntriesPage >= drugEntriesPages} onClick={() => { const p = drugEntriesPage + 1; loadDrugEntries(selectedSurvey.id, drugSearch, p); }}
+                    style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage >= drugEntriesPages ? 0.4 : 1 }}>→</button>
+                </div>
+              </div>
+            )}
+            <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #e8edf5' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','سعر المكتب→مذخر','سعر مذخر→صيدلية','سعر صيدلية→مريض','ملاحظات'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {drugEntries.map((e, i) => (
+                    <tr key={e.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 700, color: '#1e293b' }}>{e.brandName}</td>
+                      <td style={{ padding: '8px 12px', color: '#6366f1', fontSize: 12 }}>{e.scientificName || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: '#64748b' }}>{e.dosageForm || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: '#64748b' }}>{e.packaging || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: '#64748b' }}>{e.company || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: '#059669', fontWeight: 600 }}>
+                        {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#d97706', fontWeight: 600 }}>
+                        {e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#dc2626', fontWeight: 600 }}>
+                        {e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      )}
+
       {/* Modals */}
       {(editingDoc || addingDoc)    && <EditDoctorModal   doc={editingDoc}    onClose={() => { setEditingDoc(null);    setAddingDoc(false); }} />}
       {(editingPharma || addingPharma) && <EditPharmacyModal pharma={editingPharma} onClose={() => { setEditingPharma(null); setAddingPharma(false); }} />}
@@ -529,6 +652,11 @@ const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
   borderRadius: 9, fontSize: 13, outline: 'none', boxSizing: 'border-box',
   fontFamily: 'inherit', direction: 'rtl',
+};
+const inputStyleInline: React.CSSProperties = {
+  padding: '7px 12px', border: '1.5px solid #e2e8f0',
+  borderRadius: 9, fontSize: 13, outline: 'none', boxSizing: 'border-box',
+  fontFamily: 'inherit', direction: 'rtl', width: 200,
 };
 const btnPrimary: React.CSSProperties = {
   background: 'linear-gradient(135deg,#8B1A1A,#6B1414)', color: '#fff',

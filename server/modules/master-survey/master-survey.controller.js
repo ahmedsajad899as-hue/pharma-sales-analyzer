@@ -54,7 +54,7 @@ export async function listSurveys(req, res, next) {
       where: visibleWhere(req.user),
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { doctors: true, pharmacies: true } },
+        _count: { select: { doctors: true, pharmacies: true, drugEntries: true } },
       },
     });
 
@@ -119,6 +119,44 @@ export async function getSurvey(req, res, next) {
     }
 
     res.json({ success: true, data: { ...survey, userAreaNames } });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/master-surveys/:id/drug-entries ───────────────
+export async function listDrugEntries(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    // Check survey is visible to this user
+    const survey = await prisma.masterSurvey.findFirst({
+      where: { id, ...visibleWhere(req.user) },
+      select: { id: true, surveyType: true },
+    });
+    if (!survey) return res.status(404).json({ success: false, error: 'غير موجود أو غير مسموح' });
+    const search = (req.query.search || '').trim();
+    const page   = Math.max(1, parseInt(req.query.page  || '1'));
+    const limit  = Math.min(200, Math.max(10, parseInt(req.query.limit || '100')));
+    const skip   = (page - 1) * limit;
+    const where = {
+      surveyId: id,
+      ...(search ? {
+        OR: [
+          { brandName:     { contains: search, mode: 'insensitive' } },
+          { scientificName:{ contains: search, mode: 'insensitive' } },
+          { company:       { contains: search, mode: 'insensitive' } },
+          { dosageForm:    { contains: search, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
+    const [entries, total] = await Promise.all([
+      prisma.drugPriceSurveyEntry.findMany({
+        where,
+        orderBy: [{ brandName: 'asc' }, { company: 'asc' }],
+        skip,
+        take: limit,
+      }),
+      prisma.drugPriceSurveyEntry.count({ where }),
+    ]);
+    res.json({ success: true, data: entries, total, page, limit, pages: Math.ceil(total / limit) });
   } catch (e) { next(e); }
 }
 

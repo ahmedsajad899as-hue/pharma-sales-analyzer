@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  listSurveys, getSurvey,
+  listSurveys, getSurvey, listDrugEntries,
   addDoctor, updateDoctor, importAllDoctors, importDoctor,
   addPharmacy, updatePharmacy, importAllPharmacies, importPharmacy,
 } from './master-survey.controller.js';
@@ -9,8 +9,9 @@ const router = Router();
 
 // All routes require requireAuth (applied in server/index.js before /api/master-surveys)
 
-router.get('/',    listSurveys);
-router.get('/:id', getSurvey);
+router.get('/',                     listSurveys);
+router.get('/:id/drug-entries',     listDrugEntries);
+router.get('/:id',                  getSurvey);
 
 // Doctors
 router.post('/:id/doctors',                      addDoctor);
