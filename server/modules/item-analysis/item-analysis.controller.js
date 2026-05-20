@@ -829,40 +829,233 @@ ${hasRep ? `
   } catch (e) { next(e); }
 }
 
+// ─── POST /api/item-analysis/survey/:surveyId/ai-analyze ────────────────
+// Analyze a drug_price survey with Gemini → store normalised index in survey_ai_analyses
+export async function analyzeSurveyWithAI(req, res, next) {
+  try {
+    const surveyId = Number(req.params.surveyId);
+    if (!surveyId) return res.status(400).json({ error: 'surveyId required' });
+
+    const survey = await prisma.masterSurvey.findUnique({
+      where: { id: surveyId },
+      select: { id: true, name: true, surveyType: true },
+    });
+    if (!survey) return res.status(404).json({ error: 'Survey not found' });
+    if (survey.surveyType !== 'drug_prices') {
+      return res.status(400).json({ error: 'السيرفي ليس من نوع drug_prices' });
+    }
+
+    const entries = await prisma.drugPriceSurveyEntry.findMany({
+      where: { surveyId },
+      select: {
+        id: true, brandName: true, scientificName: true, company: true,
+        dosageForm: true, packaging: true,
+        priceOfficeToWholesaler: true, priceWholesalerToPharmacy: true, pricePharmacyToPatient: true,
+      },
+    });
+
+    if (!entries.length) {
+      return res.status(400).json({ error: 'لا توجد مدخلات في هذا السيرفي' });
+    }
+
+    // Build compact representation for Gemini (limit to essential fields)
+    const entryList = entries.map(e => ({
+      id: e.id,
+      brand: e.brandName,
+      sci: e.scientificName || '',
+      form: e.dosageForm || '',
+      pkg: e.packaging || '',
+    }));
+
+    const prompt = `أنت خبير صيدلاني. لديك قائمة أدوية من سيرفي أسعار.
+مهمتك: لكل دواء، استخرج المعلومات التالية بدقة:
+- entryId: نفس id المعطى
+- activeIngredient: المادة الفعالة الرئيسية (بالإنجليزية، موحدة ومعيارية، مثال: "tiotropium bromide")
+- drugClass: الصنف الدوائي (مثال: "anticholinergic bronchodilator")
+- dosageAmount: كمية الجرعة فقط (مثال: "18")
+- dosageUnit: الوحدة فقط (مثال: "mcg" أو "mg" أو "ml") — إذا غير موجود اترك فارغاً
+- dosageForm: الشكل الدوائي الموحد بالإنجليزية الصغيرة (مثال: "spray" أو "tablet" أو "capsule" أو "injection" أو "syrup" أو "cream" أو "drops")
+- competitorGroup: مفتاح فريد يجمع الأدوية المتنافسة (نفس المادة الفعالة + نفس الجرعة + نفس الشكل)
+  مثال: "tiotropium-18mcg-spray" أو "amoxicillin-500mg-capsule"
+  إذا لم تستطع تحديد الجرعة، استخدم المادة الفعالة فقط: مثال "tiotropium-spray"
+
+قاعدة مهمة: أدوية بنفس المادة الفعالة + نفس الجرعة + نفس الشكل يجب أن تحمل نفس competitorGroup بغض النظر عن الاسم التجاري أو الشركة.
+
+القائمة (${entries.length} دواء):
+${JSON.stringify(entryList)}
+
+أعد JSON فقط — مصفوفة بدون أي نص إضافي:
+[{"entryId":1,"activeIngredient":"...","drugClass":"...","dosageAmount":"...","dosageUnit":"...","dosageForm":"...","competitorGroup":"..."}]`;
+
+    let rawResult;
+    try {
+      rawResult = await callGeminiSmart([{ text: prompt }]);
+    } catch (err) {
+      await prisma.surveyAIAnalysis.upsert({
+        where: { surveyId },
+        create: { surveyId, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: err?.message },
+        update: { status: 'error', errorMsg: err?.message, updatedAt: new Date() },
+      });
+      return res.status(503).json({ error: 'Gemini غير متاح حالياً. حاول لاحقاً.' });
+    }
+
+    // Parse JSON from Gemini response (strip markdown fences if present)
+    let analysisArray;
+    try {
+      const cleaned = rawResult.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      analysisArray = JSON.parse(cleaned);
+      if (!Array.isArray(analysisArray)) throw new Error('not array');
+    } catch {
+      await prisma.surveyAIAnalysis.upsert({
+        where: { surveyId },
+        create: { surveyId, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: 'Invalid JSON from Gemini' },
+        update: { status: 'error', errorMsg: 'Invalid JSON from Gemini', updatedAt: new Date() },
+      });
+      return res.status(502).json({ error: 'لم يتمكن الذكاء الاصطناعي من معالجة البيانات. حاول مرة أخرى.' });
+    }
+
+    await prisma.surveyAIAnalysis.upsert({
+      where: { surveyId },
+      create: { surveyId, analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+      update: { analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+    });
+
+    res.json({ ok: true, surveyId, entryCount: analysisArray.length, surveyName: survey.name });
+  } catch (e) { next(e); }
+}
+
 // ─── GET /api/item-analysis/:itemId/market-prices ─────────────
-// Returns drug price data from all active drug_price surveys that match this item's name
+// Returns drug price data: own product + competitors, using AI analysis when available
 export async function getMarketPrices(req, res, next) {
   try {
     const itemId = Number(req.params.itemId);
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
 
-    // Get the item name
-    const item = await prisma.item.findUnique({ where: { id: itemId }, select: { name: true, scientificName: true } });
+    const item = await prisma.item.findUnique({
+      where: { id: itemId },
+      select: { name: true, scientificName: true, dosage: true, form: true },
+    });
     if (!item) return res.status(404).json({ error: 'Item not found' });
-
-    const normalizedName = item.name.trim().toLowerCase();
 
     // Find all active drug_prices surveys
     const surveys = await prisma.masterSurvey.findMany({
       where: { surveyType: 'drug_prices', isActive: true },
       select: { id: true, name: true },
     });
-
-    if (!surveys.length) return res.json({ data: [], surveyCount: 0 });
+    if (!surveys.length) return res.json({ data: [], surveyCount: 0, matchMode: 'none' });
 
     const surveyIds = surveys.map(s => s.id);
     const surveyMap = Object.fromEntries(surveys.map(s => [s.id, s.name]));
 
-    // Get all entries from those surveys where brandName loosely matches item name
-    // We fetch all and filter in JS for flexibility (fuzzy match)
+    // Load all entries for these surveys
     const allEntries = await prisma.drugPriceSurveyEntry.findMany({
       where: { surveyId: { in: surveyIds } },
-      orderBy: [{ brandName: 'asc' }, { company: 'asc' }],
+      orderBy: [{ brandName: 'asc' }],
     });
 
-    // Fuzzy match: include if item name contains entry brand OR entry brand contains item name
-    // Or if item scientificName matches
-    const sciName = item.scientificName?.trim().toLowerCase() || '';
+    // Check if AI analyses exist for any of these surveys
+    const aiAnalyses = await prisma.surveyAIAnalysis.findMany({
+      where: { surveyId: { in: surveyIds }, status: 'done' },
+      select: { surveyId: true, analysisJson: true },
+    });
+
+    const entryMap = Object.fromEntries(allEntries.map(e => [e.id, e]));
+
+    if (aiAnalyses.length > 0) {
+      // ── AI-powered matching ──────────────────────────────────────────
+      // Build a flat index of all analyzed entries
+      const analyzedEntries = [];
+      for (const ai of aiAnalyses) {
+        try {
+          const arr = JSON.parse(ai.analysisJson);
+          for (const a of arr) analyzedEntries.push({ ...a, _surveyId: ai.surveyId });
+        } catch {}
+      }
+
+      const normalName = item.name.trim().toLowerCase().replace(/\s+/g, '');
+      const sciName = (item.scientificName || '').trim().toLowerCase();
+
+      // Step 1: Find the own-product entry (closest brand name match)
+      let ownEntry = null;
+      let ownCompetitorGroup = null;
+
+      // Try exact/near brand match first
+      for (const a of analyzedEntries) {
+        const raw = entryMap[a.entryId];
+        if (!raw) continue;
+        const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
+        // Match if one contains the other (brand name without dosage suffix)
+        const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+        const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+        if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
+          ownEntry = a;
+          ownCompetitorGroup = a.competitorGroup;
+          break;
+        }
+      }
+
+      // Fallback: match by activeIngredient vs scientificName
+      if (!ownEntry && sciName) {
+        for (const a of analyzedEntries) {
+          const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
+          if (sciName && ai_sci && (sciName.includes(ai_sci) || ai_sci.includes(sciName))) {
+            ownEntry = a;
+            ownCompetitorGroup = a.competitorGroup;
+            break;
+          }
+        }
+      }
+
+      // Step 2: Find all competitors in same competitorGroup
+      let matchedEntries;
+      if (ownCompetitorGroup) {
+        const competitorIds = new Set(
+          analyzedEntries
+            .filter(a => a.competitorGroup === ownCompetitorGroup)
+            .map(a => a.entryId)
+        );
+        matchedEntries = allEntries.filter(e => competitorIds.has(e.id));
+      } else {
+        // No AI match found — fallback to fuzzy text match
+        const normalizedName = item.name.trim().toLowerCase();
+        matchedEntries = allEntries.filter(e => {
+          const bn = e.brandName.trim().toLowerCase();
+          return (
+            bn.includes(normalizedName) ||
+            normalizedName.includes(bn) ||
+            (sciName && (bn.includes(sciName) || sciName.includes(bn)))
+          );
+        });
+      }
+
+      // Build the AI analysis map for richer frontend data
+      const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
+
+      const data = matchedEntries.map(e => {
+        const ai = aiMap[e.id];
+        const isOwnProduct = ownEntry ? e.id === entryMap[ownEntry.entryId]?.id : false;
+        return {
+          ...e,
+          surveyName: surveyMap[e.surveyId] || '',
+          isOwnProduct,
+          activeIngredient: ai?.activeIngredient || null,
+          drugClass: ai?.drugClass || null,
+          dosageAmountAI: ai?.dosageAmount || null,
+          dosageUnitAI: ai?.dosageUnit || null,
+          dosageFormAI: ai?.dosageForm || null,
+          competitorGroup: ai?.competitorGroup || null,
+        };
+      });
+
+      // Sort: own product first, then competitors
+      data.sort((a, b) => (b.isOwnProduct ? 1 : 0) - (a.isOwnProduct ? 1 : 0));
+
+      return res.json({ data, surveyCount: surveys.length, matchMode: 'ai', surveysAnalyzed: aiAnalyses.length });
+    }
+
+    // ── Fallback: simple fuzzy matching (no AI analysis available) ────────
+    const normalizedName = item.name.trim().toLowerCase();
+    const sciName = (item.scientificName || '').trim().toLowerCase();
     const matched = allEntries.filter(e => {
       const bn = e.brandName.trim().toLowerCase();
       return (
@@ -872,11 +1065,7 @@ export async function getMarketPrices(req, res, next) {
       );
     });
 
-    const data = matched.map(e => ({
-      ...e,
-      surveyName: surveyMap[e.surveyId] || '',
-    }));
-
-    res.json({ data, surveyCount: surveys.length });
+    const data = matched.map(e => ({ ...e, surveyName: surveyMap[e.surveyId] || '' }));
+    res.json({ data, surveyCount: surveys.length, matchMode: 'fuzzy', surveysAnalyzed: 0 });
   } catch (e) { next(e); }
 }

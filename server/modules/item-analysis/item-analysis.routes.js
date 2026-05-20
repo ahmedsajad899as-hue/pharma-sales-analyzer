@@ -6,6 +6,9 @@ const router = Router();
 // GET /api/item-analysis/items?search=&fileIds=  — items selector list
 router.get('/items', ctrl.listItems);
 
+// POST /api/item-analysis/survey/:surveyId/ai-analyze  — AI analyze a drug_price survey
+router.post('/survey/:surveyId/ai-analyze', ctrl.analyzeSurveyWithAI);
+
 // GET /api/item-analysis/:itemId/reps?fileIds=&days=  — list of reps linked to this item
 router.get('/:itemId/reps', ctrl.listReps);
 

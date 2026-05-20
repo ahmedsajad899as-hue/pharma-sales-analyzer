@@ -106,11 +106,26 @@ interface MarketPriceEntry {
   surveyName: string;
   brandName: string;
   company?: string | null;
+  scientificName?: string | null;
   dosageForm?: string | null;
+  packaging?: string | null;
   priceOfficeToWholesaler?: number | null;
   priceWholesalerToPharmacy?: number | null;
   pricePharmacyToPatient?: number | null;
   notes?: string | null;
+  isOwnProduct?: boolean;
+  activeIngredient?: string | null;
+  drugClass?: string | null;
+  dosageAmountAI?: string | null;
+  dosageUnitAI?: string | null;
+  competitorGroup?: string | null;
+}
+
+interface MarketPricesResult {
+  data: MarketPriceEntry[];
+  surveyCount: number;
+  matchMode: 'ai' | 'fuzzy' | 'none';
+  surveysAnalyzed: number;
 }
 
 type SubTab = 'overview' | 'sales' | 'visits' | 'science' | 'ai' | 'market';
@@ -150,7 +165,7 @@ const COMMON_FORMS = [
 ];
 
 export default function ItemInsightTab({ fileIdsParam }: Props) {
-  const { token } = useAuth();
+  const { token, isManagerOrAdmin } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
 
   const [items, setItems]               = useState<ItemLite[]>([]);
@@ -176,8 +191,11 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   const [selectedRep, setSelectedRep] = useState<string>(''); // '' = general
 
   // Market prices
+  const [marketResult, setMarketResult]         = useState<MarketPricesResult | null>(null);
   const [marketPrices, setMarketPrices]         = useState<MarketPriceEntry[]>([]);
   const [marketLoading, setMarketLoading]       = useState(false);
+  const [surveyAnalyzing, setSurveyAnalyzing]   = useState(false);
+  const [surveyAnalyzeMsg, setSurveyAnalyzeMsg] = useState<string | null>(null);
 
   // Missing-info modal
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -248,8 +266,8 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
     setMarketLoading(true);
     fetch(`${API}/api/item-analysis/${selectedId}/market-prices`, { headers })
       .then(r => r.json())
-      .then(j => setMarketPrices(j.data || []))
-      .catch(() => setMarketPrices([]))
+      .then((j: MarketPricesResult) => { setMarketResult(j); setMarketPrices(j.data || []); })
+      .catch(() => { setMarketResult(null); setMarketPrices([]); })
       .finally(() => setMarketLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, fileIdsParam, days, token]);
@@ -749,71 +767,201 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
           {/* ── Market Prices Tab ─────────────────── */}
           {subTab === 'market' && (
             <div style={{ padding: '4px 0' }}>
+              {/* Header */}
               <div style={{
                 background: 'linear-gradient(135deg, #065f46, #059669)',
-                borderRadius: 12, padding: '14px 18px', marginBottom: 16, color: '#fff',
+                borderRadius: 12, padding: '14px 18px', marginBottom: 14, color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
               }}>
-                <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>💰 أسعار السوق والمنافسون</div>
-                <div style={{ fontSize: 12, opacity: 0.85 }}>
-                  بيانات مُستخرجة من سيرفيات أسعار الأدوية — مُحدّثة من قِبل الإدارة
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>💰 أسعار السوق والمنافسون</div>
+                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                    بيانات مُستخرجة من سيرفيات أسعار الأدوية
+                    {marketResult?.matchMode === 'ai' && <span style={{ marginRight: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>🤖 تطابق ذكي</span>}
+                    {marketResult?.matchMode === 'fuzzy' && <span style={{ marginRight: 8, background: 'rgba(255,255,255,0.15)', borderRadius: 4, padding: '1px 6px', fontSize: 10 }}>🔍 تطابق نصي</span>}
+                  </div>
                 </div>
+                {isManagerOrAdmin && (
+                  <button
+                    disabled={surveyAnalyzing || !marketResult?.surveyCount}
+                    onClick={async () => {
+                      setSurveyAnalyzing(true); setSurveyAnalyzeMsg(null);
+                      try {
+                        // Get active survey IDs
+                        const r = await fetch(`${API}/api/surveys?type=drug_prices&active=true`, { headers });
+                        const j = await r.json().catch(() => ({}));
+                        const surveysToAnalyze: number[] = (j.surveys || j.data || []).map((s: any) => s.id).filter(Boolean);
+                        if (!surveysToAnalyze.length) { setSurveyAnalyzeMsg('لا توجد سيرفيات نشطة'); return; }
+                        let done = 0;
+                        for (const sid of surveysToAnalyze) {
+                          setSurveyAnalyzeMsg(`⏳ جاري تحليل السيرفي ${sid}...`);
+                          const res = await fetch(`${API}/api/item-analysis/survey/${sid}/ai-analyze`, { method: 'POST', headers });
+                          if (res.ok) done++;
+                        }
+                        setSurveyAnalyzeMsg(`✅ تم تحليل ${done} سيرفي`);
+                        // Reload market prices
+                        setMarketLoading(true);
+                        const mr = await fetch(`${API}/api/item-analysis/${selectedId}/market-prices`, { headers });
+                        const mj: MarketPricesResult = await mr.json();
+                        setMarketResult(mj); setMarketPrices(mj.data || []);
+                      } catch (err) {
+                        setSurveyAnalyzeMsg('حدث خطأ أثناء التحليل');
+                      } finally {
+                        setSurveyAnalyzing(false); setMarketLoading(false);
+                      }
+                    }}
+                    style={{
+                      padding: '7px 14px', borderRadius: 8, border: '1.5px solid rgba(255,255,255,0.5)',
+                      background: surveyAnalyzing ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.2)',
+                      color: '#fff', fontSize: 12, cursor: surveyAnalyzing ? 'not-allowed' : 'pointer', fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {surveyAnalyzing ? '⏳ جاري التحليل...' : '🤖 تحليل السيرفي بالذكاء الاصطناعي'}
+                  </button>
+                )}
               </div>
+
+              {surveyAnalyzeMsg && (
+                <div style={{ padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12, color: '#065f46', marginBottom: 12 }}>
+                  {surveyAnalyzeMsg}
+                </div>
+              )}
+
+              {/* AI match info banner */}
+              {marketResult?.matchMode === 'ai' && marketPrices.length > 0 && (() => {
+                const own = marketPrices.find(e => e.isOwnProduct);
+                return own ? (
+                  <div style={{ padding: '8px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, fontSize: 12, color: '#1d4ed8', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <span>🤖 <b>تطابق ذكي:</b> تم التعرف على</span>
+                    <span style={{ fontWeight: 700 }}>{own.brandName}</span>
+                    <span>—</span>
+                    {own.activeIngredient && <span>المادة الفعالة: <b>{own.activeIngredient}</b></span>}
+                    {own.drugClass && <span>• الصنف: <b>{own.drugClass}</b></span>}
+                    <span>• {marketPrices.length - 1} منافس</span>
+                  </div>
+                ) : null;
+              })()}
 
               {marketLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14 }}>⏳ جاري التحميل...</div>
               ) : marketPrices.length === 0 ? (
-                <div style={{
-                  textAlign: 'center', padding: 40, background: '#f8fafc',
-                  borderRadius: 12, border: '1.5px dashed #cbd5e1', color: '#94a3b8',
-                }}>
+                <div style={{ textAlign: 'center', padding: 40, background: '#f8fafc', borderRadius: 12, border: '1.5px dashed #cbd5e1', color: '#94a3b8' }}>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>💊</div>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>لا توجد بيانات أسعار حتى الآن</div>
-                  <div style={{ fontSize: 12 }}>يمكن للمدير إضافة أسعار هذا الدواء من صفحة السيرفيات</div>
+                  <div style={{ fontSize: 12, marginBottom: 12 }}>
+                    {marketResult?.surveyCount
+                      ? 'السيرفي موجود لكن الإيتم لم يُطابَق — جرّب تشغيل التحليل الذكي'
+                      : 'يمكن للمدير إضافة أسعار هذا الدواء من صفحة السيرفيات'}
+                  </div>
+                  {isManagerOrAdmin && marketResult?.matchMode === 'fuzzy' && (
+                    <div style={{ fontSize: 12, color: '#6366f1' }}>
+                      💡 شغّل <b>تحليل السيرفي بالذكاء الاصطناعي</b> أعلاه للحصول على تطابق أدق بناءً على المادة الفعالة
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
-                  <div style={{ overflowX: 'auto', borderRadius: 10, boxShadow: '0 1px 8px rgba(0,0,0,0.07)' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ background: '#f0fdf4' }}>
-                          {['الاسم التجاري','الشكل الدوائي','الشركة / المصنع','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','المصدر'].map(h => (
-                            <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#065f46', borderBottom: '2px solid #bbf7d0', whiteSpace: 'nowrap' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {marketPrices.map((entry, i) => {
-                          const isCurrentItem = data?.item?.name && entry.brandName.toLowerCase().includes(data.item.name.toLowerCase());
-                          return (
-                            <tr key={entry.id} style={{
-                              background: isCurrentItem ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#fafafa'),
-                              borderBottom: '1px solid #f1f5f9',
-                              borderRight: isCurrentItem ? '3px solid #059669' : 'none',
-                            }}>
-                              <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>
-                                {entry.brandName}
-                                {isCurrentItem && <span style={{ marginRight: 6, fontSize: 10, background: '#059669', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>حاليًا</span>}
-                              </td>
-                              <td style={{ padding: '10px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
-                              <td style={{ padding: '10px 12px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
-                              <td style={{ padding: '10px 12px', color: '#059669', fontWeight: 700 }}>
-                                {entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}
-                              </td>
-                              <td style={{ padding: '10px 12px', color: '#d97706', fontWeight: 700 }}>
-                                {entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}
-                              </td>
-                              <td style={{ padding: '10px 12px', color: '#dc2626', fontWeight: 700 }}>
-                                {entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : '—'}
-                              </td>
-                              <td style={{ padding: '10px 12px', fontSize: 11, color: '#94a3b8' }}>{entry.surveyName}</td>
+                  {/* Own product card */}
+                  {marketResult?.matchMode === 'ai' && (() => {
+                    const own = marketPrices.find(e => e.isOwnProduct);
+                    const competitors = marketPrices.filter(e => !e.isOwnProduct);
+                    return (
+                      <>
+                        {own && (
+                          <div style={{ marginBottom: 14, background: '#f0fdf4', border: '2px solid #059669', borderRadius: 10, padding: '12px 16px' }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>✅ منتجنا</div>
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ fontWeight: 800, fontSize: 15, color: '#065f46' }}>{own.brandName}</div>
+                                {own.scientificName && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{own.scientificName}</div>}
+                                {own.company && <div style={{ fontSize: 12, color: '#6b7280' }}>{own.company}</div>}
+                              </div>
+                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                {[
+                                  { label: 'مكتب←مذخر', val: own.priceOfficeToWholesaler, color: '#059669' },
+                                  { label: 'مذخر←صيدلية', val: own.priceWholesalerToPharmacy, color: '#d97706' },
+                                  { label: 'صيدلية←مريض', val: own.pricePharmacyToPatient, color: '#dc2626' },
+                                ].map(p => p.val != null && (
+                                  <div key={p.label} style={{ background: '#fff', borderRadius: 8, padding: '6px 12px', border: `1.5px solid ${p.color}20`, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>{p.label}</div>
+                                    <div style={{ fontSize: 15, fontWeight: 800, color: p.color }}>{Number(p.val).toFixed(3)}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ marginRight: 'auto', fontSize: 10, color: '#94a3b8' }}>{own.surveyName}</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Competitors table */}
+                        {competitors.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                              🏁 المنافسون ({competitors.length}) — نفس المادة الفعالة والجرعة
+                            </div>
+                            <div style={{ overflowX: 'auto', borderRadius: 10, boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                <thead>
+                                  <tr style={{ background: '#f8fafc' }}>
+                                    {['الاسم التجاري','الاسم العلمي','الشكل','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
+                                      <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {competitors.map((entry, i) => (
+                                    <tr key={entry.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f1f5f9' }}>
+                                      <td style={{ padding: '8px 10px', fontWeight: 700, color: '#1e293b' }}>{entry.brandName}</td>
+                                      <td style={{ padding: '8px 10px', color: '#6b7280', fontSize: 11 }}>{entry.scientificName || '—'}</td>
+                                      <td style={{ padding: '8px 10px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                                      <td style={{ padding: '8px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
+                                      <td style={{ padding: '8px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
+                                      <td style={{ padding: '8px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
+                                      <td style={{ padding: '8px 10px', color: '#dc2626', fontWeight: 700 }}>{entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : '—'}</td>
+                                      <td style={{ padding: '8px 10px', fontSize: 10, color: '#94a3b8' }}>{entry.surveyName}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {/* Fuzzy match fallback — simple table */}
+                  {(marketResult?.matchMode === 'fuzzy' || !marketResult?.matchMode) && (
+                    <div style={{ overflowX: 'auto', borderRadius: 10, boxShadow: '0 1px 8px rgba(0,0,0,0.07)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: '#f0fdf4' }}>
+                            {['الاسم التجاري','الاسم العلمي','الشكل','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
+                              <th key={h} style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#065f46', borderBottom: '2px solid #bbf7d0', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {marketPrices.map((entry, i) => (
+                            <tr key={entry.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '9px 10px', fontWeight: 700, color: '#1e293b' }}>{entry.brandName}</td>
+                              <td style={{ padding: '9px 10px', color: '#6b7280', fontSize: 11 }}>{entry.scientificName || '—'}</td>
+                              <td style={{ padding: '9px 10px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                              <td style={{ padding: '9px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
+                              <td style={{ padding: '9px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
+                              <td style={{ padding: '9px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
+                              <td style={{ padding: '9px 10px', color: '#dc2626', fontWeight: 700 }}>{entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : '—'}</td>
+                              <td style={{ padding: '9px 10px', fontSize: 11, color: '#94a3b8' }}>{entry.surveyName}</td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
                   <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>
-                    {marketPrices.length} نتيجة من سيرفيات الأسعار
+                    {marketPrices.length} نتيجة — {marketResult?.matchMode === 'ai' ? 'تطابق ذكي' : 'تطابق نصي'}
                   </div>
                 </>
               )}

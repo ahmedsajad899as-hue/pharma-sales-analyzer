@@ -1116,6 +1116,7 @@ model MasterSurvey {
   hiddenUsers    MasterSurveyHiddenUser[]
   hiddenOffices  MasterSurveyHiddenOffice[]
   drugEntries    DrugPriceSurveyEntry[]
+  aiAnalysis     SurveyAIAnalysis?
 
   @@map("master_surveys")
 }
@@ -1144,6 +1145,22 @@ model DrugPriceSurveyEntry {
   @@index([surveyId])
   @@index([brandName])
   @@map("drug_price_survey_entries")
+}
+
+// ─── Survey AI Analysis (تحليل ذكي للسيرفي) ──────────────────
+model SurveyAIAnalysis {
+  id           Int      @id @default(autoincrement())
+  surveyId     Int      @unique
+  analysisJson String   @db.Text  // JSON array: [{entryId, activeIngredient, drugClass, dosageAmount, dosageUnit, dosageForm, competitorGroup}]
+  entryCount   Int      @default(0)
+  status       String   @default("done")  // 'done' | 'error'
+  errorMsg     String?
+  generatedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  survey MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@map("survey_ai_analyses")
 }
 
 // ─── Master Survey Doctor (طبيب داخل السيرفي) ───────────────
