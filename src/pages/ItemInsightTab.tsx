@@ -572,15 +572,53 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 </div>
               </div>
 
-              {/* ── Tip ── */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '9px 14px', background: '#eff6ff', borderRadius: 8,
-                border: '1px solid #bfdbfe', fontSize: 12, color: '#1d4ed8',
-              }}>
-                <span style={{ fontSize: 16 }}>⚡</span>
-                <span>Use the <b>AI tab</b> to auto-generate a full scientific profile — mechanism, indications, side effects, competitors &amp; 30-day action plan.</span>
-              </div>
+              {/* ── Target Specialties (الاختصاصات المستهدفة) ── */}
+              {(() => {
+                const specs: Record<string, number> = {};
+                (data.doctorVisits.topDoctors || []).forEach(d => {
+                  if (d.specialty) specs[d.specialty] = (specs[d.specialty] || 0) + d.visits;
+                });
+                const sorted = Object.entries(specs).sort((a, b) => b[1] - a[1]);
+                return sorted.length > 0 ? (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                      الاختصاصات المستهدفة
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {sorted.map(([spec, cnt]) => (
+                        <div key={spec} style={{
+                          padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                          background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8',
+                          display: 'flex', alignItems: 'center', gap: 5,
+                        }}>
+                          <span>🩺</span>
+                          <span>{spec}</span>
+                          <span style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>({cnt})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* ── AI Drug Profile (section 1 from AI) ── */}
+              {aiInsight ? (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    الملف العلمي <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(مُولَّد بالذكاء الاصطناعي)</span>
+                  </div>
+                  <AnalysisRenderer text={aiInsight} onlySecNum={1} />
+                </div>
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '9px 14px', background: '#eff6ff', borderRadius: 8,
+                  border: '1px solid #bfdbfe', fontSize: 12, color: '#1d4ed8',
+                }}>
+                  <span style={{ fontSize: 16 }}>⚡</span>
+                  <span>افتح تبويب <b>تحليل ذكي (AI)</b> وشغّل التحليل لتظهر هنا معلومات الملف العلمي الكاملة.</span>
+                </div>
+              )}
             </div>
           )}
 

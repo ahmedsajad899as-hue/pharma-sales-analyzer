@@ -948,17 +948,17 @@ tr:hover {
 }
 
 /* ======= ANALYSIS RENDERER ======= */
-.ar-root { display: flex; flex-direction: column; gap: 16px; animation: fadeSlideUp 0.4s ease; }
+.ar-root { display: flex; flex-direction: column; gap: 10px; animation: fadeSlideUp 0.4s ease; }
 
 .ar-section {
   background: var(--c-surface);
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid var(--c-border-light);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  box-shadow: 0 1px 4px rgba(0,0,0,.05);
   transition: box-shadow 0.2s;
 }
-.ar-section:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+.ar-section:hover { box-shadow: 0 3px 10px rgba(0,0,0,.08); }
 
 /* Section color themes by data-sec attribute */
 .ar-section[data-sec="1"] { border-top: 3px solid #1d4ed8; }
@@ -973,8 +973,8 @@ tr:hover {
 .ar-section-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--c-border-light);
 }
 .ar-section[data-sec="1"] .ar-section-header { background: linear-gradient(90deg,#eff6ff,#f0f9ff); }
@@ -986,10 +986,10 @@ tr:hover {
 .ar-section[data-sec="7"] .ar-section-header,
 .ar-section[data-sec="8"] .ar-section-header { background: linear-gradient(90deg,#f8fafc,#f1f5f9); }
 
-.ar-section-icon { font-size: 18px; }
+.ar-section-icon { font-size: 15px; }
 
 .ar-section-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--c-text-primary);
   margin: 0;
@@ -1006,10 +1006,10 @@ tr:hover {
 
 /* Sub-section headers (### inside a section) */
 .ar-subsection {
-  padding: 7px 16px;
+  padding: 5px 14px;
   background: rgba(0,0,0,.025);
   border-bottom: 1px solid var(--c-border-light);
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #475569;
   text-transform: uppercase;
@@ -1029,22 +1029,22 @@ tr:hover {
 
 .ar-table th {
   background: #f3f6fb;
-  padding: 9px 14px;
+  padding: 7px 10px;
   text-align: right;
   font-weight: 700;
   color: var(--c-accent);
   border-bottom: 2px solid var(--c-border);
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .ar-table td {
-  padding: 8px 14px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--c-border-light);
   color: var(--c-text-primary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .ar-table tbody tr:nth-child(even) { background: #f8fafd; }
@@ -1052,21 +1052,21 @@ tr:hover {
 
 .ar-list {
   list-style: none;
-  padding: 10px 14px;
+  padding: 8px 12px;
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .ar-list-item {
-  padding: 7px 12px;
+  padding: 5px 10px;
   background: #f8fafc;
-  border-radius: 7px;
+  border-radius: 6px;
   border-right: 3px solid var(--c-accent);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--c-text-primary);
-  line-height: 1.65;
+  line-height: 1.55;
 }
 .ar-section[data-sec="1"] .ar-list-item { border-color: #1d4ed8; }
 .ar-section[data-sec="2"] .ar-list-item { border-color: #0891b2; }
@@ -1077,29 +1077,29 @@ tr:hover {
 
 .ar-kv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 7px;
-  padding: 12px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 5px;
+  padding: 8px 12px;
 }
 
 .ar-kv-item {
   background: #f8fafc;
-  border-radius: 8px;
-  padding: 9px 12px;
+  border-radius: 7px;
+  padding: 7px 10px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   border: 1px solid var(--c-border);
 }
 
 .ar-kv-item--full { grid-column: 1 / -1; }
 
 .ar-kv-key {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   color: var(--c-accent);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.5px;
   line-height: 1.3;
 }
 .ar-section[data-sec="1"] .ar-kv-key { color: #1d4ed8; }
@@ -1109,13 +1109,13 @@ tr:hover {
 .ar-section[data-sec="5"] .ar-kv-key { color: #dc2626; }
 .ar-section[data-sec="6"] .ar-kv-key { color: #7c3aed; }
 
-.ar-kv-val { font-size: 13px; font-weight: 600; color: var(--c-text-primary); line-height: 1.5; }
+.ar-kv-val { font-size: 12px; font-weight: 600; color: var(--c-text-primary); line-height: 1.45; }
 
 .ar-text {
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font-size: 12px;
   color: var(--c-text-secondary);
-  line-height: 1.85;
+  line-height: 1.75;
 }
 
 /* ── Login Page ────────────────────────────────────────────── */
