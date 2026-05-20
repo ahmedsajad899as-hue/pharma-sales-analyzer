@@ -69,6 +69,34 @@ function activeMatchesAny(itemActive, candidate) {
   return false;
 }
 
+// ─── Brand-name fuzzy matching ──────────────────────────────
+// Used to decide whether two product names refer to the same brand
+// (e.g. "Spiract 18mg" ↔ "Spiract 18 mcg Capsules inhalation powder").
+// Strategy: extract the first meaningful alphabetic token (brand stem)
+// from each side and compare with edit-distance tolerance.
+const FORM_WORDS_RX = /\b(tablet|tablets|tab|tabs|cap|caps|capsule|capsules|syrup|injection|inj|drops|drop|ointment|cream|gel|spray|inhaler|inhalation|powder|sachet|suppository|suppositories|solution|suspension|patch|patches|cream|lotion|emulsion|elixir|أقراص|قرص|كبسولات|كبسولة|شراب|حقنة|حقن|قطرة|قطرات|مرهم|كريم|بخاخ|تحاميل|محلول|مسحوق|كيس)\b/gi;
+function brandStem(s) {
+  if (!s) return '';
+  return String(s)
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\d+(\.\d+)?\s*(mg|mcg|g|ml|iu|%|units?)/g, ' ')
+    .replace(FORM_WORDS_RX, ' ')
+    .replace(/[^a-z\u0600-\u06FF]+/g, ' ')
+    .trim()
+    .split(/\s+/)[0] || '';
+}
+function isSameBrand(a, b) {
+  const sa = brandStem(a);
+  const sb = brandStem(b);
+  if (!sa || !sb || sa.length < 3 || sb.length < 3) return false;
+  if (sa === sb) return true;
+  // Allow tiny typos on brand names (1 edit per 6 chars)
+  const maxLen = Math.max(sa.length, sb.length);
+  const threshold = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
+  return levenshtein(sa, sb) <= threshold;
+}
+
 function buildFileFilter(fileIds) {
   if (!fileIds) return {};
   const ids = String(fileIds).split(',').map(Number).filter(Boolean);
@@ -723,16 +751,30 @@ export async function getAIInsight(req, res, next) {
           let ownEntry = null;
           let ownCompetitorGroup = null;
 
+          // Score every analyzed entry and pick the BEST same-brand match.
+          // We prefer same brand stem + same active ingredient + closest dosage,
+          // so "Spiract 18mg" (item) maps to the survey row "Spiract 18 mcg Capsules ...".
+          let bestScore = -1;
           for (const a of analyzedEntries) {
             const raw = entryMap[a.entryId];
             if (!raw) continue;
-            const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
-            const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
-            const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
-            if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
-              ownEntry = a; ownCompetitorGroup = a.competitorGroup; break;
+            let score = 0;
+            if (isSameBrand(it.name, raw.brandName)) score += 10;
+            // Exact brand stem token equality (without typo tolerance) gets a tiny boost
+            if (brandStem(it.name) && brandStem(it.name) === brandStem(raw.brandName)) score += 2;
+            if (sciName && activeMatchesAny(sciName, a.activeIngredient)) score += 3;
+            // Matching dosage amount boosts ranking
+            if (it.dosage && a.dosageAmount) {
+              const itDose = String(it.dosage).match(/\d+(\.\d+)?/)?.[0];
+              const aiDose = String(a.dosageAmount).match(/\d+(\.\d+)?/)?.[0];
+              if (itDose && aiDose && itDose === aiDose) score += 2;
             }
+            if (score > bestScore) { bestScore = score; ownEntry = a; ownCompetitorGroup = a.competitorGroup; }
           }
+          // Require at least a brand-stem match (score ≥ 10) to consider it our product.
+          if (bestScore < 10) { ownEntry = null; ownCompetitorGroup = null; }
+
+          // If brand didn't match anything, fall back to pure active-ingredient match.
           if (!ownEntry && sciName) {
             for (const a of analyzedEntries) {
               if (activeMatchesAny(sciName, a.activeIngredient)) {
@@ -874,8 +916,10 @@ ${JSON.stringify(slim.competitors, null, 2)}
 
 # 🔬 بيانات السيرفي الحقيقية للمنافسين (من ملف السوبر ادمن)
 نمط التطابق: ${surveyMarket.matchMode} — عدد السيرفيات الفعّالة: ${surveyMarket.surveyCount}
-${surveyMarket.ownProduct ? `## منتجنا (مُطابَق من السيرفي):
-${JSON.stringify(surveyMarket.ownProduct, null, 2)}` : '## منتجنا غير موجود في السيرفي — اعتمد على بيانات الإيتم أعلاه فقط.'}
+${surveyMarket.ownProduct ? `## ✅ منتجنا (مُطابَق من السيرفي — استخدم هذه البيانات بدلاً من الفارغة في "# بيانات الإيتم"):
+${JSON.stringify(surveyMarket.ownProduct, null, 2)}
+
+⚠️ مهم جداً: إذا كانت الحقول في "# بيانات الإيتم" أعلاه فارغة أو "غير محدد" (مثل السعر، التعبئة، الشركة)، **استخدم القيم من \`ownProduct\` أعلاه** لأنها من نفس المنتج (نفس البراند) موجود في السيرفي. هذه القيم هي المرجع الموثوق.` : '## منتجنا غير موجود في السيرفي — اعتمد على بيانات الإيتم أعلاه فقط.'}
 
 ## المنافسون من السيرفي (${surveyMarket.competitors.length} منافس بنفس المادة الفعالة/الجرعة/الشكل):
 ${surveyMarket.competitors.length ? JSON.stringify(surveyMarket.competitors, null, 2) : 'لا توجد منافسين في السيرفي.'}
@@ -916,7 +960,7 @@ ${surveyMarket.competitors.length || surveyMarket.ownProduct ? 'أنشئ جدو�
 | المنتج | الشركة | الجرعة | الشكل | التعبئة | مكتب←مذخر | مذخر←صيدلية | صيدلية←مريض |
 |---|---|---|---|---|---|---|---|
 
-استخدم الأرقام كما هي من \`surveyMarket\`. ضع منتجنا في السطر الأول. إذا حقل غير موجود ضع "—".
+استخدم الأرقام كما هي من \`surveyMarket\`. **ضع منتجنا في السطر الأول وكامل أسعاره من \`ownProduct\` إذا كان مُطابَقاً.** لا تكرر منتجنا كصف منفصل بأرقام "—" إذا كان موجوداً في \`ownProduct\` — استخدم القيم الحقيقية من السيرفي. إذا حقل غير موجود فعلاً ضع "—".
 
 ### ب. تحليل نقاط القوة لمنتجنا مقابل كل منافس
 لكل منافس في \`surveyMarket.competitors\`، اكتب فقرة قصيرة (سطرين) تقارن:
@@ -1214,24 +1258,26 @@ export async function getMarketPrices(req, res, next) {
         } catch {}
       }
 
-      const normalName = item.name.trim().toLowerCase().replace(/\s+/g, '');
       const sciName = (item.scientificName || '').trim();
 
-      // Step 1: Find the own-product entry (closest brand name match)
+      // Step 1: Find the own-product entry (best brand+ingredient+dosage score)
       let ownEntry = null;
-
-      // Try exact/near brand match first
+      let bestScore = -1;
       for (const a of analyzedEntries) {
         const raw = entryMap[a.entryId];
         if (!raw) continue;
-        const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
-        const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
-        const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
-        if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
-          ownEntry = a;
-          break;
+        let score = 0;
+        if (isSameBrand(item.name, raw.brandName)) score += 10;
+        if (brandStem(item.name) && brandStem(item.name) === brandStem(raw.brandName)) score += 2;
+        if (sciName && activeMatchesAny(sciName, a.activeIngredient)) score += 3;
+        if (item.dosage && a.dosageAmount) {
+          const itDose = String(item.dosage).match(/\d+(\.\d+)?/)?.[0];
+          const aiDose = String(a.dosageAmount).match(/\d+(\.\d+)?/)?.[0];
+          if (itDose && aiDose && itDose === aiDose) score += 2;
         }
+        if (score > bestScore) { bestScore = score; ownEntry = a; }
       }
+      if (bestScore < 10) ownEntry = null;
 
       // Fallback: fuzzy active-ingredient match (handles typos)
       if (!ownEntry && sciName) {
