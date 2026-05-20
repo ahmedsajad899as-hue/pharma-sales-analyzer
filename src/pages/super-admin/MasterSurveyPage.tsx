@@ -1242,19 +1242,29 @@ export default function MasterSurveyPage() {
               <button onClick={() => drugFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
               <input ref={drugFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={async e => {
                 const file = e.target.files?.[0]; if (!file) return;
-                const rows = await parseExcelFile(file);
-                if (!rows.length) return;
-                // Smart header detection — keyword-based + numeric fallback
-                const allRows = rows as Record<string,unknown>[];
-                const headerMap = buildDrugHeaderMap(allRows[0], allRows);
-                setDetectedDrugFields(headerMap);
-                setImportDrugMode('insert');
-                const mapped = allRows
-                  .map(r => smartMapDrugRow(r, headerMap))
-                  .filter(r => r.brandName && String(r.brandName).trim());
-                setImportDrugPreview(mapped as Partial<DrugEntry>[]);
-                setShowDrugImport(true);
-                e.target.value = '';
+                try {
+                  const rows = await parseExcelFile(file);
+                  if (!rows.length) { alert('⚠️ الملف فارغ أو لا يحتوي على بيانات. تأكد من أن الملف يحتوي على صفوف بيانات.'); e.target.value = ''; return; }
+                  // Smart header detection — keyword-based + numeric fallback
+                  const allRows = rows as Record<string,unknown>[];
+                  const headerMap = buildDrugHeaderMap(allRows[0], allRows);
+                  setDetectedDrugFields(headerMap);
+                  setImportDrugMode('insert');
+                  const mapped = allRows
+                    .map(r => smartMapDrugRow(r, headerMap))
+                    .filter(r => r.brandName && String(r.brandName).trim());
+                  if (!mapped.length) {
+                    alert('⚠️ لم يتم التعرف على عمود "الاسم التجاري" في الملف.\n\nتأكد أن ترويسات الأعمدة تحتوي على كلمات مثل:\n• الاسم التجاري\n• brand name\n• drug name\n\nيمكنك تحميل نموذج Excel للاستخدام كمرجع.');
+                    e.target.value = '';
+                    return;
+                  }
+                  setImportDrugPreview(mapped as Partial<DrugEntry>[]);
+                  setShowDrugImport(true);
+                  e.target.value = '';
+                } catch (err: any) {
+                  alert(`❌ فشل قراءة الملف: ${err?.message || 'خطأ غير معروف'}. تأكد أن الملف بصيغة xlsx أو xls صحيحة.`);
+                  e.target.value = '';
+                }
               }} />
               <button onClick={() => { setEditingDrugEntry(null); setShowDrugEntryForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة دواء</button>
             </div>
