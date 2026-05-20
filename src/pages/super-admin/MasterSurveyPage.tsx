@@ -14,7 +14,7 @@ interface Survey {
 }
 interface DrugEntry {
   id: number; surveyId: number;
-  brandName: string; scientificName?: string; company?: string; dosageForm?: string;
+  brandName: string; scientificName?: string; company?: string; dosageForm?: string; packaging?: string | null;
   priceOfficeToWholesaler?: number | null;
   priceWholesalerToPharmacy?: number | null;
   pricePharmacyToPatient?: number | null;
@@ -135,12 +135,13 @@ function downloadTemplate(type: 'doctors' | 'pharmacies') {
 }
 
 // ── Drug price smart Excel detection ─────────────────────────
-type DrugField = 'brandName' | 'scientificName' | 'dosageForm' | 'company' | 'priceOfficeToWholesaler' | 'priceWholesalerToPharmacy' | 'pricePharmacyToPatient' | 'notes';
+type DrugField = 'brandName' | 'scientificName' | 'dosageForm' | 'company' | 'packaging' | 'priceOfficeToWholesaler' | 'priceWholesalerToPharmacy' | 'pricePharmacyToPatient' | 'notes';
 
 const DRUG_FIELD_KEYWORDS: Array<[DrugField, string[]]> = [
   ['scientificName',           ['الاسم العلمي','الاسم الدوائي','اسم علمي','اسم دوائي','scientific name','scientificname','scientific','generic name','generic','chemical name']],
   ['brandName',                ['الاسم التجاري','اسم الايتم','اسم الدواء','الايتم','الاسم','brand name','brand','drug name','item','name','drug']],
   ['dosageForm',               ['الشكل الدوائي','الشكل','شكل','dosage form','form','dosageform','الصيغه','الصيغة','صيغه']],
+  ['packaging',                ['التعبئة','تعبئة','العبوة','عبوة','التغليف','تغليف','packaging','pack','package','packing']],
   ['company',                  ['اسم الشركه','اسم المصنع','الشركه','المصنع','الشركة','المصنعة','company','manufacturer','manuf','الوكيل','الموزع']],
   ['priceOfficeToWholesaler',  ['سعر بيع المكتب','سعر المكتب','ثمن المكتب','مكتب→مستودع','مكتب-مستودع','سعر الوكيل','office','office to wholesaler','office wholesaler','مكتب','p1','price1','price 1','السعر الاول','السعر ١','سعر 1']],
   ['priceWholesalerToPharmacy',['سعر بيع المذخر','سعر المذخر','سعر بيع المستودع','سعر المستودع','ثمن المستودع','مستودع→صيدليه','مستودع-صيدليه','مستودع→صيدلية','مذخر','مستودع','wholesaler','wholesaler to pharmacy','wholesale','جمله','جملة','p2','price2','price 2','السعر الثاني','السعر ٢','سعر 2']],
@@ -884,6 +885,7 @@ export default function MasterSurveyPage() {
       scientificName:           editingDrugEntry?.scientificName ?? '',
       company:                  editingDrugEntry?.company ?? '',
       dosageForm:               editingDrugEntry?.dosageForm ?? '',
+      packaging:                editingDrugEntry?.packaging ?? '',
       priceOfficeToWholesaler:  editingDrugEntry?.priceOfficeToWholesaler?.toString() ?? '',
       priceWholesalerToPharmacy:editingDrugEntry?.priceWholesalerToPharmacy?.toString() ?? '',
       pricePharmacyToPatient:   editingDrugEntry?.pricePharmacyToPatient?.toString() ?? '',
@@ -902,6 +904,7 @@ export default function MasterSurveyPage() {
         scientificName:           form.scientificName.trim() || null,
         company:                  form.company.trim() || null,
         dosageForm:               form.dosageForm.trim() || null,
+        packaging:                form.packaging.trim() || null,
         priceOfficeToWholesaler:  form.priceOfficeToWholesaler  ? Number(form.priceOfficeToWholesaler)  : null,
         priceWholesalerToPharmacy:form.priceWholesalerToPharmacy? Number(form.priceWholesalerToPharmacy): null,
         pricePharmacyToPatient:   form.pricePharmacyToPatient   ? Number(form.pricePharmacyToPatient)   : null,
@@ -939,6 +942,10 @@ export default function MasterSurveyPage() {
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>الشكل الدوائي</label>
             <input value={form.dosageForm} onChange={set('dosageForm')} placeholder="مثال: أقراص" style={inputSt} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>التعبئة</label>
+            <input value={form.packaging} onChange={set('packaging')} placeholder="مثال: 30 قرص" style={inputSt} />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#059669', display: 'block', marginBottom: 4 }}>سعر المكتب ← المذخر</label>
@@ -1233,8 +1240,8 @@ export default function MasterSurveyPage() {
             )}
             <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
               <button onClick={() => {
-                const hdrs = ['الاسم التجاري','الاسم العلمي','الشكل الدوائي','اسم الشركة/المصنع','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
-                const ex   = ['Lipitor 20mg','Atorvastatin','أقراص','Pfizer','5.000','6.500','8.750'];
+                const hdrs = ['الاسم التجاري','الاسم العلمي','الشكل الدوائي','التعبئة','اسم الشركة/المصنع','سعر المكتب->المذخر','سعر المذخر->الصيدلية','سعر الصيدلية->المريض'];
+                const ex   = ['Lipitor 20mg','Atorvastatin','أقراص','30 قرص','Pfizer','5.000','6.500','8.750'];
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([hdrs, ex]), 'أسعار الأدوية');
                 XLSX.writeFile(wb, 'نموذج_أسعار_الأدوية.xlsx');
@@ -1278,7 +1285,7 @@ export default function MasterSurveyPage() {
               {/* Column detection summary */}
               {(() => {
                 const FIELD_LABELS: Record<string, string> = {
-                  brandName: 'الاسم التجاري', scientificName: 'الاسم العلمي', dosageForm: 'الشكل الدوائي', company: 'الشركة',
+                  brandName: 'الاسم التجاري', scientificName: 'الاسم العلمي', dosageForm: 'الشكل الدوائي', packaging: 'التعبئة', company: 'الشركة',
                   priceOfficeToWholesaler: 'سعر المكتب', priceWholesalerToPharmacy: 'سعر المستودع', pricePharmacyToPatient: 'سعر الصيدلية',
                 };
                 const detected = Object.entries(detectedDrugFields);
@@ -1324,7 +1331,7 @@ export default function MasterSurveyPage() {
               <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ background: '#f1f5f9' }}>
-                    {['الاسم التجاري','الاسم العلمي','الشكل','الشركة','مكتب→مستودع','مستودع→صيدلية','صيدلية→مريض'].map(h => (
+                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مكتب→مستودع','مستودع→صيدلية','صيدلية→مريض'].map(h => (
                       <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#374151' }}>{h}</th>
                     ))}
                   </tr></thead>
@@ -1334,6 +1341,7 @@ export default function MasterSurveyPage() {
                         <td style={{ padding: '5px 8px', fontWeight: 600 }}>{String(e.brandName ?? '')}</td>
                         <td style={{ padding: '5px 8px', color: '#6366f1' }}>{e.scientificName ? String(e.scientificName) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.dosageForm ? String(e.dosageForm) : '—'}</td>
+                        <td style={{ padding: '5px 8px', color: '#64748b' }}>{(e as any).packaging ? String((e as any).packaging) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#64748b' }}>{e.company ? String(e.company) : '—'}</td>
                         <td style={{ padding: '5px 8px', color: '#059669', fontWeight: 600 }}>
                           {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: '#fca5a5' }}>—</span>}
@@ -1418,7 +1426,7 @@ export default function MasterSurveyPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc' }}>
-                      {['الاسم التجاري','الاسم العلمي','الشكل الدوائي','الشركة','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','ملاحظات',''].map(h => (
+                      {['الاسم التجاري','الاسم العلمي','الشكل الدوائي','التعبئة','الشركة','سعر المكتب→المذخر','سعر المذخر→الصيدلية','سعر الصيدلية→المريض','ملاحظات',''].map(h => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
                       ))}
                     </tr>
@@ -1429,6 +1437,7 @@ export default function MasterSurveyPage() {
                         <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{entry.brandName}</td>
                         <td style={{ padding: '8px 12px', color: '#6366f1', fontSize: 12 }}>{entry.scientificName || '—'}</td>
                         <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                        <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.packaging || '—'}</td>
                         <td style={{ padding: '8px 12px', color: '#64748b' }}>{entry.company || '—'}</td>
                         <td style={{ padding: '8px 12px', color: '#059669', fontWeight: 600 }}>
                           {entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}

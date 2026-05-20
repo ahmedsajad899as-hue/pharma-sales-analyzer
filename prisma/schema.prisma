@@ -1129,6 +1129,7 @@ model DrugPriceSurveyEntry {
   scientificName String?  // الاسم العلمي
   company        String?  // اسم الشركة / المصنع
   dosageForm     String?  // الشكل الدوائي
+  packaging      String?  // التعبئة
 
   priceOfficeToWholesaler   Float?   // سعر بيع المكتب للمذخر
   priceWholesalerToPharmacy Float?   // سعر بيع المذخر للصيدلية
