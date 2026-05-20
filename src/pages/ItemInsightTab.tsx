@@ -156,6 +156,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   const [items, setItems]               = useState<ItemLite[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemSearch, setItemSearch]     = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [selectedId, setSelectedId]     = useState<number | null>(null);
   const [days, setDays]                 = useState(180);
 
@@ -364,29 +365,51 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* ── Item selector + days filter ─────────────────── */}
       <div style={{ ...cardStyle, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-        <div style={{ flex: 1, minWidth: 260 }}>
+        <div style={{ flex: 1, minWidth: 260, position: 'relative' }}>
           <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>اختر الإيتم</label>
-          <input
-            type="text"
-            placeholder="ابحث بالاسم التجاري أو العلمي..."
-            value={itemSearch}
-            onChange={e => setItemSearch(e.target.value)}
-            style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
-          />
-          {itemSearch.trim() && (
-            <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6, marginTop: 6, background: '#fff' }}>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              placeholder="ابحث بالاسم التجاري أو العلمي أو اضغط للاختيار..."
+              value={itemSearch}
+              onChange={e => setItemSearch(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 180)}
+              style={{ width: '100%', padding: '8px 34px 8px 12px', borderRadius: 6, border: `1px solid ${searchFocused ? '#6366f1' : '#cbd5e1'}`, fontSize: 13, boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s' }}
+            />
+            {itemSearch ? (
+              <span
+                onMouseDown={e => { e.preventDefault(); setItemSearch(''); }}
+                style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', fontSize: 16, color: '#94a3b8', lineHeight: 1 }}
+              >×</span>
+            ) : (
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#94a3b8', pointerEvents: 'none' }}>▾</span>
+            )}
+          </div>
+          {(searchFocused || itemSearch.trim()) && (
+            <div style={{ position: 'absolute', zIndex: 999, width: '100%', maxHeight: 300, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, marginTop: 4, background: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,.12)' }}>
+              {!itemSearch.trim() && (
+                <div style={{ padding: '7px 12px', fontSize: 11, color: '#94a3b8', borderBottom: '1px solid #f1f5f9', fontWeight: 600 }}>
+                  🔍 كل الإيتمات ({items.length})
+                </div>
+              )}
               {itemsLoading && <div style={{ padding: 12, color: '#94a3b8', fontSize: 12 }}>...جاري التحميل</div>}
               {!itemsLoading && filteredItems.length === 0 && <div style={{ padding: 12, color: '#94a3b8', fontSize: 12 }}>لا توجد نتائج</div>}
               {filteredItems.map(i => (
                 <div
                   key={i.id}
-                  onClick={() => { setSelectedId(i.id); setItemSearch(''); }}
+                  onMouseDown={() => { setSelectedId(i.id); setItemSearch(''); setSearchFocused(false); }}
                   style={{
-                    padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9',
+                    padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f8fafc',
                     background: selectedId === i.id ? '#eff6ff' : '#fff',
                   }}
+                  onMouseEnter={e => (e.currentTarget.style.background = selectedId === i.id ? '#dbeafe' : '#f8fafc')}
+                  onMouseLeave={e => (e.currentTarget.style.background = selectedId === i.id ? '#eff6ff' : '#fff')}
                 >
-                  <div style={{ fontWeight: 600, fontSize: 13, color: '#1e40af' }}>{i.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: selectedId === i.id ? '#1d4ed8' : '#1e293b' }}>
+                    {selectedId === i.id && <span style={{ marginLeft: 4, color: '#6366f1' }}>✓</span>}
+                    {i.name}
+                  </div>
                   {i.scientificName && <div style={{ fontSize: 11, color: '#64748b' }}>{i.scientificName} {i.dosage ? `• ${i.dosage}` : ''} {i.form ? `• ${i.form}` : ''}</div>}
                 </div>
               ))}
