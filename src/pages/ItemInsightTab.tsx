@@ -787,25 +787,22 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                     onClick={async () => {
                       setSurveyAnalyzing(true); setSurveyAnalyzeMsg(null);
                       try {
-                        // Get active survey IDs
-                        const r = await fetch(`${API}/api/surveys?type=drug_prices&active=true`, { headers });
-                        const j = await r.json().catch(() => ({}));
-                        const surveysToAnalyze: number[] = (j.surveys || j.data || []).map((s: any) => s.id).filter(Boolean);
-                        if (!surveysToAnalyze.length) { setSurveyAnalyzeMsg('لا توجد سيرفيات نشطة'); return; }
-                        let done = 0;
-                        for (const sid of surveysToAnalyze) {
-                          setSurveyAnalyzeMsg(`⏳ جاري تحليل السيرفي ${sid}...`);
-                          const res = await fetch(`${API}/api/item-analysis/survey/${sid}/ai-analyze`, { method: 'POST', headers });
-                          if (res.ok) done++;
+                        setSurveyAnalyzeMsg('⏳ جاري تحليل السيرفيات...');
+                        const res = await fetch(`${API}/api/item-analysis/survey/ai-analyze-all`, { method: 'POST', headers });
+                        const j = await res.json();
+                        if (!res.ok) throw new Error(j.error || 'خطأ');
+                        if (j.surveyCount === 0) {
+                          setSurveyAnalyzeMsg('⚠️ لا توجد سيرفيات أسعار نشطة في النظام');
+                          return;
                         }
-                        setSurveyAnalyzeMsg(`✅ تم تحليل ${done} سيرفي`);
+                        setSurveyAnalyzeMsg(`✅ تم تحليل ${j.done} من ${j.surveyCount} سيرفي`);
                         // Reload market prices
                         setMarketLoading(true);
                         const mr = await fetch(`${API}/api/item-analysis/${selectedId}/market-prices`, { headers });
                         const mj: MarketPricesResult = await mr.json();
                         setMarketResult(mj); setMarketPrices(mj.data || []);
-                      } catch (err) {
-                        setSurveyAnalyzeMsg('حدث خطأ أثناء التحليل');
+                      } catch (err: any) {
+                        setSurveyAnalyzeMsg(`⚠️ ${err?.message || 'حدث خطأ أثناء التحليل'}`);
                       } finally {
                         setSurveyAnalyzing(false); setMarketLoading(false);
                       }

@@ -770,6 +770,91 @@ ${hasRep ? `
   } catch (e) { next(e); }
 }
 
+// ─── POST /api/item-analysis/survey/ai-analyze-all ──────────────────────────
+// Find ALL active drug_price surveys and analyze each with Gemini
+export async function analyzeAllSurveysWithAI(req, res, next) {
+  try {
+    const surveys = await prisma.masterSurvey.findMany({
+      where: { surveyType: 'drug_prices', isActive: true },
+      select: { id: true, name: true },
+    });
+
+    if (!surveys.length) {
+      return res.json({ ok: true, surveyCount: 0, results: [], message: 'لا توجد سيرفيات أسعار نشطة' });
+    }
+
+    const results = [];
+    for (const survey of surveys) {
+      const entries = await prisma.drugPriceSurveyEntry.findMany({
+        where: { surveyId: survey.id },
+        select: { id: true, brandName: true, scientificName: true, dosageForm: true, packaging: true },
+      });
+
+      if (!entries.length) {
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'no entries' });
+        continue;
+      }
+
+      const entryList = entries.map(e => ({
+        id: e.id, brand: e.brandName, sci: e.scientificName || '', form: e.dosageForm || '', pkg: e.packaging || '',
+      }));
+
+      const prompt = `أنت خبير صيدلاني. لديك قائمة أدوية من سيرفي أسعار.
+مهمتك: لكل دواء، استخرج المعلومات التالية بدقة:
+- entryId: نفس id المعطى
+- activeIngredient: المادة الفعالة الرئيسية (بالإنجليزية، موحدة ومعيارية، مثال: "tiotropium bromide")
+- drugClass: الصنف الدوائي (مثال: "anticholinergic bronchodilator")
+- dosageAmount: كمية الجرعة فقط (مثال: "18")
+- dosageUnit: الوحدة فقط (مثال: "mcg" أو "mg" أو "ml") — إذا غير موجود اترك فارغاً
+- dosageForm: الشكل الدوائي الموحد بالإنجليزية الصغيرة (spray / tablet / capsule / injection / syrup / cream / drops)
+- competitorGroup: مفتاح فريد يجمع الأدوية المتنافسة (نفس المادة الفعالة + نفس الجرعة + نفس الشكل)
+  مثال: "tiotropium-18mcg-spray" أو "amoxicillin-500mg-capsule"
+  إذا لم تستطع تحديد الجرعة، استخدم المادة الفعالة فقط: مثال "tiotropium-spray"
+
+قاعدة مهمة: أدوية بنفس المادة الفعالة + نفس الجرعة + نفس الشكل يجب أن تحمل نفس competitorGroup بغض النظر عن الاسم التجاري أو الشركة.
+
+القائمة (${entries.length} دواء):
+${JSON.stringify(entryList)}
+
+أعد JSON فقط — مصفوفة بدون أي نص إضافي:
+[{"entryId":1,"activeIngredient":"...","drugClass":"...","dosageAmount":"...","dosageUnit":"...","dosageForm":"...","competitorGroup":"..."}]`;
+
+      let rawResult;
+      try { rawResult = await callGeminiSmart([{ text: prompt }]); }
+      catch (err) {
+        await prisma.surveyAIAnalysis.upsert({
+          where: { surveyId: survey.id },
+          create: { surveyId: survey.id, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: err?.message, updatedAt: new Date() },
+          update: { status: 'error', errorMsg: err?.message, updatedAt: new Date() },
+        });
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason: 'Gemini error' });
+        continue;
+      }
+
+      let analysisArray;
+      try {
+        const cleaned = rawResult.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+        analysisArray = JSON.parse(cleaned);
+        if (!Array.isArray(analysisArray)) throw new Error('not array');
+      } catch {
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason: 'JSON parse error' });
+        continue;
+      }
+
+      await prisma.surveyAIAnalysis.upsert({
+        where: { surveyId: survey.id },
+        create: { surveyId: survey.id, analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+        update: { analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+      });
+
+      results.push({ surveyId: survey.id, surveyName: survey.name, status: 'done', entryCount: analysisArray.length });
+    }
+
+    const done = results.filter(r => r.status === 'done').length;
+    res.json({ ok: true, surveyCount: surveys.length, done, results });
+  } catch (e) { next(e); }
+}
+
 // ─── POST /api/item-analysis/survey/:surveyId/ai-analyze ────────────────
 // Analyze a drug_price survey with Gemini → store normalised index in survey_ai_analyses
 export async function analyzeSurveyWithAI(req, res, next) {
