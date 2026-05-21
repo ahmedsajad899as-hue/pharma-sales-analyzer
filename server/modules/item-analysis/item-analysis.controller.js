@@ -300,11 +300,16 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 3. Doctor visits for this item (within window) ─────
-    const dvWhere = { userId, itemId, visitDate: { gte: since } };
+    // IMPORTANT: visits created BY the rep have userId = rep's userId, not manager's.
+    // When filtering by a specific rep, scope by scientificRepId only (already verified
+    // to belong to this manager's org). Without a rep, scope to manager's userId.
+    let dvWhere;
     if (sciRep) {
-      dvWhere.scientificRepId = sciRep.id; // exact ID match
+      dvWhere = { scientificRepId: sciRep.id, itemId, visitDate: { gte: since } };
     } else if (repName) {
-      dvWhere.scientificRep = { name: { equals: repName, mode: 'insensitive' } };
+      dvWhere = { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, itemId, visitDate: { gte: since } };
+    } else {
+      dvWhere = { userId, itemId, visitDate: { gte: since } };
     }
     const doctorVisits = await prisma.doctorVisit.findMany({
       where: dvWhere,
@@ -347,14 +352,14 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 4. Pharmacy visits for this item ───────────────────
-    const pvWhere = { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } };
+    // Same userId mismatch fix as doctor visits above.
+    let pvWhere;
     if (sciRep) {
-      pvWhere.pharmacyVisit = { ...pvWhere.pharmacyVisit, scientificRepId: sciRep.id };
+      pvWhere = { itemId, pharmacyVisit: { scientificRepId: sciRep.id, visitDate: { gte: since } } };
     } else if (repName) {
-      pvWhere.pharmacyVisit = {
-        ...pvWhere.pharmacyVisit,
-        scientificRep: { name: { equals: repName, mode: 'insensitive' } },
-      };
+      pvWhere = { itemId, pharmacyVisit: { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since } } };
+    } else {
+      pvWhere = { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } };
     }
     const pharmacyVisitItems = await prisma.pharmacyVisitItem.findMany({
       where: pvWhere,
