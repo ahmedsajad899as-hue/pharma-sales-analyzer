@@ -941,7 +941,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                                 <thead>
                                   <tr style={{ background: '#f8fafc' }}>
-                                    {['الاسم التجاري','الاسم العلمي','الشكل','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
+                                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
                                       <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                     ))}
                                   </tr>
@@ -952,6 +952,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                                       <td style={{ padding: '8px 10px', fontWeight: 700, color: '#1e293b' }}>{entry.brandName}</td>
                                       <td style={{ padding: '8px 10px', color: '#6b7280', fontSize: 11 }}>{entry.scientificName || '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                                      <td style={{ padding: '8px 10px', color: '#64748b' }}>{entry.packaging || '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
@@ -974,7 +975,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead>
                           <tr style={{ background: '#f0fdf4' }}>
-                            {['الاسم التجاري','الاسم العلمي','الشكل','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
+                            {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
                               <th key={h} style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#065f46', borderBottom: '2px solid #bbf7d0', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                           </tr>
@@ -985,6 +986,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                               <td style={{ padding: '9px 10px', fontWeight: 700, color: '#1e293b' }}>{entry.brandName}</td>
                               <td style={{ padding: '9px 10px', color: '#6b7280', fontSize: 11 }}>{entry.scientificName || '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
+                              <td style={{ padding: '9px 10px', color: '#64748b' }}>{entry.packaging || '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
