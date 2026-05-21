@@ -298,6 +298,13 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
       fetch(`${API}/api/item-analysis/items${qs}`, { headers })
         .then(rr => rr.json()).then(rr => setItems(rr.items || [])).catch(() => {});
       loadAnalytics();
+      // Refresh market prices (scientific name affects competitor matching)
+      setMarketLoading(true);
+      fetch(`${API}/api/item-analysis/${selectedId}/market-prices`, { headers })
+        .then(r => r.json())
+        .then((j: MarketPricesResult) => { setMarketResult(j); setMarketPrices(j.data || []); })
+        .catch(() => { setMarketResult(null); setMarketPrices([]); })
+        .finally(() => setMarketLoading(false));
     } catch (e: any) {
       setInfoError(String(e.message || e));
     } finally {
@@ -463,7 +470,16 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid #cbd5e1' }} />
             )}
             <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{data.item.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{data.item.name}</div>
+                <button onClick={() => {
+                  setInfoForm({ scientificName: data.item.scientificName || '', dosage: data.item.dosage || '', form: data.item.form || '' });
+                  setInfoError(null);
+                  setShowInfoModal(true);
+                }} style={{ padding: '3px 9px', borderRadius: 5, border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#475569', fontSize: 11, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  ✏️ تعديل
+                </button>
+              </div>
               {data.item.scientificName && <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>🧪 {data.item.scientificName}</div>}
               <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
                 {data.item.dosage && <span>الجرعة: <b>{data.item.dosage}</b> • </span>}
@@ -1020,10 +1036,10 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
             boxShadow: '0 20px 50px rgba(0,0,0,.3)',
           }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: '#1e3a8a', marginBottom: 6 }}>
-              📋 معلومات الإيتم ناقصة
+              {(data.item.scientificName || data.item.dosage || data.item.form) ? '✏️ تعديل بيانات الإيتم' : '📋 معلومات الإيتم ناقصة'}
             </div>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.7 }}>
-              لتحليل أعمق وأكثر دقة (المكونات، الميكانيزم، الأعراض الجانبية، المنافسين)، الرجاء إكمال البيانات التالية لـ <b>{data.item.name}</b>:
+              بيانات الإيتم تُستخدم في تحليل المنافسين وبحث السوق. تأكد من صحة الاسم العلمي والجرعة لـ <b>{data.item.name}</b>:
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>

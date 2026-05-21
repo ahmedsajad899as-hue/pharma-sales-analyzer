@@ -683,12 +683,16 @@ export async function getAIInsight(req, res, next) {
         if (!matched.length) {
           const normalizedName = it.name.trim().toLowerCase();
           const sciName2 = (it.scientificName || '').trim().toLowerCase();
+          const sciParts2 = sciName2
+            ? sciName2.split(/[\/\+\,]/).map(p => p.replace(/[\d.]+\s*(mg|mcg|ml|g|iu|%)/gi, '').trim().toLowerCase()).filter(p => p.length > 4)
+            : [];
           matched = allEntries.filter(e => {
             const bn = e.brandName.trim().toLowerCase();
             const entSci = (e.scientificName || '').trim().toLowerCase();
             return bn.includes(normalizedName) || normalizedName.includes(bn) ||
               (sciName2 && (bn.includes(sciName2) || sciName2.includes(bn))) ||
-              (sciName2 && entSci && (entSci.includes(sciName2) || sciName2.includes(entSci)));
+              (sciName2 && entSci && (entSci.includes(sciName2) || sciName2.includes(entSci))) ||
+              sciParts2.some(part => entSci.includes(part) || bn.includes(part));
           });
         }
         marketCompetitors = matched.map(e => ({
@@ -1161,6 +1165,9 @@ export async function getMarketPrices(req, res, next) {
       } else {
         // No AI match found — fallback to fuzzy text match
         const normalizedName = item.name.trim().toLowerCase();
+        const sciParts = sciName
+          ? sciName.split(/[\/\+\,]/).map(p => p.replace(/[\d.]+\s*(mg|mcg|ml|g|iu|%)/gi, '').trim().toLowerCase()).filter(p => p.length > 4)
+          : [];
         matchedEntries = allEntries.filter(e => {
           const bn = e.brandName.trim().toLowerCase();
           const entSci = (e.scientificName || '').trim().toLowerCase();
@@ -1168,7 +1175,8 @@ export async function getMarketPrices(req, res, next) {
             bn.includes(normalizedName) ||
             normalizedName.includes(bn) ||
             (sciName && (bn.includes(sciName) || sciName.includes(bn))) ||
-            (sciName && entSci && (entSci.includes(sciName) || sciName.includes(entSci)))
+            (sciName && entSci && (entSci.includes(sciName) || sciName.includes(entSci))) ||
+            sciParts.some(part => entSci.includes(part) || bn.includes(part))
           );
         });
       }
@@ -1201,6 +1209,9 @@ export async function getMarketPrices(req, res, next) {
     // ── Fallback: simple fuzzy matching (no AI analysis available) ────────
     const normalizedName = item.name.trim().toLowerCase();
     const sciName = (item.scientificName || '').trim().toLowerCase();
+    const sciParts = sciName
+      ? sciName.split(/[\/\+\,]/).map(p => p.replace(/[\d.]+\s*(mg|mcg|ml|g|iu|%)/gi, '').trim().toLowerCase()).filter(p => p.length > 4)
+      : [];
     const matched = allEntries.filter(e => {
       const bn = e.brandName.trim().toLowerCase();
       const entSci = (e.scientificName || '').trim().toLowerCase();
@@ -1208,7 +1219,8 @@ export async function getMarketPrices(req, res, next) {
         bn.includes(normalizedName) ||
         normalizedName.includes(bn) ||
         (sciName && (bn.includes(sciName) || sciName.includes(bn))) ||
-        (sciName && entSci && (entSci.includes(sciName) || sciName.includes(entSci)))
+        (sciName && entSci && (entSci.includes(sciName) || sciName.includes(entSci))) ||
+        sciParts.some(part => entSci.includes(part) || bn.includes(part))
       );
     });
 
