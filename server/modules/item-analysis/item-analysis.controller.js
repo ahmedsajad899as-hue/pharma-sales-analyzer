@@ -13,90 +13,6 @@ function norm(s = '') {
     .toLowerCase();
 }
 
-// ─── Active ingredient fuzzy matching ────────────────────────
-// Strips salt forms, dosage, and non-letters to compare ingredient stems.
-const SALT_SUFFIX_RX = /\b(as|the|of|and|or|with|free\s*base|anhydrous|sodium|potassium|calcium|magnesium|zinc|hcl|hbr|hydrochloride|hydrobromide|sulfate|sulphate|phosphate|sesquihydrate|monohydrate|dihydrate|trihydrate|maleate|fumarate|tartrate|citrate|succinate|besylate|mesylate|tosylate|acetate|chloride|bromide|nitrate|carbonate|bicarbonate|gluconate|lactate|oxalate|salicylate|stearate|palmitate|hemifumarate|disoproxil|alafenamide|propionate|valerate|benzoate|dipropionate|furoate|pivalate|enanthate|decanoate|undecanoate|cypionate|fumar|maleat|tartrat|citrat|sulf|phosph)\b/g;
-function normalizeActive(s) {
-  if (!s) return '';
-  return String(s).toLowerCase()
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/\d+(\.\d+)?\s*(mg|mcg|g|ml|iu|%|units?)/g, ' ')
-    .replace(SALT_SUFFIX_RX, ' ')
-    .replace(/[^a-z]/g, '');
-}
-function levenshtein(a, b) {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  const m = [];
-  for (let i = 0; i <= b.length; i++) m[i] = [i];
-  for (let j = 0; j <= a.length; j++) m[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      m[i][j] = b.charAt(i - 1) === a.charAt(j - 1)
-        ? m[i - 1][j - 1]
-        : Math.min(m[i - 1][j - 1] + 1, m[i][j - 1] + 1, m[i - 1][j] + 1);
-    }
-  }
-  return m[b.length][a.length];
-}
-// Returns true if the two raw ingredient strings refer to the same active substance
-// (handles typos, salt suffixes, and one-side multi-ingredient combos).
-function isSimilarActive(a, b) {
-  const na = normalizeActive(a);
-  const nb = normalizeActive(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  // Substring (must be at least 5 chars) — handles "pantoprazole" inside "pantoprazolesodium"
-  const minLen = Math.min(na.length, nb.length);
-  if (minLen >= 5 && (na.includes(nb) || nb.includes(na))) return true;
-  // Edit distance threshold scales with length: catches common typos like
-  //   pantoprazol vs pantaprazol (1) or amoxicillin vs amoxycillin (1)
-  const maxLen = Math.max(na.length, nb.length);
-  const threshold = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
-  return levenshtein(na, nb) <= threshold;
-}
-// Multi-ingredient awareness: split on '+' or '/' or ',' and try any token match
-function activeMatchesAny(itemActive, candidate) {
-  if (!itemActive || !candidate) return false;
-  const itemTokens = String(itemActive).split(/[+/,]+/).map(t => t.trim()).filter(Boolean);
-  const candTokens = String(candidate).split(/[+/,]+/).map(t => t.trim()).filter(Boolean);
-  for (const a of itemTokens) {
-    for (const b of candTokens) {
-      if (isSimilarActive(a, b)) return true;
-    }
-  }
-  return false;
-}
-
-// ─── Brand-name fuzzy matching ──────────────────────────────
-// Used to decide whether two product names refer to the same brand
-// (e.g. "Spiract 18mg" ↔ "Spiract 18 mcg Capsules inhalation powder").
-// Strategy: extract the first meaningful alphabetic token (brand stem)
-// from each side and compare with edit-distance tolerance.
-const FORM_WORDS_RX = /\b(tablet|tablets|tab|tabs|cap|caps|capsule|capsules|syrup|injection|inj|drops|drop|ointment|cream|gel|spray|inhaler|inhalation|powder|sachet|suppository|suppositories|solution|suspension|patch|patches|cream|lotion|emulsion|elixir|أقراص|قرص|كبسولات|كبسولة|شراب|حقنة|حقن|قطرة|قطرات|مرهم|كريم|بخاخ|تحاميل|محلول|مسحوق|كيس)\b/gi;
-function brandStem(s) {
-  if (!s) return '';
-  return String(s)
-    .toLowerCase()
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/\d+(\.\d+)?\s*(mg|mcg|g|ml|iu|%|units?)/g, ' ')
-    .replace(FORM_WORDS_RX, ' ')
-    .replace(/[^a-z\u0600-\u06FF]+/g, ' ')
-    .trim()
-    .split(/\s+/)[0] || '';
-}
-function isSameBrand(a, b) {
-  const sa = brandStem(a);
-  const sb = brandStem(b);
-  if (!sa || !sb || sa.length < 3 || sb.length < 3) return false;
-  if (sa === sb) return true;
-  // Allow tiny typos on brand names (1 edit per 6 chars)
-  const maxLen = Math.max(sa.length, sb.length);
-  const threshold = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
-  return levenshtein(sa, sb) <= threshold;
-}
-
 function buildFileFilter(fileIds) {
   if (!fileIds) return {};
   const ids = String(fileIds).split(',').map(Number).filter(Boolean);
@@ -714,142 +630,6 @@ export async function getAIInsight(req, res, next) {
       repDiagnostic: aggregated.repDiagnostic,
     };
 
-    // ── Fetch real survey-based competitor data (drug_prices surveys) ──────
-    // Reuses the same matching logic as getMarketPrices to ensure consistency.
-    let surveyMarket = { ownProduct: null, competitors: [], surveyCount: 0, matchMode: 'none' };
-    try {
-      const surveys = await prisma.masterSurvey.findMany({
-        where: { surveyType: 'drug_prices', isActive: true },
-        select: { id: true, name: true },
-      });
-      if (surveys.length) {
-        const surveyIds = surveys.map(s => s.id);
-        const surveyMap = Object.fromEntries(surveys.map(s => [s.id, s.name]));
-        const allEntries = await prisma.drugPriceSurveyEntry.findMany({
-          where: { surveyId: { in: surveyIds } },
-          orderBy: [{ brandName: 'asc' }],
-        });
-        const aiAnalyses = await prisma.surveyAIAnalysis.findMany({
-          where: { surveyId: { in: surveyIds }, status: 'done' },
-          select: { surveyId: true, analysisJson: true },
-        });
-        const entryMap = Object.fromEntries(allEntries.map(e => [e.id, e]));
-
-        const it = aggregated.item;
-        const normalName = it.name.trim().toLowerCase().replace(/\s+/g, '');
-        const sciName = (it.scientificName || '').trim().toLowerCase();
-
-        if (aiAnalyses.length > 0) {
-          const analyzedEntries = [];
-          for (const ai of aiAnalyses) {
-            try {
-              const arr = JSON.parse(ai.analysisJson);
-              for (const a of arr) analyzedEntries.push({ ...a, _surveyId: ai.surveyId });
-            } catch {}
-          }
-
-          let ownEntry = null;
-          let ownCompetitorGroup = null;
-
-          // Score every analyzed entry and pick the BEST same-brand match.
-          // We prefer same brand stem + same active ingredient + closest dosage,
-          // so "Spiract 18mg" (item) maps to the survey row "Spiract 18 mcg Capsules ...".
-          let bestScore = -1;
-          for (const a of analyzedEntries) {
-            const raw = entryMap[a.entryId];
-            if (!raw) continue;
-            let score = 0;
-            if (isSameBrand(it.name, raw.brandName)) score += 10;
-            // Exact brand stem token equality (without typo tolerance) gets a tiny boost
-            if (brandStem(it.name) && brandStem(it.name) === brandStem(raw.brandName)) score += 2;
-            if (sciName && activeMatchesAny(sciName, a.activeIngredient)) score += 3;
-            // Matching dosage amount boosts ranking
-            if (it.dosage && a.dosageAmount) {
-              const itDose = String(it.dosage).match(/\d+(\.\d+)?/)?.[0];
-              const aiDose = String(a.dosageAmount).match(/\d+(\.\d+)?/)?.[0];
-              if (itDose && aiDose && itDose === aiDose) score += 2;
-            }
-            if (score > bestScore) { bestScore = score; ownEntry = a; ownCompetitorGroup = a.competitorGroup; }
-          }
-          // Require at least a brand-stem match (score ≥ 10) to consider it our product.
-          if (bestScore < 10) { ownEntry = null; ownCompetitorGroup = null; }
-
-          // If brand didn't match anything, fall back to pure active-ingredient match.
-          if (!ownEntry && sciName) {
-            for (const a of analyzedEntries) {
-              if (activeMatchesAny(sciName, a.activeIngredient)) {
-                ownEntry = a; ownCompetitorGroup = a.competitorGroup; break;
-              }
-            }
-          }
-
-          const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
-          const buildEntry = (e) => {
-            const a = aiMap[e.id] || {};
-            return {
-              brand: e.brandName,
-              company: e.company || null,
-              scientificName: e.scientificName || null,
-              activeIngredient: a.activeIngredient || null,
-              drugClass: a.drugClass || null,
-              dosage: [a.dosageAmount, a.dosageUnit].filter(Boolean).join('') || null,
-              form: a.dosageForm || e.dosageForm || null,
-              packaging: e.packaging || null,
-              priceOfficeToWholesaler: e.priceOfficeToWholesaler ?? null,
-              priceWholesalerToPharmacy: e.priceWholesalerToPharmacy ?? null,
-              pricePharmacyToPatient: e.pricePharmacyToPatient ?? null,
-              surveyName: surveyMap[e.surveyId] || '',
-            };
-          };
-
-          // Match ALL entries with similar active ingredient (any dosage/form),
-          // using fuzzy comparison to catch typos like pantoprazol vs pantaprazol.
-          const ownActive = ownEntry?.activeIngredient || sciName || it.name;
-          const matched = allEntries.filter(e => {
-            const ai = aiMap[e.id];
-            const candidate = ai?.activeIngredient || e.scientificName;
-            if (activeMatchesAny(ownActive, candidate)) return true;
-            if (!candidate && e.brandName && activeMatchesAny(ownActive, e.brandName)) return true;
-            return false;
-          });
-
-          const ownRaw = ownEntry ? entryMap[ownEntry.entryId] : null;
-          surveyMarket.ownProduct = ownRaw ? buildEntry(ownRaw) : null;
-          surveyMarket.competitors = matched
-            .filter(e => !ownRaw || e.id !== ownRaw.id)
-            .map(buildEntry);
-          if (matched.length) surveyMarket.matchMode = 'ai';
-        }
-
-        // Fallback fuzzy match if AI did not yield results
-        if (surveyMarket.matchMode === 'none') {
-          const searchActive = sciName || it.name;
-          const matched = allEntries.filter(e => {
-            if (e.scientificName && activeMatchesAny(searchActive, e.scientificName)) return true;
-            if (!e.scientificName && e.brandName && activeMatchesAny(searchActive, e.brandName)) return true;
-            return false;
-          });
-          if (matched.length) {
-            surveyMarket.competitors = matched.map(e => ({
-              brand: e.brandName,
-              company: e.company || null,
-              scientificName: e.scientificName || null,
-              form: e.dosageForm || null,
-              packaging: e.packaging || null,
-              priceOfficeToWholesaler: e.priceOfficeToWholesaler ?? null,
-              priceWholesalerToPharmacy: e.priceWholesalerToPharmacy ?? null,
-              pricePharmacyToPatient: e.pricePharmacyToPatient ?? null,
-              surveyName: surveyMap[e.surveyId] || '',
-            }));
-            surveyMarket.matchMode = 'fuzzy';
-          }
-        }
-        surveyMarket.surveyCount = surveys.length;
-      }
-    } catch (err) {
-      console.warn('[item-analysis] survey market fetch failed:', err?.message);
-    }
-
     const it = slim.item;
     const hasRep = !!slim.repName && !!slim.repDiagnostic;
 
@@ -873,7 +653,8 @@ ${JSON.stringify(slim.repDiagnostic, null, 2)}
 ${slim.repDiagnostic.signals.length > 0 ? slim.repDiagnostic.signals.map(s => `- ${s}`).join('\n') : '- لا توجد إشارات تلقائية واضحة، حلل البيانات يدوياً'}
 ` : '';
 
-    const prompt = `أنت محلل مبيعات أدوية خبير ومستشار طبي علمي عميق. حلل أداء الإيتم التالي تحليلاً شاملاً ومنظماً بالعربية الفصحى.
+    const prompt = `أنت محلل مبيعات أدوية خبير ومستشار طبي علمي. حلل الإيتم التالي تحليلاً مرئياً منظماً.
+قاعدة الإخراج الأساسية: استخدم الجداول والقوائم النقطية دائماً — تجنب الفقرات الطويلة. كل قسم يجب أن يكون موجزاً وقابلاً للمسح البصري السريع بدون تكرار أو تلوث بصري.
 
 # بيانات الإيتم
 - الاسم التجاري: ${it.name}
@@ -911,106 +692,98 @@ ${JSON.stringify(slim.doctorVisits, null, 2)}
 # زيارات الصيدليات
 ${JSON.stringify(slim.pharmacyVisits, null, 2)}
 
-# منافسون داخل نفس الشركة (مبيع داخلي)
+# منافسون داخل نفس الشركة
 ${JSON.stringify(slim.competitors, null, 2)}
-
-# 🔬 بيانات السيرفي الحقيقية للمنافسين (من ملف السوبر ادمن)
-نمط التطابق: ${surveyMarket.matchMode} — عدد السيرفيات الفعّالة: ${surveyMarket.surveyCount}
-${surveyMarket.ownProduct ? `## ✅ منتجنا (مُطابَق من السيرفي — استخدم هذه البيانات بدلاً من الفارغة في "# بيانات الإيتم"):
-${JSON.stringify(surveyMarket.ownProduct, null, 2)}
-
-⚠️ مهم جداً: إذا كانت الحقول في "# بيانات الإيتم" أعلاه فارغة أو "غير محدد" (مثل السعر، التعبئة، الشركة)، **استخدم القيم من \`ownProduct\` أعلاه** لأنها من نفس المنتج (نفس البراند) موجود في السيرفي. هذه القيم هي المرجع الموثوق.` : '## منتجنا غير موجود في السيرفي — اعتمد على بيانات الإيتم أعلاه فقط.'}
-
-## المنافسون من السيرفي (${surveyMarket.competitors.length} منافس بنفس المادة الفعالة/الجرعة/الشكل):
-${surveyMarket.competitors.length ? JSON.stringify(surveyMarket.competitors, null, 2) : 'لا توجد منافسين في السيرفي.'}
 ${repBlock}
 
 # المطلوب
-اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط. استخدم العناوين الرئيسية بصيغة (## رقم. عنوان) كما هي. اربط كل استنتاج بأرقام محددة من البيانات أعلاه. تجنّب الإطالة والعموميات.
+اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي). لكل قسم: استخدم جدول أو قائمة نقطية — لا فقرات نثرية. اربط كل استنتاج بأرقام محددة.
 
-## 💊 1. الملف العلمي للدواء (Drug Profile)
-هذا القسم يُعرض في تبويب "المعلومات العلمية" — اجعله ملف علمي رسمي ومرجعي. استخدم تنسيق KV (مفتاح: قيمة) مختصر ومرتّب.
+## 💊 1. Scientific Drug Profile (الملف العلمي)
+Write **in English only**. All fields compact (one line each). No sentences or paragraphs.
 
-**Brand:** [اسم] | **Generic (الاسم العلمي):** [المادة الفعّالة]
-**Drug Class (الفئة):** [الفئة العلاجية]
-**Mechanism of Action (آلية العمل):** [جملة واحدة دقيقة]
-**Indications (الاستخدامات الرئيسية):** [4-6 استخدامات]
-**Contraindications (موانع الاستعمال):** [أهم 3-5]
-**Common Side Effects (الأعراض الشائعة):** [قائمة]
-**Serious Side Effects (الأعراض الخطيرة):** [قائمة]
-**Pregnancy Category:** [FDA Cat. X — ملاحظة]
-**Drug Interactions (تداخلات دوائية رئيسية):** [أهم 3-5]
-**Pharmacokinetics:** Onset [..] | T½ [..] | Bioavailability [..] | Excretion [renal/hepatic]
+**DRUG CLASS:** [class] | **BRAND:** [name] | **Generic:** [INN/active ingredient]
+**FORM:** [dosage form] | **Strength:** [dosage] | **Route:** [oral/inhaled/IV…]
+**Mechanism:** [1 concise sentence — molecular/cellular level]
+**Indications:** [comma-separated, 4-6 max]
+**Off-label:** [2-3 items or "Not established"]
+**Contraindications:** [comma-separated key contraindications]
+**Side Effects — Common:** [list] | **Serious:** [list]
+**Pregnancy:** FDA Cat. [X] — [1-line note] | **Breastfeeding:** [Safe / Avoid / Caution]
+**Interactions:** [Top 3-5 comma-separated]
+**PK:** Onset [X] | T½ [X] | Bioavailability [X%] | Excretion [renal/hepatic]
 
-### 🩺 الأطباء المستهدفون والأكثر وصفاً
-استنتج علمياً + استدل من بيانات الزيارات أعلاه:
-- اذكر تخصصات الأطباء الذين يصفون هذا الدواء عادة (Cardiologist, GP, Pediatrician, ...)
-- رتّبهم حسب الأهمية (الأكثر وصفاً أولاً)
-- لكل تخصص، اذكر السبب باختصار (لماذا هذا التخصص مهم لهذا الدواء)
+---
+**💬 Scientific Message (الرسالة العلمية المختصرة):**
+> [One punchy line — the key clinical selling point in Arabic for reps]
 
-### 💡 الرسالة العلمية المختصرة
-3 نقاط رئيسية يمكن للمندوب استخدامها مع الطبيب — صياغة قصيرة وواضحة.
+---
 
-## 🏆 2. التحليل التنافسي العميق (Competitive Analysis)
-هذا أهم قسم — اعتمد بشكل أساسي على بيانات السيرفي الحقيقية أعلاه (\`surveyMarket\`) ولا تخترع منافسين غير موجودين فيها.
+## 🩺 2. Target Prescribers & Clinical Indications
+Write **in English only**. Use the table below only — no prose, no explanation. Order by prescribing priority (highest first). Include only specialties that genuinely prescribe this drug. Add the key patient cases/conditions per specialty.
 
-### أ. جدول مقارنة الأسعار (من السيرفي)
-${surveyMarket.competitors.length || surveyMarket.ownProduct ? 'أنشئ جدولاً Markdown بالأعمدة التالية لكل منتج (منتجنا أولاً ثم المنافسون):' : 'لا توجد بيانات سيرفي — اذكر ذلك صراحةً واطلب رفع سيرفي أسعار.'}
+| # | Specialty | Key Clinical Conditions / Indications | Prescribing Trigger |
+|---|-----------|----------------------------------------|---------------------|
+| 1 | [e.g. Pulmonologist] | [e.g. COPD, Emphysema, Alpha-1 AAT deficiency] | [e.g. Maintenance bronchodilation] |
+| 2 | … | … | … |
 
-| المنتج | الشركة | الجرعة | الشكل | التعبئة | مكتب←مذخر | مذخر←صيدلية | صيدلية←مريض |
-|---|---|---|---|---|---|---|---|
+## 🏆 3. تحليل المنافسة
+### Generic Equivalents (نفس المادة الفعّالة)
+| المنتج | الشركة | ميزة إيتمنا عليه |
+|--------|--------|-----------------|
 
-استخدم الأرقام كما هي من \`surveyMarket\`. **ضع منتجنا في السطر الأول وكامل أسعاره من \`ownProduct\` إذا كان مُطابَقاً.** لا تكرر منتجنا كصف منفصل بأرقام "—" إذا كان موجوداً في \`ownProduct\` — استخدم القيم الحقيقية من السيرفي. إذا حقل غير موجود فعلاً ضع "—".
+### Class Competitors (نفس الفئة العلاجية — مادة مختلفة)
+| المنتج | الفئة | الفرق الرئيسي |
+|--------|-------|--------------|
 
-### ب. تحليل نقاط القوة لمنتجنا مقابل كل منافس
-لكل منافس في \`surveyMarket.competitors\`، اكتب فقرة قصيرة (سطرين) تقارن:
-- **السعر**: هل منتجنا أرخص/أغلى؟ بكم نسبة مئوية؟
-- **التعبئة والشكل الدوائي**: ميزة لنا أو للمنافس؟
-- **الشركة المُصنّعة**: السمعة، التوفر في السوق
-- **خلاصة**: نقطة قوة محددة يمكن للمندوب استخدامها
+### ميزان القوة/الضعف
+| المعيار | إيتمنا | المنافس الرئيسي |
+|---------|--------|----------------|
+| السعر | | |
+| الجرعة | | |
+| الشكل | | |
+| Bioavailability | | |
 
-### ج. تموضع منتجنا في السوق (Market Positioning)
-- أين يقع منتجنا في خانة السعر (أرخص / متوسط / أغلى)؟
-- ما الفئة المستهدفة المثالية بناءً على هذا التموضع؟
-- استراتيجية البيع المقترحة (سعر تنافسي، جودة عالية، توفر، علاقة مع طبيب…)
+## 📊 4. انتشار السوق
+جدول واحد فقط — لا فقرات:
 
-## 🔍 3. تشخيص أداء المبيع
-حلل الأسباب الجذرية بالاعتماد على الأرقام:
-- **نمط النمو**: هل المبيع ينمو، مستقر، أم يتراجع؟ (من \`monthlyTrend\`)
-- **التوزيع الجغرافي**: مناطق قوية vs مناطق ضعيفة، وما السبب
-- **العلاقة بين الزيارات والمبيع**: هل الزيارات تتحول إلى طلبات؟
-- **سلوك الفيدباك**: ماذا تقول ملاحظات الأطباء؟ (من \`notesSamples\`)
-- **فجوات التوزيع**: صيدليات بدون مبيع، مناطق غير مغطاة
+| المؤشر | القيمة / الوصف |
+|--------|----------------|
+| مرحلة دورة الحياة | نمو / نضج / تراجع |
+| الحصة السوقية التقريبية | … |
+| أقوى المناطق | … |
+| أضعف المناطق | … |
+| الموسمية | … |
+
+## 🔍 5. تشخيص أسباب ضعف المبيع
+جدول — لا فقرات:
+
+| السبب | الدليل من البيانات | الأثر | الإجراء المقترح |
+|-------|-------------------|-------|----------------|
 ${hasRep ? `
-## 👤 4. التشخيص الخاص بالمندوب: ${slim.repName}
-طبّق القواعد التشخيصية السبع المذكورة أعلاه على بيانات هذا المندوب. لكل قاعدة تنطبق:
-- **اذكر الرقم المحدد** (مثلاً: "callCount=3 < 5 → قلة كولات واضحة")
-- **حدد السبب الجذري**
-- **اقترح إجراءً تصحيحياً محدداً** قابلاً للقياس
-لا تذكر القواعد التي لا تنطبق. ركّز على الأكثر تأثيراً.
+## 👤 6. التشخيص الخاص بالمندوب: ${slim.repName}
+طبّق القواعد التشخيصية السبع على بيانات هذا المندوب. جدول — لا فقرات:
+
+| القاعدة | القيمة الفعلية | التشخيص | الإجراء |
+|---------|---------------|---------|---------|
 ` : ''}
-## 🎯 ${hasRep ? '5' : '4'}. اقتراحات عملية ${hasRep ? `للمندوب ${slim.repName}` : 'لفريق المبيعات'}
-5-7 نقاط مرقّمة. كل نقطة:
-- **الفعل المحدد** (ماذا يفعل بالضبط)
-- **مع من** (طبيب، صيدلية، منطقة)
-- **متى** (الأسبوع القادم، خلال شهر)
-- **النتيجة المتوقعة** (قابلة للقياس)
+## 🎯 ${hasRep ? '7' : '6'}. اقتراحات عملية ${hasRep ? `للمندوب ${slim.repName}` : 'لفريق المبيعات'}
+قائمة نقطية مرقّمة — كل نقطة سطر واحد فقط. 5-6 نقاط فقط. لا شرح مطوّل.
 
-## 📅 ${hasRep ? '6' : '5'}. خطة عمل 30 يوم تنفيذية
-جدول بأربعة أعمدة:
+## 📅 ${hasRep ? '8' : '7'}. خطة عمل 30 يوم
+| الأسبوع | الإجراء | المخرج | المؤشر |
+|---------|---------|--------|--------|
+| 1 | | | |
+| 2 | | | |
+| 3 | | | |
+| 4 | | | |
 
-| الأسبوع | الإجراء | المخرج المتوقع | المؤشر |
-|---|---|---|---|
-
-خطة مرتبطة مباشرةً بالتشخيص أعلاه. ${hasRep ? 'خاصة بهذا المندوب.' : 'موجّهة للفريق ككل.'}
-
-# قواعد عامة صارمة
-- ⚠️ **لا تخترع منافسين غير موجودين في \`surveyMarket\`** — إذا كانت قائمة المنافسين فارغة، قل ذلك صراحةً
-- استشهد بأرقام محددة في كل استنتاج (سعر، عدد، نسبة)
-- لا تكتب فقرات إنشائية طويلة — كل فكرة في سطر أو سطرين
-- استخدم الجداول والقوائم بدل الفقرات الطويلة
-- المعلومات العلمية يجب أن تكون دقيقة طبياً
-- لا تكرر العناوين، لا تخلط الأقسام، التزم بالترقيم بدقة`;
+# قواعد الإخراج الإلزامية
+- كل قسم = جدول أو قائمة نقطية قصيرة
+- لا فقرات نثرية أو شرح مطوّل
+- استشهد بأرقام محددة من البيانات في كل سطر
+- إذا بيانات غير متوفرة: اكتب "N/A" في الخلية
+- المعلومات الطبية: دقيقة ومستندة لمصادر معروفة`;
 
     let insight;
     try {
@@ -1258,55 +1031,64 @@ export async function getMarketPrices(req, res, next) {
         } catch {}
       }
 
-      const sciName = (item.scientificName || '').trim();
+      const normalName = item.name.trim().toLowerCase().replace(/\s+/g, '');
+      const sciName = (item.scientificName || '').trim().toLowerCase();
 
-      // Step 1: Find the own-product entry (best brand+ingredient+dosage score)
+      // Step 1: Find the own-product entry (closest brand name match)
       let ownEntry = null;
-      let bestScore = -1;
+      let ownCompetitorGroup = null;
+
+      // Try exact/near brand match first
       for (const a of analyzedEntries) {
         const raw = entryMap[a.entryId];
         if (!raw) continue;
-        let score = 0;
-        if (isSameBrand(item.name, raw.brandName)) score += 10;
-        if (brandStem(item.name) && brandStem(item.name) === brandStem(raw.brandName)) score += 2;
-        if (sciName && activeMatchesAny(sciName, a.activeIngredient)) score += 3;
-        if (item.dosage && a.dosageAmount) {
-          const itDose = String(item.dosage).match(/\d+(\.\d+)?/)?.[0];
-          const aiDose = String(a.dosageAmount).match(/\d+(\.\d+)?/)?.[0];
-          if (itDose && aiDose && itDose === aiDose) score += 2;
+        const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
+        // Match if one contains the other (brand name without dosage suffix)
+        const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+        const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+        if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
+          ownEntry = a;
+          ownCompetitorGroup = a.competitorGroup;
+          break;
         }
-        if (score > bestScore) { bestScore = score; ownEntry = a; }
       }
-      if (bestScore < 10) ownEntry = null;
 
-      // Fallback: fuzzy active-ingredient match (handles typos)
+      // Fallback: match by activeIngredient vs scientificName
       if (!ownEntry && sciName) {
         for (const a of analyzedEntries) {
-          if (activeMatchesAny(sciName, a.activeIngredient)) {
+          const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
+          if (sciName && ai_sci && (sciName.includes(ai_sci) || ai_sci.includes(sciName))) {
             ownEntry = a;
+            ownCompetitorGroup = a.competitorGroup;
             break;
           }
         }
       }
 
-      // Step 2: Determine the canonical active ingredient to search by.
-      // Priority: AI-identified own product → item's scientific name → item brand name
-      const ownActive = ownEntry?.activeIngredient || sciName || item.name;
+      // Step 2: Find all competitors in same competitorGroup
+      let matchedEntries;
+      if (ownCompetitorGroup) {
+        const competitorIds = new Set(
+          analyzedEntries
+            .filter(a => a.competitorGroup === ownCompetitorGroup)
+            .map(a => a.entryId)
+        );
+        matchedEntries = allEntries.filter(e => competitorIds.has(e.id));
+      } else {
+        // No AI match found — fallback to fuzzy text match
+        const normalizedName = item.name.trim().toLowerCase();
+        matchedEntries = allEntries.filter(e => {
+          const bn = e.brandName.trim().toLowerCase();
+          return (
+            bn.includes(normalizedName) ||
+            normalizedName.includes(bn) ||
+            (sciName && (bn.includes(sciName) || sciName.includes(bn)))
+          );
+        });
+      }
 
-      // Match ALL entries whose active ingredient is similar — across any
-      // dosage / form / packaging — so the user sees every related competitor.
+      // Build the AI analysis map for richer frontend data
       const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
-
-      const matchedEntries = allEntries.filter(e => {
-        const ai = aiMap[e.id];
-        // Try AI-extracted active ingredient first; fall back to raw scientific name
-        const candidate = ai?.activeIngredient || e.scientificName;
-        if (activeMatchesAny(ownActive, candidate)) return true;
-        // Also catch entries whose brand name itself contains the active stem
-        // (rare cases where AI failed and scientific name is empty)
-        if (!candidate && e.brandName && activeMatchesAny(ownActive, e.brandName)) return true;
-        return false;
-      });
 
       const data = matchedEntries.map(e => {
         const ai = aiMap[e.id];
@@ -1327,29 +1109,22 @@ export async function getMarketPrices(req, res, next) {
       // Sort: own product first, then competitors
       data.sort((a, b) => (b.isOwnProduct ? 1 : 0) - (a.isOwnProduct ? 1 : 0));
 
-      return res.json({
-        data, surveyCount: surveys.length, matchMode: 'ai', surveysAnalyzed: aiAnalyses.length,
-        searchedActive: ownActive,
-      });
+      return res.json({ data, surveyCount: surveys.length, matchMode: 'ai', surveysAnalyzed: aiAnalyses.length });
     }
 
-    // ── Fallback: fuzzy active-ingredient matching (no AI analysis available) ────────
-    // Even without survey AI analysis, still match by similar scientific names so
-    // typos like "pantaprazol" vs "pantoprazole" are caught.
-    const sciName = (item.scientificName || '').trim();
-    const searchActive = sciName || item.name;
+    // ── Fallback: simple fuzzy matching (no AI analysis available) ────────
+    const normalizedName = item.name.trim().toLowerCase();
+    const sciName = (item.scientificName || '').trim().toLowerCase();
     const matched = allEntries.filter(e => {
-      // Compare the item's active ingredient against the entry's scientific name
-      // (preferred) and brand name (fallback).
-      if (e.scientificName && activeMatchesAny(searchActive, e.scientificName)) return true;
-      if (!e.scientificName && e.brandName && activeMatchesAny(searchActive, e.brandName)) return true;
-      return false;
+      const bn = e.brandName.trim().toLowerCase();
+      return (
+        bn.includes(normalizedName) ||
+        normalizedName.includes(bn) ||
+        (sciName && (bn.includes(sciName) || sciName.includes(bn)))
+      );
     });
 
     const data = matched.map(e => ({ ...e, surveyName: surveyMap[e.surveyId] || '' }));
-    res.json({
-      data, surveyCount: surveys.length, matchMode: 'fuzzy', surveysAnalyzed: 0,
-      searchedActive: searchActive,
-    });
+    res.json({ data, surveyCount: surveys.length, matchMode: 'fuzzy', surveysAnalyzed: 0 });
   } catch (e) { next(e); }
 }
