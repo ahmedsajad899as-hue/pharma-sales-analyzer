@@ -183,7 +183,7 @@ export async function getItemAnalytics(req, res, next) {
 
     // ── 1b. Resolve scientific rep (if repName given) ──────
     // Search across ALL reps in this manager's companies (not just direct subordinates)
-    let sciRep = null; // { id, areaIds }
+    let sciRep = null; // { id, areaIds, repUserId }
     if (repName) {
       // Build full rep pool: system users in same companies + standalone
       const coAssignments = await prisma.userCompanyAssignment.findMany({
@@ -192,11 +192,12 @@ export async function getItemAnalytics(req, res, next) {
       const cIds = coAssignments.map(a => a.companyId);
 
       let matchedRepId = null;
+      let matchedRepUserId = null; // the rep's OWN user account ID
 
       if (cIds.length > 0) {
         const repUsersPool = await prisma.user.findMany({
           where: {
-            role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
+            role: { in: ['scientific_rep', 'team_leader', 'commercial_rep', 'rep', 'sales_rep'] },
             isActive: true,
             companyAssignments: { some: { companyId: { in: cIds } } },
           },
@@ -205,6 +206,7 @@ export async function getItemAnalytics(req, res, next) {
         for (const u of repUsersPool) {
           const uName = u.displayName || u.username || '';
           if (norm(uName) === repNameN) {
+            matchedRepUserId = u.id;
             matchedRepId = u.linkedRepId;
             if (!matchedRepId) {
               const rep = await prisma.scientificRepresentative.findFirst({
@@ -217,20 +219,39 @@ export async function getItemAnalytics(req, res, next) {
         }
       }
 
-      // Fallback: check standalone reps
+      // Fallback: check standalone reps (name-based, created by this manager)
       if (!matchedRepId) {
         const standalone = await prisma.scientificRepresentative.findFirst({
+          where: { managerId: userId, name: { equals: repName, mode: 'insensitive' } },
+          select: { id: true, userId: true },
+        });
+        if (standalone) {
+          matchedRepId = standalone.id;
+          matchedRepUserId = matchedRepUserId || standalone.userId || null;
+        }
+      }
+
+      // Second fallback: match standalone by owner userId (legacy)
+      if (!matchedRepId) {
+        const standalone2 = await prisma.scientificRepresentative.findFirst({
           where: { userId, name: { equals: repName, mode: 'insensitive' } },
           select: { id: true },
         });
-        matchedRepId = standalone?.id ?? null;
+        matchedRepId = standalone2?.id ?? null;
       }
 
       if (matchedRepId) {
         const repAreas = await prisma.scientificRepArea.findMany({
           where: { scientificRepId: matchedRepId }, select: { areaId: true },
         });
-        sciRep = { id: matchedRepId, areaIds: repAreas.map(a => a.areaId) };
+        // Also fetch the rep's own userId from the ScientificRepresentative record
+        if (!matchedRepUserId) {
+          const repRecord = await prisma.scientificRepresentative.findUnique({
+            where: { id: matchedRepId }, select: { userId: true },
+          });
+          matchedRepUserId = repRecord?.userId ?? null;
+        }
+        sciRep = { id: matchedRepId, areaIds: repAreas.map(a => a.areaId), repUserId: matchedRepUserId };
       }
     }
 
@@ -300,14 +321,25 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 3. Doctor visits for this item (within window) ─────
-    // IMPORTANT: visits created BY the rep have userId = rep's userId, not manager's.
-    // When filtering by a specific rep, scope by scientificRepId only (already verified
-    // to belong to this manager's org). Without a rep, scope to manager's userId.
+    // A visit can be created by the rep (userId=repUserId) OR by the manager on behalf
+    // of the rep (scientificRepId set, userId=managerId). We use OR to catch both cases.
+    // We also match visits that have no itemId (general doctor call) when a rep is
+    // selected, because rep performance is measured by call count regardless of item.
     let dvWhere;
     if (sciRep) {
-      dvWhere = { scientificRepId: sciRep.id, itemId, visitDate: { gte: since } };
+      const repConditions = [{ scientificRepId: sciRep.id }];
+      if (sciRep.repUserId) repConditions.push({ userId: sciRep.repUserId });
+      dvWhere = {
+        OR: repConditions,
+        // Include visits for this item AND general visits (itemId = null)
+        // so the call count reflects the rep's true activity on this item
+        AND: [
+          { visitDate: { gte: since } },
+          { OR: [{ itemId }, { itemId: null }] },
+        ],
+      };
     } else if (repName) {
-      dvWhere = { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, itemId, visitDate: { gte: since } };
+      dvWhere = { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since }, OR: [{ itemId }, { itemId: null }] };
     } else {
       dvWhere = { userId, itemId, visitDate: { gte: since } };
     }
@@ -352,10 +384,11 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 4. Pharmacy visits for this item ───────────────────
-    // Same userId mismatch fix as doctor visits above.
     let pvWhere;
     if (sciRep) {
-      pvWhere = { itemId, pharmacyVisit: { scientificRepId: sciRep.id, visitDate: { gte: since } } };
+      const pvRepConditions = [{ scientificRepId: sciRep.id }];
+      if (sciRep.repUserId) pvRepConditions.push({ userId: sciRep.repUserId });
+      pvWhere = { itemId, pharmacyVisit: { OR: pvRepConditions, visitDate: { gte: since } } };
     } else if (repName) {
       pvWhere = { itemId, pharmacyVisit: { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since } } };
     } else {

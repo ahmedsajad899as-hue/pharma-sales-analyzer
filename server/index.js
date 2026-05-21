@@ -2333,7 +2333,9 @@ app.post('/api/pharmacy-visits', async (req, res) => {
         const rep = await prisma.scientificRepresentative.findFirst({ where: { userId } });
         if (rep) scientificRepId = rep.id;
       }
-      if (!scientificRepId) {
+      // 'user' role must be linked to a rep; other rep roles (scientific_rep, team_leader,
+      // commercial_rep, etc.) are tracked via userId when no rep record exists yet.
+      if (!scientificRepId && role === 'user') {
         return res.status(400).json({ error: 'لا يوجد مندوب مرتبط بهذا الحساب' });
       }
     }
@@ -2555,7 +2557,11 @@ app.post('/api/doctor-visits', async (req, res) => {
         const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
         scientificRepId = repRow?.id ?? null;
       }
-      if (!scientificRepId) return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
+      // 'user' role must be linked to a rep; other rep roles (scientific_rep, team_leader,
+      // commercial_rep, etc.) are tracked via userId when no rep record exists yet.
+      if (!scientificRepId && role === 'user') {
+        return res.status(400).json({ error: 'حسابك غير مرتبط بمندوب — تواصل مع المدير' });
+      }
     }
 
     // Resolve areaId from areaName if only text was provided
@@ -2897,10 +2903,18 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       // Also collect any ScientificRepresentative records where userId matches
       const allRepRecords = await prisma.scientificRepresentative.findMany({ where: { userId }, select: { id: true } });
       const allRepIds = [...new Set([repLinkedId, ...allRepRecords.map(r => r.id)].filter(Boolean))];
-      // Use OR: match by userId (visits I created) OR any of my scientificRepId values
+      // Fallback: also include visits from plan entries assigned to this user.
+      // This covers visits recorded by a manager on behalf of this rep from the rep's plan.
+      const assignedEntries = await prisma.planEntry.findMany({
+        where: { plan: { assignedUserId: userId } },
+        select: { id: true },
+      });
+      const assignedEntryIds = assignedEntries.map(e => e.id);
+      // Use OR: match by userId (visits I created) OR any of my scientificRepId values OR plan entries on my plans
       where.OR = [
         { userId },
         ...(allRepIds.length > 0 ? [{ scientificRepId: { in: allRepIds } }] : []),
+        ...(assignedEntryIds.length > 0 ? [{ planEntryId: { in: assignedEntryIds } }] : []),
       ];
     } else if (role === 'manager') {
       // manager can filter by rep
