@@ -633,6 +633,78 @@ export async function getAIInsight(req, res, next) {
     const it = slim.item;
     const hasRep = !!slim.repName && !!slim.repDiagnostic;
 
+    // ── Fetch actual market competitors from drug price surveys ──────────
+    let marketCompetitors = [];
+    try {
+      const activeSurveys = await prisma.masterSurvey.findMany({
+        where: { surveyType: 'drug_prices', isActive: true },
+        select: { id: true, name: true },
+      });
+      if (activeSurveys.length) {
+        const surveyIds = activeSurveys.map(s => s.id);
+        const surveyMap = Object.fromEntries(activeSurveys.map(s => [s.id, s.name]));
+        // Check for AI analysis first
+        const aiAnalyses = await prisma.surveyAIAnalysis.findMany({
+          where: { surveyId: { in: surveyIds }, status: 'done' },
+          select: { surveyId: true, analysisJson: true },
+        });
+        const allEntries = await prisma.drugPriceSurveyEntry.findMany({
+          where: { surveyId: { in: surveyIds } },
+          select: { id: true, brandName: true, scientificName: true, company: true, dosageForm: true, packaging: true, priceOfficeToWholesaler: true, priceWholesalerToPharmacy: true, pricePharmacyToPatient: true, surveyId: true },
+        });
+        let matched = [];
+        if (aiAnalyses.length > 0) {
+          const analyzedEntries = [];
+          for (const ai of aiAnalyses) {
+            try { const arr = JSON.parse(ai.analysisJson); for (const a of arr) analyzedEntries.push({ ...a, _surveyId: ai.surveyId }); } catch {}
+          }
+          const entryMap = Object.fromEntries(allEntries.map(e => [e.id, e]));
+          const normalName = it.name.trim().toLowerCase().replace(/\s+/g, '');
+          const sciName2 = (it.scientificName || '').trim().toLowerCase();
+          let ownEntry = null;
+          for (const a of analyzedEntries) {
+            const raw = entryMap[a.entryId]; if (!raw) continue;
+            const bn = raw.brandName.trim().toLowerCase().replace(/\s+/g, '');
+            const bnBase = bn.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+            const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
+            if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) { ownEntry = a; break; }
+          }
+          if (!ownEntry && sciName2) {
+            for (const a of analyzedEntries) {
+              const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
+              if (ai_sci && (sciName2.includes(ai_sci) || ai_sci.includes(sciName2))) { ownEntry = a; break; }
+            }
+          }
+          if (ownEntry?.competitorGroup) {
+            const groupIds = new Set(analyzedEntries.filter(a => a.competitorGroup === ownEntry.competitorGroup).map(a => a.entryId));
+            matched = allEntries.filter(e => groupIds.has(e.id));
+          }
+        }
+        if (!matched.length) {
+          const normalizedName = it.name.trim().toLowerCase();
+          const sciName2 = (it.scientificName || '').trim().toLowerCase();
+          matched = allEntries.filter(e => {
+            const bn = e.brandName.trim().toLowerCase();
+            const entSci = (e.scientificName || '').trim().toLowerCase();
+            return bn.includes(normalizedName) || normalizedName.includes(bn) ||
+              (sciName2 && (bn.includes(sciName2) || sciName2.includes(bn))) ||
+              (sciName2 && entSci && (entSci.includes(sciName2) || sciName2.includes(entSci)));
+          });
+        }
+        marketCompetitors = matched.map(e => ({
+          brandName: e.brandName,
+          scientificName: e.scientificName || '',
+          company: e.company || '',
+          dosageForm: e.dosageForm || '',
+          packaging: e.packaging || '',
+          priceOW: e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : 'N/A',
+          priceWP: e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : 'N/A',
+          pricePPt: e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : 'N/A',
+          survey: surveyMap[e.surveyId] || '',
+        }));
+      }
+    } catch {} // non-blocking — proceed even if market fetch fails
+
     const repBlock = hasRep ? `
 
 # ⚠️ تشخيص خاص بالمندوب: ${slim.repName}
@@ -728,9 +800,21 @@ Write **in English only**. Use the table below only — no prose, no explanation
 | 2 | … | … | … |
 
 ## 🏆 3. تحليل المنافسة
+${marketCompetitors.length > 0 ? `
+### منافسو السوق الفعليون (من سيرفي الأسعار)
+البيانات التالية هي المنافسون الفعليون المسجّلون في سيرفي الأسعار — استخدمها كمصدر رئيسي للتحليل:
+
+| المنتج | الشركة | الشكل | التعبئة | مكتب←مذخر | مذخر←صيدلية | صيدلية←مريض |
+|--------|--------|-------|---------|-----------|------------|------------|
+${marketCompetitors.map(c => `| ${c.brandName} | ${c.company} | ${c.dosageForm} | ${c.packaging} | ${c.priceOW} | ${c.priceWP} | ${c.pricePPt} |`).join('\n')}
+
+بناءً على هذه البيانات الفعلية:
+1. أكمل جدول Generic Equivalents أدناه مستنداً على هذه الأسعار الحقيقية
+2. حلّل ميزان القوة/الضعف بناءً على الفروق السعرية الفعلية` : `### ملاحظة: لا توجد بيانات سيرفي أسعار لهذا الإيتم — استخدم معرفتك العامة`}
+
 ### Generic Equivalents (نفس المادة الفعّالة)
-| المنتج | الشركة | ميزة إيتمنا عليه |
-|--------|--------|-----------------|
+| المنتج | الشركة | السعر للمريض | ميزة إيتمنا عليه |
+|--------|--------|-------------|-----------------|
 
 ### Class Competitors (نفس الفئة العلاجية — مادة مختلفة)
 | المنتج | الفئة | الفرق الرئيسي |
