@@ -1079,10 +1079,12 @@ export async function getMarketPrices(req, res, next) {
         const normalizedName = item.name.trim().toLowerCase();
         matchedEntries = allEntries.filter(e => {
           const bn = e.brandName.trim().toLowerCase();
+          const entSci = (e.scientificName || '').trim().toLowerCase();
           return (
             bn.includes(normalizedName) ||
             normalizedName.includes(bn) ||
-            (sciName && (bn.includes(sciName) || sciName.includes(bn)))
+            (sciName && (bn.includes(sciName) || sciName.includes(bn))) ||
+            (sciName && entSci && (entSci.includes(sciName) || sciName.includes(entSci)))
           );
         });
       }
@@ -1117,10 +1119,12 @@ export async function getMarketPrices(req, res, next) {
     const sciName = (item.scientificName || '').trim().toLowerCase();
     const matched = allEntries.filter(e => {
       const bn = e.brandName.trim().toLowerCase();
+      const entSci = (e.scientificName || '').trim().toLowerCase();
       return (
         bn.includes(normalizedName) ||
         normalizedName.includes(bn) ||
-        (sciName && (bn.includes(sciName) || sciName.includes(bn)))
+        (sciName && (bn.includes(sciName) || sciName.includes(bn))) ||
+        (sciName && entSci && (entSci.includes(sciName) || sciName.includes(entSci)))
       );
     });
 
