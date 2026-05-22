@@ -704,6 +704,25 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                   <AnalysisRenderer text={aiInsight} onlySecNum={2} />
                 </div>
               )}
+
+              {/* ── Class Competitors & Scientific Comparison (section 3 from AI) ── */}
+              {aiInsight ? (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    🏆 تحليل المنافسة <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(Class Competitors — مُولَّد بالذكاء الاصطناعي)</span>
+                  </div>
+                  <AnalysisRenderer text={aiInsight} onlySecNum={3} />
+                </div>
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '9px 14px', background: '#fff7ed', borderRadius: 8,
+                  border: '1px solid #fed7aa', fontSize: 12, color: '#c2410c',
+                }}>
+                  <span style={{ fontSize: 16 }}>🏆</span>
+                  <span>قسم <b>تحليل المنافسة (Class Competitors)</b> سيظهر هنا بعد تشغيل التحليل الذكي.</span>
+                </div>
+              )}
             </div>
           )}
 
