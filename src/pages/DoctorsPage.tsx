@@ -408,6 +408,12 @@ export default function DoctorsPage() {
   const [pharmSearch, setPharmSearch]               = useState('');
   const [expandedPharma, setExpandedPharma]         = useState<Set<string>>(new Set());
 
+  // ── Visit fetch: abort + cache refs (for instant rep-switching) ────────────
+  const visitFetchAbortRef      = useRef<AbortController | null>(null);
+  const pharmVisitFetchAbortRef = useRef<AbortController | null>(null);
+  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number } }>());
+  const pharmVisitCacheRef = useRef(new Map<string, PharmAreaGroup[]>());
+
   // ── Survey pharmacies (for commercial rep) ───────────────────
   interface SurveyPharmacy { id: number; name: string; ownerName?: string | null; phone?: string | null; address?: string | null; areaName?: string | null; area?: { id: number; name: string } | null; }
   const [surveyPharmacies, setSurveyPharmacies]         = useState<SurveyPharmacy[]>([]);
@@ -605,19 +611,41 @@ export default function DoctorsPage() {
     finally { setLoading(false); }
   }, [token]);
 
-  const loadVisits = useCallback(async () => {
+  const loadVisits = useCallback(async (forceRefresh = false) => {
+    // Cancel any previous in-flight request
+    if (visitFetchAbortRef.current) visitFetchAbortRef.current.abort();
+    const ctrl = new AbortController();
+    visitFetchAbortRef.current = ctrl;
+
+    // Return cached data instantly if available (unless explicit refresh)
+    const cacheKey = `${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}`;
+    if (!forceRefresh) {
+      const cached = visitCacheRef.current.get(cacheKey);
+      if (cached) {
+        setVisitAreas(cached.areas);
+        setNoAreaStats(cached.noAreaStats);
+        return;
+      }
+    }
+
     setVisitLoading(true);
     try {
       const ps = new URLSearchParams();
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
-      const r = await fetch(`${API}/api/doctors/visits-by-area?${ps}`, { headers: H() });
+      const r = await fetch(`${API}/api/doctors/visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
-      setVisitAreas(Array.isArray(j.areas) ? j.areas : []);
-      setNoAreaStats(j.noAreaStats ?? { total: 0, visited: 0, writing: 0 });
-    } catch (e) { console.error('[visitsByArea] fetch error:', e); }
-    finally { setVisitLoading(false); }
+      const areas = Array.isArray(j.areas) ? j.areas : [];
+      const stats = j.noAreaStats ?? { total: 0, visited: 0, writing: 0 };
+      setVisitAreas(areas);
+      setNoAreaStats(stats);
+      visitCacheRef.current.set(cacheKey, { areas, noAreaStats: stats });
+    } catch (e: any) {
+      if (e.name !== 'AbortError') console.error('[visitsByArea] fetch error:', e);
+    } finally {
+      if (!ctrl.signal.aborted) setVisitLoading(false);
+    }
   }, [token, visitMonthFilter, visitRepFilter]);
 
   const loadManagerReps = useCallback(async () => {
@@ -862,17 +890,37 @@ export default function DoctorsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pharmComparePopup?.exact?.name]);
 
-  const loadPharmVisits = useCallback(async () => {
+  const loadPharmVisits = useCallback(async (forceRefresh = false) => {
+    // Cancel any previous in-flight request
+    if (pharmVisitFetchAbortRef.current) pharmVisitFetchAbortRef.current.abort();
+    const ctrl = new AbortController();
+    pharmVisitFetchAbortRef.current = ctrl;
+
+    // Return cached data instantly if available (unless explicit refresh)
+    const cacheKey = `${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
+    if (!forceRefresh) {
+      const cached = pharmVisitCacheRef.current.get(cacheKey);
+      if (cached) {
+        setPharmVisitAreas(cached);
+        return;
+      }
+    }
+
     setPharmVisitLoading(true);
     try {
       const ps = new URLSearchParams();
       if (pharmVisitMonthFilter) { ps.set('month', String(pharmVisitMonthFilter.month)); ps.set('year', String(pharmVisitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
-      const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area?${ps}`, { headers: H() });
+      const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
-      setPharmVisitAreas(Array.isArray(j.areas) ? j.areas : []);
-    } catch (e) { console.error(e); }
-    finally { setPharmVisitLoading(false); }
+      const areas = Array.isArray(j.areas) ? j.areas : [];
+      setPharmVisitAreas(areas);
+      pharmVisitCacheRef.current.set(cacheKey, areas);
+    } catch (e: any) {
+      if (e.name !== 'AbortError') console.error(e);
+    } finally {
+      if (!ctrl.signal.aborted) setPharmVisitLoading(false);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, pharmVisitMonthFilter, visitRepFilter]);
 
@@ -1366,13 +1414,13 @@ export default function DoctorsPage() {
           </div>
         )}
         {activeTab === 'visits' && visitAnalysisType === 'doctors' && (
-          <button onClick={loadVisits} disabled={visitLoading}
+          <button onClick={() => loadVisits(true)} disabled={visitLoading}
             style={{ ...btnStyle('#6366f1'), opacity: visitLoading ? 0.7 : 1 }}>
             {visitLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
         )}
         {activeTab === 'visits' && visitAnalysisType === 'pharmacies' && (
-          <button onClick={loadPharmVisits} disabled={pharmVisitLoading}
+          <button onClick={() => loadPharmVisits(true)} disabled={pharmVisitLoading}
             style={{ ...btnStyle('#6366f1'), opacity: pharmVisitLoading ? 0.7 : 1 }}>
             {pharmVisitLoading ? '⏳ تحديث...' : '↻ تحديث'}
           </button>
@@ -2411,7 +2459,7 @@ export default function DoctorsPage() {
               )}
             </div>
           )}
-          {visitLoading && (
+          {visitLoading && visitAreas.length === 0 && (
             <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
               جاري التحميل...
@@ -2425,7 +2473,8 @@ export default function DoctorsPage() {
             </div>
           )}
 
-          {!visitLoading && [...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors).map(area => {
+          <div style={{ opacity: visitLoading ? 0.45 : 1, transition: 'opacity 0.15s', pointerEvents: visitLoading ? 'none' : 'auto' }}>
+          {[...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors).map(area => {
             const key     = String(area.id);
             const isOpen  = expandedAreas.has(key);
             const pct     = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
@@ -2635,6 +2684,7 @@ export default function DoctorsPage() {
               </div>
             );
           })}
+          </div>{/* end opacity wrapper */}
           </>)}
 
           {/* ─── PHARMACIES ANALYSIS ────────────────────────── */}
@@ -2737,8 +2787,8 @@ export default function DoctorsPage() {
                 </button>
               </div>
 
-              {/* Loading */}
-              {pharmVisitLoading && (
+              {/* Loading — first load only */}
+              {pharmVisitLoading && pharmVisitAreas.length === 0 && (
                 <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
                   <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
                   جاري التحميل...
@@ -2753,8 +2803,9 @@ export default function DoctorsPage() {
                 </div>
               )}
 
-              {/* Area groups */}
-              {!pharmVisitLoading && pharmVisitAreas.map((area, aIdx) => {
+              {/* Area groups — keep visible during refresh with opacity */}
+              <div style={{ opacity: pharmVisitLoading ? 0.45 : 1, transition: 'opacity 0.15s', pointerEvents: pharmVisitLoading ? 'none' : 'auto' }}>
+              {pharmVisitAreas.map((area, aIdx) => {
                 const key    = area.id != null ? String(area.id) : `name-${aIdx}-${area.name}`;
                 const isOpen = pharmExpandedAreas.has(key);
                 const searchQ = pharmSearch.trim().toLowerCase();
@@ -2870,6 +2921,7 @@ export default function DoctorsPage() {
                   </div>
                 );
               })}
+              </div>{/* end opacity wrapper */}
             </div>
           )}
         </div>
