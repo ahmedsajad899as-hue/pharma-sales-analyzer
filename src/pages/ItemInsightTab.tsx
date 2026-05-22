@@ -912,6 +912,25 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                   </div>
                 );
               })()}
+
+              {/* ── AI Competitor Analysis (section 3: Class Competitors + head-to-head) ── */}
+              {aiInsight ? (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    🏆 تحليل المنافسة التفصيلي <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(فئات علاجية — مُولَّد بالذكاء الاصطناعي)</span>
+                  </div>
+                  <AnalysisRenderer text={aiInsight} onlySecNum={3} />
+                </div>
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '9px 14px', background: '#fff7ed', borderRadius: 8,
+                  border: '1px solid #fed7aa', fontSize: 12, color: '#9a3412',
+                }}>
+                  <span style={{ fontSize: 16 }}>🏆</span>
+                  <span>افتح تبويب <b>تحليل ذكي (AI)</b> وشغّل التحليل لتظهر هنا مقارنة المنافسين التفصيلية (Class Competitors).</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -1011,17 +1030,16 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 <div style={{ padding: 24, background: '#f8fafc', borderRadius: 8, textAlign: 'center', color: '#64748b' }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>🤖</div>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>اضغط الزر أعلاه لتشغيل التحليل الذكي</div>
-                  <div style={{ fontSize: 12, marginTop: 6 }}>سيقارن النظام منتجك بالمنافسين الفعليين من السيرفي ويُصدر تقريراً يشمل:</div>
+                  <div style={{ fontSize: 12, marginTop: 6 }}>يُصدر تقريراً متخصصاً في أداء المندوبين وتطوير المبيع يشمل:</div>
                   <ul style={{ textAlign: 'right', display: 'inline-block', fontSize: 12, marginTop: 8, color: '#475569', lineHeight: 1.9 }}>
-                    <li>🏆 جدول مقارنة الأسعار مع المنافسين</li>
-                    <li>💪 نقاط القوة لمنتجك مقابل كل منافس</li>
-                    <li>🎯 تموضع المنتج في السوق</li>
-                    <li>🔍 تشخيص أسباب أداء المبيع</li>
-                    <li>🩺 5-7 اقتراحات عملية للمندوب</li>
+                    <li>📊 انتشار السوق ومرحلة دورة الحياة</li>
+                    <li>🔍 تشخيص أسباب ضعف المبيع مع الدليل</li>
+                    <li>👤 تشخيص خاص بالمندوب المحدد (إذا اخترته)</li>
+                    <li>🎯 اقتراحات عملية مرقّمة للفريق</li>
                     <li>📅 خطة عمل 30 يوم تنفيذية</li>
                   </ul>
                   <div style={{ fontSize: 11, marginTop: 10, color: '#94a3b8', fontStyle: 'italic' }}>
-                    💊 الملف العلمي والأطباء المستهدفون يظهرون في تبويب "المعلومات العلمية"
+                    💊 الملف العلمي، الأطباء المستهدفون، وتحليل المنافسة موجودون في تبويب "المعلومات العلمية"
                   </div>
                 </div>
               )}
@@ -1042,9 +1060,9 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                     display: 'flex', alignItems: 'center', gap: 6,
                   }}>
                     <span>💊</span>
-                    <span>الملف العلمي والأطباء المستهدفون متوفّرون في تبويب <b>المعلومات العلمية</b></span>
+                    <span>الملف العلمي، الأطباء المستهدفون، وتحليل المنافسة متوفّرون في تبويب <b>المعلومات العلمية</b></span>
                   </div>
-                  <AnalysisRenderer text={aiInsight} skipSecNums={[1, 2]} />
+                  <AnalysisRenderer text={aiInsight} skipSecNums={[1, 2, 3]} />
                 </div>
               )}
             </div>
