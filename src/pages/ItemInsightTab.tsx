@@ -691,13 +691,71 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 ) : null;
               })()}
 
-              {/* ── AI Drug Profile (section 1 from AI) ── */}
+              {/* ── AI Drug Profile (section 1 from AI) — rendered as clean KV table ── */}
               {aiInsight ? (
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
                     الملف العلمي <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(مُولَّد بالذكاء الاصطناعي)</span>
                   </div>
-                  <AnalysisRenderer text={aiInsight} onlySecNum={1} />
+                  {(() => {
+                    // Extract section 1 text only
+                    const sec1Match = aiInsight.match(/##\s*💊\s*1\.[^\n]*([\s\S]*?)(?=\n##\s|$)/);
+                    const sec1Text = sec1Match ? sec1Match[1] : aiInsight;
+                    // Parse **FIELD:** value pairs (including pipe-separated on same line)
+                    const rows: { field: string; value: string }[] = [];
+                    const kvRegex = /\*\*([^*:\n]+):\*\*\s*([^|\n*][^\n|]*?)(?=\s*\|?\s*\*\*|$)/g;
+                    let m;
+                    // Also handle lines with multiple KVs separated by |
+                    sec1Text.split('\n').forEach(line => {
+                      const trimmed = line.trim();
+                      if (!trimmed || trimmed.startsWith('---') || trimmed.startsWith('>') || trimmed.startsWith('#')) return;
+                      const kvR = /\*\*([^*:\n]+):\*\*\s*([^|*\n]+)/g;
+                      let match;
+                      while ((match = kvR.exec(trimmed)) !== null) {
+                        const field = match[1].trim();
+                        const value = match[2].trim();
+                        if (field && value) rows.push({ field, value });
+                      }
+                    });
+                    // Extract scientific message (blockquote)
+                    const msgMatch = sec1Text.match(/>\s*(.+)/);
+                    const sciMsg = msgMatch ? msgMatch[1].trim() : null;
+
+                    if (rows.length === 0) return <AnalysisRenderer text={aiInsight} onlySecNum={1} />;
+                    return (
+                      <div style={{ overflowX: 'auto', borderRadius: 10, boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, direction: 'ltr' }}>
+                          <thead>
+                            <tr style={{ background: 'linear-gradient(90deg, #1e3a8a, #1d4ed8)', color: '#fff' }}>
+                              <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', width: '30%' }}>FIELD</th>
+                              <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, letterSpacing: '0.06em' }}>VALUE</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r, i) => (
+                              <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f0f6ff', borderBottom: '1px solid #e2e8f0' }}>
+                                <td style={{ padding: '9px 14px', fontWeight: 700, color: '#1e40af', fontSize: 12, whiteSpace: 'nowrap', textAlign: 'right', verticalAlign: 'top' }}>
+                                  {r.field}:
+                                </td>
+                                <td style={{ padding: '9px 14px', color: '#1e293b', lineHeight: 1.6, textAlign: 'left' }}>
+                                  {r.value}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {sciMsg && (
+                          <div style={{ padding: '10px 16px', background: 'linear-gradient(135deg, #eff6ff, #e0f2fe)', borderTop: '2px solid #1d4ed8', borderRadius: '0 0 10px 10px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                            <span style={{ fontSize: 16 }}>💬</span>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', marginBottom: 3 }}>Scientific Message</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', fontStyle: 'italic' }}>{sciMsg}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div style={{
@@ -764,7 +822,6 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           {[
-                            { label: 'مكتب←مذخر', val: ownEntry.priceOfficeToWholesaler, color: '#059669' },
                             { label: 'مذخر←صيدلية', val: ownEntry.priceWholesalerToPharmacy, color: '#d97706' },
                             { label: 'صيدلية←مريض', val: ownEntry.pricePharmacyToPatient, color: '#dc2626' },
                           ].map(p => p.val != null && (
@@ -783,7 +840,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <thead>
                             <tr style={{ background: '#f8fafc' }}>
-                              {['الاسم التجاري', 'الشركة', 'التعبئة', 'مكتب←مذخر', 'مذخر←صيدلية', 'صيدلية←مريض', 'مقارنة بإيتمنا'].map(h => (
+                              {['الاسم التجاري', 'الشركة', 'التعبئة', 'مذخر←صيدلية', 'صيدلية←مريض', 'مقارنة بإيتمنا'].map(h => (
                                 <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                               ))}
                             </tr>
@@ -803,7 +860,6 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                                   <td style={{ padding: '8px 10px', fontWeight: 700, color: '#1e293b' }}>{entry.brandName}</td>
                                   <td style={{ padding: '8px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
                                   <td style={{ padding: '8px 10px', color: '#64748b', fontSize: 11 }}>{entry.packaging || '—'}</td>
-                                  <td style={{ padding: '8px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
                                   <td style={{ padding: '8px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
                                   <td style={{ padding: '8px 10px', color: '#dc2626', fontWeight: 700 }}>{cPrice != null ? Number(cPrice).toFixed(3) : '—'}</td>
                                   <td style={{ padding: '8px 10px', fontSize: 11, fontWeight: 600, color: cmpColor }}>{cmpLabel}</td>

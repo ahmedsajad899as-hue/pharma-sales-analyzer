@@ -67,7 +67,11 @@ export default function PharmacyAnalysisPage() {
   const [files, setFiles]           = useState<UpFile[]>([]);
   const [selFiles, setSelFiles]     = useState<Set<number>>(new Set());
   const [filesLoading, setFilesLoading] = useState(false);
-  const [tab, setTab]               = useState<Tab>('pharmacies');
+  const [tab, setTab]               = useState<Tab>(() => {
+    const s = sessionStorage.getItem('pharma_page_tab');
+    return (s as Tab) || 'pharmacies';
+  });
+  useEffect(() => { sessionStorage.setItem('pharma_page_tab', tab); }, [tab]);
 
   // Pharmacies
   const [pharmacies, setPharmacies]         = useState<PharmacySummary[]>([]);

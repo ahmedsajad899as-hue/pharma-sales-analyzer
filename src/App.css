@@ -1047,6 +1047,26 @@ tr:hover {
   font-size: 12px;
 }
 
+/* First column of section-1 drug profile table = label column */
+.ar-section[data-sec="1"] .ar-table td:first-child {
+  background: #eff6ff;
+  font-weight: 700;
+  color: #1d4ed8;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  width: 1%;
+  border-left: 3px solid #1d4ed8;
+  padding: 8px 12px;
+}
+
+.ar-section[data-sec="1"] .ar-table td:last-child {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #1e293b;
+}
+
 .ar-table tbody tr:nth-child(even) { background: #f8fafd; }
 .ar-table tbody tr:hover { background: var(--c-accent-light); }
 

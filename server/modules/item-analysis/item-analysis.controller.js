@@ -884,23 +884,21 @@ ${repBlock}
 اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي). لكل قسم: استخدم جدول أو قائمة نقطية — لا فقرات نثرية. اربط كل استنتاج بأرقام محددة.
 
 ## 💊 1. Scientific Drug Profile (الملف العلمي)
-Write **in English only**. Use the exact table layouts below — no prose, no KV lines, no extra text outside tables.
+Write **in English only**. Use a single 2-column table (Field | Value). One row per field. No prose outside the table.
 
-| FORM | DRUG CLASS |
-|------|-----------|
-| [dosage form] \| Strength: [dosage] \| Route: [oral/inhaled/IV…] | [class] \| BRAND: [brand name] \| Generic: [INN/active ingredient] |
-
-| SIDE EFFECTS — COMMON | CONTRAINDICATIONS | OFF-LABEL | INDICATIONS | MECHANISM |
-|----------------------|-------------------|-----------|-----------|---------| 
-| Common: [list] \| Serious: [list] | [key contraindications] | [2-3 items or "Not established"] | [comma-separated, 4-6 max] | [1-2 sentences at molecular/cellular level] |
-
-| PK | INTERACTIONS | PREGNANCY |
-|----|-------------|-----------|
-| Onset [X] \| T½ [X] \| Bioavailability [X%] \| Excretion [renal/hepatic] | [Top 3-5 comma-separated] | FDA Cat. [X] — [1-line note] \| Breastfeeding: [Safe/Avoid/Caution] |
-
-| > فعالية مزدوجة | SCIENTIFIC MESSAGE (الرسالة العلمية المختصرة) |
-|----------------|---------------------------------------------|
-| [Key dual/combined action in Arabic — 1-2 sentences] | [One punchy Arabic selling point for reps] |
+| Field | Value |
+|-------|-------|
+| DRUG CLASS | [drug class] — BRAND: [brand name] — Generic: [INN/active ingredient] |
+| FORM | [dosage form] — Strength: [dosage] — Route: [oral/inhaled/IV/etc.] |
+| MECHANISM | [1-2 sentences at molecular/cellular level] |
+| INDICATIONS | [comma-separated, 4-6 max] |
+| OFF-LABEL | [2-3 items or "Not established"] |
+| CONTRAINDICATIONS | [key contraindications, comma-separated] |
+| SIDE EFFECTS | Common: [list] — Serious: [list] |
+| INTERACTIONS | [Top 3-5, comma-separated] |
+| PK | Onset: [X] — T½: [X] — Bioavailability: [X%] — Excretion: [renal/hepatic] |
+| PREGNANCY | FDA Cat. [X] — [1-line note] — Breastfeeding: [Safe/Avoid/Caution] |
+| SCIENTIFIC MESSAGE 💬 | [One punchy Arabic clinical selling point for reps] |
 
 ---
 
@@ -914,20 +912,18 @@ Write **in English only**. Use the table below only — no prose, no explanation
 
 ## 🏆 3. تحليل المنافسة
 ${marketCompetitors.length > 0 ? `
-### منافسو السوق الفعليون (من سيرفي الأسعار)
-البيانات التالية هي المنافسون الفعليون المسجّلون في سيرفي الأسعار — استخدمها كمصدر رئيسي للتحليل:
+### Generic Equivalents (نفس المادة الفعّالة) — بيانات من سيرفي الأسعار
+البيانات الفعلية مسجّلة أدناه — أضف فقط عمود "ميزة إيتمنا عليه" لكل منتج بناءً على الفروق السعرية الحقيقية:
 
-| المنتج | الشركة | الشكل | التعبئة | مكتب←مذخر | مذخر←صيدلية | صيدلية←مريض |
-|--------|--------|-------|---------|-----------|------------|------------|
-${marketCompetitors.map(c => `| ${c.brandName} | ${c.company} | ${c.dosageForm} | ${c.packaging} | ${c.priceOW} | ${c.priceWP} | ${c.pricePPt} |`).join('\n')}
+| المنتج | الشركة | الشكل | التعبئة | مذخر←صيدلية | صيدلية←مريض | ميزة إيتمنا عليه |
+|--------|--------|-------|---------|------------|------------|------------------|
+${marketCompetitors.map(c => `| ${c.brandName} | ${c.company} | ${c.dosageForm} | ${c.packaging} | ${c.priceWP} | ${c.pricePPt} | [اكتب ميزة إيتمنا] |`).join('\n')}
 
-بناءً على هذه البيانات الفعلية:
-1. أكمل جدول Generic Equivalents أدناه مستنداً على هذه الأسعار الحقيقية
-2. حلّل ميزان القوة/الضعف بناءً على الفروق السعرية الفعلية` : `### ملاحظة: لا توجد بيانات سيرفي أسعار لهذا الإيتم — استخدم معرفتك العامة`}
+حلّل ميزان القوة/الضعف بناءً على الفروق السعرية الفعلية أعلاه` : `### Generic Equivalents (نفس المادة الفعّالة)
+لا توجد بيانات سيرفي — استخدم معرفتك العامة لتعبئة الجدول:
 
-### Generic Equivalents (نفس المادة الفعّالة)
-| المنتج | الشركة | مذخر←صيدلية | السعر للمريض | ميزة إيتمنا عليه |
-|--------|--------|------------|-------------|-----------------|
+| المنتج | الشركة | الشكل | التعبئة | مذخر←صيدلية | صيدلية←مريض | ميزة إيتمنا عليه |
+|--------|--------|-------|---------|------------|------------|-----------------|`}
 
 ### Class Competitors (نفس الفئة العلاجية — مادة فعالة مختلفة)
 **التعليمات:** استخدم معرفتك الكاملة من مصادر الإنترنت والأدبيات الطبية لتعبئة هذا الجدول. ابحث عن كل المنافسين المعروفين في نفس الفئة العلاجية لهذا الدواء. لكل منافس أدرج: الاسم التجاري، المادة الفعالة، الشركة المصنّعة، السعر التقريبي إذا كان معروفاً، معدل الصرف (شائع جداً/شائع/متوسط)، الشكل الدوائي، وأبرز نقطة ضعف مقارنةً بـ ${it.name}.
