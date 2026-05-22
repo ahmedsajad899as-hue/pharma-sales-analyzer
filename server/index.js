@@ -2312,9 +2312,6 @@ app.post('/api/pharmacy-visits', async (req, res) => {
     if (!pharmacyName || !pharmacyName.trim()) {
       return res.status(400).json({ error: 'اسم الصيدلية مطلوب' });
     }
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'يجب إضافة صنف واحد على الأقل' });
-    }
 
     // ── requireGps check ──────────────────────────────────────
     if (userId) {
@@ -2359,7 +2356,8 @@ app.post('/api/pharmacy-visits', async (req, res) => {
       if (exact) return exact;
       return allItems.find(i => normalize(i.name).includes(n) || n.includes(normalize(i.name))) || null;
     };
-    const itemsToCreate = items
+    // Build items list (optional — pharmacy visits can exist without items)
+    const itemsToCreate = !Array.isArray(items) ? [] : items
       .map(it => {
         let resolvedItemId = it.itemId ? parseInt(it.itemId) : null;
         let resolvedItemName = null;
@@ -2371,10 +2369,6 @@ app.post('/api/pharmacy-visits', async (req, res) => {
         return { itemId: resolvedItemId || null, itemName: resolvedItemName, notes: it.notes?.trim() || null };
       })
       .filter(it => it.itemId || it.itemName);
-
-    if (itemsToCreate.length === 0) {
-      return res.status(400).json({ error: 'يجب إضافة صنف واحد على الأقل' });
-    }
 
     const finalVisitDate = visitDate ? new Date(visitDate) : new Date();
 

@@ -50,6 +50,53 @@ const FEEDBACK_AR = {
   pending:        'بانتظار',
 };
 
+// ─── Fuzzy helpers for market competitor matching ──────────────────────────
+// Strips common salt/form suffixes so "tiotropium bromide" ≈ "tiotropium"
+const SALT_SUFFIX_RX = /\b(as|the|of|and|or|with|bromide|chloride|sulfate|sodium|potassium|calcium|hydrochloride|hcl|monohydrate|dihydrate|trihydrate|hydrate|anhydrous|acetate|phosphate|tartrate|maleate|fumarate|succinate|besylate|mesylate|tosylate|nitrate|oxide|monobasic|dibasic|citrate|lactate|gluconate|benzoate|valerate|propionate|butyrate|hexanoate|stearate|palmitate)\b/g;
+
+function normalizeActive(s) {
+  if (!s) return '';
+  return String(s).toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\d+(\.\d+)?\s*(mg|mcg|μg|g|ml|iu|%|units?)/gi, ' ')
+    .replace(SALT_SUFFIX_RX, ' ')
+    .replace(/[^a-z]/g, '');
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  const prev = Array.from({ length: n + 1 }, (_, i) => i);
+  const curr = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++)
+      curr[j] = a[i-1] === b[j-1] ? prev[j-1] : 1 + Math.min(prev[j], curr[j-1], prev[j-1]);
+    prev.set ? prev.set(curr) : curr.forEach((v, k) => (prev[k] = v));
+  }
+  return prev[n];
+}
+
+function isSimilarActive(a, b) {
+  const na = normalizeActive(a), nb = normalizeActive(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const maxLen = Math.max(na.length, nb.length);
+  const threshold = maxLen <= 8 ? 1 : maxLen <= 12 ? 2 : 3;
+  return levenshtein(na, nb) <= threshold;
+}
+
+function activeMatchesAny(itemActive, candidate) {
+  if (!itemActive || !candidate) return false;
+  const itemTokens = String(itemActive).split(/[\/\+\,]/).map(s => s.trim()).filter(Boolean);
+  const candTokens = String(candidate).split(/[\/\+\,]/).map(s => s.trim()).filter(Boolean);
+  for (const it of itemTokens)
+    for (const ct of candTokens)
+      if (isSimilarActive(it, ct)) return true;
+  return false;
+}
+
 // ─── GET /api/item-analysis/items — list items for selector ─
 export async function listItems(req, res, next) {
   try {
@@ -713,9 +760,22 @@ export async function getAIInsight(req, res, next) {
               if (ai_sci && (sciName2.includes(ai_sci) || ai_sci.includes(sciName2))) { ownEntry = a; break; }
             }
           }
-          if (ownEntry?.competitorGroup) {
-            const groupIds = new Set(analyzedEntries.filter(a => a.competitorGroup === ownEntry.competitorGroup).map(a => a.entryId));
-            matched = allEntries.filter(e => groupIds.has(e.id));
+          if (ownEntry) {
+            const ownActive = ownEntry.activeIngredient || sciName2;
+            const ownDrugClass = (ownEntry.drugClass || '').toLowerCase();
+            const aiMap2 = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
+            matched = allEntries.filter(e => {
+              const ai = aiMap2[e.id];
+              const candidate = ai?.activeIngredient || e.scientificName;
+              if (ownActive && activeMatchesAny(ownActive, candidate)) return true;
+              // Fallback: same drug class when no active ingredient info available
+              if (!candidate && ownDrugClass && ai?.drugClass) {
+                const cls = (ai.drugClass || '').toLowerCase();
+                const ownFirst = ownDrugClass.split(/\s+/)[0];
+                if (ownFirst && cls.includes(ownFirst)) return true;
+              }
+              return false;
+            });
           }
         }
         if (!matched.length) {
@@ -1162,7 +1222,6 @@ export async function getMarketPrices(req, res, next) {
 
       // Step 1: Find the own-product entry (closest brand name match)
       let ownEntry = null;
-      let ownCompetitorGroup = null;
 
       // Try exact/near brand match first
       for (const a of analyzedEntries) {
@@ -1174,7 +1233,6 @@ export async function getMarketPrices(req, res, next) {
         const nameBase = normalName.replace(/[\d\.]+\s*(mg|mcg|ml|g|iu|%)/g, '').trim();
         if (bn === normalName || normalName.includes(bn) || bn.includes(nameBase) || nameBase.includes(bnBase)) {
           ownEntry = a;
-          ownCompetitorGroup = a.competitorGroup;
           break;
         }
       }
@@ -1185,21 +1243,31 @@ export async function getMarketPrices(req, res, next) {
           const ai_sci = (a.activeIngredient || '').trim().toLowerCase();
           if (sciName && ai_sci && (sciName.includes(ai_sci) || ai_sci.includes(sciName))) {
             ownEntry = a;
-            ownCompetitorGroup = a.competitorGroup;
             break;
           }
         }
       }
 
-      // Step 2: Find all competitors in same competitorGroup
+      // Step 2: Find all competitors by fuzzy active ingredient matching
       let matchedEntries;
-      if (ownCompetitorGroup) {
-        const competitorIds = new Set(
-          analyzedEntries
-            .filter(a => a.competitorGroup === ownCompetitorGroup)
-            .map(a => a.entryId)
-        );
-        matchedEntries = allEntries.filter(e => competitorIds.has(e.id));
+      // Build AI map once — used for both filtering and response enrichment
+      const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
+
+      if (ownEntry) {
+        const ownActive = ownEntry.activeIngredient || sciName;
+        const ownDrugClass = (ownEntry.drugClass || '').toLowerCase();
+        matchedEntries = allEntries.filter(e => {
+          const ai = aiMap[e.id];
+          const candidate = ai?.activeIngredient || e.scientificName;
+          if (ownActive && activeMatchesAny(ownActive, candidate)) return true;
+          // Fallback: same drug class when no active ingredient info available
+          if (!candidate && ownDrugClass && ai?.drugClass) {
+            const cls = (ai.drugClass || '').toLowerCase();
+            const ownFirst = ownDrugClass.split(/\s+/)[0];
+            if (ownFirst && cls.includes(ownFirst)) return true;
+          }
+          return false;
+        });
       } else {
         // No AI match found — fallback to fuzzy text match
         const normalizedName = item.name.trim().toLowerCase();
@@ -1220,7 +1288,7 @@ export async function getMarketPrices(req, res, next) {
       }
 
       // Build the AI analysis map for richer frontend data
-      const aiMap = Object.fromEntries(analyzedEntries.map(a => [a.entryId, a]));
+      // (aiMap already defined above)
 
       const data = matchedEntries.map(e => {
         const ai = aiMap[e.id];

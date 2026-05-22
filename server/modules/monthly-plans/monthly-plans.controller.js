@@ -1215,23 +1215,28 @@ export async function addVisit(req, res, next) {
 
       // Still no match — upsert the item so the free-text name is never lost
       if (!resolvedItemId) {
-        const upserted = await prisma.item.upsert({
-          where: { name_userId: { name: rawName, userId } },
-          create: { name: rawName, userId },
-          update: {},
-          select: { id: true },
-        });
-        resolvedItemId = upserted.id;
-        // Link the new item to the scientific rep so it appears in future suggestions
-        if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
-          const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-          if (repRow) {
-            await prisma.scientificRepItem.upsert({
-              where: { scientificRepId_itemId: { scientificRepId: repRow.id, itemId: resolvedItemId } },
-              create: { scientificRepId: repRow.id, itemId: resolvedItemId },
-              update: {},
-            });
+        try {
+          const upserted = await prisma.item.upsert({
+            where: { name_userId: { name: rawName, userId } },
+            create: { name: rawName, userId },
+            update: {},
+            select: { id: true },
+          });
+          resolvedItemId = upserted.id;
+          // Link the new item to the scientific rep so it appears in future suggestions
+          if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
+            const repRow = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+            if (repRow) {
+              await prisma.scientificRepItem.upsert({
+                where: { scientificRepId_itemId: { scientificRepId: repRow.id, itemId: resolvedItemId } },
+                create: { scientificRepId: repRow.id, itemId: resolvedItemId },
+                update: {},
+              });
+            }
           }
+        } catch (_itemErr) {
+          // Item creation failed — save visit without item reference
+          resolvedItemId = null;
         }
       }
     }
