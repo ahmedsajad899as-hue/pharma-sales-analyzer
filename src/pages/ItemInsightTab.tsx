@@ -846,7 +846,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
 
               {aiInsight && !aiLoading && (
                 <div style={{ background: '#fff' }}>
-                  {/* Note: section 1 (Drug Profile) is shown only in the Science tab to avoid duplication */}
+                  {/* Note: sections 1 (Drug Profile) and 2 (Target Prescribers) are shown only in the Science tab to avoid duplication */}
                   <div style={{
                     padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe',
                     borderRadius: 8, fontSize: 11, color: '#1d4ed8', marginBottom: 12,
@@ -855,7 +855,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                     <span>💊</span>
                     <span>الملف العلمي والأطباء المستهدفون متوفّرون في تبويب <b>المعلومات العلمية</b></span>
                   </div>
-                  <AnalysisRenderer text={aiInsight} skipSecNums={[1]} />
+                  <AnalysisRenderer text={aiInsight} skipSecNums={[1, 2]} />
                 </div>
               )}
             </div>

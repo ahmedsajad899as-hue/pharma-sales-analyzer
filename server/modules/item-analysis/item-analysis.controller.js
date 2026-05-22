@@ -793,6 +793,16 @@ export async function getAIInsight(req, res, next) {
               sciParts2.some(part => entSci.includes(part) || bn.includes(part));
           });
         }
+        // ── Filter to same dosage/strength only ─────────────────────────
+        const itemDosage = (it.dosage || '').toLowerCase();
+        const dosageNums = itemDosage.match(/[\d]+(?:[.,][\d]+)?/g) || [];
+        if (dosageNums.length > 0) {
+          matched = matched.filter(e => {
+            const target = (e.brandName + ' ' + (e.packaging || '')).toLowerCase();
+            return dosageNums.every(n => target.includes(n));
+          });
+        }
+
         marketCompetitors = matched.map(e => ({
           brandName: e.brandName,
           scientificName: e.scientificName || '',
@@ -911,12 +921,10 @@ ${marketCompetitors.length > 0 ? `
 ${marketCompetitors.map(c => `| ${c.brandName} | ${c.company} | ${c.dosageForm} | ${c.packaging} | ${c.priceOW} | ${c.priceWP} | ${c.pricePPt} |`).join('\n')}
 
 بناءً على هذه البيانات الفعلية:
-1. **أدرج جميع المنتجات الواردة في الجدول أعلاه دون استثناء واحد** في جدول Generic Equivalents أدناه — لا تحذف أي منتج ولا تدمج صفوف
-2. استخدم أسعار مذخر←صيدلية وصيدلية←مريض الحقيقية من الجدول أعلاه مباشرة
-3. حلّل ميزان القوة/الضعف بناءً على الفروق السعرية الفعلية` : `### ملاحظة: لا توجد بيانات سيرفي أسعار لهذا الإيتم — استخدم معرفتك العامة`}
+1. أكمل جدول Generic Equivalents أدناه مستنداً على هذه الأسعار الحقيقية
+2. حلّل ميزان القوة/الضعف بناءً على الفروق السعرية الفعلية` : `### ملاحظة: لا توجد بيانات سيرفي أسعار لهذا الإيتم — استخدم معرفتك العامة`}
 
 ### Generic Equivalents (نفس المادة الفعّالة)
-**مهم: أدرج كل منتج من الجدول أعلاه في صف منفصل — لا تحذف أي منتج**
 | المنتج | الشركة | مذخر←صيدلية | السعر للمريض | ميزة إيتمنا عليه |
 |--------|--------|------------|-------------|-----------------|
 
