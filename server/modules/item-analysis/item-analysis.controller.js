@@ -884,22 +884,23 @@ ${repBlock}
 اكتب تقريراً منظماً بصيغة Markdown يحوي الأقسام التالية بالضبط (مع العنوان والإيموجي). لكل قسم: استخدم جدول أو قائمة نقطية — لا فقرات نثرية. اربط كل استنتاج بأرقام محددة.
 
 ## 💊 1. Scientific Drug Profile (الملف العلمي)
-Write **in English only**. All fields compact (one line each). No sentences or paragraphs.
+Write **in English only**. Use the exact table layouts below — no prose, no KV lines, no extra text outside tables.
 
-**DRUG CLASS:** [class] | **BRAND:** [name] | **Generic:** [INN/active ingredient]
-**FORM:** [dosage form] | **Strength:** [dosage] | **Route:** [oral/inhaled/IV…]
-**Mechanism:** [1 concise sentence — molecular/cellular level]
-**Indications:** [comma-separated, 4-6 max]
-**Off-label:** [2-3 items or "Not established"]
-**Contraindications:** [comma-separated key contraindications]
-**Side Effects — Common:** [list] | **Serious:** [list]
-**Pregnancy:** FDA Cat. [X] — [1-line note] | **Breastfeeding:** [Safe / Avoid / Caution]
-**Interactions:** [Top 3-5 comma-separated]
-**PK:** Onset [X] | T½ [X] | Bioavailability [X%] | Excretion [renal/hepatic]
+| FORM | DRUG CLASS |
+|------|-----------|
+| [dosage form] \| Strength: [dosage] \| Route: [oral/inhaled/IV…] | [class] \| BRAND: [brand name] \| Generic: [INN/active ingredient] |
 
----
-**💬 Scientific Message (الرسالة العلمية المختصرة):**
-> [One punchy line — the key clinical selling point in Arabic for reps]
+| SIDE EFFECTS — COMMON | CONTRAINDICATIONS | OFF-LABEL | INDICATIONS | MECHANISM |
+|----------------------|-------------------|-----------|-----------|---------| 
+| Common: [list] \| Serious: [list] | [key contraindications] | [2-3 items or "Not established"] | [comma-separated, 4-6 max] | [1-2 sentences at molecular/cellular level] |
+
+| PK | INTERACTIONS | PREGNANCY |
+|----|-------------|-----------|
+| Onset [X] \| T½ [X] \| Bioavailability [X%] \| Excretion [renal/hepatic] | [Top 3-5 comma-separated] | FDA Cat. [X] — [1-line note] \| Breastfeeding: [Safe/Avoid/Caution] |
+
+| > فعالية مزدوجة | SCIENTIFIC MESSAGE (الرسالة العلمية المختصرة) |
+|----------------|---------------------------------------------|
+| [Key dual/combined action in Arabic — 1-2 sentences] | [One punchy Arabic selling point for reps] |
 
 ---
 

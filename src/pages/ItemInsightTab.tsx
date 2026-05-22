@@ -173,14 +173,29 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemSearch, setItemSearch]     = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
-  const [selectedId, setSelectedId]     = useState<number | null>(null);
+  const [selectedId, setSelectedId]     = useState<number | null>(() => {
+    const s = sessionStorage.getItem('item_insight_id');
+    return s ? Number(s) : null;
+  });
   const [days, setDays]                 = useState(180);
 
   const [data, setData]       = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
-  const [subTab, setSubTab]   = useState<SubTab>('overview');
+  const [subTab, setSubTab]   = useState<SubTab>(() => {
+    const s = sessionStorage.getItem('item_insight_tab');
+    return (s as SubTab) || 'overview';
+  });
+
+  // ── Persist selection in sessionStorage across refreshes ────────
+  useEffect(() => {
+    if (selectedId != null) sessionStorage.setItem('item_insight_id', String(selectedId));
+    else sessionStorage.removeItem('item_insight_id');
+  }, [selectedId]);
+  useEffect(() => {
+    sessionStorage.setItem('item_insight_tab', subTab);
+  }, [subTab]);
 
   const [aiInsight, setAIInsight]   = useState<string | null>(null);
   const [aiLoading, setAILoading]   = useState(false);
