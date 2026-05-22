@@ -720,24 +720,107 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 </div>
               )}
 
-              {/* ── Class Competitors & Scientific Comparison (section 3 from AI) ── */}
-              {aiInsight ? (
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                    🏆 تحليل المنافسة <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(Class Competitors — مُولَّد بالذكاء الاصطناعي)</span>
+              {/* ── Competitors comparison — direct from market prices (same dosage) ── */}
+              {(() => {
+                if (marketLoading) return (
+                  <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
+                    ⏳ جاري تحميل بيانات المنافسين...
                   </div>
-                  <AnalysisRenderer text={aiInsight} onlySecNum={3} />
-                </div>
-              ) : (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '9px 14px', background: '#fff7ed', borderRadius: 8,
-                  border: '1px solid #fed7aa', fontSize: 12, color: '#c2410c',
-                }}>
-                  <span style={{ fontSize: 16 }}>🏆</span>
-                  <span>قسم <b>تحليل المنافسة (Class Competitors)</b> سيظهر هنا بعد تشغيل التحليل الذكي.</span>
-                </div>
-              )}
+                );
+                if (marketPrices.length === 0) return (
+                  <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: '#94a3b8' }}>
+                    🏆 لا توجد بيانات منافسين — أضف أسعار هذا الدواء من تبويب <b>أسعار السوق</b>
+                  </div>
+                );
+
+                // Filter competitors to same dosage numbers as our item
+                const itemDosage = (data?.item?.dosage || '').toLowerCase();
+                const dosageNums = itemDosage.match(/\d+(?:[.,]\d+)?/g) || [];
+                const ownEntry = marketPrices.find(e => e.isOwnProduct);
+                const allCompetitors = marketPrices.filter(e => !e.isOwnProduct);
+                const sameDoseCompetitors = dosageNums.length > 0
+                  ? allCompetitors.filter(e => {
+                      const t = (e.brandName + ' ' + (e.packaging || '')).toLowerCase();
+                      return dosageNums.every(n => t.includes(n));
+                    })
+                  : allCompetitors;
+
+                const ownPrice = ownEntry?.pricePharmacyToPatient ?? null;
+
+                return (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+                      🏆 مقارنة المنافسين — نفس الجرعة
+                      <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none', marginRight: 6 }}>({sameDoseCompetitors.length} منافس)</span>
+                    </div>
+
+                    {/* Own product row */}
+                    {ownEntry && (
+                      <div style={{ marginBottom: 10, background: '#f0fdf4', border: '2px solid #059669', borderRadius: 10, padding: '10px 14px', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ minWidth: 140 }}>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: '#065f46' }}>✅ {ownEntry.brandName}</div>
+                          {ownEntry.company && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{ownEntry.company}</div>}
+                          {ownEntry.packaging && <div style={{ fontSize: 11, color: '#94a3b8' }}>{ownEntry.packaging}</div>}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {[
+                            { label: 'مكتب←مذخر', val: ownEntry.priceOfficeToWholesaler, color: '#059669' },
+                            { label: 'مذخر←صيدلية', val: ownEntry.priceWholesalerToPharmacy, color: '#d97706' },
+                            { label: 'صيدلية←مريض', val: ownEntry.pricePharmacyToPatient, color: '#dc2626' },
+                          ].map(p => p.val != null && (
+                            <div key={p.label} style={{ background: '#fff', borderRadius: 8, padding: '5px 10px', border: `1.5px solid ${p.color}30`, textAlign: 'center' }}>
+                              <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>{p.label}</div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{Number(p.val).toFixed(3)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Competitors table */}
+                    {sameDoseCompetitors.length > 0 ? (
+                      <div style={{ overflowX: 'auto', borderRadius: 10, boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                              {['الاسم التجاري', 'الشركة', 'التعبئة', 'مكتب←مذخر', 'مذخر←صيدلية', 'صيدلية←مريض', 'مقارنة بإيتمنا'].map(h => (
+                                <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sameDoseCompetitors.map((entry, i) => {
+                              const cPrice = entry.pricePharmacyToPatient ?? null;
+                              let cmpLabel = '—'; let cmpColor = '#94a3b8';
+                              if (ownPrice != null && cPrice != null) {
+                                const diff = ((cPrice - ownPrice) / ownPrice * 100);
+                                if (diff > 1) { cmpLabel = `أغلى بـ ${diff.toFixed(1)}% ✅`; cmpColor = '#059669'; }
+                                else if (diff < -1) { cmpLabel = `أرخص بـ ${Math.abs(diff).toFixed(1)}% ⚠️`; cmpColor = '#dc2626'; }
+                                else { cmpLabel = 'نفس السعر تقريباً'; cmpColor = '#d97706'; }
+                              }
+                              return (
+                                <tr key={entry.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '8px 10px', fontWeight: 700, color: '#1e293b' }}>{entry.brandName}</td>
+                                  <td style={{ padding: '8px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
+                                  <td style={{ padding: '8px 10px', color: '#64748b', fontSize: 11 }}>{entry.packaging || '—'}</td>
+                                  <td style={{ padding: '8px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
+                                  <td style={{ padding: '8px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
+                                  <td style={{ padding: '8px 10px', color: '#dc2626', fontWeight: 700 }}>{cPrice != null ? Number(cPrice).toFixed(3) : '—'}</td>
+                                  <td style={{ padding: '8px 10px', fontSize: 11, fontWeight: 600, color: cmpColor }}>{cmpLabel}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, color: '#94a3b8' }}>
+                        لا توجد منافسون بنفس الجرعة في السيرفي
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
