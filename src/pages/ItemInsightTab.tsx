@@ -201,6 +201,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   const [aiLoading, setAILoading]   = useState(false);
   const [aiError, setAIError]       = useState<string | null>(null);
   const [aiCachedAt, setAICachedAt] = useState<string | null>(null);
+  const [aiElapsed, setAIElapsed]   = useState(0); // seconds elapsed during loading
 
   // Per-rep selector & list
   const [reps, setReps]             = useState<RepListEntry[]>([]);
@@ -357,12 +358,21 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
 
   const requestAI = async () => {
     if (!selectedId) return;
-    setAILoading(true); setAIError(null);
+    setAILoading(true); setAIError(null); setAIElapsed(0);
+    // Elapsed time counter
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setAIElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    // AbortController — cancel fetch if it takes too long (3 min max client-side)
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 3 * 60 * 1000);
     try {
       const r = await fetch(`${API}/api/item-analysis/${selectedId}/ai-insight`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileIds: fileIdsParam || null, days, repName: selectedRep || null }),
+        signal: controller.signal,
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل التحليل الذكي'); }
       const j = await r.json();
@@ -373,8 +383,14 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
         localStorage.setItem(key, JSON.stringify({ insight: j.insight, generatedAt: j.generatedAt }));
       } catch {}
     } catch (e: any) {
-      setAIError(String(e.message || e));
+      if (e.name === 'AbortError') {
+        setAIError('انتهت مهلة التحليل الذكي. الرجاء المحاولة مجدداً.');
+      } else {
+        setAIError(String(e.message || e));
+      }
     } finally {
+      clearInterval(timer);
+      clearTimeout(abortTimer);
       setAILoading(false);
     }
   };
@@ -953,7 +969,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                       background: aiLoading ? '#94a3b8' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
                       color: '#fff', fontSize: 13, cursor: aiLoading ? 'not-allowed' : 'pointer', fontWeight: 700,
                     }}>
-                    {aiLoading ? '⏳ جاري التحليل...' : aiInsight ? '🔄 إعادة التحليل' : '✨ احصل على تحليل ذكي'}
+                    {aiLoading ? `⏳ جاري التحليل... ${aiElapsed > 0 ? `(${aiElapsed}ث)` : ''}` : aiInsight ? '🔄 إعادة التحليل' : '✨ احصل على تحليل ذكي'}
                   </button>
                 </div>
               </div>

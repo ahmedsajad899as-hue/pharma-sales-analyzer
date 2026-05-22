@@ -2062,6 +2062,17 @@ function getNextApiKey() {
 // Models tried in order; each has its own quota pool, so falling back gives more headroom.
 const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
 
+// Per-call timeout: if Gemini doesn't respond within this many ms, abort and try next model/key.
+const GEMINI_CALL_TIMEOUT_MS = 55_000; // 55 s — safely within Railway's 5-min limit
+
+function geminiWithTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Try every (key × model) combination once before failing. Returns text on success.
 export async function callGeminiSmart(parts) {
   const keys = getAllApiKeys();
@@ -2072,19 +2083,16 @@ export async function callGeminiSmart(parts) {
       const key = keys[(_keyIndex + i) % keys.length];
       try {
         const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(parts);
+        const result = await geminiWithTimeout(model.generateContent(parts), GEMINI_CALL_TIMEOUT_MS);
         _keyIndex = (_keyIndex + i + 1) % keys.length; // advance for next call
         return result.response.text();
       } catch (err) {
         lastErr = err;
         const msg = String(err?.message || '');
         const is429 = msg.includes('429') || err?.status === 429 || msg.includes('quota');
-        console.error(`[ai-assistant] ${modelName} key#${i} ${is429 ? '429' : 'err'}:`, msg.slice(0, 200));
-        if (!is429) {
-          // non-quota error: try next key briefly, but don't waste time on whole loop for unrelated errors
-          continue;
-        }
-        // 429 → just try next key/model immediately, no sleep needed
+        const isTimeout = msg.includes('timeout');
+        console.error(`[ai-assistant] ${modelName} key#${i} ${is429 ? '429' : isTimeout ? 'TIMEOUT' : 'err'}:`, msg.slice(0, 200));
+        // On timeout or quota, try next model/key. On other errors also continue.
       }
     }
   }
