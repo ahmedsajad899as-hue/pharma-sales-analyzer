@@ -1568,55 +1568,216 @@ function VisitsPanel({ data }: { data: Analytics }) {
 }
 
 function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
-  const tile = (label: string, value: string | number, color: string, sub?: string): JSX.Element => (
-    <div style={{
-      background: '#fff', borderRadius: 8, padding: 10, border: '1px solid #e5e7eb',
-      borderRight: `4px solid ${color}`, minWidth: 130,
-    }}>
-      <div style={{ fontSize: 10, color: '#6b7280' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
-      {sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{sub}</div>}
-    </div>
-  );
+  // ── Build 7 diagnostic rules ──────────────────────────────────────────
+  type RuleStatus = 'ok' | 'warn' | 'bad';
+  interface Rule {
+    id: number; icon: string; title: string; desc: string;
+    actual: string; status: RuleStatus; action: string | null;
+  }
+
+  const rules: Rule[] = [
+    {
+      id: 1, icon: '🩺', title: 'عدد الكولات الطبية',
+      desc: `زيارات المندوب للأطباء على هذا الإيتم خلال الفترة المحددة. الحد الأدنى المقترح: 5 كولات.`,
+      actual: `${d.callCount} كول`,
+      status: d.callCount >= 5 ? 'ok' : d.callCount >= 3 ? 'warn' : 'bad',
+      action: d.callCount < 5 ? 'زيادة الكولات على هذا الإيتم تحديداً للأطباء المستهدفين.' : null,
+    },
+    {
+      id: 2, icon: '📅', title: 'إدراج الإيتم في البلان الشهري',
+      desc: `هل هذا الإيتم مدرج في الخطط الشهرية للمندوب؟ الإيتم خارج البلان = لا أولوية رسمية للمندوب.`,
+      actual: d.planCoverage.totalPlans === 0
+        ? 'لا توجد خطط شهرية'
+        : `${d.planCoverage.plansWithItem} من ${d.planCoverage.totalPlans} بلان (${d.planCoverage.coveragePct}%)`,
+      status: d.planCoverage.totalPlans === 0 ? 'warn'
+        : d.planCoverage.coveragePct >= 60 ? 'ok'
+        : d.planCoverage.coveragePct > 0 ? 'warn' : 'bad',
+      action: d.planCoverage.totalPlans > 0 && d.planCoverage.plansWithItem === 0
+        ? 'إدراج الإيتم في البلان الشهري القادم للمندوب.' : null,
+    },
+    {
+      id: 3, icon: '🔁', title: 'متابعة الأطباء بزيارة ثانية',
+      desc: `نسبة الأطباء الذين زاروا مرة واحدة فقط مقارنة بالمتابعين. الزيارة الواحدة لا تكفي لصنع القرار.`,
+      actual: `${d.singleVisitDoctors} زيارة وحيدة / ${d.repeatedVisitDoctors} مكررة (متوسط: ${d.avgVisitsPerDoctor} زيارة/طبيب)`,
+      status: d.doctorsVisited === 0 ? 'bad'
+        : d.singleVisitDoctors <= d.repeatedVisitDoctors ? 'ok'
+        : d.singleVisitDoctors <= d.repeatedVisitDoctors * 2 ? 'warn' : 'bad',
+      action: d.singleVisitDoctors > d.repeatedVisitDoctors * 2
+        ? 'جدولة زيارة ثانية لكل طبيب تمت زيارته مرة واحدة خلال أسبوعين.' : null,
+    },
+    {
+      id: 4, icon: '💬', title: 'الفيدباك الإيجابي مقابل المبيع',
+      desc: `فيدباك إيجابي (يكتب/مهتم/كومبتيتر) مع مبيع منخفض يعني مشكلة في الإغلاق أو توفر الإيتم في الصيدلية.`,
+      actual: `إيجابي: ${d.positiveFeedback} | سلبي: ${d.negativeFeedback} | صافي المبيع: ${fmt(d.netValue)} د.ع`,
+      status: d.positiveFeedback >= 3 && d.netValue < 50000 ? 'bad'
+        : d.positiveFeedback >= 3 && d.netValue < 300000 ? 'warn' : 'ok',
+      action: d.positiveFeedback >= 3 && d.netValue < 50000
+        ? 'مراجعة توفر الإيتم في الصيدليات القريبة من الأطباء ذوي الفيدباك الإيجابي.' : null,
+    },
+    {
+      id: 5, icon: '📦', title: 'مبيعات بدون كولات طبية',
+      desc: `وجود مبيعات بدون زيارات يعني الاعتماد على الصيدلي فقط — ضعف في الكول العلمي وبناء الثقة مع الطبيب.`,
+      actual: d.callCount === 0 && d.salesValue > 0
+        ? `مبيع ${fmt(d.salesValue)} بدون أي كولات` : `كولات: ${d.callCount} | مبيع: ${fmt(d.salesValue)}`,
+      status: d.salesValue > 0 && d.callCount === 0 ? 'bad'
+        : d.salesValue > 0 && d.callCount < 3 ? 'warn' : 'ok',
+      action: d.salesValue > 0 && d.callCount === 0
+        ? 'تدريب المندوب على المحادثة العلمية مع الطبيب وربط المبيع بالكول المباشر.' : null,
+    },
+    {
+      id: 6, icon: '⚖️', title: 'التوازن بين زيارات الأطباء والصيدليات',
+      desc: `نسبة كولات الأطباء ÷ زيارات الصيدليات. إذا كانت أقل من 0.3 فالمندوب يركز على الصيدليات أكثر من الأطباء.`,
+      actual: d.pharmacyVisitsCount === 0
+        ? `${d.callCount} كول طبي / لا توجد زيارات صيدليات`
+        : `نسبة: ${d.doctorPharmacyRatio.toFixed(2)} (${d.callCount} طبيب / ${d.pharmacyVisitsCount} صيدلية)`,
+      status: d.pharmacyVisitsCount === 0 ? 'ok'
+        : d.doctorPharmacyRatio >= 0.3 ? 'ok'
+        : d.doctorPharmacyRatio >= 0.15 ? 'warn' : 'bad',
+      action: d.pharmacyVisitsCount > 0 && d.doctorPharmacyRatio < 0.3
+        ? 'إعادة توازن الجدول الأسبوعي: زيادة كولات الأطباء وتقليل التركيز على الصيدليات.' : null,
+    },
+    {
+      id: 7, icon: '📊', title: 'زيارات بدون مبيع',
+      desc: `عدد الأشهر التي فيها زيارات للأطباء لكن لا يوجد أي مبيع — دليل على ضعف الإغلاق أو مشكلة في الرسالة العلمية.`,
+      actual: `${d.visitsNoSales} شهر زيارات بلا مبيع | ${d.salesNoVisits} شهر مبيع بلا زيارات`,
+      status: d.visitsNoSales === 0 ? 'ok' : d.visitsNoSales === 1 ? 'warn' : 'bad',
+      action: d.visitsNoSales >= 2
+        ? 'مراجعة الرسالة العلمية المستخدمة وأسلوب الـ Closing مع الطبيب.' : null,
+    },
+  ];
+
+  const badCount  = rules.filter(r => r.status === 'bad').length;
+  const warnCount = rules.filter(r => r.status === 'warn').length;
+  const okCount   = rules.filter(r => r.status === 'ok').length;
+  const healthScore = Math.round((okCount * 100 + warnCount * 50) / rules.length);
+  const healthColor = healthScore >= 70 ? '#059669' : healthScore >= 40 ? '#d97706' : '#dc2626';
+  const healthLabel = healthScore >= 70 ? 'أداء جيد' : healthScore >= 40 ? 'يحتاج تحسين' : 'يحتاج تدخل عاجل';
+
+  const statusStyle = (s: RuleStatus) => ({
+    ok:   { bg: '#f0fdf4', border: '#bbf7d0', dot: '#059669', label: '✅ جيد' },
+    warn: { bg: '#fffbeb', border: '#fde68a', dot: '#d97706', label: '⚠️ تحذير' },
+    bad:  { bg: '#fef2f2', border: '#fecaca', dot: '#dc2626', label: '❌ مشكلة' },
+  }[s]);
+
+  const actions = rules.filter(r => r.action).map(r => ({ id: r.id, icon: r.icon, title: r.title, action: r.action! }));
+
   return (
-    <div style={{
-      background: 'linear-gradient(135deg, #fef3c7 0%, #fee2e2 100%)',
-      borderRadius: 10, padding: 14, marginBottom: 14, border: '1px solid #fde68a',
-    }}>
-      <h4 style={{ margin: '0 0 12px 0', color: '#92400e', fontSize: 14 }}>
-        🎯 مؤشرات التشخيص — المندوب العلمي: {d.repName}
-        {d.repAreaIds && d.repAreaIds.length > 0 && (
-          <span style={{ fontSize: 11, color: '#7c3aed', marginRight: 8, fontWeight: 400 }}>
-            ({d.repAreaIds.length} منطقة مخصصة • المبيع مفلتر بها)
-          </span>
-        )}
-      </h4>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        {tile('عدد الكولات', d.callCount, '#1e40af')}
-        {tile('زيارات صيدليات', d.pharmacyVisitsCount, '#0891b2')}
-        {tile('أطباء مزارون', d.doctorsVisited, '#7c3aed')}
-        {tile('زيارة وحيدة', d.singleVisitDoctors, '#ef4444', 'ضعف متابعة')}
-        {tile('زيارة مكررة', d.repeatedVisitDoctors, '#10b981', 'متابعة جيدة')}
-        {tile('متوسط زيارات/طبيب', d.avgVisitsPerDoctor, '#0e7490')}
-        {tile('فيدباك إيجابي', d.positiveFeedback, '#10b981')}
-        {tile('فيدباك سلبي', d.negativeFeedback, '#dc2626')}
-        {tile('تغطية البلان', `${d.planCoverage.coveragePct}%`, d.planCoverage.coveragePct > 0 ? '#10b981' : '#dc2626', `${d.planCoverage.plansWithItem}/${d.planCoverage.totalPlans} بلان`)}
-        {tile('نسبة أطباء/صيدليات', d.doctorPharmacyRatio, d.doctorPharmacyRatio < 0.3 ? '#dc2626' : '#1e40af')}
-        {tile('صافي المبيع', Math.round(d.netValue).toLocaleString('ar-IQ'), d.netValue > 0 ? '#065f46' : '#991b1b')}
-      </div>
-      {d.signals.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: 8, padding: 10, border: '1px solid #fde68a' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-            ⚠️ إشارات تشخيصية مكتشفة تلقائياً:
+    <div style={{ borderRadius: 12, overflow: 'hidden', marginBottom: 16, border: '1px solid #e5e7eb', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+
+      {/* ── Header ───────────────────────────────────────────── */}
+      <div style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%)', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <div style={{ color: '#93c5fd', fontSize: 11, fontWeight: 600, marginBottom: 2 }}>مؤشرات تشخيص أداء المندوب على هذا الإيتم</div>
+          <div style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>👤 {d.repName}</div>
+          {d.repAreaIds.length > 0 && (
+            <div style={{ color: '#a5b4fc', fontSize: 11, marginTop: 2 }}>
+              🗺️ {d.repAreaIds.length} منطقة مخصصة • البيانات مفلترة بمناطقه
+            </div>
+          )}
+        </div>
+        <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 16px', backdropFilter: 'blur(4px)' }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: healthColor === '#059669' ? '#6ee7b7' : healthColor === '#d97706' ? '#fde68a' : '#fca5a5' }}>{healthScore}%</div>
+          <div style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 600 }}>{healthLabel}</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4, justifyContent: 'center' }}>
+            {okCount > 0   && <span style={{ background: '#059669', color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{okCount} ✅</span>}
+            {warnCount > 0 && <span style={{ background: '#d97706', color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{warnCount} ⚠️</span>}
+            {badCount > 0  && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{badCount} ❌</span>}
           </div>
-          <ul style={{ margin: 0, paddingRight: 20, fontSize: 12, color: '#7c2d12', lineHeight: 1.8 }}>
-            {d.signals.map((s, i) => <li key={i}>{s}</li>)}
-          </ul>
+        </div>
+      </div>
+
+      {/* ── Key metrics row ────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 0, borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+        {([
+          { label: 'عدد الكولات', val: d.callCount, icon: '🩺', color: d.callCount >= 5 ? '#059669' : '#dc2626' },
+          { label: 'أطباء مزارون', val: d.doctorsVisited, icon: '👨‍⚕️', color: '#1e40af' },
+          { label: 'زيارات صيدليات', val: d.pharmacyVisitsCount, icon: '🏪', color: '#0891b2' },
+          { label: 'فيدباك إيجابي', val: d.positiveFeedback, icon: '👍', color: '#059669' },
+          { label: 'فيدباك سلبي', val: d.negativeFeedback, icon: '👎', color: d.negativeFeedback > 2 ? '#dc2626' : '#64748b' },
+          { label: 'تغطية البلان', val: `${d.planCoverage.coveragePct}%`, icon: '📅', color: d.planCoverage.coveragePct > 0 ? '#059669' : '#64748b' },
+          { label: 'صافي المبيع', val: `${fmt(d.netValue)}`, icon: '💰', color: d.netValue > 0 ? '#059669' : '#991b1b' },
+        ] as { label: string; val: string | number; icon: string; color: string }[]).map((m, i) => (
+          <div key={i} style={{ padding: '10px 12px', borderLeft: '1px solid #e5e7eb', textAlign: 'center' }}>
+            <div style={{ fontSize: 18 }}>{m.icon}</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: m.color, lineHeight: 1.2 }}>{m.val}</div>
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{m.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── 7 diagnostic rules table ──────────────────────────── */}
+      <div style={{ background: '#fff' }}>
+        <div style={{ padding: '10px 16px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', fontSize: 12, fontWeight: 700, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 6 }}>
+          🔍 التشخيص التفصيلي — 7 قواعد تقييم
+        </div>
+        {rules.map((rule, idx) => {
+          const st = statusStyle(rule.status);
+          return (
+            <div key={rule.id} style={{
+              padding: '12px 16px', borderBottom: idx < rules.length - 1 ? '1px solid #f1f5f9' : 'none',
+              background: rule.status === 'bad' ? '#fff8f8' : rule.status === 'warn' ? '#fffdf5' : '#fff',
+              display: 'grid', gridTemplateColumns: '28px 1fr auto', gap: '8px 12px', alignItems: 'start',
+            }}>
+              {/* rule number circle */}
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: st.bg, border: `1.5px solid ${st.border}`, fontSize: 13, fontWeight: 700, color: st.dot, flexShrink: 0,
+              }}>{rule.id}</div>
+
+              {/* content */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                  <span style={{ fontSize: 14 }}>{rule.icon}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{rule.title}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.6, marginBottom: 4 }}>{rule.desc}</div>
+                <div style={{
+                  display: 'inline-block', fontSize: 12, fontWeight: 700, color: st.dot,
+                  background: st.bg, border: `1px solid ${st.border}`, borderRadius: 5, padding: '2px 8px',
+                }}>
+                  📊 {rule.actual}
+                </div>
+                {rule.action && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#0369a1', background: '#eff6ff', borderRadius: 5, padding: '5px 10px', borderRight: '3px solid #3b82f6', lineHeight: 1.5 }}>
+                    ➡️ <b>الإجراء المقترح:</b> {rule.action}
+                  </div>
+                )}
+              </div>
+
+              {/* status badge */}
+              <div style={{
+                fontSize: 11, fontWeight: 700, color: st.dot, background: st.bg,
+                border: `1px solid ${st.border}`, borderRadius: 6, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0,
+              }}>{st.label}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Action plan (only if there are problems/warnings) ─── */}
+      {actions.length > 0 && (
+        <div style={{ background: '#eff6ff', borderTop: '2px solid #3b82f6', padding: '12px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e40af', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            🎯 خطة العمل المقترحة ({actions.length} إجراء)
+          </div>
+          <ol style={{ margin: 0, padding: '0 20px', fontSize: 12, color: '#1e3a5f', lineHeight: 2 }}>
+            {actions.map((a, i) => (
+              <li key={i}>
+                <b>{a.icon} {a.title}:</b> {a.action}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
-      {d.signals.length === 0 && (
-        <div style={{ fontSize: 12, color: '#065f46', background: '#fff', padding: 8, borderRadius: 6 }}>
-          ✅ لا توجد إشارات سلبية تلقائية — الأداء ضمن المعدل.
+
+      {/* ── All good message ──────────────────────────────────── */}
+      {actions.length === 0 && (
+        <div style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 22 }}>🎉</span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>أداء المندوب ممتاز على هذا الإيتم</div>
+            <div style={{ fontSize: 11, color: '#059669' }}>كل المؤشرات ضمن الحد الأدنى المقبول — استمر في المتابعة.</div>
+          </div>
         </div>
       )}
     </div>
