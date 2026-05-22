@@ -805,6 +805,16 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
 
                 const ownPrice = ownEntry?.pricePharmacyToPatient ?? null;
 
+                // Helper: extract packaging quantity (first integer from packaging string)
+                const extractQty = (pkg: string | null | undefined): number => {
+                  if (!pkg) return 1;
+                  const m = pkg.match(/\b(\d+)\b/);
+                  const n = m ? parseInt(m[1], 10) : 1;
+                  return n > 0 ? n : 1;
+                };
+                const ownQty = extractQty(ownEntry?.packaging);
+                const ownPPU = ownPrice != null ? ownPrice / ownQty : null; // price per unit
+
                 return (
                   <div style={{ marginBottom: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
@@ -830,6 +840,12 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                               <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{Number(p.val).toFixed(3)}</div>
                             </div>
                           ))}
+                          {ownPPU != null && (
+                            <div style={{ background: '#fff', borderRadius: 8, padding: '5px 10px', border: '1.5px solid #6366f130', textAlign: 'center' }}>
+                              <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>سعر الوحدة ({ownQty} حبة)</div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: '#6366f1' }}>{ownPPU.toFixed(2)}</div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -840,7 +856,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                           <thead>
                             <tr style={{ background: '#f8fafc' }}>
-                              {['الاسم التجاري', 'الشركة', 'التعبئة', 'مذخر←صيدلية', 'صيدلية←مريض', 'مقارنة بإيتمنا'].map(h => (
+                              {['الاسم التجاري', 'الشركة', 'التعبئة', 'مذخر←صيدلية', 'صيدلية←مريض', 'سعر الوحدة', 'مقارنة بإيتمنا (للوحدة)'].map(h => (
                                 <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                               ))}
                             </tr>
@@ -848,11 +864,13 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                           <tbody>
                             {sameDoseCompetitors.map((entry, i) => {
                               const cPrice = entry.pricePharmacyToPatient ?? null;
+                              const cQty = extractQty(entry.packaging);
+                              const cPPU = cPrice != null ? cPrice / cQty : null;
                               let cmpLabel = '—'; let cmpColor = '#94a3b8';
-                              if (ownPrice != null && cPrice != null) {
-                                const diff = ((cPrice - ownPrice) / ownPrice * 100);
-                                if (diff > 1) { cmpLabel = `أغلى بـ ${diff.toFixed(1)}% ✅`; cmpColor = '#059669'; }
-                                else if (diff < -1) { cmpLabel = `أرخص بـ ${Math.abs(diff).toFixed(1)}% ⚠️`; cmpColor = '#dc2626'; }
+                              if (ownPPU != null && cPPU != null) {
+                                const diff = ((cPPU - ownPPU) / ownPPU * 100);
+                                if (diff > 1) { cmpLabel = `أغلى بـ ${diff.toFixed(1)}% للوحدة ✅`; cmpColor = '#059669'; }
+                                else if (diff < -1) { cmpLabel = `أرخص بـ ${Math.abs(diff).toFixed(1)}% للوحدة ⚠️`; cmpColor = '#dc2626'; }
                                 else { cmpLabel = 'نفس السعر تقريباً'; cmpColor = '#d97706'; }
                               }
                               return (
@@ -862,6 +880,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                                   <td style={{ padding: '8px 10px', color: '#64748b', fontSize: 11 }}>{entry.packaging || '—'}</td>
                                   <td style={{ padding: '8px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
                                   <td style={{ padding: '8px 10px', color: '#dc2626', fontWeight: 700 }}>{cPrice != null ? Number(cPrice).toFixed(3) : '—'}</td>
+                                  <td style={{ padding: '8px 10px', color: '#6366f1', fontWeight: 700 }}>{cPPU != null ? cPPU.toFixed(2) : '—'}</td>
                                   <td style={{ padding: '8px 10px', fontSize: 11, fontWeight: 600, color: cmpColor }}>{cmpLabel}</td>
                                 </tr>
                               );
@@ -1132,7 +1151,6 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                               </div>
                               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                                 {[
-                                  { label: 'مكتب←مذخر', val: own.priceOfficeToWholesaler, color: '#059669' },
                                   { label: 'مذخر←صيدلية', val: own.priceWholesalerToPharmacy, color: '#d97706' },
                                   { label: 'صيدلية←مريض', val: own.pricePharmacyToPatient, color: '#dc2626' },
                                 ].map(p => p.val != null && (
@@ -1157,7 +1175,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                                 <thead>
                                   <tr style={{ background: '#f8fafc' }}>
-                                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
+                                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
                                       <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#475569', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                                     ))}
                                   </tr>
@@ -1170,7 +1188,6 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                                       <td style={{ padding: '8px 10px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#64748b' }}>{entry.packaging || '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
-                                      <td style={{ padding: '8px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
                                       <td style={{ padding: '8px 10px', color: '#dc2626', fontWeight: 700 }}>{entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : '—'}</td>
                                       <td style={{ padding: '8px 10px', fontSize: 10, color: '#94a3b8' }}>{entry.surveyName}</td>
@@ -1191,7 +1208,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead>
                           <tr style={{ background: '#f0fdf4' }}>
-                            {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مكتب←مذخر','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
+                            {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','مذخر←صيدلية','صيدلية←مريض','المصدر'].map(h => (
                               <th key={h} style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, fontSize: 11, color: '#065f46', borderBottom: '2px solid #bbf7d0', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                           </tr>
@@ -1204,7 +1221,6 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                               <td style={{ padding: '9px 10px', color: '#64748b' }}>{entry.dosageForm || '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#64748b' }}>{entry.packaging || '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#475569', fontWeight: 600 }}>{entry.company || '—'}</td>
-                              <td style={{ padding: '9px 10px', color: '#059669', fontWeight: 700 }}>{entry.priceOfficeToWholesaler != null ? Number(entry.priceOfficeToWholesaler).toFixed(3) : '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#d97706', fontWeight: 700 }}>{entry.priceWholesalerToPharmacy != null ? Number(entry.priceWholesalerToPharmacy).toFixed(3) : '—'}</td>
                               <td style={{ padding: '9px 10px', color: '#dc2626', fontWeight: 700 }}>{entry.pricePharmacyToPatient != null ? Number(entry.pricePharmacyToPatient).toFixed(3) : '—'}</td>
                               <td style={{ padding: '9px 10px', fontSize: 11, color: '#94a3b8' }}>{entry.surveyName}</td>
