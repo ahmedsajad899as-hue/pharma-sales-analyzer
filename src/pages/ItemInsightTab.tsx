@@ -200,7 +200,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
 
   // Missing-info modal
   const [showInfoModal, setShowInfoModal] = useState(false);
-  const [infoForm, setInfoForm] = useState({ scientificName: '', dosage: '', form: '' });
+  const [infoForm, setInfoForm] = useState({ scientificName: '', dosage: '', form: '', price: '', companyName: '' });
   const [infoSaving, setInfoSaving] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
 
@@ -236,9 +236,11 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
         const skipped = localStorage.getItem(`${SKIP_INFO_PREFIX}${d.item.id}`) === '1';
         if (needs && !skipped && !selectedRep) {
           setInfoForm({
-            scientificName: d.item.scientificName || '',
-            dosage:         d.item.dosage         || '',
-            form:           d.item.form           || '',
+            scientificName: d.item.scientificName     || '',
+            dosage:         d.item.dosage             || '',
+            form:           d.item.form               || '',
+            price:          d.item.price != null ? String(d.item.price) : '',
+            companyName:    d.item.company?.name       || '',
           });
           setInfoError(null);
           setShowInfoModal(true);
@@ -276,7 +278,8 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
   // ── Save missing info ────────────────────────────────────
   const saveItemInfo = async () => {
     if (!selectedId) return;
-    if (!infoForm.scientificName.trim() && !infoForm.dosage.trim() && !infoForm.form.trim()) {
+    if (!infoForm.scientificName.trim() && !infoForm.dosage.trim() && !infoForm.form.trim()
+        && !infoForm.price.trim() && !infoForm.companyName.trim()) {
       setInfoError('أدخل بياناً واحداً على الأقل');
       return;
     }
@@ -289,6 +292,8 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
           scientificName: infoForm.scientificName.trim() || undefined,
           dosage:         infoForm.dosage.trim()         || undefined,
           form:           infoForm.form.trim()           || undefined,
+          price:          infoForm.price.trim() !== '' ? infoForm.price.trim() : undefined,
+          companyName:    infoForm.companyName.trim()    || undefined,
         }),
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل الحفظ'); }
@@ -473,7 +478,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{data.item.name}</div>
                 <button onClick={() => {
-                  setInfoForm({ scientificName: data.item.scientificName || '', dosage: data.item.dosage || '', form: data.item.form || '' });
+                  setInfoForm({ scientificName: data.item.scientificName || '', dosage: data.item.dosage || '', form: data.item.form || '', price: data.item.price != null ? String(data.item.price) : '', companyName: data.item.company?.name || '' });
                   setInfoError(null);
                   setShowInfoModal(true);
                 }} style={{ padding: '3px 9px', borderRadius: 5, border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#475569', fontSize: 11, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -591,6 +596,18 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
               </div>
 
               {/* ── Key data grid ── */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  بيانات الإيتم
+                </div>
+                <button onClick={() => {
+                  setInfoForm({ scientificName: data.item.scientificName || '', dosage: data.item.dosage || '', form: data.item.form || '', price: data.item.price != null ? String(data.item.price) : '', companyName: data.item.company?.name || '' });
+                  setInfoError(null);
+                  setShowInfoModal(true);
+                }} style={{ padding: '4px 10px', borderRadius: 5, border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#475569', fontSize: 11, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  ✏️ تعديل
+                </button>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, marginBottom: 14 }}>
                 {[
                   { en: 'Brand Name', ar: 'الاسم التجاري', val: data.item.name },
@@ -675,6 +692,16 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 }}>
                   <span style={{ fontSize: 16 }}>⚡</span>
                   <span>افتح تبويب <b>تحليل ذكي (AI)</b> وشغّل التحليل لتظهر هنا معلومات الملف العلمي الكاملة.</span>
+                </div>
+              )}
+
+              {/* ── Target Prescribers (section 2 from AI) ── */}
+              {aiInsight && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                    الأطباء المستهدفون <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(مُولَّد بالذكاء الاصطناعي)</span>
+                  </div>
+                  <AnalysisRenderer text={aiInsight} onlySecNum={2} />
                 </div>
               )}
             </div>
@@ -1078,6 +1105,26 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                     style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 6 }}
                   />
                 )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>💰 السعر</label>
+                  <input
+                    type="number" placeholder="مثال: 15000" min="0" step="any"
+                    value={infoForm.price}
+                    onChange={e => setInfoForm({ ...infoForm, price: e.target.value })}
+                    style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 4, boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>🏭 الشركة / المصنع</label>
+                  <input
+                    type="text" placeholder="مثال: PharmaCo"
+                    value={infoForm.companyName}
+                    onChange={e => setInfoForm({ ...infoForm, companyName: e.target.value })}
+                    style={{ width: '100%', padding: 9, borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, marginTop: 4, boxSizing: 'border-box' }}
+                  />
+                </div>
               </div>
             </div>
             {infoError && (

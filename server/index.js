@@ -630,16 +630,32 @@ app.patch('/api/items/:id', async (req, res) => {
     const id     = parseInt(req.params.id);
     const userId = req.user?.id ?? null;
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    const { name, scientificName, dosage, form, price, scientificMessage } = req.body;
+    const { name, scientificName, dosage, form, price, scientificMessage, companyName } = req.body;
+    // Handle company: find by name+user or create
+    let companyIdUpdate = {};
+    if (companyName != null) {
+      const trimmed = String(companyName).trim();
+      if (trimmed) {
+        const company = await prisma.company.upsert({
+          where: { name_userId: { name: trimmed, userId: userId ?? 0 } },
+          update: {},
+          create: { name: trimmed, userId: userId ?? null },
+        });
+        companyIdUpdate = { companyId: company.id };
+      } else {
+        companyIdUpdate = { companyId: null };
+      }
+    }
     const updated = await prisma.item.update({
       where: { id },
       data: {
-        ...(name              != null ? { name: String(name).trim() }                    : {}),
-        ...(scientificName    != null ? { scientificName: scientificName?.trim() || null }   : {}),
-        ...(dosage            != null ? { dosage: dosage?.trim() || null }               : {}),
-        ...(form              != null ? { form: form?.trim() || null }                   : {}),
+        ...(name              != null ? { name: String(name).trim() }                      : {}),
+        ...(scientificName    != null ? { scientificName: scientificName?.trim() || null } : {}),
+        ...(dosage            != null ? { dosage: dosage?.trim() || null }                 : {}),
+        ...(form              != null ? { form: form?.trim() || null }                     : {}),
         ...(price             != null ? { price: price !== '' ? parseFloat(price) : null } : {}),
         ...(scientificMessage != null ? { scientificMessage: scientificMessage?.trim() || null } : {}),
+        ...companyIdUpdate,
       },
       select: { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } } },
     });
