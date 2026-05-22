@@ -1037,7 +1037,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     if (callType === 'pharmacy') {
       if (!clPharmacyName.trim()) { setClError('الرجاء إدخال اسم الصيدلية'); return; }
       const validItems = clPharmacyItems.filter(it => it.itemId || it.itemName.trim());
-      if (validItems.length === 0) { setClError('الرجاء إدخال ايتم واحد على الأقل'); return; }
       if (clGpsStatus !== 'got') {
         setClGpsWarning(true);
         if (requiresGps() || !clGpsWarning) return;
@@ -3335,7 +3334,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       ? (activePlan
                           ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
                           : (!clOtherDocId && !clDoctor.trim()))
-                      : (!clPharmacyName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim()))
+                      : !clPharmacyName.trim()
                   )}
                   style={{
                     padding: '8px 24px', background: '#059669', border: 'none', borderRadius: '8px',
@@ -3344,7 +3343,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       ? (activePlan
                           ? (!clSelectedEntry && !clOtherDocId && !(clManualMode && clDoctor.trim()))
                           : (!clOtherDocId && !clDoctor.trim()))
-                      : (!clPharmacyName.trim() || !clPharmacyItems.some(it => it.itemId || it.itemName.trim())))) ? 0.5 : 1,
+                      : !clPharmacyName.trim())) ? 0.5 : 1,
                   }}
                 >
                   {clSaving ? '⏳ جاري الحفظ...' : '✅ تسجيل الزيارة'}
@@ -3697,7 +3696,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   const areaName   = v.doctor?.area?.name ?? '';
 
                   return (
-                    <div key={v.id} style={{
+                    <div key={isPharmacy ? `ph-${v.id}` : `doc-${v.id}`} style={{
                       background: isOutOfPlan ? '#fff7ed' : '#f8fafc',
                       border: `1px solid ${isOutOfPlan ? '#fed7aa' : '#e2e8f0'}`,
                       borderRadius: 10,

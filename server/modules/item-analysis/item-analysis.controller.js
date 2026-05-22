@@ -370,23 +370,21 @@ export async function getItemAnalytics(req, res, next) {
     // ── 3. Doctor visits for this item (within window) ─────
     // A visit can be created by the rep (userId=repUserId) OR by the manager on behalf
     // of the rep (scientificRepId set, userId=managerId). We use OR to catch both cases.
-    // We also match visits that have no itemId (general doctor call) when a rep is
-    // selected, because rep performance is measured by call count regardless of item.
+    // Visits are filtered strictly to this item so all diagnostic stats reflect
+    // activity on this specific item only (not the rep's total call count).
     let dvWhere;
     if (sciRep) {
       const repConditions = [{ scientificRepId: sciRep.id }];
       if (sciRep.repUserId) repConditions.push({ userId: sciRep.repUserId });
       dvWhere = {
         OR: repConditions,
-        // Include visits for this item AND general visits (itemId = null)
-        // so the call count reflects the rep's true activity on this item
         AND: [
           { visitDate: { gte: since } },
-          { OR: [{ itemId }, { itemId: null }] },
+          { itemId },  // only visits where this item was presented
         ],
       };
     } else if (repName) {
-      dvWhere = { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since }, OR: [{ itemId }, { itemId: null }] };
+      dvWhere = { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since }, itemId };
     } else {
       dvWhere = { userId, itemId, visitDate: { gte: since } };
     }
