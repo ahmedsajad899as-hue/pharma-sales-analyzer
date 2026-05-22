@@ -3024,7 +3024,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (req.user?.linkedRepId) pharmWhere.scientificRepId = req.user.linkedRepId;
     } else if (['scientific_rep', 'commercial_rep'].includes(role)) {
       // Same OR logic as doctor visits: userId OR any scientificRepId
-      if (where.OR) pharmWhere.OR = where.OR;
+      // Strip planEntryId conditions — PharmacyVisit has no planEntryId field.
+      const pharmOR = (where.OR || []).filter(c => !c.planEntryId);
+      if (pharmOR.length > 0) pharmWhere.OR = pharmOR;
       else pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
