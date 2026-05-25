@@ -39,7 +39,7 @@ interface RepDiagnostic {
   salesNoVisits: number;
   visitsNoSales: number;
   doctorPharmacyRatio: number;
-  planCoverage: { totalPlans: number; plansWithItem: number; coveragePct: number };
+  planCoverage: { totalPlans: number; plansWithItem: number; coveragePct: number; totalEntries: number; entriesWithItem: number; entryItemPct: number };
   salesValue: number;
   returnsValue: number;
   netValue: number;
@@ -1606,12 +1606,14 @@ function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
       desc: `هل هذا الإيتم مدرج في الخطط الشهرية للمندوب؟ الإيتم خارج البلان = لا أولوية رسمية للمندوب.`,
       actual: d.planCoverage.totalPlans === 0
         ? 'لا توجد خطط شهرية'
-        : `${d.planCoverage.plansWithItem} من ${d.planCoverage.totalPlans} بلان (${d.planCoverage.coveragePct}%)`,
+        : d.planCoverage.totalEntries === 0
+          ? `${d.planCoverage.plansWithItem} من ${d.planCoverage.totalPlans} بلان — لا توجد إدخالات`
+          : `${d.planCoverage.entriesWithItem} من ${d.planCoverage.totalEntries} طبيب في البلان يملك هذا الإيتم (${d.planCoverage.entryItemPct}%)`,
       status: d.planCoverage.totalPlans === 0 ? 'warn'
-        : d.planCoverage.coveragePct >= 60 ? 'ok'
-        : d.planCoverage.coveragePct > 0 ? 'warn' : 'bad',
-      action: d.planCoverage.totalPlans > 0 && d.planCoverage.plansWithItem === 0
-        ? 'إدراج الإيتم في البلان الشهري القادم للمندوب.' : null,
+        : d.planCoverage.entryItemPct >= 60 ? 'ok'
+        : d.planCoverage.entryItemPct > 0 ? 'warn' : 'bad',
+      action: d.planCoverage.totalPlans > 0 && d.planCoverage.entriesWithItem === 0
+        ? 'إدراج الإيتم كهدف لكل طبيب في البلان الشهري للمندوب.' : null,
     },
     {
       id: 3, icon: '🔁', title: 'متابعة الأطباء بزيارة ثانية',
@@ -1712,7 +1714,7 @@ function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
           { label: 'زيارات صيدليات', val: d.pharmacyVisitsCount, icon: '🏪', color: '#0891b2' },
           { label: 'فيدباك إيجابي', val: d.positiveFeedback, icon: '👍', color: '#059669' },
           { label: 'فيدباك سلبي', val: d.negativeFeedback, icon: '👎', color: d.negativeFeedback > 2 ? '#dc2626' : '#64748b' },
-          { label: 'تغطية البلان', val: `${d.planCoverage.coveragePct}%`, icon: '📅', color: d.planCoverage.coveragePct > 0 ? '#059669' : '#64748b' },
+          { label: 'تغطية البلان', val: d.planCoverage.totalEntries > 0 ? `${d.planCoverage.entriesWithItem}/${d.planCoverage.totalEntries} (${d.planCoverage.entryItemPct}%)` : `${d.planCoverage.coveragePct}%`, icon: '📅', color: d.planCoverage.entryItemPct > 0 ? '#059669' : '#64748b' },
           { label: 'صافي المبيع', val: `${fmt(d.netValue)}`, icon: '💰', color: d.netValue > 0 ? '#059669' : '#991b1b' },
         ] as { label: string; val: string | number; icon: string; color: string }[]).map((m, i) => (
           <div key={i} style={{ padding: '10px 12px', borderLeft: '1px solid #e5e7eb', textAlign: 'center' }}>

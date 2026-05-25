@@ -611,15 +611,27 @@ export async function getItemAnalytics(req, res, next) {
           where: planWhere,
           select: {
             id: true, month: true, year: true,
-            entries: { select: { targetItems: { where: itemIdFilter, select: { id: true } } } },
+            entries: {
+              select: {
+                id: true,
+                // filtered: how many entries have this item
+                targetItems: { where: itemIdFilter, select: { id: true } },
+              },
+            },
           },
         });
         const total = plans.length;
         const withItem = plans.filter(p => p.entries.some(e => e.targetItems.length > 0)).length;
+        // Entry-level counts: how many doctor entries have this item vs total entries
+        const totalEntries    = plans.reduce((s, p) => s + p.entries.length, 0);
+        const entriesWithItem = plans.reduce((s, p) => s + p.entries.filter(e => e.targetItems.length > 0).length, 0);
         planCoverage = {
           totalPlans: total,
           plansWithItem: withItem,
           coveragePct: total > 0 ? Math.round((withItem / total) * 100) : 0,
+          totalEntries,
+          entriesWithItem,
+          entryItemPct: totalEntries > 0 ? Math.round((entriesWithItem / totalEntries) * 100) : 0,
         };
       } catch (err) {
         console.warn('[item-analysis] plan coverage failed:', err?.message);
