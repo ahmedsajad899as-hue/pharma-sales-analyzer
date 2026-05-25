@@ -191,6 +191,25 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
       }
     }
 
+    // ── Backward scan: rescue numeric warehouse columns stranded before areaStart ──
+    // Some files have standalone warehouses (e.g. "الغدير") with no region header
+    // above them that appear just before the first region-tagged column.
+    // If the header is not an identifier/price keyword and the column data is
+    // mostly numeric, extend areaStart backward to include it.
+    const IDENT_HDR_RE = /^(item|مادة|مواد|اسم|material|product|desc|company|شركة?|شركه|brand|vendor|code|كود|barcode|sku|رقم|id|price|سعر|السعر|unit|cost|qty|كمية|total|اجمالي|إجمالي|مجموع)/i;
+    for (let ci = areaStart - 1; ci >= 2; ci--) {
+      if (priceSkipCols.has(ci)) break;
+      const hdr = String(wRow[ci] ?? '').trim();
+      if (!hdr || IDENT_HDR_RE.test(hdr)) break;
+      let hits = 0, checked = 0;
+      for (let ri = wRowIdx + 1; ri < Math.min(wRowIdx + 10, raw.length); ri++) {
+        const v = String((raw[ri] as unknown[])[ci] ?? '').replace(/,/g, '');
+        if (v !== '') { checked++; if (!isNaN(Number(v))) hits++; }
+      }
+      if (checked >= 2 && hits / checked >= 0.6) { areaStart = ci; }
+      else break;
+    }
+
     // Build fixed columns
     const fixedCols: string[] = [];
     for (let ci = 0; ci < areaStart; ci++) {
@@ -201,8 +220,12 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
 
     // Build area columns (deduplicate labels).
     // Columns with no region assigned are price/total/info cols — skip them.
-    // EXCEPTION: for single-row header files (no region row), use a fallback
+    // EXCEPTION 1: for single-row header files (no region row), use a fallback
     // region name so warehouse columns are not accidentally dropped.
+    // EXCEPTION 2: if a column in the warehouse zone has no region header and
+    // no default, fall back to the column's own header as the region name.
+    // This handles standalone warehouses like "الغدير" that appear without
+    // a region grouping row above them.
     const defaultRegion = rRowIdx < 0 ? (filename.replace(/\.[^.]+$/, '') || 'مذاخر') : '';
 
     const isTotalLabel = (s: string) =>
@@ -215,7 +238,9 @@ function parseExcel(buffer: ArrayBuffer, filename: string): SalesFile | string {
     const areaCols: ColMeta[] = [];
     for (let ci = areaStart; ci < wRow.length; ci++) {
       const wv = String(wRow[ci] ?? '').trim();
-      const reg = regionByCol[ci] || defaultRegion;
+      // If no region header above and no file-level default, use the column
+      // header itself as the region (covers standalone warehouses like الغدير).
+      const reg = regionByCol[ci] || defaultRegion || wv;
       if (!reg) continue; // no region header → not a warehouse/quantity col
       if (!wv && !reg) continue;
       if (isTotalLabel(wv) || isTotalLabel(reg)) continue; // skip total columns
