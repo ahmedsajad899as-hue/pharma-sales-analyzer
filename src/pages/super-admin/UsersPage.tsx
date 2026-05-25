@@ -700,12 +700,23 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 >✗ إلغاء الكل</button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {areas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase())).map(a => (
-                  <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
-                    {a.name}
-                  </label>
-                ))}
+                {(() => {
+                  const filtered = areas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()));
+                  const selected = filtered.filter(a => draftAreaIds.includes(a.id));
+                  const unselected = filtered.filter(a => !draftAreaIds.includes(a.id));
+                  const sorted = [...selected, ...unselected];
+                  return sorted.map((a, idx) => (
+                    <>
+                      {idx === selected.length && selected.length > 0 && unselected.length > 0 && (
+                        <div key={`sep-${a.id}`} style={{ height: 1, background: '#e2e8f0', margin: '2px 0' }} />
+                      )}
+                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: draftAreaIds.includes(a.id) ? '#f0fdf4' : '#f8fafc', border: `1px solid ${draftAreaIds.includes(a.id) ? '#86efac' : 'transparent'}`, borderRadius: 8, cursor: 'pointer', fontSize: 14, transition: 'background 0.15s' }}>
+                        <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
+                        {a.name}
+                      </label>
+                    </>
+                  ));
+                })()}
               </div>
               </>
               )}
