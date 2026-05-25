@@ -1658,10 +1658,13 @@ function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
       actual: d.pharmacyVisitsCount === 0
         ? `${d.callCount} كول طبي / لا توجد زيارات صيدليات`
         : `نسبة: ${d.doctorPharmacyRatio.toFixed(2)} (${d.callCount} طبيب / ${d.pharmacyVisitsCount} صيدلية)`,
-      status: d.pharmacyVisitsCount === 0 ? 'ok'
+      status: d.pharmacyVisitsCount === 0 && d.callCount === 0 ? 'ok'
+        : d.pharmacyVisitsCount === 0 && d.callCount > 0 ? 'warn'
         : d.doctorPharmacyRatio >= 0.3 ? 'ok'
         : d.doctorPharmacyRatio >= 0.15 ? 'warn' : 'bad',
-      action: d.pharmacyVisitsCount > 0 && d.doctorPharmacyRatio < 0.3
+      action: d.pharmacyVisitsCount === 0 && d.callCount > 0
+        ? 'لا توجد زيارات صيدليات — يُنصح بتوزيع الجهد بين الأطباء والصيدليات للحصول على مبيعات أفضل.'
+        : d.pharmacyVisitsCount > 0 && d.doctorPharmacyRatio < 0.3
         ? 'إعادة توازن الجدول الأسبوعي: زيادة كولات الأطباء وتقليل التركيز على الصيدليات.' : null,
     },
     {
