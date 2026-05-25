@@ -547,14 +547,31 @@ export async function getItemAnalytics(req, res, next) {
       const repNetValue = repSalesValue - repReturnsValue;
 
       // plan coverage: scientific reps' monthly plans
+      // A plan can be linked to a rep via:
+      //   1. scientificRepId  — plan was created explicitly for this rep
+      //   2. assignedUserId   — plan was transferred to the rep's user account
+      //   3. userId (rep-own) — the rep created the plan themselves
+      // We search all three to avoid false "لا توجد خطط شهرية" when the plan
+      // was created by the manager without a scientificRepId then transferred.
       let planCoverage = { totalPlans: 0, plansWithItem: 0, coveragePct: 0 };
       try {
-        const planWhere = { userId };
-        if (sciRep) {
-          planWhere.scientificRepId = sciRep.id;
-        } else {
-          planWhere.scientificRep = { name: { equals: repName, mode: 'insensitive' } };
+        // Build OR conditions covering every way a plan can belong to this rep
+        const repOrConditions = [];
+        if (sciRep?.id)        repOrConditions.push({ scientificRepId: sciRep.id });
+        if (sciRep?.repUserId) repOrConditions.push({ assignedUserId: sciRep.repUserId });
+        if (!sciRep)           repOrConditions.push({ scientificRep: { name: { equals: repName, mode: 'insensitive' } } });
+
+        // Combine: manager-owned plans matching any rep condition, plus rep-created plans
+        const planOrConditions = repOrConditions.map(rc => ({ userId, ...rc }));
+        if (sciRep?.repUserId) {
+          // Rep may have created their own plans (userId = rep's user ID)
+          planOrConditions.push({ userId: sciRep.repUserId });
         }
+
+        const planWhere = planOrConditions.length === 1
+          ? planOrConditions[0]
+          : { OR: planOrConditions };
+
         const plans = await prisma.monthlyPlan.findMany({
           where: planWhere,
           select: {
