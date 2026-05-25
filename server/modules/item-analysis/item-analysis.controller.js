@@ -543,6 +543,7 @@ export async function getItemAnalytics(req, res, next) {
 
       // sales totals for this rep
       const repSalesValue = totalSalesValue;
+      const repSalesQty   = totalSalesQty;
       const repReturnsValue = totalReturnsValue;
       const repNetValue = repSalesValue - repReturnsValue;
 
@@ -672,6 +673,7 @@ export async function getItemAnalytics(req, res, next) {
         doctorPharmacyRatio: Math.round(doctorPharmacyRatio * 100) / 100,
         planCoverage,
         salesValue: repSalesValue,
+        salesQty: repSalesQty,
         returnsValue: repReturnsValue,
         netValue: repNetValue,
         signals,

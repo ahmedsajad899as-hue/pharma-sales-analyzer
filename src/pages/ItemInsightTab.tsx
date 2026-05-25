@@ -41,6 +41,7 @@ interface RepDiagnostic {
   doctorPharmacyRatio: number;
   planCoverage: { totalPlans: number; plansWithItem: number; coveragePct: number; totalEntries: number; entriesWithItem: number; entryItemPct: number };
   salesValue: number;
+  salesQty: number;
   returnsValue: number;
   netValue: number;
   signals: string[];
@@ -1638,10 +1639,10 @@ function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
       id: 5, icon: '📦', title: 'العلاقة بين الكولات والمبيعات',
       desc: `مبيع بدون كولات = اعتماد على الصيدلي فقط. كولات بدون مبيع = ضعف تحويل أو مشكلة في رسالة الإيتم.`,
       actual: d.callCount === 0 && d.salesValue > 0
-        ? `مبيع ${fmt(d.salesValue)} بدون أي كولات`
+        ? `مبيع ${fmt(d.salesQty)} وحدة بدون أي كولات`
         : d.callCount > 0 && d.salesValue === 0
           ? `${d.callCount} كول بدون أي مبيعات لهذا الإيتم`
-          : `كولات: ${d.callCount} | مبيع: ${fmt(d.salesValue)}`,
+          : `كولات: ${d.callCount} | مبيع: ${fmt(d.salesQty)} وحدة`,
       status: d.salesValue > 0 && d.callCount === 0 ? 'bad'
         : d.salesValue > 0 && d.callCount < 3 ? 'warn'
         : d.salesValue === 0 && d.callCount > 0 ? 'warn'
