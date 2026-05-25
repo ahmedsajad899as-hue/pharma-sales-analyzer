@@ -1635,14 +1635,22 @@ function RepDiagnosticCard({ d }: { d: RepDiagnostic }) {
         ? 'مراجعة توفر الإيتم في الصيدليات القريبة من الأطباء ذوي الفيدباك الإيجابي.' : null,
     },
     {
-      id: 5, icon: '📦', title: 'مبيعات بدون كولات طبية',
-      desc: `وجود مبيعات بدون زيارات يعني الاعتماد على الصيدلي فقط — ضعف في الكول العلمي وبناء الثقة مع الطبيب.`,
+      id: 5, icon: '📦', title: 'العلاقة بين الكولات والمبيعات',
+      desc: `مبيع بدون كولات = اعتماد على الصيدلي فقط. كولات بدون مبيع = ضعف تحويل أو مشكلة في رسالة الإيتم.`,
       actual: d.callCount === 0 && d.salesValue > 0
-        ? `مبيع ${fmt(d.salesValue)} بدون أي كولات` : `كولات: ${d.callCount} | مبيع: ${fmt(d.salesValue)}`,
+        ? `مبيع ${fmt(d.salesValue)} بدون أي كولات`
+        : d.callCount > 0 && d.salesValue === 0
+          ? `${d.callCount} كول بدون أي مبيعات لهذا الإيتم`
+          : `كولات: ${d.callCount} | مبيع: ${fmt(d.salesValue)}`,
       status: d.salesValue > 0 && d.callCount === 0 ? 'bad'
-        : d.salesValue > 0 && d.callCount < 3 ? 'warn' : 'ok',
+        : d.salesValue > 0 && d.callCount < 3 ? 'warn'
+        : d.salesValue === 0 && d.callCount > 0 ? 'warn'
+        : 'ok',
       action: d.salesValue > 0 && d.callCount === 0
-        ? 'تدريب المندوب على المحادثة العلمية مع الطبيب وربط المبيع بالكول المباشر.' : null,
+        ? 'تدريب المندوب على المحادثة العلمية مع الطبيب وربط المبيع بالكول المباشر.'
+        : d.salesValue === 0 && d.callCount > 0
+          ? 'مراجعة أسلوب الكول العلمي وتحسين رسالة الإيتم — يوجد زيارات لكن بدون تحويل إلى مبيع.'
+          : null,
     },
     {
       id: 6, icon: '⚖️', title: 'التوازن بين زيارات الأطباء والصيدليات',
