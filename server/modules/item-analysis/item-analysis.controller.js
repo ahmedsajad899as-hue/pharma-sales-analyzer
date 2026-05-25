@@ -546,6 +546,34 @@ export async function getItemAnalytics(req, res, next) {
       const repReturnsValue = totalReturnsValue;
       const repNetValue = repSalesValue - repReturnsValue;
 
+      // ── Fuzzy item ID resolution ─────────────────────────────────────
+      // The same product may have been saved as two different Item records with
+      // minor name differences (spacing, casing, trailing form descriptor, etc.)
+      // e.g. "PANTACTIVE 40MG 28TAB" vs "PANTACTIVE 40 MG 28TAB CAPSULE"
+      // We build a set of candidate IDs covering all equivalent variants so that
+      // the plan coverage check (and any future fuzzy look-ups) don't miss them.
+      const normItemName = s => s.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9\u0600-\u06ff]/gi, '');
+      const analyzedNameNorm = normItemName(item.name || '');
+      let candidateItemIds = [itemId];
+      try {
+        const mainWord = (item.name || '').trim().split(/\s+/)[0];
+        if (mainWord && mainWord.length >= 3 && analyzedNameNorm) {
+          const nameCandidates = await prisma.item.findMany({
+            where: { name: { startsWith: mainWord, mode: 'insensitive' } },
+            select: { id: true, name: true },
+          });
+          for (const c of nameCandidates) {
+            if (c.id === itemId) continue;
+            const cn = normItemName(c.name || '');
+            // Match if normalized names are equal, or one is a prefix of the other
+            // (handles extra trailing form descriptors like " CAPSULE" or " TABLET")
+            if (cn && (cn === analyzedNameNorm || cn.startsWith(analyzedNameNorm) || analyzedNameNorm.startsWith(cn))) {
+              candidateItemIds.push(c.id);
+            }
+          }
+        }
+      } catch (_) { /* non-critical – fall back to exact ID */ }
+
       // plan coverage: scientific reps' monthly plans
       // A plan can be linked to a rep via:
       //   1. scientificRepId  — plan was created explicitly for this rep
@@ -572,11 +600,18 @@ export async function getItemAnalytics(req, res, next) {
           ? planOrConditions[0]
           : { OR: planOrConditions };
 
+        // Use candidateItemIds (fuzzy-matched variants) so slight name differences
+        // between how the item was saved in the plan vs. in the sales data don't
+        // cause a false "item not in plan" result.
+        const itemIdFilter = candidateItemIds.length === 1
+          ? { itemId }
+          : { itemId: { in: candidateItemIds } };
+
         const plans = await prisma.monthlyPlan.findMany({
           where: planWhere,
           select: {
             id: true, month: true, year: true,
-            entries: { select: { targetItems: { where: { itemId }, select: { id: true } } } },
+            entries: { select: { targetItems: { where: itemIdFilter, select: { id: true } } } },
           },
         });
         const total = plans.length;
