@@ -55,7 +55,9 @@ interface QueryResult {
        | 'plan_stats'
        | 'stock_list'
        | 'distributor_sales'
-       | 'rep_sales';
+       | 'rep_sales'
+       | 'pharmacy_net_list' | 'pharmacy_net_grouped'
+       | 'bonus_list' | 'bonus_stats';
   visitType?: 'doctor' | 'pharmacy' | 'all';
   groupBy?: string;
   totalVisits?: number;
@@ -316,12 +318,16 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       const digest = (window as any).__salesDataDigest || null;
       const distributorDigest = (window as any).__distributorSalesDigest || null;
       const repAnalysisDigest = (window as any).__repAnalysisDigest || null;
+      const pharmNetDigest    = (window as any).__pharmNetDigest || null;
+      const bonusDigest       = (window as any).__bonusDigest || null;
       fd.append('context', JSON.stringify({
         currentPage: activePage,
         userRole: user?.role ?? 'user',
         salesContext: digest,
         distributorContext: distributorDigest,
         repAnalysisContext: repAnalysisDigest,
+        pharmNetContext: pharmNetDigest,
+        bonusContext: bonusDigest,
       }));
       const r = await fetch(`${API}/api/ai-assistant/command`, {
         method: 'POST',
@@ -348,7 +354,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       // Auto-navigate only when no deep results to show
       if (data.navigatePage && !data.needsClarification && !data.queryResult) {
         const page = data.navigatePage as PageId;
-        const valid: PageId[] = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis'];
+        const valid: PageId[] = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis','pharmacy-analysis','bonus-sales','sales-data','distributor-sales'];
         if (valid.includes(page)) { navigateTo(page); setIsOpen(false); }
       }
       // Dispatch page-level actions via CustomEvent
@@ -373,6 +379,10 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           'fill-pharmacy-visit':   'dashboard',
           'open-map':              'dashboard',
           'open-export-report':    'reports',
+          'open-pharmacy-upload':  'pharmacy-analysis',
+          'open-bonus-delivery':   'bonus-sales',
+          'open-bonus-upload':     'bonus-sales',
+          'open-stock-upload':     'sales-data',
         };
         const targetPage = pageMap[data.pageAction];
         const detail = { action: data.pageAction, param: data.pageActionParam ?? null };
@@ -1799,6 +1809,149 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── pharmacy_net_list / pharmacy_net_grouped ─────────────
+              if (qr?.type === 'pharmacy_net_list' || qr?.type === 'pharmacy_net_grouped') {
+                const fmtN = (n: number) => Number(n || 0).toLocaleString('en-US');
+                if (!qr.found) {
+                  return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا توجد بيانات صيدليه نت.'}</div>;
+                }
+                const summary: any = qr.summary || {};
+                const groups: any[] = (qr.groups as any[]) || [];
+                const rows: any[] = (qr as any).pharmacies || [];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>🏪 صيدليه نت</div>
+                      <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                        {summary.totalPharmacies || 0} صيدلية · {summary.totalOrders || 0} طلبية · {summary.totalQty || 0} وحدة
+                      </div>
+                    </div>
+                    {groups.length > 0 && (
+                      <div style={{ overflow: 'auto', maxHeight: 360, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                          <thead style={{ position: 'sticky', top: 0, background: '#f0f9ff', zIndex: 1 }}>
+                            <tr>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'right', color: '#0369a1', fontWeight: 700 }}>{qr.groupBy === 'area' ? 'المنطقة' : qr.groupBy === 'item' ? 'الإيتم' : 'الصيدلية'}</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>طلبيات</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>كمية</th>
+                              {qr.groupBy === 'area' && <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>صيدليات</th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groups.map((g: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{g.groupKey || g.name}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>{fmtN(g.totalOrders)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#065f46', fontWeight: 700 }}>{fmtN(g.totalQty)}</td>
+                                {qr.groupBy === 'area' && <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{g.pharmacyCount || 0}</td>}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {rows.length > 0 && groups.length === 0 && (
+                      <div style={{ overflow: 'auto', maxHeight: 360, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                          <thead style={{ position: 'sticky', top: 0, background: '#f0f9ff', zIndex: 1 }}>
+                            <tr>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'right', color: '#0369a1', fontWeight: 700 }}>الصيدلية</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>المنطقة</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>طلبيات</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bae6fd', textAlign: 'center', color: '#065f46', fontWeight: 700 }}>كمية</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{r.name || r.pharmacyName}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{r.areaName || '—'}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#0369a1', fontWeight: 700 }}>{fmtN(r.totalOrders)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#065f46', fontWeight: 700 }}>{fmtN(r.totalQty)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── bonus_list / bonus_stats ──────────────────────────────
+              if (qr?.type === 'bonus_list' || qr?.type === 'bonus_stats') {
+                const fmtN = (n: number) => Number(n || 0).toLocaleString('en-US');
+                if (!qr.found) {
+                  return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا توجد بيانات بونص.'}</div>;
+                }
+                const summary: any = qr.summary || {};
+                const rows: any[] = (qr as any).rows || [];
+                const groups: any[] = (qr as any).groups || [];
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>🎁 البونص</div>
+                      <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                        {summary.totalRows || 0} سجل · بونص: {summary.withBonus || 0} · مُسلَّم: {summary.delivered || 0} · معلَّق: {summary.pending || 0}
+                      </div>
+                    </div>
+                    {groups.length > 0 && (
+                      <div style={{ overflow: 'auto', maxHeight: 360, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                          <thead style={{ position: 'sticky', top: 0, background: '#eff6ff', zIndex: 1 }}>
+                            <tr>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'right', color: '#1e40af', fontWeight: 700 }}>{(qr as any).groupBy === 'area' ? 'المنطقة' : (qr as any).groupBy === 'item' ? 'الإيتم' : (qr as any).groupBy === 'rep' ? 'المندوب' : 'الصيدلية'}</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>لديه بونص</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#15803d', fontWeight: 700 }}>مُسلَّم</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#b45309', fontWeight: 700 }}>معلَّق</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groups.map((g: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{g.groupKey}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>{fmtN(g.withBonus)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#15803d', fontWeight: 700 }}>{fmtN(g.delivered)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: g.pending > 0 ? '#b45309' : '#64748b', fontWeight: g.pending > 0 ? 700 : 400 }}>{fmtN(g.pending)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {rows.length > 0 && groups.length === 0 && (
+                      <div style={{ overflow: 'auto', maxHeight: 360, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, direction: 'rtl' }}>
+                          <thead style={{ position: 'sticky', top: 0, background: '#eff6ff', zIndex: 1 }}>
+                            <tr>
+                              {['الصيدلية','المنطقة','الإيتم','المندوب','كمية البونص','الحالة'].map(h => (
+                                <th key={h} style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', background: r.bonusDelivered ? '#f0fdf4' : (i % 2 === 0 ? '#fff' : '#f9fafb') }}>
+                                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{r.pharmacyName || '—'}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{r.areaName || '—'}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right', color: '#1e293b', fontWeight: 600 }}>{r.itemName || '—'}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>{r.repName || '—'}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>{fmtN(r.bonusQty)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                                  {r.bonusDelivered
+                                    ? <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>✓ مُسلَّم</span>
+                                    : <span style={{ background: '#fef9c3', color: '#92400e', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>معلَّق</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>

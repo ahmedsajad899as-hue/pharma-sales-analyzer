@@ -277,6 +277,26 @@ export default function BonusSalesPage() {
 
   useEffect(() => { loadUploads(); }, [loadUploads]);
 
+  // ── Expose bonus context for AI Assistant ─────────────────
+  useEffect(() => {
+    if (salesUploads.length === 0) {
+      delete (window as any).__bonusDigest;
+      return;
+    }
+    const itemNames  = [...new Set(rows.map(r => r.itemName).filter(Boolean))].slice(0, 80) as string[];
+    const areaNames  = [...new Set(rows.map(r => r.areaName).filter(Boolean))].slice(0, 40) as string[];
+    const repNames   = [...new Set(rows.map(r => r.repName).filter(Boolean))].slice(0, 40) as string[];
+    (window as any).__bonusDigest = {
+      uploadCount: salesUploads.length,
+      uploadIds: salesUploads.map(u => u.id),
+      uploadNames: salesUploads.map(u => u.originalName),
+      itemNames,
+      areaNames,
+      repNames,
+    };
+    return () => { delete (window as any).__bonusDigest; };
+  }, [salesUploads, rows]);
+
   // ── Load rows ──────────────────────────────────────────────
   const loadRows = useCallback(async (pg = 1) => {
     if (!selectedUpload) return;

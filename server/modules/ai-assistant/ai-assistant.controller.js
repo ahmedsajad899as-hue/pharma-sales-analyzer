@@ -33,7 +33,7 @@ function fuzzyFind(list, key, query) {
 }
 
 // ── Gemini system prompt ──────────────────────────────────────
-function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext, repAnalysisContext }) {
+function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext, repAnalysisContext, pharmNetContext, bonusContext }) {
   const now      = new Date();
   const curDay   = now.getDate();
   const curMonth = now.getMonth() + 1;
@@ -109,7 +109,9 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 8. query_rep_sales         → تقرير مبيعات/إرجاعات من ملفات Sales المرفوعة في صفحة "تحليل ملفات المندوبين" (Reports)، مجموعة حسب المندوب التجاري/العلمي/المنطقة/الإيتم — يدعم كميات + قِيَم مالية
 9. navigate                → الانتقال لصفحة
 10. page_action             → تنفيذ إجراء داخل أي صفحة (مثل فتح نافذة أو إضافة عنصر)
-11. unknown                → لا يمكن فهم الطلب
+11. query_pharmacy_net     → استعلام بيانات صيدليه نت: الصيدليات التي لديها طلبات، إحصائيات المناطق، أكثر الإيتمات طلباً من ملفات pharmacy_net
+12. query_bonus            → استعلام بيانات البونص: حالة التسليم، الصيدليات المستحقة للبونص، الإيتمات ذات البونص، البونص المعلق/المُسلَّم
+13. unknown                → لا يمكن فهم الطلب
 
 ═══ بيانات الستوكات (Sales Data) المتاحة الآن ═══
 ملف نشط: ${sc ? (sc.fileName || 'غير معروف') : 'لا يوجد ملف مرفوع/نشط حالياً'}
@@ -153,6 +155,55 @@ ${repAnalysisFilesText}
 هذه الملفات تخزن سجلات Sale حقيقية بكميات + قيم مالية (totalValue) + recordType:"sale"|"return"
 كل سجل مرتبط بـ: مندوب تجاري (medical rep) + منطقة + ايتم + تاريخ
 المندوب العلمي يرتبط بالمندوب التجاري (commercial join) — أي طلب بـ"مندوب علمي" نمرّره في scientificRepQueries.
+
+═══ بيانات صيدليه نت (Pharmacy Net / pharmacy-analysis) ═══
+ملفات مرفوعة: ${pharmNetContext ? pharmNetContext.fileCount : 0} ملف
+الصيدليات المتاحة: ${pharmNetContext && pharmNetContext.pharmacyNames?.length ? pharmNetContext.pharmacyNames.slice(0, 60).join('، ') : 'لا يوجد'}
+المناطق: ${pharmNetContext && pharmNetContext.areaNames?.length ? pharmNetContext.areaNames.join('، ') : 'لا يوجد'}
+الإيتمات: ${pharmNetContext && pharmNetContext.itemNames?.length ? pharmNetContext.itemNames.slice(0, 60).join('، ') : 'لا يوجد'}
+
+═══ متى تستخدم query_pharmacy_net ═══
+• "كم طلبية صيدلية X" / "شكد طلبت صيدلية X" → query_pharmacy_net + pharmacyName
+• "أكثر الصيدليات طلباً" / "قائمة الصيدليات بالنت" → query_pharmacy_net (بدون groupBy)
+• "طلبات منطقة X" / "صيدليات منطقة X بالنت" → query_pharmacy_net + areaName + groupBy:"area"
+• "كم صيدلية اشترت ايتم X" / "مبيع ايتم X بالنت" → query_pharmacy_net + itemName + groupBy:"item"
+• "أكثر الإيتمات مبيعاً في النت" → query_pharmacy_net + groupBy:"item"
+• "صيدليه نت" / "بيانات النت" / "الصيدليات اللي تطلب" → query_pharmacy_net
+
+═══ فلاتر query_pharmacy_net ═══
+pharmacyName : اسم الصيدلية أو null
+areaName     : اسم المنطقة أو null
+itemName     : اسم الإيتم أو null
+repName      : اسم المندوب أو null
+groupBy      : null | "area" | "item"
+limit        : افتراضي 100
+
+═══ بيانات البونص (Bonus Sales / bonus-sales) ═══
+ملفات مرفوعة: ${bonusContext ? bonusContext.uploadCount : 0} ملف
+الإيتمات: ${bonusContext && bonusContext.itemNames?.length ? bonusContext.itemNames.slice(0, 50).join('، ') : 'لا يوجد'}
+المناطق: ${bonusContext && bonusContext.areaNames?.length ? bonusContext.areaNames.join('، ') : 'لا يوجد'}
+المندوبون: ${bonusContext && bonusContext.repNames?.length ? bonusContext.repNames.join('، ') : 'لا يوجد'}
+
+═══ متى تستخدم query_bonus ═══
+• "شنو البونص المعلق" / "بونص لم يُسلَّم" → query_bonus + bonusDelivered:false + hasBonus:true
+• "بونص تم تسليمه" / "البونص المُسلَّم" → query_bonus + bonusDelivered:true
+• "بونص صيدلية X" → query_bonus + pharmacyName
+• "بونص ايتم X" → query_bonus + itemName
+• "بونص منطقة X" → query_bonus + areaName + groupBy:"area"
+• "بونص المندوب X" → query_bonus + repName + groupBy:"rep"
+• "إجمالي البونص" / "ملخص البونص" / "احصائيات البونص" → query_bonus (بدون فلاتر)
+• "حسب الايتم" → query_bonus + groupBy:"item" ؛ "حسب الصيدلية" → groupBy:"pharmacy"
+
+═══ فلاتر query_bonus ═══
+pharmacyName    : اسم الصيدلية أو null
+itemName        : اسم الإيتم أو null
+areaName        : اسم المنطقة أو null
+repName         : اسم المندوب أو null
+hasBonus        : true | false | null
+bonusDelivered  : true | false | null
+isCompensated   : true | false | null
+groupBy         : null | "item" | "area" | "rep" | "pharmacy"
+limit           : افتراضي 100
 
 ═══ متى تستخدم query_rep_sales ═══
 • "تقرير مبيع للمندوبين العلميين" → query_rep_sales + groupBy:"scientific_rep"
@@ -270,15 +321,19 @@ year     : السنة أو null (افتراضي السنة الحالية)
 مثال: "أطباء الجلدية الي بصيدلية النور" → action:"query_doctors", filters:{specialty:"جلدية", pharmacyName:"النور"}
 
 ═══ الصفحات للانتقال (navigate) ═══
-• dashboard        → الرئيسية / الداشبورد
-• monthly-plans    → الخطط الشهرية
-• doctors          → صفحة الأطباء / قائمة الأطباء
-• scientific-reps  → المندوبين العلميين
-• representatives  → المندوبين التجاريين
-• reports          → التقارير
-• users            → المستخدمين
-• rep-analysis     → تحليل المندوب / تحليل الزيارات / تحليل المبيعات / تحليل أداء المندوب
-• upload           → رفع الملفات
+• dashboard          → الرئيسية / الداشبورد
+• monthly-plans      → الخطط الشهرية
+• doctors            → صفحة الأطباء / قائمة الأطباء
+• scientific-reps    → المندوبين العلميين
+• representatives    → المندوبين التجاريين
+• reports            → التقارير
+• users              → المستخدمين
+• rep-analysis       → تحليل المندوب / تحليل الزيارات / تحليل المبيعات / تحليل أداء المندوب
+• upload             → رفع الملفات
+• pharmacy-analysis  → صيدليه نت / تحليل الصيدليات / بيانات الطلبات / pharmacy net
+• bonus-sales        → البونص / مبيعات البونص / تسليم البونص / تتبع البونص
+• sales-data         → ستوك / بيانات المبيعات / الستوك / الأسعار
+• distributor-sales  → تحليل مبيعات الموزعين / موزعين
 
 ═══ إجراءات page_action (مع الصفحة المستهدفة) ═══
 
@@ -314,6 +369,16 @@ year     : السنة أو null (افتراضي السنة الحالية)
 
 صفحة reports (التقارير):
   • open-export-report      → فتح نافذة تصدير التقرير
+
+صفحة pharmacy-analysis (صيدليه نت):
+  • open-pharmacy-upload    → رفع ملف صيدليه نت / رفع ملف جديد للنت
+
+صفحة bonus-sales (البونص):
+  • open-bonus-upload       → رفع ملف بونص جديد
+  • open-bonus-delivery     → فتح تبويب تسليم البونص / متابعة تسليم البونص
+
+صفحة sales-data (بيانات المبيعات / الستوك):
+  • open-stock-upload       → رفع ملف ستوك / بيانات مبيعات جديد
 
 ═══ قواعد page_action ═══
 • إذا طلب المستخدم فتح نافذة أو إجراء في صفحة أخرى غير الحالية، استخدم page_action (النظام سيتنقل تلقائياً)
@@ -445,7 +510,7 @@ null        → قائمة مباشرة
 
 ═══ صيغة الرد (JSON فقط) ═══
 {
-  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "query_distributor_sales" | "query_rep_sales" | "navigate" | "page_action" | "unknown",
+  "action": "query_visits" | "query_doctors" | "query_unvisited_doctors" | "query_stats" | "query_plan_stats" | "query_stock" | "query_distributor_sales" | "query_rep_sales" | "query_pharmacy_net" | "query_bonus" | "navigate" | "page_action" | "unknown",
   "navigatePage": null,
   "pageAction": null,
   "pageActionParam": null,
@@ -472,7 +537,10 @@ null        → قائمة مباشرة
     "itemQueries": null,
     "distributorQueries": null,
     "teamQueries": null,
-    "metric": null
+    "metric": null,
+    "hasBonus": null,
+    "bonusDelivered": null,
+    "isCompensated": null
   },
   "groupBy": null,
   "sortBy": "date_desc",
@@ -2027,6 +2095,183 @@ async function executeSurveyQuery(spec, repId) {
   return { found: true, type: 'survey_list', summary, pharmacies: pharmacies.map(mapPharm) };
 }
 
+// ── Execute: Pharmacy Net ─────────────────────────────────────
+async function executePharmNetQuery(spec, userId) {
+  const { filters = {}, groupBy, limit } = spec;
+
+  // Determine fileIds from uploaded pharmacy_net files
+  const files = await prisma.uploadedFile.findMany({
+    where: { userId, ...(prisma.uploadedFile.fields?.fileType ? { fileType: 'pharmacy_net' } : {}) },
+    select: { id: true },
+  }).catch(() => []);
+
+  // Try fileType filter
+  const filesTyped = await prisma.uploadedFile.findMany({
+    where: { userId, fileType: 'pharmacy_net' },
+    select: { id: true },
+  }).catch(() => null);
+
+  const fileList = filesTyped !== null ? filesTyped : files;
+
+  if (!fileList.length) {
+    return { found: false, type: 'pharmacy_net_list', message: 'لا توجد ملفات مرفوعة في صيدليه نت. يرجى رفع ملف من صفحة صيدليه نت أولاً.' };
+  }
+
+  const fileIds = fileList.map(f => f.id);
+
+  const where = { userId, uploadedFileId: { in: fileIds } };
+
+  if (filters.pharmacyName) {
+    const pharmsAll = await prisma.customer.findMany({ where: { userId }, select: { id: true, name: true } });
+    const matched = pharmsAll.filter(c => c.name && c.name.toLowerCase().includes(filters.pharmacyName.toLowerCase()));
+    if (matched.length) where.customerId = { in: matched.map(c => c.id) };
+  }
+  if (filters.areaName) {
+    const areasAll = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
+    const matched = areasAll.filter(a => a.name && a.name.toLowerCase().includes(filters.areaName.toLowerCase()));
+    if (matched.length) where.areaId = { in: matched.map(a => a.id) };
+  }
+  if (filters.itemName) {
+    const itemsAll = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
+    const matched = itemsAll.filter(i => i.name && i.name.toLowerCase().includes(filters.itemName.toLowerCase()));
+    if (matched.length) where.itemId = { in: matched.map(i => i.id) };
+  }
+  if (filters.repName) {
+    const repsAll = await prisma.representative.findMany({ where: { userId }, select: { id: true, name: true } });
+    const matched = repsAll.filter(r => r.name && r.name.toLowerCase().includes(filters.repName.toLowerCase()));
+    if (matched.length) where.representativeId = { in: matched.map(r => r.id) };
+  }
+
+  const sales = await prisma.sale.findMany({
+    where,
+    take: Math.min(Number(limit) || 200, 500),
+    orderBy: { saleDate: 'desc' },
+    include: {
+      customer:       { select: { name: true } },
+      area:           { select: { name: true } },
+      item:           { select: { name: true } },
+      representative: { select: { name: true } },
+    },
+  }).catch(() => []);
+
+  if (!sales.length) {
+    return { found: false, type: 'pharmacy_net_list', message: 'لا توجد بيانات مطابقة في صيدليه نت.' };
+  }
+
+  const fmt = n => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+  if (groupBy === 'item') {
+    const itemMap = new Map();
+    for (const s of sales) {
+      const k = s.item?.name || 'غير محدد';
+      if (!itemMap.has(k)) itemMap.set(k, { groupKey: k, pharmacySet: new Set(), totalOrders: 0, totalQty: 0 });
+      const it = itemMap.get(k);
+      it.pharmacySet.add(s.customer?.name);
+      it.totalOrders++;
+      it.totalQty += Number(s.quantity || 0);
+    }
+    const groups = Array.from(itemMap.values())
+      .map(it => ({ groupKey: it.groupKey, pharmacyCount: it.pharmacySet.size, totalOrders: it.totalOrders, totalQty: it.totalQty }))
+      .sort((a, b) => b.totalOrders - a.totalOrders);
+    const summary = { totalPharmacies: new Set(sales.map(s => s.customer?.name)).size, totalOrders: sales.length, totalQty: sales.reduce((acc, s) => acc + Number(s.quantity || 0), 0) };
+    return { found: true, type: 'pharmacy_net_grouped', groupBy, summary, groups };
+  }
+
+  // Group by pharmacy
+  const pharmMap = new Map();
+  for (const s of sales) {
+    const k = s.customer?.name || '—';
+    if (!pharmMap.has(k)) pharmMap.set(k, { name: k, areaName: s.area?.name || '—', repName: s.representative?.name || '—', totalOrders: 0, totalQty: 0 });
+    const p = pharmMap.get(k);
+    p.totalOrders++;
+    p.totalQty += Number(s.quantity || 0);
+  }
+  const pharmacies = Array.from(pharmMap.values()).sort((a, b) => b.totalOrders - a.totalOrders).slice(0, 100);
+  const summary = {
+    totalPharmacies: pharmacies.length,
+    totalOrders: pharmacies.reduce((acc, p) => acc + p.totalOrders, 0),
+    totalQty: pharmacies.reduce((acc, p) => acc + p.totalQty, 0),
+  };
+
+  if (groupBy === 'area') {
+    const areaMap = new Map();
+    for (const p of pharmacies) {
+      const k = p.areaName || 'بدون منطقة';
+      if (!areaMap.has(k)) areaMap.set(k, { groupKey: k, pharmacyCount: 0, totalOrders: 0, totalQty: 0 });
+      const a = areaMap.get(k);
+      a.pharmacyCount++;
+      a.totalOrders += p.totalOrders;
+      a.totalQty += p.totalQty;
+    }
+    const groups = Array.from(areaMap.values()).sort((a, b) => b.totalOrders - a.totalOrders);
+    return { found: true, type: 'pharmacy_net_grouped', groupBy, summary, groups };
+  }
+
+  return { found: true, type: 'pharmacy_net_list', totalPharmacies: pharmacies.length, summary, pharmacies };
+}
+
+// ── Execute: Bonus Sales ──────────────────────────────────────
+async function executeBonusQuery(spec, userId) {
+  const { filters = {}, groupBy, limit } = spec;
+
+  const uploads = await prisma.bonusSalesUpload.findMany({
+    where: { userId },
+    select: { id: true },
+  }).catch(() => []);
+
+  if (!uploads.length) {
+    return { found: false, type: 'bonus_list', message: 'لا توجد ملفات بونص مرفوعة.' };
+  }
+
+  const where = { uploadId: { in: uploads.map(u => u.id) } };
+
+  if (filters.pharmacyName) where.pharmacyName = { contains: filters.pharmacyName, mode: 'insensitive' };
+  if (filters.itemName)     where.itemName     = { contains: filters.itemName,     mode: 'insensitive' };
+  if (filters.areaName)     where.areaName     = { contains: filters.areaName,     mode: 'insensitive' };
+  if (filters.repName)      where.repName      = { contains: filters.repName,      mode: 'insensitive' };
+  if (filters.hasBonus      != null) where.hasBonus      = filters.hasBonus;
+  if (filters.bonusDelivered != null) where.bonusDelivered = filters.bonusDelivered;
+  if (filters.isCompensated  != null) where.isCompensated  = filters.isCompensated;
+
+  const rows = await prisma.bonusSalesRow.findMany({
+    where,
+    take: Math.min(Number(limit) || 100, 300),
+    orderBy: { invoiceDate: 'desc' },
+    select: {
+      pharmacyName: true, itemName: true, areaName: true, repName: true,
+      quantity: true, bonusQty: true, bonusValue: true, hasBonus: true,
+      isCompensated: true, bonusDelivered: true, invoiceDate: true, invoiceNo: true,
+    },
+  }).catch(() => []);
+
+  if (!rows.length) {
+    return { found: false, type: 'bonus_list', message: 'لا توجد سجلات بونص مطابقة.' };
+  }
+
+  const withBonus = rows.filter(r => r.hasBonus).length;
+  const delivered = rows.filter(r => r.bonusDelivered).length;
+  const pending   = rows.filter(r => r.hasBonus && !r.bonusDelivered).length;
+  const summary = { totalRows: rows.length, withBonus, delivered, pending };
+
+  if (groupBy === 'item' || groupBy === 'area' || groupBy === 'rep' || groupBy === 'pharmacy') {
+    const key = groupBy === 'item' ? 'itemName' : groupBy === 'area' ? 'areaName' : groupBy === 'rep' ? 'repName' : 'pharmacyName';
+    const grpMap = new Map();
+    for (const r of rows) {
+      const k = r[key] || 'غير محدد';
+      if (!grpMap.has(k)) grpMap.set(k, { groupKey: k, total: 0, withBonus: 0, delivered: 0, pending: 0 });
+      const g = grpMap.get(k);
+      g.total++;
+      if (r.hasBonus) g.withBonus++;
+      if (r.bonusDelivered) g.delivered++;
+      if (r.hasBonus && !r.bonusDelivered) g.pending++;
+    }
+    const groups = Array.from(grpMap.values()).sort((a, b) => b.withBonus - a.withBonus);
+    return { found: true, type: 'bonus_stats', groupBy, summary, groups };
+  }
+
+  return { found: true, type: 'bonus_list', summary, rows };
+}
+
 // ── Execute: Dispatch ─────────────────────────────────────────
 async function executeQuery(spec, userId) {
   const areasList = await prisma.area.findMany({
@@ -2215,6 +2460,8 @@ export async function handleCommand(req, res) {
       salesContext: context.salesContext || null,
       distributorContext: context.distributorContext || null,
       repAnalysisContext: context.repAnalysisContext || null,
+      pharmNetContext: context.pharmNetContext || null,
+      bonusContext: context.bonusContext || null,
     });
 
     let geminiText;
@@ -2261,11 +2508,15 @@ export async function handleCommand(req, res) {
       queryResult = await executeDistributorSalesQuery(parsed, userId, context.distributorContext || null);
     } else if (parsed.action === 'query_rep_sales') {
       queryResult = await executeRepSalesQuery(parsed, userId, context.repAnalysisContext || null);
+    } else if (parsed.action === 'query_pharmacy_net') {
+      queryResult = await executePharmNetQuery(parsed, userId);
+    } else if (parsed.action === 'query_bonus') {
+      queryResult = await executeBonusQuery(parsed, userId);
     }
     // query_stock is executed entirely on the frontend against window.__salesData,
     // so we only echo the parsed filters back. Frontend reads parsed.filters and runs the search.
 
-    const validPages = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis'];
+    const validPages = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis','pharmacy-analysis','bonus-sales','sales-data','distributor-sales'];
     const navigatePage = (parsed.action === 'navigate' && validPages.includes(parsed.navigatePage))
       ? parsed.navigatePage : null;
 
@@ -2275,6 +2526,7 @@ export async function handleCommand(req, res) {
       'open-add-sci-rep', 'open-add-rep', 'open-add-user',
       'open-call-log', 'open-voice-call', 'open-map', 'open-export-report',
       'fill-visit-form', 'fill-pharmacy-visit', 'open-wish-list-area', 'open-doctors-area',
+      'open-pharmacy-upload', 'open-bonus-upload', 'open-bonus-delivery', 'open-stock-upload',
     ];
     const pageAction = (parsed.action === 'page_action' && validPageActions.includes(parsed.pageAction))
       ? parsed.pageAction : null;

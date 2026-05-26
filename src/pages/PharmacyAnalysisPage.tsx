@@ -214,6 +214,25 @@ export default function PharmacyAnalysisPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // ── Expose pharmacy-net context for AI Assistant ──────────
+  useEffect(() => {
+    if (files.length === 0) {
+      delete (window as any).__pharmNetDigest;
+      return;
+    }
+    const pharmNames = [...new Set(pharmacies.map(p => p.name))].slice(0, 80);
+    const areaNames  = [...new Set(pharmacies.map(p => p.areaName).filter(Boolean))].slice(0, 40);
+    const itmNames   = [...new Set(items.map(i => i.name))].slice(0, 80);
+    (window as any).__pharmNetDigest = {
+      fileCount: files.length,
+      fileIds: [...selFiles].join(','),
+      pharmacyNames: pharmNames,
+      areaNames,
+      itemNames: itmNames,
+    };
+    return () => { delete (window as any).__pharmNetDigest; };
+  }, [files, selFiles, pharmacies, items]);
+
   const loadPharmacies = useCallback((search = pharmaSearch) => {
     if (selFiles.size === 0) { setPharmacies([]); setPharmaLoading(false); return; }
     setPharmaLoading(true);
