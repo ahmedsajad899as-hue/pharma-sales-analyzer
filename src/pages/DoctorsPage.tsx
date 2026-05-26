@@ -506,6 +506,7 @@ export default function DoctorsPage() {
   const [editDocErr, setEditDocErr]               = useState('');
   // Pharmacy Net comparison
   const [netPharmacies, setNetPharmacies]         = useState<NetPharm[]>([]);
+  const [netPharmFileIds, setNetPharmFileIds]     = useState<string>('');
   const [pharmComparePopup, setPharmComparePopup] = useState<{ docName: string; pharmName: string; areaName: string | null; exact: NetPharm | null; similar: NetPharm[] } | null>(null);
   const [pharmDetail, setPharmDetail]             = useState<PharmDetailData | null>(null);
   const [pharmDetailLoading, setPharmDetailLoading] = useState(false);
@@ -858,15 +859,38 @@ export default function DoctorsPage() {
 
   // (auto-open removed — panel is collapsed by default, user must click to open)
 
-  // Load Pharmacy Net data once for comparison (managers only)
-  useEffect(() => {
+  // Load Pharmacy Net data — filtered to pharmacy_net files only (managers only)
+  const loadNetPharmacies = useCallback(() => {
     if (!canSeePharmNet) return;
-    fetch(`${API}/api/pharmacy-analysis/pharmacies`, { headers: H() })
-      .then(r => r.ok ? r.json() : { pharmacies: [] })
-      .then(d => setNetPharmacies(d.pharmacies || []))
-      .catch(() => {});
+    // Step 1: get the list of pharmacy_net files for this user
+    fetch(`${API}/api/files?context=pharmacy_net`, { headers: H() })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(async ({ data: files }) => {
+        const fileList: { id: number }[] = Array.isArray(files) ? files : [];
+        if (fileList.length === 0) {
+          setNetPharmacies([]);
+          setNetPharmFileIds('');
+          return;
+        }
+        const ids = fileList.map(f => f.id).join(',');
+        setNetPharmFileIds(ids);
+        // Step 2: load pharmacies filtered by those file IDs only
+        const r = await fetch(`${API}/api/pharmacy-analysis/pharmacies?fileIds=${ids}`, { headers: H() });
+        const d = r.ok ? await r.json() : { pharmacies: [] };
+        setNetPharmacies(d.pharmacies || []);
+      })
+      .catch(() => { setNetPharmacies([]); setNetPharmFileIds(''); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, canSeePharmNet]);
+
+  useEffect(() => {
+    loadNetPharmacies();
+    // Re-fetch when the window regains focus — handles the case where files were
+    // deleted in the Pharmacy Net page while this page was already open.
+    window.addEventListener('focus', loadNetPharmacies);
+    return () => window.removeEventListener('focus', loadNetPharmacies);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadNetPharmacies]);
 
   // Load detailed orders (all items + dates) for a specific pharmacy
   const loadPharmDetail = useCallback(async (pharmName: string) => {
@@ -874,12 +898,13 @@ export default function DoctorsPage() {
     setPharmDetail(null);
     setPharmDetailFor(pharmName);
     try {
-      const r = await fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(pharmName)}`, { headers: H() });
+      const fileParam = netPharmFileIds ? `?fileIds=${netPharmFileIds}` : '';
+      const r = await fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(pharmName)}${fileParam}`, { headers: H() });
       if (r.ok) setPharmDetail(await r.json());
     } catch {}
     finally { setPharmDetailLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, netPharmFileIds]);
 
   // Auto-load detail when popup opens with an exact match
   useEffect(() => {
