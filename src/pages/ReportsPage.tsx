@@ -1267,44 +1267,80 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return result;
   };
 
-  /* ─── Row-level preview (single area / item / rep) ─── */
+  /* ─── Row-level full-rep Excel download ─── */
+  const buildMergedSheet = (sales: any[]): any[][] => {
+    if (!sales.length) return [['لا توجد بيانات']];
+
+    const isDateKey = (k: string) => /تاريخ|date/i.test(k);
+    const isNumKey  = (k: string) => /كمية|quantity|qty|سعر|price|value|قيمة|total|مبلغ|cost|إجمالي|مجموع|ثمن/i.test(k);
+    const fmtDate   = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
+
+    const hasRaw = sales.some(s => s.rawData);
+
+    if (hasRaw) {
+      const allKeys = new Set<string>();
+      const parsed = sales.map(s => {
+        let raw: any = {};
+        try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
+        Object.keys(raw).forEach(k => allKeys.add(k));
+        return { s, raw };
+      });
+      const headers = [...allKeys];
+      const header = [...headers];
+      const rows = parsed.map(({ s, raw }) => {
+        const isRet = s.recordType === 'return';
+        return headers.map(k => {
+          let v = raw[k];
+          if (v === undefined || v === null || v === '') return '';
+          if (isDateKey(k)) return fmtDate(v);
+          if (isRet && isNumKey(k)) {
+            const n = parseFloat(String(v).replace(/,/g, ''));
+            if (!isNaN(n) && n !== 0) return -Math.abs(n);
+          }
+          return v;
+        });
+      });
+      return [header, ...rows];
+    }
+
+    // Fallback: no rawData
+    const header = ['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ'];
+    const rows = sales.map(s => {
+      const isRet = s.recordType === 'return';
+      return [
+        isRet ? 'إرجاع' : 'مبيع',
+        s.representative?.name ?? '',
+        s.area?.name ?? '',
+        s.item?.name ?? '',
+        isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
+        isRet ? -(s.totalValue ?? 0) : (s.totalValue ?? 0),
+        fmtDate(s.saleDate),
+      ];
+    });
+    return [header, ...rows];
+  };
+
   const fetchRowPreview = async (rowName: string, rowType: 'area' | 'item' | 'rep') => {
     const key = rowName + rowType;
     setRowPreviewKey(key);
     try {
       const qp = new URLSearchParams();
-      if (fromDate)              qp.set('startDate', fromDate);
-      if (toDate)                qp.set('endDate',   toDate);
-      if (activeFileIds.length)  qp.set('fileIds',   activeFileIds.join(','));
-      if (rowType === 'area')    qp.set('areaName',  rowName);
-      if (rowType === 'item')    qp.set('itemName',  rowName);
+      if (fromDate)             qp.set('startDate', fromDate);
+      if (toDate)               qp.set('endDate',   toDate);
+      if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
+      // NO area/item filter — fetch ALL data for the rep in one file
 
       let sales: any[] = [];
 
       if (mode === 'commercial' && commRepId) {
-        if (rowType === 'rep') {
-          // "حسب المندوب" tab doesn't exist in commercial mode — no-op
-        } else {
-          const res  = await fetch(`/api/export/raw-sales?commRepIds=${commRepId}&${qp.toString()}`, { headers: authH() });
-          const json = await res.json();
-          sales = json.data ?? [];
-        }
+        const res  = await fetch(`/api/export/raw-sales?commRepIds=${commRepId}&${qp.toString()}`, { headers: authH() });
+        const json = await res.json();
+        sales = json.data ?? [];
       } else if (mode === 'scientific' && sciRepId) {
         const rRes  = await fetch(`/api/scientific-reps/${sciRepId}/report?${qp.toString()}`, { headers: authH() });
         const rJson = await rRes.json();
         const d = rJson.data ?? rJson;
-        let assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
-
-        if (rowType === 'rep') {
-          // Find the specific commercial rep by name
-          const matched = (d.assignedCommercialReps ?? []).find((r: any) => r.name === rowName);
-          if (matched) assignedIds = [matched.id];
-          else assignedIds = [];
-          // No area/item filter for "حسب المندوب" — show all data for that rep
-          qp.delete('areaName');
-          qp.delete('itemName');
-        }
-
+        const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
         if (assignedIds.length > 0) {
           const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${sciRepId}&${qp.toString()}`, { headers: authH() });
           const sJson = await sRes.json();
@@ -1312,10 +1348,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         }
       }
 
-      const sheetLabel = rowType === 'area' ? `منطقة: ${rowName}` : rowType === 'item' ? `مادة: ${rowName}` : `مندوب: ${rowName}`;
-      const rows = buildSheet(sales);
-      setPreviewSheets([{ name: sheetLabel.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) }]);
-      setShowPreviewModal(true);
+      const repName = mode === 'commercial'
+        ? (commReps.find(r => String(r.id) === commRepId)?.name ?? 'تقرير')
+        : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
+
+      const rows = buildMergedSheet(sales);
+      const wb   = XLSX.utils.book_new();
+      const ws   = XLSX.utils.aoa_to_sheet(rows);
+      // Auto column width
+      const colWidths = rows[0]?.map((_: any, ci: number) =>
+        Math.min(40, Math.max(10, ...rows.slice(0, 200).map(r => String(r[ci] ?? '').length)))
+      ) ?? [];
+      ws['!cols'] = colWidths.map((w: number) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, repName.slice(0, 31));
+      XLSX.writeFile(wb, `${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
       console.error('fetchRowPreview error:', err);
     } finally {
