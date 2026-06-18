@@ -926,7 +926,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     </div>
                   </th>
                 )}
-                {rowType && <th style={{ ...thStyle, width: 38 }}>📊</th>}
               </tr>
             </thead>
             <tbody>
@@ -969,24 +968,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         </span>
                       </td>
                     )}
-                    {rowType && (
-                      <td style={{ ...tdStyle, textAlign: 'center', padding: '4px 2px' }}>
-                        <button
-                          title={`عرض كامل بيانات: ${row.name}`}
-                          disabled={rowPreviewKey === row.name + rowType}
-                          onClick={e => { e.stopPropagation(); fetchRowPreview(row.name, rowType); }}
-                          style={{
-                            background: rowPreviewKey === row.name + rowType ? '#f1f5f9' : '#f5f3ff',
-                            border: '1.5px solid #c4b5fd',
-                            borderRadius: 6, cursor: rowPreviewKey === row.name + rowType ? 'wait' : 'pointer',
-                            padding: '3px 7px', fontSize: 13, fontWeight: 700, color: '#4f46e5',
-                            display: 'inline-flex', alignItems: 'center', gap: 3,
-                          }}
-                        >
-                          {rowPreviewKey === row.name + rowType ? '⏳' : '📊'}
-                        </button>
-                      </td>
-                    )}
                   </tr>
                 );
               })}
@@ -1020,7 +1001,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     {effShowVal && <td style={{ ...ftd, color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
                     {effShowQty && <td style={{ ...ftd, color: tNetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(tNetQty)}</td>}
                     {effShowVal && <td style={{ ...ftd, color: tNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(tNetVal)}</td>}
-                    {rowType && <td></td>}
                   </tr>
                 </tfoot>
               );
@@ -1035,7 +1015,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const renderViewToggle = (hasSales: boolean, hasReturns: boolean) => (
     <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {[
-        { key: 'sales'   as ReportView, icon: '�', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
+        { key: 'sales'   as ReportView, icon: '📈', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
         { key: 'returns' as ReportView, icon: '📉', label: t.reports.colRetQty,  bg: '#ef4444', glow: '#ef444444', border: '#b91c1c' },
         { key: 'net'     as ReportView, icon: '⚖️', label: t.reports.viewNet,     bg: '#10b981', glow: '#10b98144', border: '#065f46' },
       ].map(({ key, icon, label, bg, glow, border }) => {
@@ -1074,6 +1054,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </button>
         );
       })}
+      {/* ── Excel export button next to view toggles ── */}
+      <button
+        title="فتح كامل بيانات المندوب في Excel"
+        disabled={rowPreviewKey === '__top__'}
+        onClick={() => fetchRowPreview('__top__', 'area')}
+        style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+          padding: '7px 12px 6px', borderRadius: 12,
+          border: '2.5px solid #7c3aed', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
+          background: '#f5f3ff', color: '#5b21b6', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
+          boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
+        }}>
+        <span style={{ fontSize: 17, lineHeight: 1 }}>{rowPreviewKey === '__top__' ? '⏳' : '📊'}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
+      </button>
       {!hasReturns && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -1268,44 +1263,47 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   /* ─── Row-level full-rep Excel download ─── */
-  const buildMergedSheet = (sales: any[]): any[][] => {
-    if (!sales.length) return [['لا توجد بيانات']];
+  const buildMergedSheet = (sales: any[], recordFilter?: 'sale' | 'return' | 'both'): any[][] => {
+    let rows = sales;
+    if (recordFilter === 'sale')   rows = sales.filter(s => s.recordType !== 'return');
+    if (recordFilter === 'return') rows = sales.filter(s => s.recordType === 'return');
+    if (!rows.length) return [['لا توجد بيانات']];
 
-    const isDateKey = (k: string) => /تاريخ|date/i.test(k);
-    const isNumKey  = (k: string) => /كمية|quantity|qty|سعر|price|value|قيمة|total|مبلغ|cost|إجمالي|مجموع|ثمن/i.test(k);
-    const fmtDate   = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
+    const isDateKey  = (k: string) => /تاريخ|date/i.test(k);
+    const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k);
+    const fmtDate    = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
 
-    const hasRaw = sales.some(s => s.rawData);
+    const hasRaw = rows.some(s => s.rawData);
 
     if (hasRaw) {
       const allKeys = new Set<string>();
-      const parsed = sales.map(s => {
+      const parsed = rows.map(s => {
         let raw: any = {};
         try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
         Object.keys(raw).forEach(k => allKeys.add(k));
         return { s, raw };
       });
       const headers = [...allKeys];
-      const header = [...headers];
-      const rows = parsed.map(({ s, raw }) => {
+      const dataRows = parsed.map(({ s, raw }) => {
         const isRet = s.recordType === 'return';
         return headers.map(k => {
           let v = raw[k];
           if (v === undefined || v === null || v === '') return '';
           if (isDateKey(k)) return fmtDate(v);
-          if (isRet && isNumKey(k)) {
+          // For returns: only negate quantity fields, keep price/value fields positive
+          if (isRet && isQtyKey(k)) {
             const n = parseFloat(String(v).replace(/,/g, ''));
             if (!isNaN(n) && n !== 0) return -Math.abs(n);
           }
           return v;
         });
       });
-      return [header, ...rows];
+      return [headers, ...dataRows];
     }
 
     // Fallback: no rawData
     const header = ['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ'];
-    const rows = sales.map(s => {
+    const dataRows = rows.map(s => {
       const isRet = s.recordType === 'return';
       return [
         isRet ? 'إرجاع' : 'مبيع',
@@ -1313,22 +1311,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         s.area?.name ?? '',
         s.item?.name ?? '',
         isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
-        isRet ? -(s.totalValue ?? 0) : (s.totalValue ?? 0),
+        s.totalValue ?? 0,   // value always positive
         fmtDate(s.saleDate),
       ];
     });
-    return [header, ...rows];
+    return [header, ...dataRows];
   };
 
-  const fetchRowPreview = async (rowName: string, rowType: 'area' | 'item' | 'rep') => {
-    const key = rowName + rowType;
+  const fetchRowPreview = async (rowName: string, _rowType: 'area' | 'item' | 'rep') => {
+    const key = rowName + _rowType;
     setRowPreviewKey(key);
     try {
       const qp = new URLSearchParams();
       if (fromDate)             qp.set('startDate', fromDate);
       if (toDate)               qp.set('endDate',   toDate);
       if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
-      // NO area/item filter — fetch ALL data for the rep in one file
 
       let sales: any[] = [];
 
@@ -1352,16 +1349,30 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ? (commReps.find(r => String(r.id) === commRepId)?.name ?? 'تقرير')
         : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
-      const rows = buildMergedSheet(sales);
-      const wb   = XLSX.utils.book_new();
-      const ws   = XLSX.utils.aoa_to_sheet(rows);
+      // Determine record filter from current view
+      const recFilter: 'sale' | 'return' | 'both' =
+        reportView === 'sales'   ? 'sale'   :
+        reportView === 'returns' ? 'return' : 'both';
+
+      const sheetData = buildMergedSheet(sales, recFilter);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
       // Auto column width
-      const colWidths = rows[0]?.map((_: any, ci: number) =>
-        Math.min(40, Math.max(10, ...rows.slice(0, 200).map(r => String(r[ci] ?? '').length)))
-      ) ?? [];
-      ws['!cols'] = colWidths.map((w: number) => ({ wch: w }));
+      const maxRows = sheetData.slice(0, 300);
+      ws['!cols'] = (sheetData[0] ?? []).map((_: any, ci: number) =>
+        ({ wch: Math.min(40, Math.max(10, ...maxRows.map(r => String(r[ci] ?? '').length))) })
+      );
       XLSX.utils.book_append_sheet(wb, ws, repName.slice(0, 31));
-      XLSX.writeFile(wb, `${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+      // Open in Excel without auto-saving: use blob URL → window.open
+      const wbArray = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (err) {
       console.error('fetchRowPreview error:', err);
     } finally {
