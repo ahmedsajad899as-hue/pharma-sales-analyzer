@@ -416,7 +416,7 @@ app.post('/api/areas', async (req, res) => {
 // Optional: sciRepId=X  → apply same area+item filtering as the report endpoint
 app.get('/api/export/raw-sales', async (req, res) => {
   try {
-    const { commRepIds, fileId, fileIds, startDate, endDate, recordType, sciRepId } = req.query;
+    const { commRepIds, fileId, fileIds, startDate, endDate, recordType, sciRepId, areaName, itemName } = req.query;
     const userId = req.user?.id ?? null;
     const repIds = commRepIds
       ? String(commRepIds).split(',').map(Number).filter(Boolean)
@@ -477,6 +477,9 @@ app.get('/api/export/raw-sales', async (req, res) => {
       } : {}),
       // Filter by recordType if explicitly provided; otherwise export ALL (sales + returns)
       ...(recordType ? { recordType } : {}),
+      // Optional row-level filter by area/item name (for single-row preview)
+      ...(areaName ? { area: { name: { equals: String(areaName), mode: 'insensitive' } } } : {}),
+      ...(itemName ? { item: { name: { equals: String(itemName), mode: 'insensitive' } } } : {}),
     };
 
     const sales = await prisma.sale.findMany({

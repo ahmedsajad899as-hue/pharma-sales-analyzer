@@ -481,6 +481,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [previewLoading, setPreviewLoading]       = useState(false);
   const previewFileName = `تقرير_${new Date().toISOString().slice(0,10)}.xlsx`;
 
+  // Row-level preview state
+  const [rowPreviewKey, setRowPreviewKey]         = useState<string | null>(null);
+
   // Target comparison state
   const [showTargets, setShowTargets]           = useState(false);
   const [showOverallTargets, setShowOverallTargets] = useState(false);
@@ -818,7 +821,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const currStatNet    = fileCurrencyMode === 'USD' ? `صافي القيمة ($)` : t.reports.statNetVal;
 
   /* ─── Net breakdown table ─── */
-  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value' | 'both', excludedKeys?: Set<string>, onToggleKey?: (key: string) => void) => {
+  const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value' | 'both', excludedKeys?: Set<string>, onToggleKey?: (key: string) => void, rowType?: 'area' | 'item' | 'rep') => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
     const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
@@ -923,6 +926,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     </div>
                   </th>
                 )}
+                {rowType && <th style={{ ...thStyle, width: 38 }}>📊</th>}
               </tr>
             </thead>
             <tbody>
@@ -965,6 +969,24 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         </span>
                       </td>
                     )}
+                    {rowType && (
+                      <td style={{ ...tdStyle, textAlign: 'center', padding: '4px 2px' }}>
+                        <button
+                          title={`عرض كامل بيانات: ${row.name}`}
+                          disabled={rowPreviewKey === row.name + rowType}
+                          onClick={e => { e.stopPropagation(); fetchRowPreview(row.name, rowType); }}
+                          style={{
+                            background: rowPreviewKey === row.name + rowType ? '#f1f5f9' : '#f5f3ff',
+                            border: '1.5px solid #c4b5fd',
+                            borderRadius: 6, cursor: rowPreviewKey === row.name + rowType ? 'wait' : 'pointer',
+                            padding: '3px 7px', fontSize: 13, fontWeight: 700, color: '#4f46e5',
+                            display: 'inline-flex', alignItems: 'center', gap: 3,
+                          }}
+                        >
+                          {rowPreviewKey === row.name + rowType ? '⏳' : '📊'}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -998,6 +1020,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     {effShowVal && <td style={{ ...ftd, color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
                     {effShowQty && <td style={{ ...ftd, color: tNetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(tNetQty)}</td>}
                     {effShowVal && <td style={{ ...ftd, color: tNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(tNetVal)}</td>}
+                    {rowType && <td></td>}
                   </tr>
                 </tfoot>
               );
@@ -1242,6 +1265,62 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     }
     result.unshift({ name: t.reports.exportSummarySheet, rows: summaryData });
     return result;
+  };
+
+  /* ─── Row-level preview (single area / item / rep) ─── */
+  const fetchRowPreview = async (rowName: string, rowType: 'area' | 'item' | 'rep') => {
+    const key = rowName + rowType;
+    setRowPreviewKey(key);
+    try {
+      const qp = new URLSearchParams();
+      if (fromDate)              qp.set('startDate', fromDate);
+      if (toDate)                qp.set('endDate',   toDate);
+      if (activeFileIds.length)  qp.set('fileIds',   activeFileIds.join(','));
+      if (rowType === 'area')    qp.set('areaName',  rowName);
+      if (rowType === 'item')    qp.set('itemName',  rowName);
+
+      let sales: any[] = [];
+
+      if (mode === 'commercial' && commRepId) {
+        if (rowType === 'rep') {
+          // "حسب المندوب" tab doesn't exist in commercial mode — no-op
+        } else {
+          const res  = await fetch(`/api/export/raw-sales?commRepIds=${commRepId}&${qp.toString()}`, { headers: authH() });
+          const json = await res.json();
+          sales = json.data ?? [];
+        }
+      } else if (mode === 'scientific' && sciRepId) {
+        const rRes  = await fetch(`/api/scientific-reps/${sciRepId}/report?${qp.toString()}`, { headers: authH() });
+        const rJson = await rRes.json();
+        const d = rJson.data ?? rJson;
+        let assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
+
+        if (rowType === 'rep') {
+          // Find the specific commercial rep by name
+          const matched = (d.assignedCommercialReps ?? []).find((r: any) => r.name === rowName);
+          if (matched) assignedIds = [matched.id];
+          else assignedIds = [];
+          // No area/item filter for "حسب المندوب" — show all data for that rep
+          qp.delete('areaName');
+          qp.delete('itemName');
+        }
+
+        if (assignedIds.length > 0) {
+          const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${sciRepId}&${qp.toString()}`, { headers: authH() });
+          const sJson = await sRes.json();
+          sales = sJson.data ?? [];
+        }
+      }
+
+      const sheetLabel = rowType === 'area' ? `منطقة: ${rowName}` : rowType === 'item' ? `مادة: ${rowName}` : `مندوب: ${rowName}`;
+      const rows = buildSheet(sales);
+      setPreviewSheets([{ name: sheetLabel.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) }]);
+      setShowPreviewModal(true);
+    } catch (err) {
+      console.error('fetchRowPreview error:', err);
+    } finally {
+      setRowPreviewKey(null);
+    }
   };
 
   /* ─── Export with rep selection ─── */
@@ -2120,8 +2199,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
           {isNet ? (
             <>
-              {activeTab === 'area' && renderNetTable(commReport.byArea, commReturnsReport?.byArea ?? [], t.reports.colArea, false, commViewMode)}
-              {activeTab === 'item' && renderNetTable(commReport.byItem, commReturnsReport?.byItem ?? [], t.reports.colItem, false, commViewMode)}
+              {activeTab === 'area' && renderNetTable(commReport.byArea, commReturnsReport?.byArea ?? [], t.reports.colArea, false, commViewMode, undefined, undefined, 'area')}
+              {activeTab === 'item' && renderNetTable(commReport.byItem, commReturnsReport?.byItem ?? [], t.reports.colItem, false, commViewMode, undefined, undefined, 'item')}
             </>
           ) : (
             <>
@@ -2291,9 +2370,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
           {isNet ? (
             <>
-              {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea, false, sciViewMode)}
-              {activeTab === 'item' && renderNetTable(sciReport.byItem, sciReturnsReport?.byItem ?? [], t.reports.colItem, false, sciViewMode)}
-              {activeTab === 'rep'  && renderNetTable(sciReport.byRep,  sciReturnsReport?.byRep  ?? [], t.reports.colCommRep, false, sciViewMode)}
+              {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea, false, sciViewMode, undefined, undefined, 'area')}
+              {activeTab === 'item' && renderNetTable(sciReport.byItem, sciReturnsReport?.byItem ?? [], t.reports.colItem, false, sciViewMode, undefined, undefined, 'item')}
+              {activeTab === 'rep'  && renderNetTable(sciReport.byRep,  sciReturnsReport?.byRep  ?? [], t.reports.colCommRep, false, sciViewMode, undefined, undefined, 'rep')}
             </>
           ) : (
             <>
