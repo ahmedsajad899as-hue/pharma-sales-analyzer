@@ -1086,6 +1086,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         border: `1.5px solid ${checked ? (hasOverride ? '#0891b2' : '#7c3aed') : '#e2e8f0'}`,
                         background: checked ? (hasOverride ? '#ecfeff' : '#f5f3ff') : '#fafafa',
                         overflow: 'hidden',
+                        flexShrink: 0,
                       }}>
                         {/* Main row — checkbox + name only, no buttons here */}
                         <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
