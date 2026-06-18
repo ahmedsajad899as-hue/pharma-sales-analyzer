@@ -1088,14 +1088,20 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         overflow: 'hidden',
                       }}>
                         {/* Main row — checkbox + name only, no buttons here */}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleSelectUser(u.id)}
-                            style={{ accentColor: '#7c3aed', width: 16, height: 16, flexShrink: 0, cursor: 'pointer' }} />
+                            style={{ accentColor: '#7c3aed', width: 16, height: 16, margin: 0, flexShrink: 0, cursor: 'pointer' }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: checked ? 700 : 500, color: checked ? (hasOverride ? '#0e7490' : '#6d28d9') : '#1e293b' }}>
+                            <div
+                              title={u.name}
+                              style={{
+                                fontSize: 13, fontWeight: checked ? 700 : 500, color: checked ? (hasOverride ? '#0e7490' : '#6d28d9') : '#1e293b',
+                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                              }}
+                            >
                               👤 {u.name}
                             </div>
-                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {ROLE_AR[u.role] ?? u.role}
                               {hasOverride
                                 ? <span style={{ color: '#0891b2', fontWeight: 700, marginRight: 4 }}>· 📍 {overrides!.size} منطقة مخصصة</span>
