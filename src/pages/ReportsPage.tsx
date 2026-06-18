@@ -479,7 +479,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [showPreviewModal, setShowPreviewModal]   = useState(false);
   const [previewSheets, setPreviewSheets]         = useState<PreviewSheet[]>([]);
   const [previewLoading, setPreviewLoading]       = useState(false);
-  const previewFileName = `تقرير_${new Date().toISOString().slice(0,10)}.xlsx`;
+  const [previewFileName, setPreviewFileName]     = useState(`تقرير_${new Date().toISOString().slice(0,10)}.xlsx`);
 
   // Row-level preview state
   const [rowPreviewKey, setRowPreviewKey]         = useState<string | null>(null);
@@ -1270,8 +1270,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (!rows.length) return [['لا توجد بيانات']];
 
     const isDateKey  = (k: string) => /تاريخ|date/i.test(k);
-    const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k);
+    // "الكمية المجانية" (free qty) must stay positive — exclude it from qty negation
+    const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free/i.test(k);
+    const isTotalPriceKey  = (k: string) => k === 'السعر الكلي';
+    const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
     const fmtDate    = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
+    const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
 
     const hasRaw = rows.some(s => s.rawData);
 
@@ -1287,13 +1291,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const dataRows = parsed.map(({ s, raw }) => {
         const isRet = s.recordType === 'return';
         return headers.map(k => {
+          // "السعر الكلي" is blank on return rows in the source file — fall back to
+          // "مبلغ الإجمالي" (where the return amount actually lives) and show it negative
+          if (isTotalPriceKey(k)) {
+            const merged = toNum(raw[k]) || toNum(raw['مبلغ الإجمالي']);
+            if (!merged) return '';
+            return isRet ? -Math.abs(merged) : Math.abs(merged);
+          }
           let v = raw[k];
           if (v === undefined || v === null || v === '') return '';
           if (isDateKey(k)) return fmtDate(v);
-          // For returns: only negate quantity fields, keep price/value fields positive
-          if (isRet && isQtyKey(k)) {
-            const n = parseFloat(String(v).replace(/,/g, ''));
-            if (!isNaN(n) && n !== 0) return -Math.abs(n);
+          // For returns: only negate quantity/total-amount fields, keep unit price & free qty positive
+          if (isRet && (isQtyKey(k) || isTotalAmountKey(k))) {
+            const n = toNum(v);
+            if (n !== 0) return -Math.abs(n);
           }
           return v;
         });
@@ -1355,24 +1366,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         reportView === 'returns' ? 'return' : 'both';
 
       const sheetData = buildMergedSheet(sales, recFilter);
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(sheetData);
-      // Auto column width
-      const maxRows = sheetData.slice(0, 300);
-      ws['!cols'] = (sheetData[0] ?? []).map((_: any, ci: number) =>
-        ({ wch: Math.min(40, Math.max(10, ...maxRows.map(r => String(r[ci] ?? '').length))) })
-      );
-      XLSX.utils.book_append_sheet(wb, ws, repName.slice(0, 31));
+      const stringRows = sheetData.map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
 
-      // Open in Excel without auto-saving: use blob URL → window.open
-      const wbArray = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([wbArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      // Show data in the preview/editor modal — no auto-download; user saves via "تصدير Excel" when ready
+      setPreviewFileName(`${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      setPreviewSheets([{ name: repName.slice(0, 31), rows: stringRows }]);
+      setShowPreviewModal(true);
     } catch (err) {
       console.error('fetchRowPreview error:', err);
     } finally {
