@@ -143,6 +143,24 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     if (file) requestUpload(file);
   };
 
+  // Clipboard paste — lets user Ctrl+V a file copied from WhatsApp Desktop
+  const requestUploadRef = useRef<(f: File) => void>(requestUpload);
+  useEffect(() => { requestUploadRef.current = requestUpload; });
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) { requestUploadRef.current(file); break; }
+        }
+      }
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, []);
+
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
@@ -469,7 +487,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           transition: 'all 0.15s',
         }}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false); }}
         onDrop={handleDrop}
       >
         <input
@@ -478,6 +496,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         />
         {uploading ? (
           <div style={{ color: '#64748b', fontSize: 13 }}>⏳ {t.upload.uploading}</div>
+        ) : dragging ? (
+          <div style={{ padding: '28px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, pointerEvents: 'none' }}>
+            <span style={{ fontSize: 48 }}>📂</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#2563eb' }}>أفلت الملف هنا</span>
+            <span style={{ fontSize: 12, color: '#60a5fa' }}>.xlsx · .xls · .csv</span>
+          </div>
         ) : (
           <>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, fontWeight: 600 }}>{t.upload.chooseFileType}</div>
@@ -501,7 +525,13 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 </button>
               ))}
             </div>
-
+            <div style={{ marginTop: 14, fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span>📎</span>
+              <span>أو اسحب الملف مباشرة هنا</span>
+              <span style={{ color: '#e2e8f0' }}>·</span>
+              <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>Ctrl+V</kbd>
+              <span>للصق من الحافظة (واتساب / مستكشف الملفات)</span>
+            </div>
           </>
         )}
       </div>
@@ -925,9 +955,36 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             <h3 style={{ margin: '0 0 0.3rem', fontSize: '1.15rem', fontWeight: 700 }}>
               {t.upload.preCurrencyTitle}
             </h3>
-            <p style={{ margin: '0 0 1.4rem', fontSize: '0.84rem', color: '#6b7280' }}>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.84rem', color: '#6b7280', wordBreak: 'break-all' }}>
               {pendingFile.name}
             </p>
+
+            {/* File type selector */}
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.55rem', color: '#374151' }}>
+              نوع الملف
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.3rem' }}>
+              {([
+                { type: 'auto',    label: 'مختلط (تلقائي)', icon: '🔀', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+                { type: 'returns', label: 'ارجاعات فقط',    icon: '↩',  color: '#dc2626', bg: '#fff1f2', border: '#fecaca' },
+                { type: 'sales',   label: 'مبيعات فقط',     icon: '📦', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+              ] as const).map(opt => (
+                <button key={opt.type} type="button"
+                  onClick={() => setFileType(opt.type)}
+                  style={{
+                    flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', fontWeight: 600,
+                    fontSize: 11, border: `2px solid ${fileType === opt.type ? opt.border : '#e5e7eb'}`,
+                    background: fileType === opt.type ? opt.bg : '#f9fafb',
+                    color: fileType === opt.type ? opt.color : '#9ca3af',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                    transition: 'all 0.1s',
+                  }}
+                >
+                  <span style={{ fontSize: 18 }}>{opt.icon}</span>
+                  <span>{opt.label}</span>
+                </button>
+              ))}
+            </div>
 
             <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, marginBottom: '0.75rem', color: '#374151' }}>
               {t.upload.preCurrencyLabel}
