@@ -122,10 +122,23 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   };
 
   // ── Export modified data ──────────────────────────────────
+  // Grid rows are strings (needed for in-place text editing), but writing them
+  // to xlsx as-is makes every cell text — Excel then can't sum a selection or
+  // filter numerically. Convert numeric-looking cells back to real numbers,
+  // rounded to 2 decimals, before building the worksheet.
+  const numericCellPattern = /^-?\d+(\.\d+)?$/;
+  const toCellValue = (v: string): string | number => {
+    const trimmed = v.trim();
+    if (!numericCellPattern.test(trimmed)) return v;
+    if (trimmed.length > 1 && trimmed.replace('-', '').startsWith('0') && !trimmed.includes('.')) return v; // preserve codes like "0123"
+    return Math.round(parseFloat(trimmed) * 100) / 100;
+  };
+
   const exportModified = () => {
     const wb = XLSX.utils.book_new();
     sheets.forEach(s => {
-      const ws = XLSX.utils.aoa_to_sheet(s.rows);
+      const aoa = s.rows.map((row, ri) => ri === 0 ? row : row.map(toCellValue));
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
       if (s.rows[0]) ws['!cols'] = s.rows[0].map(() => ({ wch: 22 }));
       XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
     });
@@ -1276,6 +1289,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
     const fmtDate    = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
+    const round2 = (n: number) => Math.round(n * 100) / 100;
 
     const hasRaw = rows.some(s => s.rawData);
 
@@ -1296,7 +1310,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           if (isTotalPriceKey(k)) {
             const merged = toNum(raw[k]) || toNum(raw['مبلغ الإجمالي']);
             if (!merged) return '';
-            return isRet ? -Math.abs(merged) : Math.abs(merged);
+            return round2(isRet ? -Math.abs(merged) : Math.abs(merged));
           }
           let v = raw[k];
           if (v === undefined || v === null || v === '') return '';
@@ -1304,8 +1318,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           // For returns: only negate quantity/total-amount fields, keep unit price & free qty positive
           if (isRet && (isQtyKey(k) || isTotalAmountKey(k))) {
             const n = toNum(v);
-            if (n !== 0) return -Math.abs(n);
+            if (n !== 0) return round2(-Math.abs(n));
           }
+          // Source values can carry long float artifacts (e.g. currency-converted unit prices) —
+          // round to 2 decimals to match the original file's display precision
+          if (typeof v === 'number') return round2(v);
           return v;
         });
       });
