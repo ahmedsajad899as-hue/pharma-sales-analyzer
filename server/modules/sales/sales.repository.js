@@ -14,7 +14,7 @@ import prisma from '../../lib/prisma.js';
  * - Remove diacritics (تشكيل)
  * - Trim and collapse whitespace
  */
-function normalizeArabic(str) {
+export function normalizeArabic(str) {
   return String(str)
     .trim()
     .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')  // أ إ آ ٱ → ا

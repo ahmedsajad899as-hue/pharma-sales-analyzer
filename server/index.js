@@ -18,6 +18,7 @@ import { buildNormalizationMap } from './lib/fuzzyMatch.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeReps, mergeCompanies,
+  normalizeArabic,
 } from './modules/sales/sales.repository.js';
 import authRoutes              from './modules/auth/auth.routes.js';
 import usersRoutes             from './modules/users/users.routes.js';
@@ -170,10 +171,12 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
     // 2. Get all current areas grouped by name (to detect duplicates)
     const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
 
-    // Build map: name → [area ids] sorted by id asc (min id = canonical)
+    // Build map: normalized name → [area ids] sorted by id asc (min id = canonical)
+    // Normalizing (not just trim()) catches duplicates from alef-variant/teh-marbuta/diacritic
+    // spelling differences between uploads — the same normalization already applied at import time.
     const byName = new Map();
     for (const a of allAreas) {
-      const key = a.name.trim();
+      const key = normalizeArabic(a.name);
       if (!byName.has(key)) byName.set(key, []);
       byName.get(key).push(a.id);
     }
@@ -218,6 +221,22 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
           const exists = await prisma.userAreaAssignment.findFirst({ where: { userId: ua.userId, areaId: canonical } });
           if (!exists) await prisma.userAreaAssignment.create({ data: { userId: ua.userId, areaId: canonical } });
           await prisma.userAreaAssignment.delete({ where: { userId_areaId: { userId: ua.userId, areaId: oldId } } });
+        }
+        // FileUserShare.customAreaIds: JSON-encoded array of area IDs (per-file area overrides) —
+        // rewrite any reference to oldId so a merge doesn't leave a stale ID pointing nowhere.
+        const sharesWithOverride = await prisma.fileUserShare.findMany({
+          where: { customAreaIds: { not: null } },
+          select: { fileId: true, userId: true, customAreaIds: true },
+        });
+        for (const share of sharesWithOverride) {
+          let overrideIds;
+          try { overrideIds = JSON.parse(share.customAreaIds); } catch { continue; }
+          if (!Array.isArray(overrideIds) || !overrideIds.includes(oldId)) continue;
+          const newIds = [...new Set(overrideIds.map(id => id === oldId ? canonical : id))];
+          await prisma.fileUserShare.update({
+            where: { fileId_userId: { fileId: share.fileId, userId: share.userId } },
+            data: { customAreaIds: JSON.stringify(newIds) },
+          });
         }
         // Delete the duplicate area (cascade handles anything left)
         await prisma.area.delete({ where: { id: oldId } });
