@@ -1078,6 +1078,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           border: '2.5px solid #7c3aed', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
           background: '#f5f3ff', color: '#5b21b6', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
           boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
+          marginLeft: 'auto',
         }}>
         <span style={{ fontSize: 17, lineHeight: 1 }}>{rowPreviewKey === '__top__' ? '⏳' : '📊'}</span>
         <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
