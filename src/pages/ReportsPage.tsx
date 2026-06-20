@@ -1026,7 +1026,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
   /* ─── Report view toggle ─── */
   const renderViewToggle = (hasSales: boolean, hasReturns: boolean) => (
-    <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+    <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end', width: '100%', justifyContent: 'space-between' }}>
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {[
         { key: 'sales'   as ReportView, icon: '📈', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
         { key: 'returns' as ReportView, icon: '📉', label: t.reports.colRetQty,  bg: '#ef4444', glow: '#ef444444', border: '#b91c1c' },
@@ -1067,7 +1068,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </button>
         );
       })}
-      {/* ── Excel export button next to view toggles ── */}
+    </div>
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      {/* ── Excel export button — pinned to the opposite end of the toggle group ── */}
       <button
         title="فتح كامل بيانات المندوب في Excel"
         disabled={rowPreviewKey === '__top__'}
@@ -1078,7 +1081,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           border: '2.5px solid #7c3aed', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
           background: '#f5f3ff', color: '#5b21b6', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
           boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
-          marginLeft: 'auto',
         }}>
         <span style={{ fontSize: 17, lineHeight: 1 }}>{rowPreviewKey === '__top__' ? '⏳' : '📊'}</span>
         <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
@@ -1093,6 +1095,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
         </div>
       )}
+    </div>
     </div>
   );
 
