@@ -14,7 +14,8 @@ import prisma from './lib/prisma.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
 import { activityMiddleware } from './lib/activityLogger.js';
-import { buildNormalizationMap } from './lib/fuzzyMatch.js';
+import { buildNormalizationMap, areSimilar } from './lib/fuzzyMatch.js';
+import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeReps, mergeCompanies,
@@ -129,26 +130,41 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     distinct: ['areaName'],
   });
   const surveyNames = [...new Set(surveyRows.map(r => r.areaName.trim()).filter(Boolean))].sort();
-  // Ensure all survey area names exist in Area table
-  const existing = await prisma.area.findMany({ select: { id: true, name: true } });
-  const existingByName = new Map(existing.map(a => [a.name.trim(), a]));
-  const toCreate = surveyNames.filter(n => !existingByName.has(n));
+  // Ensure each survey area exists — but match by Arabic-normalised name so spelling
+  // variants (الحارثية/الحارثيه) collapse onto a single canonical Area row instead of
+  // re-creating a duplicate every time this endpoint runs.
+  const existing = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+  const existingByNorm = new Map(); // normalizedName → first (lowest-id) area row
+  for (const a of existing) {
+    const key = normalizeArabic(a.name);
+    if (!existingByNorm.has(key)) existingByNorm.set(key, a);
+  }
+  const toCreate = surveyNames.filter(n => !existingByNorm.has(normalizeArabic(n)));
   if (toCreate.length > 0) {
     await prisma.area.createMany({ data: toCreate.map(name => ({ name })), skipDuplicates: true });
-    const fresh = await prisma.area.findMany({ select: { id: true, name: true } });
-    fresh.forEach(a => existingByName.set(a.name.trim(), a));
+    const fresh = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    existingByNorm.clear();
+    for (const a of fresh) {
+      const key = normalizeArabic(a.name);
+      if (!existingByNorm.has(key)) existingByNorm.set(key, a);
+    }
   }
-  // Return only the survey areas (by exact name match)
-  const result = surveyNames
-    .map(n => existingByName.get(n))
-    .filter(Boolean)
-    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  // Return one canonical area per normalised survey name (deduped).
+  const seenNorm = new Set();
+  const result = [];
+  for (const n of surveyNames) {
+    const key = normalizeArabic(n);
+    if (seenNorm.has(key)) continue;
+    const area = existingByNorm.get(key);
+    if (area) { result.push(area); seenNorm.add(key); }
+  }
+  result.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   // If survey has no area data, fall back to all areas in the Area table (deduplicated by name)
   if (result.length === 0) {
     const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
     const seen = new Map();
     for (const a of allAreas) {
-      const key = a.name.trim();
+      const key = normalizeArabic(a.name);
       if (!seen.has(key)) seen.set(key, a);
     }
     const deduped = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
@@ -168,80 +184,9 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
     });
     const surveyNames = [...new Set(surveyRows.map(r => r.areaName.trim()).filter(Boolean))];
 
-    // 2. Get all current areas grouped by name (to detect duplicates)
-    const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
-
-    // Build map: normalized name → [area ids] sorted by id asc (min id = canonical)
-    // Normalizing (not just trim()) catches duplicates from alef-variant/teh-marbuta/diacritic
-    // spelling differences between uploads — the same normalization already applied at import time.
-    const byName = new Map();
-    for (const a of allAreas) {
-      const key = normalizeArabic(a.name);
-      if (!byName.has(key)) byName.set(key, []);
-      byName.get(key).push(a.id);
-    }
-
-    // 3. Merge duplicates using Prisma ORM (avoids raw SQL column name issues)
-    for (const [, ids] of byName) {
-      if (ids.length <= 1) continue;
-      const [canonical, ...dupes] = ids;
-      for (const oldId of dupes) {
-        // Reroute all FK references to canonical
-        await prisma.doctor.updateMany({ where: { areaId: oldId }, data: { areaId: canonical } });
-        await prisma.sale.updateMany({ where: { areaId: oldId }, data: { areaId: canonical } });
-        await prisma.pharmacyVisit.updateMany({ where: { areaId: oldId }, data: { areaId: canonical } });
-        await prisma.pharmacy.updateMany({ where: { areaId: oldId }, data: { areaId: canonical } });
-        // PlanArea: composite unique [planId, areaId] — only update if canonical not already there
-        const dupePlanAreas = await prisma.planArea.findMany({ where: { areaId: oldId }, select: { planId: true, id: true } });
-        for (const pa of dupePlanAreas) {
-          const exists = await prisma.planArea.findFirst({ where: { planId: pa.planId, areaId: canonical } });
-          if (exists) {
-            await prisma.planArea.delete({ where: { id: pa.id } });
-          } else {
-            await prisma.planArea.update({ where: { id: pa.id }, data: { areaId: canonical } });
-          }
-        }
-        // ScientificRepArea: composite PK [scientificRepId, areaId]
-        const dupeRepAreas = await prisma.scientificRepArea.findMany({ where: { areaId: oldId }, select: { scientificRepId: true } });
-        for (const ra of dupeRepAreas) {
-          const exists = await prisma.scientificRepArea.findFirst({ where: { scientificRepId: ra.scientificRepId, areaId: canonical } });
-          if (!exists) await prisma.scientificRepArea.create({ data: { scientificRepId: ra.scientificRepId, areaId: canonical } });
-          await prisma.scientificRepArea.delete({ where: { scientificRepId_areaId: { scientificRepId: ra.scientificRepId, areaId: oldId } } });
-        }
-        // RepresentativeArea: composite PK [representativeId, areaId]
-        const dupeRepAreas2 = await prisma.representativeArea.findMany({ where: { areaId: oldId }, select: { representativeId: true } });
-        for (const ra of dupeRepAreas2) {
-          const exists = await prisma.representativeArea.findFirst({ where: { representativeId: ra.representativeId, areaId: canonical } });
-          if (!exists) await prisma.representativeArea.create({ data: { representativeId: ra.representativeId, areaId: canonical } });
-          await prisma.representativeArea.delete({ where: { representativeId_areaId: { representativeId: ra.representativeId, areaId: oldId } } });
-        }
-        // UserAreaAssignment: composite PK [userId, areaId]
-        const dupeUserAreas = await prisma.userAreaAssignment.findMany({ where: { areaId: oldId }, select: { userId: true } });
-        for (const ua of dupeUserAreas) {
-          const exists = await prisma.userAreaAssignment.findFirst({ where: { userId: ua.userId, areaId: canonical } });
-          if (!exists) await prisma.userAreaAssignment.create({ data: { userId: ua.userId, areaId: canonical } });
-          await prisma.userAreaAssignment.delete({ where: { userId_areaId: { userId: ua.userId, areaId: oldId } } });
-        }
-        // FileUserShare.customAreaIds: JSON-encoded array of area IDs (per-file area overrides) —
-        // rewrite any reference to oldId so a merge doesn't leave a stale ID pointing nowhere.
-        const sharesWithOverride = await prisma.fileUserShare.findMany({
-          where: { customAreaIds: { not: null } },
-          select: { fileId: true, userId: true, customAreaIds: true },
-        });
-        for (const share of sharesWithOverride) {
-          let overrideIds;
-          try { overrideIds = JSON.parse(share.customAreaIds); } catch { continue; }
-          if (!Array.isArray(overrideIds) || !overrideIds.includes(oldId)) continue;
-          const newIds = [...new Set(overrideIds.map(id => id === oldId ? canonical : id))];
-          await prisma.fileUserShare.update({
-            where: { fileId_userId: { fileId: share.fileId, userId: share.userId } },
-            data: { customAreaIds: JSON.stringify(newIds) },
-          });
-        }
-        // Delete the duplicate area (cascade handles anything left)
-        await prisma.area.delete({ where: { id: oldId } });
-      }
-    }
+    // 2. Merge duplicates by Arabic-normalised name (ة↔ه, أإآ↔ا, diacritics).
+    // Reroutes every FK to the lowest-id canonical, then deletes the dupes.
+    await mergeDuplicateAreasByName(prisma, normalizeArabic);
 
     // 4. Add survey names not yet in Area table
     const existingAfter = await prisma.area.findMany({ select: { name: true } });
@@ -279,6 +224,77 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[reset-areas]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/areas/merge-duplicates — deterministic, non-destructive merge.
+// Merges only areas that are IDENTICAL after Arabic normalisation (ة↔ه, أإآ↔ا,
+// alef-maqsura, tatweel, diacritics). Reroutes all sales/visits/assignments to the
+// canonical row; deletes nothing but the redundant duplicate Area rows. Unlike
+// reset-from-survey it does NOT touch the survey or delete non-survey areas.
+app.post('/api/sa/areas/merge-duplicates', requireSuperAdmin, async (req, res) => {
+  try {
+    const { mergedCount, groups } = await mergeDuplicateAreasByName(prisma, normalizeArabic);
+    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, mergedCount, groups, count: finalAreas.length });
+  } catch (err) {
+    console.error('[merge-duplicate-areas]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/sa/areas/merge-suggestions — fuzzy near-duplicate pairs for MANUAL review.
+// Returns pairs that are similar but NOT identical after normalisation (those are
+// already auto-merged), so the master admin can confirm/dismiss each one.
+app.get('/api/sa/areas/merge-suggestions', requireSuperAdmin, async (req, res) => {
+  try {
+    const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    // Attach sale counts so the admin can pick the more-populated row as canonical.
+    const counts = await prisma.sale.groupBy({ by: ['areaId'], _count: { _all: true } });
+    const countByArea = new Map(counts.map(c => [c.areaId, c._count._all]));
+
+    const suggestions = [];
+    for (let i = 0; i < areas.length; i++) {
+      for (let j = i + 1; j < areas.length; j++) {
+        const a = areas[i], b = areas[j];
+        // Skip identical-after-normalisation (handled by deterministic merge).
+        if (normalizeArabic(a.name) === normalizeArabic(b.name)) continue;
+        if (areSimilar(a.name, b.name)) {
+          suggestions.push({
+            a: { id: a.id, name: a.name, sales: countByArea.get(a.id) || 0 },
+            b: { id: b.id, name: b.name, sales: countByArea.get(b.id) || 0 },
+          });
+        }
+      }
+    }
+    res.json({ success: true, data: suggestions });
+  } catch (err) {
+    console.error('[area-merge-suggestions]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/areas/merge — merge one confirmed pair { fromId, toId }.
+// fromId is absorbed into toId (toId survives). Used to action a fuzzy suggestion.
+app.post('/api/sa/areas/merge', requireSuperAdmin, async (req, res) => {
+  try {
+    const fromId = Number(req.body?.fromId);
+    const toId   = Number(req.body?.toId);
+    if (!Number.isInteger(fromId) || !Number.isInteger(toId) || fromId === toId) {
+      return res.status(400).json({ success: false, error: 'fromId/toId غير صالحين' });
+    }
+    const [from, to] = await Promise.all([
+      prisma.area.findUnique({ where: { id: fromId }, select: { id: true } }),
+      prisma.area.findUnique({ where: { id: toId },   select: { id: true } }),
+    ]);
+    if (!from || !to) return res.status(404).json({ success: false, error: 'منطقة غير موجودة' });
+
+    await mergeAreaInto(prisma, fromId, toId);
+    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, count: finalAreas.length });
+  } catch (err) {
+    console.error('[area-merge-pair]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

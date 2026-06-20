@@ -202,6 +202,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [itemSearch,         setItemSearch]         = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
+  const [mergeSugs,          setMergeSugs]          = useState<{ a: { id: number; name: string; sales: number }; b: { id: number; name: string; sales: number } }[] | null>(null);
+  const [mergeBusy,          setMergeBusy]          = useState(false);
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
   const [featSection,        setFeatSection]        = useState<string>(() => localStorage.getItem('sa_user_feat_section') || 'gps');
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
@@ -651,7 +653,43 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'areas' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <button
+                  disabled={saving || mergeBusy}
+                  title="دمج المناطق المتطابقة بعد التطبيع (الحارثية = الحارثيه) دون فقدان أي بيانات"
+                  onClick={async () => {
+                    if (!confirm('سيتم دمج المناطق المكررة المتطابقة بالاسم (مثل الحارثية/الحارثيه) في منطقة واحدة، مع نقل كل مبيعاتها. لا تُحذف أي بيانات. متابعة؟')) return;
+                    setMergeBusy(true);
+                    try {
+                      const r = await fetch('/api/sa/areas/merge-duplicates', { method: 'POST', headers: H() });
+                      const j = await r.json();
+                      if (j.success) {
+                        setAreas(j.data);
+                        setDraftAreaIds(prev => prev.filter(id => j.data.some((a: any) => a.id === id)));
+                        alert(j.mergedCount > 0 ? `✅ تم دمج ${j.mergedCount} منطقة مكررة` : '✅ لا توجد مناطق مكررة متطابقة');
+                      } else { alert('❌ ' + j.error); }
+                    } finally { setMergeBusy(false); }
+                  }}
+                  style={{ ...btnStyle('#0d9488', true), fontSize: 12, padding: '4px 14px' }}
+                >
+                  {mergeBusy ? '...' : '🧹 دمج المكررات'}
+                </button>
+                <button
+                  disabled={saving || mergeBusy}
+                  title="عرض المناطق المتشابهة (وليست متطابقة) لمراجعتها ودمجها يدوياً"
+                  onClick={async () => {
+                    setMergeBusy(true);
+                    try {
+                      const r = await fetch('/api/sa/areas/merge-suggestions', { headers: H() });
+                      const j = await r.json();
+                      if (j.success) setMergeSugs(j.data);
+                      else alert('❌ ' + j.error);
+                    } finally { setMergeBusy(false); }
+                  }}
+                  style={{ ...btnStyle('#d97706', true), fontSize: 12, padding: '4px 14px' }}
+                >
+                  {mergeBusy ? '...' : '🔍 اقتراحات الدمج'}
+                </button>
                 <button
                   disabled={saving}
                   onClick={async () => {
@@ -674,6 +712,53 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   {saving ? '...' : '🔄 تحديث من السيرفي'}
                 </button>
               </div>
+              {mergeSugs !== null && (
+                <div style={{ marginBottom: 12, border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: 10, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <strong style={{ fontSize: 13, color: '#92400e' }}>🔍 اقتراحات دمج المناطق المتشابهة ({mergeSugs.length})</strong>
+                    <button onClick={() => setMergeSugs(null)} style={{ ...btnStyle('#64748b', true), fontSize: 11, padding: '3px 10px' }}>✕ إغلاق</button>
+                  </div>
+                  {mergeSugs.length === 0 ? (
+                    <div style={{ fontSize: 13, color: '#78716c', padding: '6px 2px' }}>لا توجد مناطق متشابهة تحتاج مراجعة.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
+                      {mergeSugs.map((s, i) => {
+                        // Default: keep the row with more sales as canonical (survivor)
+                        const keep = s.b.sales > s.a.sales ? s.b : s.a;
+                        const drop = keep === s.a ? s.b : s.a;
+                        const doMerge = async (toId: number, fromId: number) => {
+                          if (!confirm(`دمج "${mergeSugs[i][fromId === s.a.id ? 'a' : 'b'].name}" داخل "${mergeSugs[i][toId === s.a.id ? 'a' : 'b'].name}"؟ ستُنقل كل المبيعات.`)) return;
+                          setMergeBusy(true);
+                          try {
+                            const r = await fetch('/api/sa/areas/merge', { method: 'POST', headers: H(), body: JSON.stringify({ fromId, toId }) });
+                            const j = await r.json();
+                            if (j.success) {
+                              setAreas(j.data);
+                              setDraftAreaIds(prev => prev.filter(id => j.data.some((a: any) => a.id === id)));
+                              setMergeSugs(prev => prev ? prev.filter((_, idx) => idx !== i) : prev);
+                            } else { alert('❌ ' + j.error); }
+                          } finally { setMergeBusy(false); }
+                        };
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px', fontSize: 13, flexWrap: 'wrap' }}>
+                            <span style={{ flex: 1, minWidth: 140 }}>
+                              <b>{s.a.name}</b> <span style={{ color: '#94a3b8', fontSize: 11 }}>({s.a.sales} مبيعة)</span>
+                              <span style={{ color: '#d97706', margin: '0 6px' }}>↔</span>
+                              <b>{s.b.name}</b> <span style={{ color: '#94a3b8', fontSize: 11 }}>({s.b.sales} مبيعة)</span>
+                            </span>
+                            <button disabled={mergeBusy} onClick={() => doMerge(keep.id, drop.id)} style={{ ...btnStyle('#0d9488', true), fontSize: 11, padding: '3px 10px' }}>
+                              دمج في «{keep.name}»
+                            </button>
+                            <button disabled={mergeBusy} onClick={() => setMergeSugs(prev => prev ? prev.filter((_, idx) => idx !== i) : prev)} style={{ ...btnStyle('#94a3b8', true), fontSize: 11, padding: '3px 10px' }}>
+                              تجاهل
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               <input
                 type="text"
                 placeholder="🔍 بحث عن منطقة..."
