@@ -204,6 +204,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [areaSearch,         setAreaSearch]         = useState('');
   const [mergeSugs,          setMergeSugs]          = useState<{ a: { id: number; name: string; sales: number }; b: { id: number; name: string; sales: number } }[] | null>(null);
   const [mergeBusy,          setMergeBusy]          = useState(false);
+  // ── Area CRUD (manual add / rename / delete) ──────────────────────────────
+  const [newAreaName,        setNewAreaName]        = useState('');
+  const [editingAreaId,      setEditingAreaId]      = useState<number | null>(null);
+  const [editingAreaName,    setEditingAreaName]    = useState('');
+  const [areaCrudBusy,       setAreaCrudBusy]       = useState(false);
+  const [deleteAreaInfo,     setDeleteAreaInfo]     = useState<{ id: number; name: string; usage: Record<string, number>; total: number; blocking: boolean } | null>(null);
+  const [deleteTransferTo,   setDeleteTransferTo]   = useState<number | ''>('');
   const [draftDisabledFeats, setDraftDisabledFeats] = useState<string[]>([]);
   const [featSection,        setFeatSection]        = useState<string>(() => localStorage.getItem('sa_user_feat_section') || 'gps');
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
@@ -405,6 +412,63 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     } finally {
       setSaving(false);
     }
+  };
+
+  // ── Area CRUD handlers ────────────────────────────────────────────────────
+  const createArea = async () => {
+    const name = newAreaName.trim();
+    if (!name) return;
+    setAreaCrudBusy(true);
+    try {
+      const r = await fetch('/api/sa/areas', { method: 'POST', headers: H(), body: JSON.stringify({ name }) });
+      const j = await r.json();
+      if (j.success) { setAreas(j.data); setNewAreaName(''); showToast('✅ تمت إضافة المنطقة'); }
+      else showToast('❌ ' + j.error, '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setAreaCrudBusy(false); }
+  };
+
+  const renameArea = async (id: number) => {
+    const name = editingAreaName.trim();
+    if (!name) return;
+    setAreaCrudBusy(true);
+    try {
+      const r = await fetch(`/api/sa/areas/${id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ name }) });
+      const j = await r.json();
+      if (j.success) { setAreas(j.data); setEditingAreaId(null); setEditingAreaName(''); showToast('✅ تم تعديل الاسم'); }
+      else showToast('❌ ' + j.error, '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setAreaCrudBusy(false); }
+  };
+
+  const openDeleteArea = async (id: number, name: string) => {
+    setAreaCrudBusy(true);
+    try {
+      const r = await fetch(`/api/sa/areas/${id}/usage`, { headers: H() });
+      const j = await r.json();
+      if (!j.success) { showToast('❌ ' + j.error, '#dc2626'); return; }
+      setDeleteTransferTo('');
+      setDeleteAreaInfo({ id, name, usage: j.usage, total: j.total, blocking: j.blocking });
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setAreaCrudBusy(false); }
+  };
+
+  const confirmDeleteArea = async (mode: 'detach' | 'transfer') => {
+    if (!deleteAreaInfo) return;
+    const body = mode === 'transfer' ? { transferTo: deleteTransferTo } : {};
+    if (mode === 'transfer' && !deleteTransferTo) { showToast('اختر منطقة لنقل البيانات إليها', '#dc2626'); return; }
+    setAreaCrudBusy(true);
+    try {
+      const r = await fetch(`/api/sa/areas/${deleteAreaInfo.id}`, { method: 'DELETE', headers: H(), body: JSON.stringify(body) });
+      const j = await r.json();
+      if (j.success) {
+        setAreas(j.data);
+        setDraftAreaIds(prev => prev.filter(x => x !== deleteAreaInfo.id));
+        setDeleteAreaInfo(null);
+        showToast(mode === 'transfer' ? '✅ تم نقل البيانات وحذف المنطقة' : '✅ تم حذف المنطقة');
+      } else showToast('❌ ' + j.error, '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setAreaCrudBusy(false); }
   };
 
   const saveFeatures = async () => {
@@ -784,6 +848,23 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}
                 >✗ إلغاء الكل</button>
               </div>
+              {/* ➕ إضافة منطقة جديدة يدوياً */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <input
+                  type="text"
+                  placeholder="➕ اسم منطقة جديدة..."
+                  value={newAreaName}
+                  onChange={e => setNewAreaName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') createArea(); }}
+                  disabled={areaCrudBusy}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+                />
+                <button
+                  onClick={createArea}
+                  disabled={areaCrudBusy || !newAreaName.trim()}
+                  style={{ ...btnStyle('#16a34a', true), fontSize: 13, padding: '4px 16px', opacity: (areaCrudBusy || !newAreaName.trim()) ? 0.5 : 1 }}
+                >{areaCrudBusy ? '...' : '➕ إضافة'}</button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {(() => {
                   const filtered = areas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()));
@@ -795,10 +876,32 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       {idx === selected.length && selected.length > 0 && unselected.length > 0 && (
                         <div key={`sep-${a.id}`} style={{ height: 1, background: '#e2e8f0', margin: '2px 0' }} />
                       )}
-                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: draftAreaIds.includes(a.id) ? '#f0fdf4' : '#f8fafc', border: `1px solid ${draftAreaIds.includes(a.id) ? '#86efac' : 'transparent'}`, borderRadius: 8, cursor: 'pointer', fontSize: 14, transition: 'background 0.15s' }}>
-                        <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
-                        {a.name}
-                      </label>
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: draftAreaIds.includes(a.id) ? '#f0fdf4' : '#f8fafc', border: `1px solid ${draftAreaIds.includes(a.id) ? '#86efac' : 'transparent'}`, borderRadius: 8, fontSize: 14, transition: 'background 0.15s' }}>
+                        {editingAreaId === a.id ? (
+                          <>
+                            <input
+                              type="text"
+                              value={editingAreaName}
+                              onChange={e => setEditingAreaName(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') renameArea(a.id); if (e.key === 'Escape') setEditingAreaId(null); }}
+                              autoFocus
+                              disabled={areaCrudBusy}
+                              style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid #93c5fd', fontSize: 14, direction: 'rtl' }}
+                            />
+                            <button onClick={() => renameArea(a.id)} disabled={areaCrudBusy || !editingAreaName.trim()} title="حفظ الاسم" style={{ ...btnStyle('#16a34a', true), fontSize: 12, padding: '4px 10px' }}>💾</button>
+                            <button onClick={() => { setEditingAreaId(null); setEditingAreaName(''); }} disabled={areaCrudBusy} title="إلغاء" style={{ ...btnStyle('#94a3b8', true), fontSize: 12, padding: '4px 10px' }}>✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
+                              {a.name}
+                            </label>
+                            <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 10px' }}>✏️</button>
+                            <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={{ ...btnStyle('#dc2626', true), fontSize: 12, padding: '4px 10px' }}>🗑️</button>
+                          </>
+                        )}
+                      </div>
                     </>
                   ));
                 })()}
@@ -817,6 +920,70 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   style={btnStyle('#0f172a', true)}
                 >{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
+              {/* 🗑️ نافذة حذف منطقة — تنبيه بالبيانات + نقل أو تصفير */}
+              {deleteAreaInfo && (() => {
+                const labels: Record<string, string> = {
+                  sales: 'مبيعات', plans: 'خطط شهرية', doctors: 'أطباء', pharmacies: 'صيدليات',
+                  pharmacyVisits: 'زيارات صيدليات', sciReps: 'مناديب علميون', reps: 'مناديب',
+                  assignments: 'مستخدمون معيّنون', surveyDoctors: 'سجلات سيرفي',
+                };
+                const rows = Object.entries(deleteAreaInfo.usage).filter(([, v]) => v > 0);
+                const isEmpty = deleteAreaInfo.total === 0;
+                return (
+                  <div onClick={() => !areaCrudBusy && setDeleteAreaInfo(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 22, width: 'min(460px, 92vw)', maxHeight: '85vh', overflowY: 'auto', direction: 'rtl', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: 17, color: '#0f172a' }}>🗑️ حذف منطقة «{deleteAreaInfo.name}»</h3>
+                      {isEmpty ? (
+                        <p style={{ fontSize: 14, color: '#475569', margin: '0 0 16px' }}>لا توجد أي بيانات مرتبطة بهذه المنطقة. يمكن حذفها مباشرة.</p>
+                      ) : (
+                        <>
+                          <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                            <strong style={{ fontSize: 13, color: '#92400e' }}>⚠️ هذه المنطقة مرتبطة ببيانات:</strong>
+                            <ul style={{ margin: '8px 0 0', paddingInlineStart: 20, fontSize: 13, color: '#78350f' }}>
+                              {rows.map(([k, v]) => <li key={k}>{labels[k] || k}: <b>{v}</b></li>)}
+                            </ul>
+                          </div>
+                          {deleteAreaInfo.blocking && (
+                            <p style={{ fontSize: 12.5, color: '#b91c1c', margin: '0 0 12px' }}>
+                              ⛔ لوجود مبيعات مرتبطة لا يمكن «تصفير» المنطقة — يجب <b>نقل</b> بياناتها إلى منطقة أخرى قبل الحذف.
+                            </p>
+                          )}
+                          {/* خيار النقل */}
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>① نقل البيانات إلى منطقة أخرى ثم الحذف:</div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <select
+                                value={deleteTransferTo}
+                                onChange={e => setDeleteTransferTo(e.target.value ? Number(e.target.value) : '')}
+                                disabled={areaCrudBusy}
+                                style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+                              >
+                                <option value="">— اختر منطقة الوجهة —</option>
+                                {areas.filter(a => a.id !== deleteAreaInfo.id).map(a => (
+                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                              </select>
+                              <button onClick={() => confirmDeleteArea('transfer')} disabled={areaCrudBusy || !deleteTransferTo} style={{ ...btnStyle('#0d9488', true), fontSize: 13, padding: '4px 14px', opacity: (areaCrudBusy || !deleteTransferTo) ? 0.5 : 1 }}>نقل وحذف</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {/* خيار التصفير / الحذف المباشر */}
+                      {!deleteAreaInfo.blocking && (
+                        <div style={{ marginBottom: 14 }}>
+                          {!isEmpty && <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>② تصفير (فصل) البيانات ثم الحذف:</div>}
+                          <button onClick={() => confirmDeleteArea('detach')} disabled={areaCrudBusy} style={{ ...btnStyle('#dc2626', true), fontSize: 13, padding: '6px 16px', width: '100%' }}>
+                            {areaCrudBusy ? '...' : (isEmpty ? '🗑️ حذف المنطقة' : '🗑️ تصفير البيانات وحذف المنطقة')}
+                          </button>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                        <button onClick={() => setDeleteAreaInfo(null)} disabled={areaCrudBusy} style={{ ...btnStyle('#64748b', true), fontSize: 13, padding: '5px 16px' }}>إلغاء</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
           {tab === 'managers' && (

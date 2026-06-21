@@ -315,6 +315,132 @@ app.post('/api/sa/areas/merge', requireSuperAdmin, async (req, res) => {
   }
 });
 
+// GET /api/sa/areas/:id/usage — count every record that references this area so the
+// admin can be warned BEFORE deleting. `blocking` = refs that cannot be nulled out
+// (sales have a required areaId) → such areas must be TRANSFERRED, not zeroed.
+app.get('/api/sa/areas/:id/usage', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const area = await prisma.area.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!area) return res.status(404).json({ success: false, error: 'منطقة غير موجودة' });
+
+    const [sales, plans, doctors, pharmacies, pharmacyVisits, sciReps, reps, assignments, surveyDoctors] = await Promise.all([
+      prisma.sale.count({ where: { areaId: id } }),
+      prisma.planArea.count({ where: { areaId: id } }),
+      prisma.doctor.count({ where: { areaId: id } }),
+      prisma.pharmacy.count({ where: { areaId: id } }),
+      prisma.pharmacyVisit.count({ where: { areaId: id } }),
+      prisma.scientificRepArea.count({ where: { areaId: id } }),
+      prisma.representativeArea.count({ where: { areaId: id } }),
+      prisma.userAreaAssignment.count({ where: { areaId: id } }),
+      prisma.masterSurveyDoctor.count({ where: { areaId: id } }),
+    ]);
+    const usage = { sales, plans, doctors, pharmacies, pharmacyVisits, sciReps, reps, assignments, surveyDoctors };
+    const total = Object.values(usage).reduce((a, b) => a + b, 0);
+    // sales (required FK) cannot be nulled → only a transfer can free the area.
+    const blocking = sales > 0;
+    res.json({ success: true, area, usage, total, blocking });
+  } catch (err) {
+    console.error('[area-usage]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/areas — create a new area manually { name }. Rejects a name that
+// already exists after Arabic normalisation to avoid spelling-variant duplicates.
+app.post('/api/sa/areas', requireSuperAdmin, async (req, res) => {
+  try {
+    const name = String(req.body?.name ?? '').trim();
+    if (!name) return res.status(400).json({ success: false, error: 'اسم المنطقة مطلوب' });
+    const norm = normalizeArabic(name);
+    const existing = await prisma.area.findMany({ select: { id: true, name: true } });
+    if (existing.some(a => normalizeArabic(a.name) === norm)) {
+      return res.status(409).json({ success: false, error: 'توجد منطقة بنفس الاسم بالفعل' });
+    }
+    await prisma.area.create({ data: { name } });
+    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, count: finalAreas.length });
+  } catch (err) {
+    console.error('[area-create]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/sa/areas/:id — rename an area { name }. Blocks a rename that would
+// collide with ANOTHER existing area after normalisation.
+app.put('/api/sa/areas/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const name = String(req.body?.name ?? '').trim();
+    if (!name) return res.status(400).json({ success: false, error: 'اسم المنطقة مطلوب' });
+    const area = await prisma.area.findUnique({ where: { id }, select: { id: true } });
+    if (!area) return res.status(404).json({ success: false, error: 'منطقة غير موجودة' });
+    const norm = normalizeArabic(name);
+    const others = await prisma.area.findMany({ where: { id: { not: id } }, select: { name: true } });
+    if (others.some(a => normalizeArabic(a.name) === norm)) {
+      return res.status(409).json({ success: false, error: 'توجد منطقة أخرى بنفس الاسم' });
+    }
+    await prisma.area.update({ where: { id }, data: { name } });
+    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, count: finalAreas.length });
+  } catch (err) {
+    console.error('[area-rename]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/sa/areas/:id — delete an area in one of two modes:
+//   { transferTo: <id> }  → move ALL data (incl. sales) into another area then delete (safe).
+//   { mode: 'detach' }    → null-out optional refs (doctors/pharmacies/visits/survey),
+//                           remove join rows (plans/reps/sci-reps/assignments), then delete.
+// detach is REFUSED when the area still has sales, because Sale.areaId is required
+// and cannot be zeroed — the admin must transfer instead.
+app.delete('/api/sa/areas/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const area = await prisma.area.findUnique({ where: { id }, select: { id: true } });
+    if (!area) return res.status(404).json({ success: false, error: 'منطقة غير موجودة' });
+
+    const transferTo = req.body?.transferTo != null ? Number(req.body.transferTo) : null;
+
+    if (transferTo != null) {
+      if (!Number.isInteger(transferTo) || transferTo === id) {
+        return res.status(400).json({ success: false, error: 'منطقة النقل غير صالحة' });
+      }
+      const target = await prisma.area.findUnique({ where: { id: transferTo }, select: { id: true } });
+      if (!target) return res.status(404).json({ success: false, error: 'منطقة النقل غير موجودة' });
+      // mergeAreaInto reroutes every FK (incl. sales) from `id` onto the target, then deletes `id`.
+      await mergeAreaInto(prisma, id, transferTo);
+    } else {
+      // detach mode — refuse if sales exist (required FK cannot be nulled)
+      const saleCount = await prisma.sale.count({ where: { areaId: id } });
+      if (saleCount > 0) {
+        return res.status(409).json({ success: false, error: `لا يمكن تصفير المنطقة لوجود ${saleCount} مبيعة مرتبطة بها — اختر نقل البيانات لمنطقة أخرى.` });
+      }
+      // Null-out optional FKs (keep the records, just unlink the area)
+      await prisma.doctor.updateMany({ where: { areaId: id }, data: { areaId: null } });
+      await prisma.pharmacyVisit.updateMany({ where: { areaId: id }, data: { areaId: null } });
+      await prisma.pharmacy.updateMany({ where: { areaId: id }, data: { areaId: null } });
+      await prisma.masterSurveyDoctor.updateMany({ where: { areaId: id }, data: { areaId: null } });
+      // Remove join rows that have a required areaId
+      await prisma.planArea.deleteMany({ where: { areaId: id } });
+      await prisma.scientificRepArea.deleteMany({ where: { areaId: id } });
+      await prisma.representativeArea.deleteMany({ where: { areaId: id } });
+      await prisma.userAreaAssignment.deleteMany({ where: { areaId: id } });
+      await prisma.area.delete({ where: { id } });
+    }
+
+    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, count: finalAreas.length });
+  } catch (err) {
+    console.error('[area-delete]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── All /api routes below require a valid JWT ────────────────
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
