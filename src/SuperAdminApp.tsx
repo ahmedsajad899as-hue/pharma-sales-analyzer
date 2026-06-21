@@ -2,21 +2,41 @@ import { useState, useEffect, Component } from 'react';
 import type { ReactNode } from 'react';
 import { SuperAdminProvider, useSuperAdmin } from './context/SuperAdminContext';
 
-class SAErrorBoundary extends Component<{ children: ReactNode }, { err: string | null }> {
-  constructor(props: { children: ReactNode }) { super(props); this.state = { err: null }; }
-  static getDerivedStateFromError(e: Error) { return { err: e.message }; }
+class SAErrorBoundary extends Component<{ children: ReactNode }, { err: string | null; stack: string | null }> {
+  constructor(props: { children: ReactNode }) { super(props); this.state = { err: null, stack: null }; }
+  static getDerivedStateFromError(e: Error) { return { err: e.message, stack: e.stack || null }; }
+  // Recover WITHOUT losing the session: just drop the navigation state that may be
+  // poisoning the render (a restored user-detail / tab that crashes), then reload.
+  clearNavAndReload = () => {
+    localStorage.removeItem('sa_user_detail_id');
+    localStorage.removeItem('sa_user_tab');
+    localStorage.setItem('sa_last_page', 'offices');
+    window.location.reload();
+  };
   render() {
     if (this.state.err) {
       return (
-        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', fontFamily: 'system-ui, sans-serif', direction: 'rtl' }}>
-          <div style={{ background: '#1e293b', border: '1px solid #dc2626', borderRadius: 16, padding: '32px 40px', maxWidth: 480, textAlign: 'center' }}>
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', fontFamily: 'system-ui, sans-serif', direction: 'rtl', padding: 20 }}>
+          <div style={{ background: '#1e293b', border: '1px solid #dc2626', borderRadius: 16, padding: '32px 40px', maxWidth: 560, textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
             <h2 style={{ color: '#f87171', margin: '0 0 8px' }}>حدث خطأ غير متوقع</h2>
-            <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>{this.state.err}</p>
-            <button onClick={() => { localStorage.removeItem('sa_token'); localStorage.removeItem('sa_user'); window.location.reload(); }}
-              style={{ padding: '10px 24px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}>
-              مسح الجلسة وإعادة المحاولة
-            </button>
+            <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>{this.state.err}</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+              <button onClick={this.clearNavAndReload}
+                style={{ padding: '10px 24px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}>
+                العودة للوحة (دون فقد الجلسة)
+              </button>
+              <button onClick={() => { localStorage.removeItem('sa_token'); localStorage.removeItem('sa_user'); this.clearNavAndReload(); }}
+                style={{ padding: '10px 24px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}>
+                مسح الجلسة وإعادة المحاولة
+              </button>
+            </div>
+            {this.state.stack && (
+              <details style={{ textAlign: 'left', direction: 'ltr' }}>
+                <summary style={{ color: '#64748b', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>تفاصيل تقنية (للمطوّر)</summary>
+                <pre style={{ maxHeight: 200, overflow: 'auto', background: '#0f172a', color: '#94a3b8', fontSize: 11, padding: 10, borderRadius: 8, whiteSpace: 'pre-wrap' }}>{this.state.stack}</pre>
+              </details>
+            )}
           </div>
         </div>
       );
