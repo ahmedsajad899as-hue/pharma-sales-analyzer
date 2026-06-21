@@ -65,11 +65,14 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [selCommercial, setSelCommercial]   = useState<NamedItem[]>([]);
   const [itemsPopup, setItemsPopup]         = useState<number | null>(null); // rep.id whose items popup is open
   const itemsPopupRef                       = useRef<HTMLDivElement>(null);
+  const [areasPopup, setAreasPopup]         = useState<number | null>(null); // rep.id whose areas popup is open
+  const areasPopupRef                       = useRef<HTMLDivElement>(null);
 
   // Back button: close open modal/popup in priority order
   useBackHandler([
     [modal !== null,         () => setModal(null)],
     [itemsPopup !== null,    () => setItemsPopup(null)],
+    [areasPopup !== null,    () => setAreasPopup(null)],
   ]);
   const [allAreas, setAllAreas]             = useState<NamedItem[]>([]);
   const [allItems, setAllItems]             = useState<NamedItem[]>([]);
@@ -117,6 +120,18 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [itemsPopup]);
+
+  // Close areas popup on outside click
+  useEffect(() => {
+    if (areasPopup === null) return;
+    const handler = (e: MouseEvent) => {
+      if (areasPopupRef.current && !areasPopupRef.current.contains(e.target as Node)) {
+        setAreasPopup(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [areasPopup]);
 
   // AI assistant page-action listener
   useEffect(() => {
@@ -412,11 +427,42 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                       </div>
                     </td>
                     <td>
-                      <div className="tag-list">
+                      <div className="tag-list" style={{ position: 'relative' }}>
                         {rep.areas.length === 0
                           ? <span className="tag tag--blue">{t.sciReps.allAreas}</span>
-                          : rep.areas.map(a => <span key={a.id} className="tag tag--gray">{a.name}</span>)
+                          : rep.areas.slice(0, 4).map(a => <span key={a.id} className="tag tag--gray">{a.name}</span>)
                         }
+                        {rep.areas.length > 4 && (
+                          <span
+                            className="tag tag--gray"
+                            onClick={e => { e.stopPropagation(); setAreasPopup(areasPopup === rep.id ? null : rep.id); }}
+                            style={{ cursor: 'pointer', userSelect: 'none', background: '#e0e7ff', color: '#3730a3', border: '1px solid #a5b4fc', fontWeight: 700 }}>
+                            +{rep.areas.length - 4}
+                          </span>
+                        )}
+                        {areasPopup === rep.id && (
+                          <div ref={areasPopupRef} style={{
+                            position: 'absolute', top: '110%', right: 0, zIndex: 400,
+                            background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.13)', padding: '10px 12px',
+                            minWidth: 200, maxWidth: 320, maxHeight: 260, overflowY: 'auto',
+                            direction: 'rtl',
+                          }}>
+                            <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#3730a3', display: 'flex', alignItems: 'center', gap: 5 }}>
+                              📍 كل المناطق ({rep.areas.length})
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                              {rep.areas.map(a => (
+                                <span key={a.id} style={{
+                                  background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe',
+                                  borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600,
+                                }}>
+                                  {a.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -523,8 +569,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   <div className="tag-list" style={{ flex: 1 }}>
                     {rep.areas.length === 0
                       ? <span className="tag tag--blue" style={{ fontSize: 11 }}>{t.sciReps.allAreas}</span>
-                      : rep.areas.map(a => <span key={a.id} className="tag tag--gray" style={{ fontSize: 11 }}>{a.name}</span>)
+                      : rep.areas.slice(0, 4).map(a => <span key={a.id} className="tag tag--gray" style={{ fontSize: 11 }}>{a.name}</span>)
                     }
+                    {rep.areas.length > 4 && <span className="tag tag--gray" style={{ fontSize: 11 }}>+{rep.areas.length - 4}</span>}
                   </div>
                 </div>
 
