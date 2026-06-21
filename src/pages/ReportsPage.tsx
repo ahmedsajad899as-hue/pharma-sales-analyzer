@@ -4,6 +4,21 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 
+/* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
+   drop tatweel/diacritics, and strip the definite article «ال». Mirrors the backend
+   normalizeArabic so matching is consistent between client and server. */
+const normalizeAr = (s: string): string =>
+  String(s ?? '')
+    .trim()
+    .replace(/[أإآٱ]/g, 'ا')   // أ إ آ ٱ → ا
+    .replace(/[ةه]/g, 'ه')                // ة/ه → ه
+    .replace(/ى/g, 'ي')                        // ى → ي
+    .replace(/ـ/g, '')                              // tatweel
+    .replace(/[ً-ٟ]/g, '')                    // diacritics
+    .replace(/(^|\s)ال/g, '$1')               // remove ال (definite article)
+    .replace(/\s+/g, ' ')
+    .trim();
+
 /* ─────────────────────────────────────────────────────────────────────────────
    ExcelPreviewModal — spreadsheet-like editor before export
 ───────────────────────────────────────────────────────────────────────────── */
@@ -700,11 +715,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           .filter(i => !salesItemNames.has(i.name))
           .map(i => ({ name: i.name, totalQty: 0, totalValue: 0, isZero: true }));
 
-        const salesAreas = (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+        const rawSalesAreas = (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+        // Consolidate sales rows that are the same place spelled differently
+        // (الشعب/شعب…) into one row, summing quantities/values.
+        const salesAreaByNorm = new Map<string, BreakdownRow>();
+        for (const r of rawSalesAreas) {
+          const k = normalizeAr(r.name);
+          const ex = salesAreaByNorm.get(k);
+          if (ex) { ex.totalQty += r.totalQty; ex.totalValue += r.totalValue; if (!ex.repName) ex.repName = r.repName; }
+          else salesAreaByNorm.set(k, { ...r });
+        }
+        const salesAreas: BreakdownRow[] = [...salesAreaByNorm.values()];
         const assignedAreasList: Rep[] = d.assignedAreas ?? [];
-        const salesAreaNames = new Set(salesAreas.map((r: BreakdownRow) => r.name));
+        // Match assigned areas to sales by NORMALISED name so spelling variants
+        // (الشعب/شعب, الحسينية/حسينيه…) aren't falsely flagged "لا مبيعات".
+        const salesAreaNorms = new Set([...salesAreaByNorm.keys()]);
         const zeroAreas: BreakdownRow[] = assignedAreasList
-          .filter(a => !salesAreaNames.has(a.name))
+          .filter(a => !salesAreaNorms.has(normalizeAr(a.name)))
           .map(a => ({ name: a.name, totalQty: 0, totalValue: 0, isZero: true }));
 
         return {

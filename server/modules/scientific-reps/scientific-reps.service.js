@@ -1,5 +1,5 @@
 import * as repo from './scientific-reps.repository.js';
-import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope } from '../sales/sales.repository.js';
+import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope, normalizeArabic } from '../sales/sales.repository.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
@@ -338,15 +338,15 @@ export async function getReport(id, query = {}) {
   });
   let areaIds = null;
   if (areaLinks.length) {
-    // Always keep the directly-linked area IDs; also expand by name to catch
-    // duplicate area records created from different file uploads.
+    // Always keep the directly-linked area IDs; also expand by NORMALISED name to
+    // catch duplicate area records that spell the same place differently
+    // (الشعب/شعب, الحسينية/حسينيه, شارع المغرب/شارع مغرب…). Without this, sales
+    // stored under one spelling are missed when the rep is assigned another.
     const directAreaIds = areaLinks.map(l => l.areaId);
-    const areaNames = areaLinks.map(l => l.area.name);
-    const allMatchingAreas = await prisma.area.findMany({
-      where: { name: { in: areaNames } },
-      select: { id: true },
-    });
-    areaIds = [...new Set([...directAreaIds, ...allMatchingAreas.map(a => a.id)])];
+    const assignedNorms = new Set(areaLinks.map(l => normalizeArabic(l.area.name)));
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const matchingIds = allAreas.filter(a => assignedNorms.has(normalizeArabic(a.name))).map(a => a.id);
+    areaIds = [...new Set([...directAreaIds, ...matchingIds])];
   }
 
   const itemLinks = await prisma.scientificRepItem.findMany({
