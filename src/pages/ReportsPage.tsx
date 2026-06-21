@@ -24,10 +24,24 @@ const normalizeAr = (s: string): string =>
 ───────────────────────────────────────────────────────────────────────────── */
 interface PreviewSheet { name: string; rows: string[][]; }
 
-function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
+// Normalise a phone number to an international (Iraq-default) wa.me target: digits
+// only, leading 0 → 964, 00 prefix dropped, bare local numbers get 964 prepended.
+const toWaNumber = (raw?: string | null): string => {
+  let d = String(raw ?? '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('964')) return d;
+  if (d.startsWith('0')) return '964' + d.slice(1);
+  if (d.length <= 10) return '964' + d; // bare local (e.g. 7701234567)
+  return d;
+};
+
+function ExcelPreviewModal({ sheets: initSheets, onClose, fileName, whatsappPhone, whatsappName }: {
   sheets: PreviewSheet[];
   onClose: () => void;
   fileName: string;
+  whatsappPhone?: string | null;
+  whatsappName?: string;
 }) {
   const [sheets, setSheets]           = useState<PreviewSheet[]>(initSheets);
   const [activeIdx, setActiveIdx]     = useState(0);
@@ -160,6 +174,17 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     XLSX.writeFile(wb, fileName);
   };
 
+  const waTarget = toWaNumber(whatsappPhone);
+  const sendWhatsApp = () => {
+    // 1) download the Excel so the manager can attach it, then 2) open the rep's chat
+    exportModified();
+    const greeting = whatsappName ? `مرحباً ${whatsappName}،` : 'مرحباً،';
+    const msg = `${greeting} إليك تقرير مبيعاتك بصيغة Excel.`;
+    const url = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+    alert('تم تنزيل ملف الإكسل — أرفِقه في محادثة الواتساب التي فُتحت ثم أرسله.');
+  };
+
   const colCount = sheet.rows[0]?.length ?? 0;
 
   // Clear selection when switching sheets
@@ -230,6 +255,19 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
             >
               📥 تصدير Excel
             </button>
+            {waTarget && (
+              <button
+                onClick={sendWhatsApp}
+                title={`إرسال إلى واتساب: +${waTarget}`}
+                style={{
+                  padding: '7px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 13,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                📲 إرسال واتساب
+              </button>
+            )}
             <button onClick={onClose} className="modal-close" style={{ position: 'static' }}>✕</button>
           </div>
         </div>
@@ -426,7 +464,7 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
   );
 }
 
-interface Rep { id: number; name: string; }
+interface Rep { id: number; name: string; phone?: string | null; }
 interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
@@ -2705,6 +2743,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           sheets={previewSheets}
           fileName={previewFileName}
           onClose={() => setShowPreviewModal(false)}
+          whatsappPhone={
+            mode === 'scientific' ? sciReps.find(r => String(r.id) === sciRepId)?.phone
+            : mode === 'commercial' ? commReps.find(r => String(r.id) === commRepId)?.phone
+            : undefined
+          }
+          whatsappName={
+            mode === 'scientific' ? sciReps.find(r => String(r.id) === sciRepId)?.name
+            : mode === 'commercial' ? commReps.find(r => String(r.id) === commRepId)?.name
+            : undefined
+          }
         />
       )}
 
