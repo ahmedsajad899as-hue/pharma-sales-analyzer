@@ -256,7 +256,7 @@ export async function syncCommercialsByActiveFiles(fileIds) {
 
   // distinct (areaId, representativeId) appearing in the active files (sales + returns)
   const pairs = await prisma.sale.findMany({
-    where: { uploadedFileId: { in: fileIds }, areaId: { not: null } },
+    where: { uploadedFileId: { in: fileIds } }, // Sale.areaId is required → no null filter
     select: { areaId: true, representativeId: true },
     distinct: ['areaId', 'representativeId'],
   });
