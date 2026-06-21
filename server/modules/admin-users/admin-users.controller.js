@@ -194,10 +194,11 @@ export async function setUserAreas(req, res) {
       const extraIds = [];
       for (const chosen of chosenAreas) {
         const cN = normA(chosen.name);
-        const match = allManagerAreas.find(m => {
-          const mN = normA(m.name);
-          return mN === cN || mN.includes(cN) || cN.includes(mN);
-        });
+        // Inherit the manager's equivalent area ONLY on an exact normalised match.
+        // Substring matching (includes) was too loose — e.g. «الحسينية» (norm: الحسينيه)
+        // matched «حي الحسين» (norm: الحسين), so the manager's «حي الحسين» kept getting
+        // re-added on every save even after the admin explicitly removed it.
+        const match = allManagerAreas.find(m => normA(m.name) === cN);
         if (match) extraIds.push(match.id);
       }
       finalAreaIds = [...new Set([...parsedAreaIds, ...extraIds])];
