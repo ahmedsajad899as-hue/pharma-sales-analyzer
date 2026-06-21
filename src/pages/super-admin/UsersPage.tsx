@@ -530,6 +530,16 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const selAreaIds    = draftAreaIds;
     const selMgrIds     = draftMgrIds;
 
+    // The areas list comes from the active survey (deduped). A user may still be
+    // assigned to areas NOT in that survey list (legacy / non-survey areas). Those
+    // count toward the assignment total but would otherwise be invisible — surface
+    // them as extra rows so the tab count matches what's shown and the admin can
+    // see/uncheck them.
+    const assignedExtraAreas = (detail.areaAssignments ?? [])
+      .filter(aa => !areas.some(a => a.id === aa.areaId))
+      .map(aa => ({ id: aa.areaId, name: aa.area?.name ?? `#${aa.areaId}`, _extra: true as const }));
+    const displayAreas = [...areas, ...assignedExtraAreas];
+
     const TabBtn = ({ id, label }: { id: typeof tab; label: string }) => (
       <button onClick={() => setTab(id)} style={{
         padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
@@ -836,9 +846,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button
-                  onClick={() => { if (areas.length > 0) setDraftAreaIds(areas.map(a => a.id)); }}
-                  disabled={areas.length === 0}
-                  style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px', opacity: areas.length === 0 ? 0.4 : 1 }}
+                  onClick={() => { if (displayAreas.length > 0) setDraftAreaIds(displayAreas.map(a => a.id)); }}
+                  disabled={displayAreas.length === 0}
+                  style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px', opacity: displayAreas.length === 0 ? 0.4 : 1 }}
                 >✓ اختيار الكل</button>
                 <button
                   onClick={() => {
@@ -867,7 +877,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {(() => {
-                  const filtered = areas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()));
+                  const filtered = displayAreas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()));
                   const selected = filtered.filter(a => draftAreaIds.includes(a.id));
                   const unselected = filtered.filter(a => !draftAreaIds.includes(a.id));
                   const sorted = [...selected, ...unselected];
@@ -896,6 +906,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                               <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
                               {a.name}
+                              {(a as any)._extra && <span title="منطقة معيّنة للمستخدم لكنها غير موجودة في السيرفي الحالي" style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, padding: '1px 6px' }}>خارج السيرفي</span>}
                             </label>
                             <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 10px' }}>✏️</button>
                             <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={{ ...btnStyle('#dc2626', true), fontSize: 12, padding: '4px 10px' }}>🗑️</button>
