@@ -112,8 +112,24 @@ app.use('/api/sa/users',          adminUsersRoutes);
 // ── SA reference lookups (items + areas for user assignments) ─
 import { requireSuperAdmin } from './middleware/superAdminMiddleware.js';
 app.get('/api/sa/items', requireSuperAdmin, async (req, res) => {
-  const items = await prisma.item.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
-  res.json({ success: true, data: items });
+  // Items are tenant-scoped (each user owns its own item rows + sales), so the raw
+  // list shows the same drug once per user — visually noisy. Collapse the DISPLAY by
+  // Arabic-normalised name WITHOUT merging any data: pick one representative per name
+  // (prefer the global catalog row userId=null, else the lowest id). Sales are untouched.
+  const items = await prisma.item.findMany({ select: { id: true, name: true, userId: true }, orderBy: { id: 'asc' } });
+  const byNorm = new Map(); // normalizedName → chosen representative item
+  for (const it of items) {
+    const key = normalizeArabic(it.name);
+    if (!key) continue;
+    const cur = byNorm.get(key);
+    if (!cur) { byNorm.set(key, it); continue; }
+    // Prefer the global (userId=null) row as the canonical display entry
+    if (cur.userId !== null && it.userId === null) byNorm.set(key, it);
+  }
+  const deduped = [...byNorm.values()]
+    .map(({ id, name }) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  res.json({ success: true, data: deduped });
 });
 app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   // Return ONLY area names from the latest active survey (exact match, nothing extra)
