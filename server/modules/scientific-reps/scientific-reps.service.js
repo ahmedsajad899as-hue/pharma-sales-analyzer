@@ -458,7 +458,7 @@ export async function getReport(id, query = {}) {
     const salesSelect = {
       quantity: true, totalValue: true,
       areaId: true, itemId: true, customerId: true,
-      saleDate: true, recordType: true,
+      saleDate: true, recordType: true, uploadedFileId: true,
       area: { select: { id: true, name: true } },
       item: { select: { id: true, name: true } },
       representative: { select: { id: true, name: true } },
@@ -487,7 +487,7 @@ export async function getReport(id, query = {}) {
     const nonSharedSalesSelect = {
       quantity: true, totalValue: true,
       areaId: true, itemId: true, customerId: true,
-      saleDate: true, recordType: true,
+      saleDate: true, recordType: true, uploadedFileId: true,
       area: { select: { id: true, name: true } },
       item: { select: { id: true, name: true } },
       representative: { select: { id: true, name: true } },
@@ -505,21 +505,36 @@ export async function getReport(id, query = {}) {
     }
   }
 
-  // ── Deduplicate across files: same rep+area+item+customer+date+qty+recordType ──
-  // When two active files contain overlapping data (e.g. a «كل العراق» file and
-  // a per-region file both carrying the same rows), each row would otherwise be
-  // counted twice.  We drop the second occurrence using a composite key.
-  // Customer is included because rep+area+item+date+qty alone collides often in
-  // pharma data (round, repeated quantities like 5/10/50/100) between genuinely
-  // different sales to different pharmacies — without it those got wrongly merged.
-  const _seenSales = new Set();
-  rawSales = rawSales.filter(s => {
-    const dayKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate';
-    const key = `${s.representative.id}|${s.areaId}|${s.itemId}|${s.customerId ?? 'no-customer'}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
-    if (_seenSales.has(key)) return false;
-    _seenSales.add(key);
-    return true;
-  });
+  // ── Deduplicate ONLY across overlapping files ──────────────────────────────
+  // When two active files carry the same rows (e.g. a «كل العراق» file and a
+  // per-region file), a logical sale must not be counted twice. BUT genuine
+  // duplicate orders WITHIN a single file (two real orders to the same pharmacy,
+  // same day/item/qty) MUST both count.
+  // Approach: group rows by composite key (rep+area+item+customer+date+qty+type),
+  // then for each key keep the rows from the single file that contains the MOST
+  // occurrences. This collapses cross-file overlap while preserving every
+  // genuine intra-file duplicate.
+  {
+    const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
+    for (const s of rawSales) {
+      const dayKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate';
+      const key = `${s.representative.id}|${s.areaId}|${s.itemId}|${s.customerId ?? 'no-customer'}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
+      let fileMap = keyToFileRows.get(key);
+      if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
+      const fid = s.uploadedFileId ?? 0;
+      const arr = fileMap.get(fid);
+      if (arr) arr.push(s); else fileMap.set(fid, [s]);
+    }
+    const deduped = [];
+    for (const fileMap of keyToFileRows.values()) {
+      let best = null;
+      for (const rows of fileMap.values()) {
+        if (!best || rows.length > best.length) best = rows;
+      }
+      if (best) deduped.push(...best);
+    }
+    rawSales = deduped;
+  }
 
   const aggregated = aggregateSalesWithReps(rawSales);
   console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);
