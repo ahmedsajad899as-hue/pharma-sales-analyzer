@@ -244,15 +244,17 @@ export async function setUserAreas(req, res) {
           where: { id: { in: finalAreaIds } },
           select: { id: true, name: true },
         });
-        const assignedNorms = assignedAreas.map(a => normA(a.name));
+        const assignedNormSet = new Set(assignedAreas.map(a => normA(a.name)));
 
-        // Find all Area records (any scope) whose normalized name matches
+        // Find all Area records (any scope) that are the SAME place as an assigned
+        // area — exact normalised match only. Substring matching (includes) was too
+        // loose: short norms like «الحسين» matched «الحسينيه», «اور»/«مغرب» matched
+        // many unrelated areas, which pulled in commercial reps from places the rep
+        // doesn't actually cover. normA already collapses ة/ه, the «حي/محله/...»
+        // prefix and diacritics, so genuine cross-file duplicates still match.
         const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
         const matchingAreaIds = allAreas
-          .filter(a => assignedNorms.some(n => {
-            const mN = normA(a.name);
-            return mN === n || mN.includes(n) || n.includes(mN);
-          }))
+          .filter(a => assignedNormSet.has(normA(a.name)))
           .map(a => a.id);
 
         // Find MedicalRepresentative records that cover those areas
