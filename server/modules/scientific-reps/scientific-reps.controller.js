@@ -14,6 +14,17 @@ export async function createRep(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// Re-derive every sci-rep's commercial reps from the active file(s) — body { fileIds: [..] }
+export async function syncCommercialsByFile(req, res, next) {
+  try {
+    const fileIds = Array.isArray(req.body?.fileIds)
+      ? req.body.fileIds.map(Number).filter(n => n > 0)
+      : [];
+    const result = await svc.syncCommercialsByActiveFiles(fileIds);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+}
+
 export async function listReps(req, res, next) {
   try {
     // ?standalone=1 is sent by ScientificRepsPage (تحليل ملفات المندوبين).

@@ -207,7 +207,7 @@ function ImpersonationBanner() {
 }
 
 function AppInner() {
-  const { user, hasFeature } = useAuth();
+  const { user, hasFeature, token } = useAuth();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
 
   // Preload all page chunks in background so navigation is instant
@@ -237,6 +237,22 @@ function AppInner() {
     } catch {}
     return [];
   });
+
+  // Re-derive each scientific rep's commercial reps from the ACTIVE file(s) whenever
+  // the active set changes. Different files attribute commercial reps to areas
+  // differently, so a rep belongs to a sci-rep only if they have a sale/return in
+  // one of the sci-rep's areas within the active file(s). Debounced.
+  useEffect(() => {
+    if (!token || activeFileIds.length === 0) return;
+    const t = setTimeout(() => {
+      fetch('/api/scientific-reps/sync-commercials-by-file', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileIds: activeFileIds }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [activeFileIds, token]);
 
   // Keep a ref so the popstate closure always sees the latest activePage
   const activePageRef = useRef(activePage);

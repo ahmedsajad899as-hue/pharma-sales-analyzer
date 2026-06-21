@@ -226,6 +226,74 @@ export async function assignAreasByName(id, areaNames, userId = null) {
 }
 
 /**
+ * Re-derive each scientific rep's commercial reps from the data of the ACTIVE
+ * file(s): a commercial rep is linked to a sci-rep iff they have at least one
+ * sale OR return in any of the sci-rep's assigned areas within those files
+ * (quantity-agnostic). Areas are matched by normalised name so spelling variants
+ * collapse. Fully replaces the stored assignment — this is intentionally
+ * data-driven (no manual override) per product requirement. Sci-reps with no
+ * assigned areas are left untouched.
+ *
+ * @param {number[]} fileIds - active uploaded file ids
+ * @returns {{ updated: number }}
+ */
+export async function syncCommercialsByActiveFiles(fileIds) {
+  if (!Array.isArray(fileIds) || fileIds.length === 0) return { updated: 0, reason: 'no-files' };
+
+  const reps = await prisma.scientificRepresentative.findMany({
+    select: { id: true, areas: { select: { area: { select: { name: true } } } } },
+  });
+
+  // normalized area name → [areaId, …]
+  const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+  const normToAreaIds = new Map();
+  for (const a of allAreas) {
+    const k = normalizeArabic(a.name);
+    if (!k) continue;
+    if (!normToAreaIds.has(k)) normToAreaIds.set(k, []);
+    normToAreaIds.get(k).push(a.id);
+  }
+
+  // distinct (areaId, representativeId) appearing in the active files (sales + returns)
+  const pairs = await prisma.sale.findMany({
+    where: { uploadedFileId: { in: fileIds }, areaId: { not: null } },
+    select: { areaId: true, representativeId: true },
+    distinct: ['areaId', 'representativeId'],
+  });
+  const areaToReps = new Map(); // areaId → Set(repId)
+  for (const p of pairs) {
+    if (p.representativeId == null) continue;
+    if (!areaToReps.has(p.areaId)) areaToReps.set(p.areaId, new Set());
+    areaToReps.get(p.areaId).add(p.representativeId);
+  }
+
+  let updated = 0;
+  for (const r of reps) {
+    const assignedNorms = new Set(r.areas.map(a => normalizeArabic(a.area?.name)).filter(Boolean));
+    if (assignedNorms.size === 0) continue; // can't derive without areas
+
+    const repIds = new Set();
+    for (const nrm of assignedNorms) {
+      for (const aid of (normToAreaIds.get(nrm) || [])) {
+        const set = areaToReps.get(aid);
+        if (set) for (const rid of set) repIds.add(rid);
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: r.id } }),
+      ...(repIds.size ? [prisma.scientificRepCommercial.createMany({
+        data: [...repIds].map(commercialRepId => ({ scientificRepId: r.id, commercialRepId })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+    updated++;
+  }
+
+  return { updated };
+}
+
+/**
  * Assign items by NAME (creates if missing), then set.
  */
 export async function assignItemsByName(id, itemNames, userId = null) {
