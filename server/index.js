@@ -21,6 +21,7 @@ import {
   mergeItems, mergeReps, mergeCompanies,
   normalizeArabic,
 } from './modules/sales/sales.repository.js';
+import { COLUMN_ALIASES } from './modules/sales/sales.service.js';
 import authRoutes              from './modules/auth/auth.routes.js';
 import usersRoutes             from './modules/users/users.routes.js';
 import salesRoutes              from './modules/sales/sales.routes.js';
@@ -2161,50 +2162,57 @@ function analyzePharmaSalesData(data, filters) {
     return 'لا توجد بيانات تطابق الفلاتر المحددة';
   }
 
-  // إيجاد أعمدة المندوبين والمناطق والمنتجات
-  const repColumn = Object.keys(data[0]).find(k => 
-    k.toLowerCase().includes('rep') || k.toLowerCase().includes('مندوب')
-  );
-  const regionColumn = Object.keys(data[0]).find(k => 
-    k.toLowerCase().includes('region') || k.toLowerCase().includes('منطقة')
-  );
-  const drugColumn = Object.keys(data[0]).find(k => 
-    k.toLowerCase().includes('drug') || k.toLowerCase().includes('دواء') ||
-    k.toLowerCase().includes('product')
-  );
-  const saleColumn = Object.keys(data[0]).find(k => 
-    k.toLowerCase().includes('sale') || k.toLowerCase().includes('مبيعات') ||
-    k.toLowerCase().includes('quantity')
-  );
+  // إيجاد أعمدة المندوبين والمناطق والمنتجات والقيمة/الكمية باستخدام قائمة المرادفات
+  // الموحّدة (نفس ما يستخدمه محلّل الرفع) — يطابق أي اسم عمود عربي/إنجليزي مثل
+  // المندوب/الموقع/المادة/الكمية/القيمة/السعر الكلي بدل الكلمات الإنجليزية فقط.
+  const headers = Object.keys(data[0]);
+  const findCol = (aliases) => {
+    const norm = s => String(s).toLowerCase().trim();
+    const al = aliases.map(norm);
+    // تطابق تام أولاً، ثم احتواء (لالتقاط "اسم المندوب" ↔ "مندوب")
+    return headers.find(h => al.includes(norm(h)))
+        || headers.find(h => al.some(a => a.length > 2 && norm(h).includes(a)));
+  };
+  const repColumn    = findCol(COLUMN_ALIASES.repName);
+  const regionColumn = findCol(COLUMN_ALIASES.area);
+  const drugColumn   = findCol(COLUMN_ALIASES.item);
+  const qtyColumn    = findCol(COLUMN_ALIASES.quantity);
+  // عمود القيمة: نفضّل عمود الإجمالي/القيمة؛ وإن غاب نحسبه لاحقاً من الكمية × سعر الوحدة
+  const valueColumn  = findCol(COLUMN_ALIASES.totalValue);
+  const unitPriceCol = findCol(COLUMN_ALIASES.unitPrice);
 
-  // بناء البيانات حسب المندوب والمنطقة
+  const toNum = v => {
+    const n = parseFloat(String(v ?? '').replace(/[^\d.\-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // بناء البيانات حسب المندوب والمنطقة — نتتبّع الكمية والقيمة معاً
   const repRegionSales = {};
   filteredData.forEach(row => {
-    const rep = repColumn ? row[repColumn] : 'غير محدد';
+    const rep    = repColumn    ? row[repColumn]    : 'غير محدد';
     const region = regionColumn ? row[regionColumn] : 'غير محدد';
-    const drug = drugColumn ? row[drugColumn] : 'منتج';
-    const sale = saleColumn ? parseFloat(row[saleColumn]) || 0 : 0;
-    
+    const drug   = drugColumn   ? row[drugColumn]   : 'غير محدد';
+    const qty    = qtyColumn    ? toNum(row[qtyColumn]) : 0;
+    const value  = valueColumn
+      ? toNum(row[valueColumn])
+      : (unitPriceCol ? qty * toNum(row[unitPriceCol]) : 0);
+
     const key = `${rep}|${region}`;
     if (!repRegionSales[key]) {
-      repRegionSales[key] = {
-        rep,
-        region,
-        products: {},
-        total: 0
-      };
+      repRegionSales[key] = { rep, region, products: {}, totalQty: 0, total: 0 };
     }
-    
     if (!repRegionSales[key].products[drug]) {
-      repRegionSales[key].products[drug] = 0;
+      repRegionSales[key].products[drug] = { qty: 0, value: 0 };
     }
-    
-    repRegionSales[key].products[drug] += sale;
-    repRegionSales[key].total += sale;
+    repRegionSales[key].products[drug].qty   += qty;
+    repRegionSales[key].products[drug].value += value;
+    repRegionSales[key].totalQty += qty;
+    repRegionSales[key].total    += value;
   });
 
   // حساب الإجمالي الكلي
   const totalSales = Object.values(repRegionSales).reduce((sum, item) => sum + item.total, 0);
+  const totalQty   = Object.values(repRegionSales).reduce((sum, item) => sum + item.totalQty, 0);
 
   // إنشاء التقرير
   let report = `
@@ -2214,6 +2222,7 @@ function analyzePharmaSalesData(data, filters) {
 📈 ملخص البيانات:
 • إجمالي السجلات المحللة: ${filteredData.length}
 • عدد المندوبين: ${Object.keys(repRegionSales).length}
+• إجمالي الكمية: ${totalQty.toFixed(0)}
 • إجمالي المبيعات: ${totalSales.toFixed(2)}
 
 `;
@@ -2225,10 +2234,10 @@ function analyzePharmaSalesData(data, filters) {
   Object.values(repRegionSales).forEach((item, idx) => {
     report += `\n${idx + 1}. المندوب: ${item.rep} | المنطقة: ${item.region}
    `;
-    Object.entries(item.products).forEach(([drug, sales]) => {
-      report += `\n   • ${drug}: ${Number(sales).toFixed(2)}`;
+    Object.entries(item.products).forEach(([drug, p]) => {
+      report += `\n   • ${drug}: ${p.qty.toFixed(0)} وحدة — ${p.value.toFixed(2)}`;
     });
-    report += `\n   📊 الإجمالي للمندوب: ${item.total.toFixed(2)}\n`;
+    report += `\n   📊 الإجمالي للمندوب: ${item.totalQty.toFixed(0)} وحدة — ${item.total.toFixed(2)}\n`;
   });
 
   report += `

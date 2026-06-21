@@ -36,7 +36,7 @@ function ensureExcelUploadsDir() {
  * Column name variants the parser will accept (case-insensitive).
  * Extend this map to support more Excel header names.
  */
-const COLUMN_ALIASES = {
+export const COLUMN_ALIASES = {
   repName:    [
     'representative name', 'rep name', 'rep', 'sales rep', 'salesman', 'agent',
     'مندوب', 'اسم المندوب', 'المندوب', 'اسم الممثل', 'الممثل', 'البائع',
@@ -69,6 +69,7 @@ const COLUMN_ALIASES = {
     'قيمة', 'القيمة', 'قيمه', 'القيمه',
     'المجموع الكلي', 'مجموع كلي', 'المجموع', 'مجموع', 'الإجمالي الكلي',
     'اجمالي كلي', 'total amount', 'grand total', 'net total',
+    'السعر الكلي', 'سعر كلي', 'السعر الاجمالي', 'السعر الإجمالي', 'القيمة الكلية',
   ],
   unitPrice: [
     'price', 'unit price', 'unit cost', 'selling price', 'cost', 'rate',
