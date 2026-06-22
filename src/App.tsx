@@ -375,7 +375,7 @@ function AppInner() {
   const allPageIds: PageId[] = [
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
     'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
-    'distributor-sales', 'file-filter', 'pharmacy-analysis', 'bonus-sales',
+    'distributor-sales', 'file-filter', 'pharmacy-analysis', 'bonus-sales', 'org-structure',
   ];
   useEffect(() => {
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
