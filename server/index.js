@@ -1406,7 +1406,7 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     const targetUser = await prisma.user.findUnique({
       where: { id: targetId },
       select: {
-        id: true, displayName: true, username: true,
+        id: true, displayName: true, username: true, linkedRepId: true,
         areaAssignments: { select: { areaId: true } },
       },
     });
@@ -1431,7 +1431,7 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
           select: {
             representative: { select: { name: true } },
             area:           { select: { name: true } },
-            item:           { select: { name: true } },
+            item:           { select: { id: true, name: true } },
             quantity:   true,
             totalValue: true,
             recordType: true,
@@ -1547,6 +1547,53 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     // Sheet 4 – ملخص
     const totalSalesVal   = Math.round(salesRows.reduce((a, s)  => a + s.totalValue, 0));
     const totalReturnsVal = Math.round(returnRows.reduce((a, s) => a + s.totalValue, 0));
+
+    // ── Per-item NET quantity (sold − returned), e.g. 20 sold − 18 returned = 2 ──
+    const itemAgg = new Map(); // itemId → { name, net }
+    for (const s of sales) {
+      if (!s.item) continue;
+      if (!itemAgg.has(s.item.id)) itemAgg.set(s.item.id, { name: s.item.name, net: 0 });
+      const q = s.quantity || 0;
+      itemAgg.get(s.item.id).net += (s.recordType === 'return' ? -q : q);
+    }
+
+    // ── Targets: resolve the user's scientific rep, sum monthly targets across the
+    //    month(s) the file's data covers, per item ──
+    let sciRepId = targetUser.linkedRepId ?? null;
+    if (!sciRepId) {
+      const sr = await prisma.scientificRepresentative.findFirst({ where: { userId: targetUser.id }, select: { id: true } });
+      sciRepId = sr?.id ?? null;
+    }
+    const targetByItem = new Map(); // itemId → summed target
+    if (sciRepId && itemAgg.size > 0) {
+      const periods = new Set();
+      for (const s of sales) {
+        if (!s.saleDate) continue;
+        const d = new Date(s.saleDate);
+        periods.add(`${d.getMonth() + 1}-${d.getFullYear()}`);
+      }
+      const periodList = [...periods].map(p => { const [m, y] = p.split('-').map(Number); return { month: m, year: y }; });
+      if (periodList.length > 0) {
+        const tRows = await prisma.repItemTarget.findMany({
+          where: {
+            repType: 'scientific', repId: sciRepId,
+            itemId: { in: [...itemAgg.keys()] },
+            OR: periodList,
+          },
+          select: { itemId: true, target: true },
+        });
+        for (const tr of tRows) targetByItem.set(tr.itemId, (targetByItem.get(tr.itemId) || 0) + (tr.target || 0));
+      }
+    }
+
+    const itemTableRows = [...itemAgg.entries()]
+      .sort((a, b) => String(a[1].name).localeCompare(String(b[1].name), 'ar'))
+      .map(([id, v]) => {
+        const tgt = targetByItem.get(id) || 0;
+        const pct = tgt > 0 ? `${Math.round((v.net / tgt) * 100)}%` : '—';
+        return [v.name, Math.round(v.net), tgt > 0 ? Math.round(tgt) : '—', pct];
+      });
+
     const wsSummary = XLSX.utils.aoa_to_sheet([
       ['ملخص بيانات المستخدم'],
       [''],
@@ -1557,7 +1604,12 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
       ['إجمالي قيمة المبيعات',     totalSalesVal],
       ['إجمالي قيمة المرتجعات',    totalReturnsVal],
       ['الصافي',                   totalSalesVal - totalReturnsVal],
+      [''],
+      ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
+      ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
+      ...itemTableRows,
     ]);
+    wsSummary['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
 
     const buf   = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
