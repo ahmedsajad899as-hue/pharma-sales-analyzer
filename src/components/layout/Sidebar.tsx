@@ -108,6 +108,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
     { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
     { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager'] },
+    { id: 'org-structure',   label: 'الهيكلية',            icon: '🏗️', roles: ['company_manager','admin','manager','office_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
   ];
 
   // Feature-to-page mapping — pages hidden when feature is disabled
