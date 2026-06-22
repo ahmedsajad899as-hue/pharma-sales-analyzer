@@ -61,6 +61,11 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const upload = multer({ dest: uploadsDir });
 
+// Shared rep-report exports (downloaded via a tokenised public link sent over WhatsApp)
+const reportSharesDir = path.join(__serverDir, 'report-shares');
+if (!fs.existsSync(reportSharesDir)) fs.mkdirSync(reportSharesDir, { recursive: true });
+const REPORT_SHARE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // links valid 7 days
+
 // Multer for item images (keeps file extension, stores in uploads/items/)
 const imageUpload = multer({
   storage: multer.diskStorage({
@@ -94,6 +99,29 @@ if (process.env.NODE_ENV === 'production') {
 
 // ── Serve uploads (images etc.) — always available ─────────────
 app.use('/uploads', express.static(path.join(__serverDir, 'uploads')));
+
+// ── Public download for a shared rep report (no auth — link is the secret) ──────
+// Registered before the JWT middleware and the SPA catch-all so the rep can open it
+// directly from WhatsApp without logging in.
+app.get('/d/:token', (req, res) => {
+  const token = String(req.params.token || '');
+  if (!/^[A-Za-z0-9_-]+$/.test(token)) return res.status(400).send('رابط غير صالح');
+  const filePath = path.join(reportSharesDir, `${token}.xlsx`);
+  const metaPath = path.join(reportSharesDir, `${token}.json`);
+  if (!fs.existsSync(filePath)) return res.status(404).send('الملف غير موجود أو انتهت صلاحيته');
+  let name = 'report.xlsx';
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    if (meta.exp && Date.now() > meta.exp) {
+      try { fs.unlinkSync(filePath); fs.unlinkSync(metaPath); } catch {}
+      return res.status(410).send('انتهت صلاحية الرابط');
+    }
+    if (meta.name) name = meta.name;
+  } catch {}
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+  fs.createReadStream(filePath).pipe(res);
+});
 
 // ── Health check (PUBLIC — no auth required) ─────────────────
 app.get('/api/health', (req, res) => {
@@ -448,6 +476,24 @@ app.use('/api', (req, res, next) => {
   // Skip JWT for: health-check, auth, commercial webhook, and Gemini key diagnostic
   if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/ai-assistant/test-key') return next();
   requireAuth(req, res, next);
+});
+
+// ── Upload a rep's report Excel for WhatsApp sharing → returns a tokenised link ──
+app.post('/api/report-share', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'لا يوجد ملف' });
+    const token = req.file.filename; // multer's random filename = the link token
+    fs.renameSync(req.file.path, path.join(reportSharesDir, `${token}.xlsx`));
+    const name = String(req.body?.name || 'report.xlsx').slice(0, 120);
+    fs.writeFileSync(
+      path.join(reportSharesDir, `${token}.json`),
+      JSON.stringify({ name, exp: Date.now() + REPORT_SHARE_TTL_MS }),
+    );
+    res.json({ success: true, token, url: `/d/${token}` });
+  } catch (e) {
+    console.error('[report-share]', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // ── Admin: User management ───────────────────────────────────

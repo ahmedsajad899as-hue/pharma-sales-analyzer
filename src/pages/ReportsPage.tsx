@@ -1440,8 +1440,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   /* ─── Export with rep selection ─── */
-  // Build + download a SINGLE rep's Excel (reuses the per-rep logic of doExport).
-  const exportOneRepFile = async (kind: 'sci' | 'comm', rep: Rep) => {
+  // Build a SINGLE rep's Excel as a Blob (reuses the per-rep logic of doExport).
+  const buildOneRepBlob = async (kind: 'sci' | 'comm', rep: Rep): Promise<{ blob: Blob; fileName: string }> => {
     const qp = new URLSearchParams();
     if (fromDate) qp.set('startDate', fromDate);
     if (toDate)   qp.set('endDate',   toDate);
@@ -1469,24 +1469,34 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     if (rows[0]) ws['!cols'] = rows[0].map(() => ({ wch: 22 }));
     XLSX.utils.book_append_sheet(wb, ws, rep.name.slice(0, 31));
-    XLSX.writeFile(wb, `${rep.name}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const fileName = `${rep.name}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    return { blob: new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName };
   };
 
-  // Export the rep's Excel then open their WhatsApp chat with a ready message.
+  // Build the rep's Excel, upload it for a tokenised link, then open their WhatsApp
+  // chat with the download link in the message (wa.me can't attach files directly).
   const sendRepWhatsApp = async (kind: 'sci' | 'comm', rep: Rep) => {
     const wa = toWaNumber(rep.phone);
     if (!wa) { alert(`لا يوجد رقم واتساب محفوظ للمندوب «${rep.name}» — أضِف رقمه في صفحة المندوبين أولاً.`); return; }
+    let link = '';
     try {
       setExportProgress(`${t.reports.exportProgressMsg}: ${rep.name}...`);
       setExporting(true);
-      await exportOneRepFile(kind, rep);
+      const { blob, fileName } = await buildOneRepBlob(kind, rep);
+      const fd = new FormData();
+      fd.append('file', blob, fileName);
+      fd.append('name', fileName);
+      const res = await fetch('/api/report-share', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+      const j = await res.json();
+      if (!j.success) throw new Error(j.error || 'فشل رفع الملف');
+      link = `${window.location.origin}${j.url}`;
     } catch (e: any) {
-      setError('فشل تجهيز ملف المندوب: ' + e.message); setExporting(false); return;
+      setError('فشل تجهيز/رفع ملف المندوب: ' + e.message); setExporting(false); return;
     }
     setExporting(false);
-    const msg = `مرحباً ${rep.name}، إليك تقرير مبيعاتك بصيغة Excel.`;
+    const msg = `مرحباً ${rep.name}، إليك تقرير مبيعاتك (Excel) — اضغط الرابط للتحميل:\n${link}`;
     window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, '_blank');
-    alert('تم تنزيل ملف الإكسل — أرفِقه في محادثة الواتساب التي فُتحت ثم أرسله.');
   };
 
   const doExport = async () => {
