@@ -1458,9 +1458,22 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     const COL_TOTAL_PRICE  = 'السعر الكلي';
 
     // Strip السعر الكلي from output headers (its value will be merged into مبلغ الإجمالي)
-    const outputHeaders = useRaw
+    let outputHeaders = useRaw
       ? rawHeaders.filter(h => h !== COL_TOTAL_PRICE)
       : ['المندوب التجاري', 'المنطقة', 'الايتم', 'الكمية', 'القيمة', 'النوع', 'التاريخ'];
+
+    // Reorder raw columns so the total amount comes right after the core columns —
+    // i.e. BEFORE the note (ملاحظة) and the internal _sheetName column.
+    if (useRaw) {
+      const isTotal = h => h === COL_TOTAL_AMOUNT;
+      const isNote  = h => /ملاحظ/.test(h);
+      const isSheet = h => h === '_sheetName' || /sheet.?name/i.test(h);
+      const base  = outputHeaders.filter(h => !isTotal(h) && !isNote(h) && !isSheet(h));
+      const total = outputHeaders.filter(isTotal);
+      const note  = outputHeaders.filter(isNote);
+      const sheet = outputHeaders.filter(isSheet);
+      outputHeaders = [...base, ...total, ...note, ...sheet];
+    }
 
     // Strip time portion from ISO datetime strings (e.g. "2026-03-08T00:00:00" → "2026-03-08")
     const stripDatetime = (v) => {
