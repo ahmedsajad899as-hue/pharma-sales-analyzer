@@ -39,6 +39,7 @@ const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 const _importFileFilter          = () => import('./pages/FileFilterPage');
 const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
 const _importBonusSales          = () => import('./pages/BonusSalesPage');
+const _importOrgStructure        = () => import('./pages/OrgStructurePage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -58,6 +59,7 @@ const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
 const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
 const BonusSalesPage          = lazyWithRetry(_importBonusSales);
+const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -68,7 +70,7 @@ function preloadAllChunks() {
     _importMonthlyPlans(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
     _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis();
-    _importBonusSales();
+    _importBonusSales(); _importOrgStructure();
   });
 }
 
@@ -92,6 +94,7 @@ function PageLoader() {
 
 export type PageId =
   | 'dashboard'
+  | 'org-structure'
   | 'upload'
   | 'representatives'
   | 'scientific-reps'
@@ -432,6 +435,7 @@ function AppInner() {
     { id: 'file-filter',        node: <FileFilterPage /> },
     { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },
     { id: 'bonus-sales',        node: <BonusSalesPage /> },
+    { id: 'org-structure',      node: <OrgStructurePage /> },
   ];
 
   return (

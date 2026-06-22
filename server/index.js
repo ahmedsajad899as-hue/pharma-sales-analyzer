@@ -496,6 +496,45 @@ app.post('/api/report-share', upload.single('file'), (req, res) => {
   }
 });
 
+// ── Org structure for the current user's company (الهيكلية) ──────────────────
+app.get('/api/my-company-org', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'غير مصرح' });
+
+    // Companies the current user belongs to
+    const mine = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    const companyIds = [...new Set(mine.map(c => c.companyId))];
+    if (companyIds.length === 0) return res.json({ success: true, data: { users: [] } });
+
+    // All users assigned to those companies
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { companyId: { in: companyIds } },
+      select: { userId: true },
+    });
+    const userIds = [...new Set(assignments.map(a => a.userId))];
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: {
+        id: true, username: true, displayName: true, role: true, isActive: true, phone: true,
+        managersOfUser:     { select: { managerId: true } },
+        subordinatesOfUser: { select: { userId: true } },
+      },
+    });
+    const idSet = new Set(userIds);
+    const result = users.map(u => ({
+      id: u.id, username: u.username, displayName: u.displayName, role: u.role, isActive: u.isActive, phone: u.phone,
+      managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => idSet.has(mid)),
+      subordinateIds: u.subordinatesOfUser.map(s => s.userId).filter(sid => idSet.has(sid)),
+    }));
+    res.json({ success: true, data: { users: result } });
+  } catch (e) {
+    console.error('[my-company-org]', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // ── Admin: User management ───────────────────────────────────
 app.use('/api/admin/users', usersRoutes);
 

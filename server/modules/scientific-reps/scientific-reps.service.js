@@ -230,9 +230,10 @@ export async function assignAreasByName(id, areaNames, userId = null) {
  * file(s): a commercial rep is linked to a sci-rep iff they have at least one
  * sale OR return in any of the sci-rep's assigned areas within those files
  * (quantity-agnostic). Areas are matched by normalised name so spelling variants
- * collapse. Fully replaces the stored assignment — this is intentionally
- * data-driven (no manual override) per product requirement. Sci-reps with no
- * assigned areas are left untouched.
+ * collapse. Fully replaces the stored assignment with the area-derived set,
+ * MINUS any commercial reps the company manager has manually excluded for that
+ * sci-rep (see ScientificRepCommercialExclusion) — a manual removal stays in
+ * effect across resyncs. Sci-reps with no assigned areas are left untouched.
  *
  * @param {number[]} fileIds - active uploaded file ids
  * @returns {{ updated: number }}
@@ -243,6 +244,16 @@ export async function syncCommercialsByActiveFiles(fileIds) {
   const reps = await prisma.scientificRepresentative.findMany({
     select: { id: true, areas: { select: { area: { select: { name: true } } } } },
   });
+
+  // scientificRepId → Set(commercialRepId) manually excluded by a company manager
+  const exclusionRows = await prisma.scientificRepCommercialExclusion.findMany({
+    select: { scientificRepId: true, commercialRepId: true },
+  });
+  const exclusionsByRep = new Map();
+  for (const e of exclusionRows) {
+    if (!exclusionsByRep.has(e.scientificRepId)) exclusionsByRep.set(e.scientificRepId, new Set());
+    exclusionsByRep.get(e.scientificRepId).add(e.commercialRepId);
+  }
 
   // normalized area name → [areaId, …]
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
@@ -280,6 +291,9 @@ export async function syncCommercialsByActiveFiles(fileIds) {
       }
     }
 
+    const excluded = exclusionsByRep.get(r.id);
+    if (excluded) for (const cid of excluded) repIds.delete(cid);
+
     await prisma.$transaction([
       prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: r.id } }),
       ...(repIds.size ? [prisma.scientificRepCommercial.createMany({
@@ -314,10 +328,24 @@ export async function assignCompanies(id, companyIds) {
 
 /**
  * Assign commercial reps by ID array.
+ *
+ * Reps that were previously assigned and are missing from the new list were
+ * explicitly removed by the company manager — that removal is recorded as a
+ * persistent exclusion so the area-based auto-resync
+ * (syncCommercialsByActiveFiles) won't silently re-add them. Reps present in
+ * the new list have any prior exclusion cleared, since the manager just
+ * re-confirmed them.
  */
 export async function assignCommercialReps(id, commercialRepIds) {
   await assertExists(id);
-  await repo.setCommercialReps(id, commercialRepIds);
+  const uniqueNew = [...new Set(commercialRepIds)];
+  const currentIds = await repo.getCommercialRepIds(id);
+  const newSet = new Set(uniqueNew);
+
+  const newlyExcludedIds = currentIds.filter(cid => !newSet.has(cid));
+  const reincludedIds = uniqueNew;
+
+  await repo.setCommercialReps(id, uniqueNew, { newlyExcludedIds, reincludedIds });
   return getById(id);
 }
 

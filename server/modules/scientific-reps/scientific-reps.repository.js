@@ -64,6 +64,7 @@ export async function deleteScientificRep(id) {
   await prisma.scientificRepItem.deleteMany({ where: { scientificRepId: id } });
   await prisma.scientificRepCompany.deleteMany({ where: { scientificRepId: id } });
   await prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: id } });
+  await prisma.scientificRepCommercialExclusion.deleteMany({ where: { scientificRepId: id } });
 
   // Unlink any users pointing to this rep
   await prisma.user.updateMany({ where: { linkedRepId: id }, data: { linkedRepId: null } });
@@ -101,11 +102,32 @@ export async function setCompanies(scientificRepId, companyIds) {
   ]);
 }
 
-export async function setCommercialReps(scientificRepId, commercialRepIds) {
+export async function getCommercialRepIds(scientificRepId) {
+  const rows = await prisma.scientificRepCommercial.findMany({
+    where: { scientificRepId },
+    select: { commercialRepId: true },
+  });
+  return rows.map(r => r.commercialRepId);
+}
+
+// Sets the assigned commercial reps, and records/clears manual-removal
+// exclusions in the same transaction:
+// - newlyExcludedIds: reps that WERE assigned and are now being removed —
+//   recorded so the area-based auto-resync won't silently re-add them.
+// - reincludedIds: reps explicitly present in the new selection — any prior
+//   exclusion for them is cleared, since the manager re-confirmed them.
+export async function setCommercialReps(scientificRepId, commercialRepIds, { newlyExcludedIds = [], reincludedIds = [] } = {}) {
   return prisma.$transaction([
     prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId } }),
     ...(commercialRepIds.length ? [prisma.scientificRepCommercial.createMany({
       data: commercialRepIds.map(commercialRepId => ({ scientificRepId, commercialRepId })),
+    })] : []),
+    ...(newlyExcludedIds.length ? [prisma.scientificRepCommercialExclusion.createMany({
+      data: newlyExcludedIds.map(commercialRepId => ({ scientificRepId, commercialRepId })),
+      skipDuplicates: true,
+    })] : []),
+    ...(reincludedIds.length ? [prisma.scientificRepCommercialExclusion.deleteMany({
+      where: { scientificRepId, commercialRepId: { in: reincludedIds } },
     })] : []),
   ]);
 }

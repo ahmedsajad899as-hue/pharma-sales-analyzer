@@ -111,10 +111,11 @@ model MedicalRepresentative {
   user   User? @relation(fields: [userId], references: [id])
 
   // Relations
-  areas          RepresentativeArea[]
-  items          RepresentativeItem[]
-  sales          Sale[]
-  scientificReps ScientificRepCommercial[]
+  areas              RepresentativeArea[]
+  items              RepresentativeItem[]
+  sales              Sale[]
+  scientificReps     ScientificRepCommercial[]
+  exclusionFromReps  ScientificRepCommercialExclusion[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -404,17 +405,18 @@ model ScientificRepresentative {
   manager   User? @relation("RepManager", fields: [managerId], references: [id])
 
   // Assigned areas, items, companies, and commercial reps
-  areas          ScientificRepArea[]
-  items          ScientificRepItem[]
-  companies      ScientificRepCompany[]
-  commercialReps ScientificRepCommercial[]
-  monthlyPlans   MonthlyPlan[]
-  doctorVisits   DoctorVisit[]
-  pharmacyVisits PharmacyVisit[]
-  fmsPlans       FmsPlan[]
-  linkedUsers    User[]                    @relation("UserLinkedRep")
-  locationPoints RepLocationPoint[]
-  sharedFiles    UploadedFile[]            @relation("FileSharedWithRep")
+  areas               ScientificRepArea[]
+  items               ScientificRepItem[]
+  companies           ScientificRepCompany[]
+  commercialReps      ScientificRepCommercial[]
+  commercialExclusions ScientificRepCommercialExclusion[]
+  monthlyPlans        MonthlyPlan[]
+  doctorVisits        DoctorVisit[]
+  pharmacyVisits      PharmacyVisit[]
+  fmsPlans            FmsPlan[]
+  linkedUsers         User[]                    @relation("UserLinkedRep")
+  locationPoints      RepLocationPoint[]
+  sharedFiles         UploadedFile[]            @relation("FileSharedWithRep")
 
   @@unique([name, userId])
   @@index([userId])
@@ -488,6 +490,22 @@ model ScientificRepCommercial {
 
   @@id([scientificRepId, commercialRepId])
   @@map("scientific_rep_commercials")
+}
+
+// ─── ScientificRep ↔ CommercialRep exclusion (manual removal override) ──
+// When a company manager removes a commercial rep from a sci-rep's
+// assignment, this records that removal so the data-driven, area-based
+// resync (syncCommercialsByActiveFiles) does not silently re-add it.
+model ScientificRepCommercialExclusion {
+  scientificRepId Int
+  commercialRepId Int
+  excludedAt      DateTime @default(now())
+
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+  commercialRep MedicalRepresentative    @relation(fields: [commercialRepId], references: [id], onDelete: Cascade)
+
+  @@id([scientificRepId, commercialRepId])
+  @@map("scientific_rep_commercial_exclusions")
 }
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────
