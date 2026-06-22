@@ -36,12 +36,10 @@ const toWaNumber = (raw?: string | null): string => {
   return d;
 };
 
-function ExcelPreviewModal({ sheets: initSheets, onClose, fileName, whatsappPhone, whatsappName }: {
+function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   sheets: PreviewSheet[];
   onClose: () => void;
   fileName: string;
-  whatsappPhone?: string | null;
-  whatsappName?: string;
 }) {
   const [sheets, setSheets]           = useState<PreviewSheet[]>(initSheets);
   const [activeIdx, setActiveIdx]     = useState(0);
@@ -174,17 +172,6 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName, whatsappPhon
     XLSX.writeFile(wb, fileName);
   };
 
-  const waTarget = toWaNumber(whatsappPhone);
-  const sendWhatsApp = () => {
-    // 1) download the Excel so the manager can attach it, then 2) open the rep's chat
-    exportModified();
-    const greeting = whatsappName ? `مرحباً ${whatsappName}،` : 'مرحباً،';
-    const msg = `${greeting} إليك تقرير مبيعاتك بصيغة Excel.`;
-    const url = `https://wa.me/${waTarget}?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
-    alert('تم تنزيل ملف الإكسل — أرفِقه في محادثة الواتساب التي فُتحت ثم أرسله.');
-  };
-
   const colCount = sheet.rows[0]?.length ?? 0;
 
   // Clear selection when switching sheets
@@ -255,19 +242,6 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName, whatsappPhon
             >
               📥 تصدير Excel
             </button>
-            {waTarget && (
-              <button
-                onClick={sendWhatsApp}
-                title={`إرسال إلى واتساب: +${waTarget}`}
-                style={{
-                  padding: '7px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 13,
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                📲 إرسال واتساب
-              </button>
-            )}
             <button onClick={onClose} className="modal-close" style={{ position: 'static' }}>✕</button>
           </div>
         </div>
@@ -1466,6 +1440,55 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   /* ─── Export with rep selection ─── */
+  // Build + download a SINGLE rep's Excel (reuses the per-rep logic of doExport).
+  const exportOneRepFile = async (kind: 'sci' | 'comm', rep: Rep) => {
+    const qp = new URLSearchParams();
+    if (fromDate) qp.set('startDate', fromDate);
+    if (toDate)   qp.set('endDate',   toDate);
+    if (activeFileIds.length > 0) qp.set('fileIds', activeFileIds.join(','));
+    const qStr = qp.toString();
+
+    let sales: any[] = [];
+    let sciName: string | undefined;
+    if (kind === 'comm') {
+      const res = await fetch(`/api/export/raw-sales?commRepIds=${rep.id}&${qStr}`, { headers: authH() });
+      sales = (await res.json()).data ?? [];
+    } else {
+      const rRes = await fetch(`/api/scientific-reps/${rep.id}/report?${qStr}`, { headers: authH() });
+      const d = (await rRes.json()).data ?? {};
+      sciName = d.scientificRep?.name ?? rep.name;
+      const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
+      if (assignedIds.length > 0) {
+        const sRes = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${rep.id}&${qStr}`, { headers: authH() });
+        sales = (await sRes.json()).data ?? [];
+      }
+    }
+
+    const rows = buildSheet(sales, sciName);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    if (rows[0]) ws['!cols'] = rows[0].map(() => ({ wch: 22 }));
+    XLSX.utils.book_append_sheet(wb, ws, rep.name.slice(0, 31));
+    XLSX.writeFile(wb, `${rep.name}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  // Export the rep's Excel then open their WhatsApp chat with a ready message.
+  const sendRepWhatsApp = async (kind: 'sci' | 'comm', rep: Rep) => {
+    const wa = toWaNumber(rep.phone);
+    if (!wa) { alert(`لا يوجد رقم واتساب محفوظ للمندوب «${rep.name}» — أضِف رقمه في صفحة المندوبين أولاً.`); return; }
+    try {
+      setExportProgress(`${t.reports.exportProgressMsg}: ${rep.name}...`);
+      setExporting(true);
+      await exportOneRepFile(kind, rep);
+    } catch (e: any) {
+      setError('فشل تجهيز ملف المندوب: ' + e.message); setExporting(false); return;
+    }
+    setExporting(false);
+    const msg = `مرحباً ${rep.name}، إليك تقرير مبيعاتك بصيغة Excel.`;
+    window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, '_blank');
+    alert('تم تنزيل ملف الإكسل — أرفِقه في محادثة الواتساب التي فُتحت ثم أرسله.');
+  };
+
   const doExport = async () => {
     if (selCommIds.size === 0 && selSciIds.size === 0) {
       setError(t.reports.exportSelectError); return;
@@ -2647,14 +2670,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {sciReps.length === 0
                     ? <span style={{ color: '#9ca3af', fontSize: 13 }}>{t.reports.exportNoReps}</span>
                     : sciReps.map(r => (
-                      <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: selSciIds.has(r.id) ? '#f0fdf4' : '#f9fafb', border: `1px solid ${selSciIds.has(r.id) ? '#86efac' : '#e5e7eb'}` }}>
-                        <input type="checkbox" checked={selSciIds.has(r.id)} onChange={e => {
-                          const s = new Set(selSciIds);
-                          e.target.checked ? s.add(r.id) : s.delete(r.id);
-                          setSelSciIds(s);
-                        }} />
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
-                      </label>
+                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: selSciIds.has(r.id) ? '#f0fdf4' : '#f9fafb', border: `1px solid ${selSciIds.has(r.id) ? '#86efac' : '#e5e7eb'}` }}>
+                          <input type="checkbox" checked={selSciIds.has(r.id)} onChange={e => {
+                            const s = new Set(selSciIds);
+                            e.target.checked ? s.add(r.id) : s.delete(r.id);
+                            setSelSciIds(s);
+                          }} />
+                          <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
+                        </label>
+                        {toWaNumber(r.phone) && (
+                          <button type="button" title={`إرسال تقرير ${r.name} على واتساب`} disabled={exporting}
+                            onClick={() => sendRepWhatsApp('sci', r)}
+                            style={{ flexShrink: 0, padding: '6px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                            📲
+                          </button>
+                        )}
+                      </div>
                     ))}
                 </div>
               </div>
@@ -2676,14 +2708,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {commReps.length === 0
                     ? <span style={{ color: '#9ca3af', fontSize: 13 }}>{t.reports.exportNoReps}</span>
                     : commReps.map(r => (
-                      <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: selCommIds.has(r.id) ? '#eef2ff' : '#f9fafb', border: `1px solid ${selCommIds.has(r.id) ? '#a5b4fc' : '#e5e7eb'}` }}>
-                        <input type="checkbox" checked={selCommIds.has(r.id)} onChange={e => {
-                          const s = new Set(selCommIds);
-                          e.target.checked ? s.add(r.id) : s.delete(r.id);
-                          setSelCommIds(s);
-                        }} />
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
-                      </label>
+                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: selCommIds.has(r.id) ? '#eef2ff' : '#f9fafb', border: `1px solid ${selCommIds.has(r.id) ? '#a5b4fc' : '#e5e7eb'}` }}>
+                          <input type="checkbox" checked={selCommIds.has(r.id)} onChange={e => {
+                            const s = new Set(selCommIds);
+                            e.target.checked ? s.add(r.id) : s.delete(r.id);
+                            setSelCommIds(s);
+                          }} />
+                          <span style={{ fontSize: 13, fontWeight: 500 }}>{r.name}</span>
+                        </label>
+                        {toWaNumber(r.phone) && (
+                          <button type="button" title={`إرسال تقرير ${r.name} على واتساب`} disabled={exporting}
+                            onClick={() => sendRepWhatsApp('comm', r)}
+                            style={{ flexShrink: 0, padding: '6px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 14 }}>
+                            📲
+                          </button>
+                        )}
+                      </div>
                     ))}
                 </div>
               </div>
@@ -2743,16 +2784,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           sheets={previewSheets}
           fileName={previewFileName}
           onClose={() => setShowPreviewModal(false)}
-          whatsappPhone={
-            mode === 'scientific' ? sciReps.find(r => String(r.id) === sciRepId)?.phone
-            : mode === 'commercial' ? commReps.find(r => String(r.id) === commRepId)?.phone
-            : undefined
-          }
-          whatsappName={
-            mode === 'scientific' ? sciReps.find(r => String(r.id) === sciRepId)?.name
-            : mode === 'commercial' ? commReps.find(r => String(r.id) === commRepId)?.name
-            : undefined
-          }
         />
       )}
 
