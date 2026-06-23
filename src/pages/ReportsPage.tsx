@@ -1153,6 +1153,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       return v;
     };
     const isDateKey = (k: string) => /تاريخ|date/i.test(k);
+    const isTotalPriceKey  = (k: string) => k === 'السعر الكلي';
+    const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
+    const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
+    const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
     sales.forEach(s => {
@@ -1160,14 +1164,39 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     });
     if (hasRaw && allKeys.size > 0) {
       const headers = [...allKeys];
+      const companyKey  = headers.find(isCompanyKey);
+      const itemCodeKey = headers.find(isItemCodeKey);
       const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
       return [
         [...sciCol, t.reports.exportColRecordType, ...headers],
         ...sales.map(s => {
           let raw: any = {};
           try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
-          const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-          const dataRow = headers.map(h => { const v = raw[h]; if (isDateKey(h)) return fmtDateCell(v); if (typeof v !== 'number') return v ?? ''; const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h); return Math.round((isPriceCol ? convertVal(v) : v) * 100) / 100; });
+          const isRet = s.recordType === 'return';
+          const typeLabel = isRet ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
+          const dataRow = headers.map(h => {
+            // "السعر الكلي" is blank on return rows in the source file — fall back to
+            // "مبلغ الإجمالي" (where the return amount actually lives) and show it negative
+            if (isTotalPriceKey(h)) {
+              const merged = toNum(raw[h]) || toNum(raw['مبلغ الإجمالي']);
+              if (!merged) return '';
+              const signed = isRet ? -Math.abs(merged) : Math.abs(merged);
+              return Math.round(convertVal(signed) * 100) / 100;
+            }
+            // "رقم المادة" carries the company code on rows where "الشركة" is blank
+            // (e.g. return rows) — move it into the الشركة column instead
+            if (companyKey && itemCodeKey && h === companyKey) {
+              const v = raw[h];
+              if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+              return raw[itemCodeKey] ?? '';
+            }
+            if (companyKey && itemCodeKey && h === itemCodeKey) return '';
+            const v = raw[h];
+            if (isDateKey(h)) return fmtDateCell(v);
+            if (typeof v !== 'number') return v ?? '';
+            const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
+            return Math.round((isPriceCol ? convertVal(v) : v) * 100) / 100;
+          });
           return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
         }),
       ];
@@ -1330,6 +1359,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free/i.test(k);
     const isTotalPriceKey  = (k: string) => k === 'السعر الكلي';
     const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
+    const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
+    const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
     const fmtDate    = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -1345,6 +1376,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return { s, raw };
       });
       const headers = [...allKeys];
+      const companyKey  = headers.find(isCompanyKey);
+      const itemCodeKey = headers.find(isItemCodeKey);
       const dataRows = parsed.map(({ s, raw }) => {
         const isRet = s.recordType === 'return';
         return headers.map(k => {
@@ -1355,6 +1388,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             if (!merged) return '';
             return round2(isRet ? -Math.abs(merged) : Math.abs(merged));
           }
+          // "رقم المادة" carries the company code on rows where "الشركة" is blank
+          // (e.g. return rows) — move it into the الشركة column instead
+          if (companyKey && itemCodeKey && k === companyKey) {
+            const v = raw[k];
+            if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+            return raw[itemCodeKey] ?? '';
+          }
+          if (companyKey && itemCodeKey && k === itemCodeKey) return '';
           let v = raw[k];
           if (v === undefined || v === null || v === '') return '';
           if (isDateKey(k)) return fmtDate(v);
