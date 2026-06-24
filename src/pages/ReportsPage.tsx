@@ -863,6 +863,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (fileSourceCurrency === 'USD' && fileCurrencyMode === 'IQD') return v * fileExchangeRate;
     return v;
   };
+  // Per-row currency conversion for raw sale exports — when several active files are
+  // mixed (some USD, some IQD), each sale must convert using its OWN source file's
+  // currency/rate rather than the single globally-detected fileSourceCurrency above.
+  const convertSaleVal = (s: any, n: number) => {
+    const v = n || 0;
+    const srcCurrency = s?.uploadedFile?.detectedCurrency || fileSourceCurrency;
+    const rate        = s?.uploadedFile?.exchangeRate || fileExchangeRate;
+    if (srcCurrency === 'IQD' && fileCurrencyMode === 'USD') return v / rate;
+    if (srcCurrency === 'USD' && fileCurrencyMode === 'IQD') return v * rate;
+    return v;
+  };
   const fmtVal = (n: number) => {
     const v = convertVal(n || 0);
     return fileCurrencyMode === 'USD'
@@ -1240,7 +1251,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const merged = toNum(rawGet(h));
               if (!merged) return '';
               const signed = isRet ? -Math.abs(merged) : Math.abs(merged);
-              return Math.round(convertVal(signed) * 100) / 100;
+              return Math.round(convertSaleVal(s, signed) * 100) / 100;
             }
             // "رقم المادة" carries the company code on rows where "الشركة" is blank
             // (e.g. return rows) — move it into الشركة column instead
@@ -1254,7 +1265,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             if (isDateKey(h)) return formatDateUnified(v);
             if (typeof v !== 'number') return v ?? '';
             const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
-            return Math.round((isPriceCol ? convertVal(v) : v) * 100) / 100;
+            return Math.round((isPriceCol ? convertSaleVal(s, v) : v) * 100) / 100;
           });
           return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
         }),
@@ -1265,7 +1276,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       [...sciCol, t.reports.exportColRecordType, t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate],
       ...sales.map(s => {
         const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(convertVal(s.totalValue || 0)), formatDateUnified(s.saleDate)];
+        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(convertSaleVal(s, s.totalValue || 0)), formatDateUnified(s.saleDate)];
         return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
       }),
     ];
@@ -1370,9 +1381,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
       const json = await res.json();
       const sales: any[] = json.data ?? [];
-      const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
-      const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(convertVal(netVal)))]);
+      const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
+      // Convert each sale to the target currency BEFORE summing — active files can mix
+      // USD and IQD, so raw totalValue figures aren't comparable until converted.
+      const netVal = sales.reduce((s, r) => {
+        const v = convertSaleVal(r, r.totalValue || 0);
+        return r.recordType === 'return' ? s - v : s + v;
+      }, 0);
+      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(netVal))]);
       const rows = buildSheet(sales);
       result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
     }
@@ -1390,9 +1406,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const sJson = await sRes.json();
         sales2 = sJson.data ?? [];
       }
-      const netQty2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
-      const netVal2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(convertVal(netVal2)))]);
+      const netQty2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
+      const netVal2 = sales2.reduce((s, r) => {
+        const v = convertSaleVal(r, r.totalValue || 0);
+        return r.recordType === 'return' ? s - v : s + v;
+      }, 0);
+      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(netVal2))]);
       const rows = buildSheet(sales2, sciName);
       result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
     }
@@ -1500,7 +1519,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           if (isTotalPriceKey(k)) {
             const merged = toNum(rawGet(k));
             if (!merged) return '';
-            return round2(isRet ? -Math.abs(merged) : Math.abs(merged));
+            const signed = isRet ? -Math.abs(merged) : Math.abs(merged);
+            return round2(convertSaleVal(s, signed));
           }
           // "رقم المادة" carries the company code on rows where "الشركة" is blank
           // (e.g. return rows) — move it into the الشركة column instead
@@ -1520,7 +1540,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           }
           // Source values can carry long float artifacts (e.g. currency-converted unit prices) —
           // round to 2 decimals to match the original file's display precision
-          if (typeof v === 'number') return round2(v);
+          if (typeof v === 'number') {
+            const isPriceCol = /سعر|price|قيمة|مبلغ|cost|ثمن/i.test(k);
+            return round2(isPriceCol ? convertSaleVal(s, v) : v);
+          }
           return v;
         });
       });
@@ -1537,7 +1560,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         s.area?.name ?? '',
         s.item?.name ?? '',
         isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
-        s.totalValue ?? 0,   // value always positive
+        convertSaleVal(s, s.totalValue ?? 0),
         formatDateUnified(s.saleDate),
       ];
     });
@@ -1689,9 +1712,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
         const json = await res.json();
         const sales: any[] = json.data ?? [];
-        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
-        const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(convertVal(netVal))]);
+        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
+        const netVal = sales.reduce((s, r) => {
+          const v = convertSaleVal(r, r.totalValue || 0);
+          return r.recordType === 'return' ? s - v : s + v;
+        }, 0);
+        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportCommPrefix}-${repName}`, buildSheet(sales));  // no sciRepName for commercial
       }
 
@@ -1710,9 +1736,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           const sJson = await sRes.json();
           sales = sJson.data ?? [];
         }
-        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity   || 0) : s + (r.quantity   || 0), 0);
-        const netVal = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.totalValue || 0) : s + (r.totalValue || 0), 0);
-        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(convertVal(netVal))]);
+        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
+        const netVal = sales.reduce((s, r) => {
+          const v = convertSaleVal(r, r.totalValue || 0);
+          return r.recordType === 'return' ? s - v : s + v;
+        }, 0);
+        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
       }
 
