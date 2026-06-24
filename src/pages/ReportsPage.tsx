@@ -5,8 +5,9 @@ import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
-   drop tatweel/diacritics, and strip the definite article «ال». Mirrors the backend
-   normalizeArabic so matching is consistent between client and server. */
+   drop tatweel/diacritics, strip the definite article «ال», and collapse separators
+   (-, –, —, ،, comma, /) between words so "الدورة - الصحة" matches "الدورة الصحة".
+   Mirrors the backend normalizeArabic so matching is consistent between client and server. */
 const normalizeAr = (s: string): string =>
   String(s ?? '')
     .trim()
@@ -15,6 +16,7 @@ const normalizeAr = (s: string): string =>
     .replace(/ى/g, 'ي')                        // ى → ي
     .replace(/ـ/g, '')                              // tatweel
     .replace(/[ً-ٟ]/g, '')                    // diacritics
+    .replace(/[-–—,،/\\]+/g, ' ')        // separators (dash/comma/slash) → space
     .replace(/(^|\s)ال/g, '$1')               // remove ال (definite article)
     .replace(/\s+/g, ' ')
     .trim();

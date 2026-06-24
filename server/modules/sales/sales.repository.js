@@ -22,6 +22,7 @@ export function normalizeArabic(str) {
     .replace(/\u0649/g, '\u064A')                        // ى (alef maqsura) → ي
     .replace(/\u0640/g, '')                              // ـ Tatweel
     .replace(/[\u064B-\u065F]/g, '')                    // diacritics
+    .replace(/[-–—,،/\\]+/g, ' ')        // separators (dash/comma/slash/backslash) -> space
     .replace(/(^|\s)\u0627\u0644/g, '$1')               // remove ال (definite article) at word start
     .replace(/\s+/g, ' ')
     .trim();
