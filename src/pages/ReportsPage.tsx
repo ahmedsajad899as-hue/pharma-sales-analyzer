@@ -1165,7 +1165,31 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (s.rawData) { hasRaw = true; try { Object.keys(JSON.parse(s.rawData)).forEach((k: string) => allKeys.add(k)); } catch {} }
     });
     if (hasRaw && allKeys.size > 0) {
-      const headers = [...allKeys];
+      // Same alias merge as buildMergedSheet — different active files can label the
+      // same logical column differently (e.g. "الصيدلية" vs "اسم الصيدلية" vs "المذخر").
+      const ALIAS_GROUPS: string[][] = [
+        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون',
+         'المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
+        ['اسم المندوب', 'المندوب', 'مندوب'],
+        ['المنطقة', 'منطقة', 'المنطقه', 'منطقه'],
+        ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
+         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر'],
+        ['الكمية', 'كمية', 'الكميه', 'كميه'],
+        ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
+        ['التاريخ', 'تاريخ'],
+      ];
+      const groupOf = (k: string) => ALIAS_GROUPS.find(g => g.includes(k.trim()));
+      const labelForGroup = new Map<string[], string>();
+      const headers: string[] = [];
+      const sourceKeysOf = new Map<string, string[]>();
+      for (const k of allKeys) {
+        const grp = groupOf(k);
+        if (!grp) { headers.push(k); sourceKeysOf.set(k, [k]); continue; }
+        let label = labelForGroup.get(grp);
+        if (!label) { label = k; labelForGroup.set(grp, label); headers.push(label); sourceKeysOf.set(label, []); }
+        sourceKeysOf.get(label)!.push(k);
+      }
+
       const companyKey  = headers.find(isCompanyKey);
       const itemCodeKey = headers.find(isItemCodeKey);
       const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
@@ -1176,11 +1200,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
           const isRet = s.recordType === 'return';
           const typeLabel = isRet ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
+          const rawGet = (h: string) => {
+            for (const sk of sourceKeysOf.get(h) ?? [h]) {
+              const v = raw[sk];
+              if (v !== undefined && v !== null && v !== '') return v;
+            }
+            return undefined;
+          };
           const dataRow = headers.map(h => {
             // "السعر الكلي" is blank on return rows in the source file — fall back to
             // "مبلغ الإجمالي" (where the return amount actually lives) and show it negative
             if (isTotalPriceKey(h)) {
-              const merged = toNum(raw[h]) || toNum(raw['مبلغ الإجمالي']);
+              const merged = toNum(rawGet(h)) || toNum(raw['مبلغ الإجمالي']);
               if (!merged) return '';
               const signed = isRet ? -Math.abs(merged) : Math.abs(merged);
               return Math.round(convertVal(signed) * 100) / 100;
@@ -1188,12 +1219,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             // "رقم المادة" carries the company code on rows where "الشركة" is blank
             // (e.g. return rows) — move it into the الشركة column instead
             if (companyKey && itemCodeKey && h === companyKey) {
-              const v = raw[h];
+              const v = rawGet(h);
               if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-              return raw[itemCodeKey] ?? '';
+              return rawGet(itemCodeKey) ?? '';
             }
             if (companyKey && itemCodeKey && h === itemCodeKey) return '';
-            const v = raw[h];
+            const v = rawGet(h);
             if (isDateKey(h)) return fmtDateCell(v);
             if (typeof v !== 'number') return v ?? '';
             const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
@@ -1370,6 +1401,24 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const hasRaw = rows.some(s => s.rawData);
 
     if (hasRaw) {
+      // Different source files can label the same logical column differently
+      // (e.g. "الصيدلية" vs "اسم الصيدلية" vs "المذخر" all mean pharmacy/customer name).
+      // When several files are active together, merge each group into one combined
+      // column instead of showing them side by side — columns unique to one file
+      // (no match in any group) keep standing on their own via the Set-union below.
+      const ALIAS_GROUPS: string[][] = [
+        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون',
+         'المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
+        ['اسم المندوب', 'المندوب', 'مندوب'],
+        ['المنطقة', 'منطقة', 'المنطقه', 'منطقه'],
+        ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
+         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر'],
+        ['الكمية', 'كمية', 'الكميه', 'كميه'],
+        ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
+        ['التاريخ', 'تاريخ'],
+      ];
+      const groupOf = (k: string) => ALIAS_GROUPS.find(g => g.includes(k.trim()));
+
       const allKeys = new Set<string>();
       const parsed = rows.map(s => {
         let raw: any = {};
@@ -1377,28 +1426,57 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         Object.keys(raw).forEach(k => allKeys.add(k));
         return { s, raw };
       });
-      const headers = [...allKeys];
+
+      // Collapse aliased keys into one canonical header (the first literal spelling
+      // encountered) and remember which literal keys feed into each header.
+      const labelForGroup = new Map<string[], string>();
+      const headers: string[] = [];
+      const sourceKeysOf = new Map<string, string[]>();
+      for (const k of allKeys) {
+        const grp = groupOf(k);
+        if (!grp) {
+          headers.push(k);
+          sourceKeysOf.set(k, [k]);
+          continue;
+        }
+        let label = labelForGroup.get(grp);
+        if (!label) {
+          label = k;
+          labelForGroup.set(grp, label);
+          headers.push(label);
+          sourceKeysOf.set(label, []);
+        }
+        sourceKeysOf.get(label)!.push(k);
+      }
+
       const companyKey  = headers.find(isCompanyKey);
       const itemCodeKey = headers.find(isItemCodeKey);
       const dataRows = parsed.map(({ s, raw }) => {
         const isRet = s.recordType === 'return';
+        const rawGet = (h: string) => {
+          for (const sk of sourceKeysOf.get(h) ?? [h]) {
+            const v = raw[sk];
+            if (v !== undefined && v !== null && v !== '') return v;
+          }
+          return undefined;
+        };
         return headers.map(k => {
           // "السعر الكلي" is blank on return rows in the source file — fall back to
           // "مبلغ الإجمالي" (where the return amount actually lives) and show it negative
           if (isTotalPriceKey(k)) {
-            const merged = toNum(raw[k]) || toNum(raw['مبلغ الإجمالي']);
+            const merged = toNum(rawGet(k)) || toNum(raw['مبلغ الإجمالي']);
             if (!merged) return '';
             return round2(isRet ? -Math.abs(merged) : Math.abs(merged));
           }
           // "رقم المادة" carries the company code on rows where "الشركة" is blank
           // (e.g. return rows) — move it into the الشركة column instead
           if (companyKey && itemCodeKey && k === companyKey) {
-            const v = raw[k];
+            const v = rawGet(k);
             if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-            return raw[itemCodeKey] ?? '';
+            return rawGet(itemCodeKey) ?? '';
           }
           if (companyKey && itemCodeKey && k === itemCodeKey) return '';
-          let v = raw[k];
+          let v = rawGet(k);
           if (v === undefined || v === null || v === '') return '';
           if (isDateKey(k)) return fmtDate(v);
           // For returns: only negate quantity/total-amount fields, keep unit price & free qty positive
