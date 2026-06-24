@@ -1155,9 +1155,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       return v;
     };
     const isDateKey = (k: string) => /تاريخ|date/i.test(k);
-    const isTotalPriceKey  = (k: string) => k === 'السعر الكلي';
+    const TOTAL_VALUE_GROUP = ['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي'];
+    const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
+    // "cv" carries a date/time value in some import templates but isn't a real
+    // calendar-date encoding we can convert — merge the column, keep its raw value as-is
+    const NO_FORMAT_DATE_KEYS = new Set(['cv']);
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
@@ -1171,14 +1175,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون',
          'المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
         ['اسم المندوب', 'المندوب', 'مندوب'],
-        ['المنطقة', 'منطقة', 'المنطقه', 'منطقه'],
+        ['المنطقة', 'منطقة', 'المنطقه', 'منطقه', 'الموقع', 'موقع'],
         ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
-         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر'],
+         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
+         'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
+        ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
+         'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
         ['الكمية', 'كمية', 'الكميه', 'كميه'],
         ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
-        ['التاريخ', 'تاريخ'],
+        ['التاريخ', 'تاريخ', 'cv'],
+        ['الشركة', 'الشركه'],
+        TOTAL_VALUE_GROUP,
       ];
-      const groupOf = (k: string) => ALIAS_GROUPS.find(g => g.includes(k.trim()));
+      const groupOf = (k: string) => {
+        const norm = k.trim().toLowerCase();
+        return ALIAS_GROUPS.find(g => g.some(alias => alias.toLowerCase() === norm));
+      };
       const labelForGroup = new Map<string[], string>();
       const headers: string[] = [];
       const sourceKeysOf = new Map<string, string[]>();
@@ -1207,17 +1219,24 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             }
             return undefined;
           };
+          const rawGetSourceKey = (h: string) => {
+            for (const sk of sourceKeysOf.get(h) ?? [h]) {
+              const v = raw[sk];
+              if (v !== undefined && v !== null && v !== '') return sk;
+            }
+            return undefined;
+          };
           const dataRow = headers.map(h => {
-            // "السعر الكلي" is blank on return rows in the source file — fall back to
-            // "مبلغ الإجمالي" (where the return amount actually lives) and show it negative
+            // total-value group is blank on return rows in some source files — fall back to
+            // whichever aliased column actually holds the return amount and show it negative
             if (isTotalPriceKey(h)) {
-              const merged = toNum(rawGet(h)) || toNum(raw['مبلغ الإجمالي']);
+              const merged = toNum(rawGet(h));
               if (!merged) return '';
               const signed = isRet ? -Math.abs(merged) : Math.abs(merged);
               return Math.round(convertVal(signed) * 100) / 100;
             }
             // "رقم المادة" carries the company code on rows where "الشركة" is blank
-            // (e.g. return rows) — move it into the الشركة column instead
+            // (e.g. return rows) — move it into الشركة column instead
             if (companyKey && itemCodeKey && h === companyKey) {
               const v = rawGet(h);
               if (v !== undefined && v !== null && String(v).trim() !== '') return v;
@@ -1225,7 +1244,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             }
             if (companyKey && itemCodeKey && h === itemCodeKey) return '';
             const v = rawGet(h);
-            if (isDateKey(h)) return fmtDateCell(v);
+            if (isDateKey(h)) {
+              const sourceKey = rawGetSourceKey(h);
+              if (sourceKey && NO_FORMAT_DATE_KEYS.has(sourceKey)) return v;
+              return fmtDateCell(v);
+            }
             if (typeof v !== 'number') return v ?? '';
             const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
             return Math.round((isPriceCol ? convertVal(v) : v) * 100) / 100;
@@ -1388,12 +1411,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (!rows.length) return [['لا توجد بيانات']];
 
     const isDateKey  = (k: string) => /تاريخ|date/i.test(k);
-    // "الكمية المجانية" (free qty) must stay positive — exclude it from qty negation
-    const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free/i.test(k);
-    const isTotalPriceKey  = (k: string) => k === 'السعر الكلي';
+    // "الكمية المجانية"/"كمية البونص" (free/bonus qty) must stay positive — exclude from qty negation
+    const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free|بونص|bonus/i.test(k);
+    const TOTAL_VALUE_GROUP = ['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي'];
+    const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
     const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
+    // "cv" carries a date/time value in some import templates but isn't a real
+    // calendar-date encoding we can convert — merge the column, keep its raw value as-is
+    const NO_FORMAT_DATE_KEYS = new Set(['cv']);
     const fmtDate    = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -1410,14 +1437,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون',
          'المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
         ['اسم المندوب', 'المندوب', 'مندوب'],
-        ['المنطقة', 'منطقة', 'المنطقه', 'منطقه'],
+        ['المنطقة', 'منطقة', 'المنطقه', 'منطقه', 'الموقع', 'موقع'],
         ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
-         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر'],
+         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
+         'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
+        ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
+         'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
         ['الكمية', 'كمية', 'الكميه', 'كميه'],
         ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
-        ['التاريخ', 'تاريخ'],
+        ['التاريخ', 'تاريخ', 'cv'],
+        ['الشركة', 'الشركه'],
+        TOTAL_VALUE_GROUP,
       ];
-      const groupOf = (k: string) => ALIAS_GROUPS.find(g => g.includes(k.trim()));
+      const groupOf = (k: string) => {
+        const norm = k.trim().toLowerCase();
+        return ALIAS_GROUPS.find(g => g.some(alias => alias.toLowerCase() === norm));
+      };
 
       const allKeys = new Set<string>();
       const parsed = rows.map(s => {
@@ -1460,11 +1495,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           }
           return undefined;
         };
+        // Which literal source key actually supplied the column's value for this row —
+        // needed to tell a real "التاريخ" value apart from a passthrough one like "cv"
+        const rawGetSourceKey = (h: string) => {
+          for (const sk of sourceKeysOf.get(h) ?? [h]) {
+            const v = raw[sk];
+            if (v !== undefined && v !== null && v !== '') return sk;
+          }
+          return undefined;
+        };
         return headers.map(k => {
-          // "السعر الكلي" is blank on return rows in the source file — fall back to
-          // "مبلغ الإجمالي" (where the return amount actually lives) and show it negative
+          // total-value group is blank on return rows in some source files — fall back to
+          // whichever aliased column actually holds the return amount and show it negative
           if (isTotalPriceKey(k)) {
-            const merged = toNum(rawGet(k)) || toNum(raw['مبلغ الإجمالي']);
+            const merged = toNum(rawGet(k));
             if (!merged) return '';
             return round2(isRet ? -Math.abs(merged) : Math.abs(merged));
           }
@@ -1478,7 +1522,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           if (companyKey && itemCodeKey && k === itemCodeKey) return '';
           let v = rawGet(k);
           if (v === undefined || v === null || v === '') return '';
-          if (isDateKey(k)) return fmtDate(v);
+          if (isDateKey(k)) {
+            const sourceKey = rawGetSourceKey(k);
+            if (sourceKey && NO_FORMAT_DATE_KEYS.has(sourceKey)) return v;
+            return fmtDate(v);
+          }
           // For returns: only negate quantity/total-amount fields, keep unit price & free qty positive
           if (isRet && (isQtyKey(k) || isTotalAmountKey(k))) {
             const n = toNum(v);
