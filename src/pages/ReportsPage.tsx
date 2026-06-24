@@ -186,12 +186,19 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   };
 
   // Column totals — sum numeric values in data rows
-  // Skip: unit-price columns, and grand-total rows (first cell is empty string)
+  // Skip: unit-price columns, and the synthetic grand-total footer row (identified by
+  // its label text, not by an empty first cell — on raw per-rep sheets the first real
+  // data column is often legitimately blank on many rows, which would otherwise drop
+  // those rows from the sum entirely and produce a total lower than the real one).
+  const GRAND_TOTAL_LABELS = ['مجموع عام', 'Grand Total'];
+  const isGrandTotalRow = (row: string[]) => row.some(cell => GRAND_TOTAL_LABELS.includes(cell));
   const colTotals: (number | null)[] = Array.from({ length: colCount }, (_, ci) => {
     const header = (sheet.rows[0]?.[ci] ?? '');
-    if (/\bسعر.*الوحد|الوحد.*سعر|unit.?price|price.?per\b/i.test(header)) return null;
+    // \b word-boundary doesn't work on Arabic text in JS regex (Arabic letters aren't
+    // \w), so match the Arabic phrase directly instead of relying on \b here
+    if (/سعر\s*الوحد|unit\s*price|price\s*per/i.test(header)) return null;
     return sheet.rows.slice(1)
-      .filter(row => row[0] !== '')        // skip grand-total rows (empty # cell)
+      .filter(row => !isGrandTotalRow(row))
       .reduce((acc, row) => {
         const v = parseFloat(row[ci] ?? '');
         return acc + (isNaN(v) ? 0 : v);
