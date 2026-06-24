@@ -1140,28 +1140,42 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     </div>
   );
 
+  // Unified date formatter — strips time and renders DD/MM/YYYY regardless of the source
+  // format (Date object, Excel serial, ISO string, "DD/MM/YYYY[ HH:MM]" string). Numbers
+  // outside the plausible Excel-serial range (e.g. "cv"'s opaque time code on return rows)
+  // are left untouched since they don't represent a real calendar date.
+  const formatDateUnified = (v: any): any => {
+    const pad2 = (n: number) => n.toString().padStart(2, '0');
+    if (v instanceof Date) {
+      return isNaN(v.getTime()) ? v : `${pad2(v.getDate())}/${pad2(v.getMonth() + 1)}/${v.getFullYear()}`;
+    }
+    if (typeof v === 'number') {
+      if (v > 20000 && v < 80000) {
+        const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+        if (!isNaN(d.getTime())) return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+      }
+      return v;
+    }
+    if (typeof v === 'string') {
+      const ddmmyyyy = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (ddmmyyyy) {
+        const [, dd, mm, yyyy] = ddmmyyyy;
+        return `${dd.padStart(2, '0')}/${mm.padStart(2, '0')}/${yyyy}`;
+      }
+      const d = new Date(v);
+      if (!isNaN(d.getTime())) return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+    }
+    return v;
+  };
+
   /* ─── Build sheet AOA from raw sales (shared by doExport + buildPreviewData) ─── */
   const buildSheet = (sales: any[], sciRepName?: string): any[][] => {
     if (sales.length === 0) return [[t.reports.noDataTable]];
-    const fmtDateCell = (v: any): any => {
-      if (v instanceof Date) return v.toLocaleDateString('en-GB');
-      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
-        const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
-      }
-      if (typeof v === 'number' && v > 25000 && v < 60000) {
-        const d = new Date(Math.round((v - 25569) * 86400 * 1000));
-        return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
-      }
-      return v;
-    };
     const isDateKey = (k: string) => /تاريخ|date/i.test(k);
     const TOTAL_VALUE_GROUP = ['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي'];
     const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
-    // "cv" carries a date/time value in some import templates but isn't a real
-    // calendar-date encoding we can convert — merge the column, keep its raw value as-is
-    const NO_FORMAT_DATE_KEYS = new Set(['cv']);
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
@@ -1219,13 +1233,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             }
             return undefined;
           };
-          const rawGetSourceKey = (h: string) => {
-            for (const sk of sourceKeysOf.get(h) ?? [h]) {
-              const v = raw[sk];
-              if (v !== undefined && v !== null && v !== '') return sk;
-            }
-            return undefined;
-          };
           const dataRow = headers.map(h => {
             // total-value group is blank on return rows in some source files — fall back to
             // whichever aliased column actually holds the return amount and show it negative
@@ -1244,11 +1251,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             }
             if (companyKey && itemCodeKey && h === itemCodeKey) return '';
             const v = rawGet(h);
-            if (isDateKey(h)) {
-              const sourceKey = rawGetSourceKey(h);
-              if (sourceKey && NO_FORMAT_DATE_KEYS.has(sourceKey)) return v;
-              return fmtDateCell(v);
-            }
+            if (isDateKey(h)) return formatDateUnified(v);
             if (typeof v !== 'number') return v ?? '';
             const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
             return Math.round((isPriceCol ? convertVal(v) : v) * 100) / 100;
@@ -1262,7 +1265,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       [...sciCol, t.reports.exportColRecordType, t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate],
       ...sales.map(s => {
         const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(convertVal(s.totalValue || 0)), fmtDateCell(s.saleDate)];
+        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(convertVal(s.totalValue || 0)), formatDateUnified(s.saleDate)];
         return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
       }),
     ];
@@ -1418,10 +1421,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
-    // "cv" carries a date/time value in some import templates but isn't a real
-    // calendar-date encoding we can convert — merge the column, keep its raw value as-is
-    const NO_FORMAT_DATE_KEYS = new Set(['cv']);
-    const fmtDate    = (v: any) => { const d = new Date(v); return isNaN(d.getTime()) ? v : `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`; };
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -1495,15 +1494,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           }
           return undefined;
         };
-        // Which literal source key actually supplied the column's value for this row —
-        // needed to tell a real "التاريخ" value apart from a passthrough one like "cv"
-        const rawGetSourceKey = (h: string) => {
-          for (const sk of sourceKeysOf.get(h) ?? [h]) {
-            const v = raw[sk];
-            if (v !== undefined && v !== null && v !== '') return sk;
-          }
-          return undefined;
-        };
         return headers.map(k => {
           // total-value group is blank on return rows in some source files — fall back to
           // whichever aliased column actually holds the return amount and show it negative
@@ -1522,11 +1512,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           if (companyKey && itemCodeKey && k === itemCodeKey) return '';
           let v = rawGet(k);
           if (v === undefined || v === null || v === '') return '';
-          if (isDateKey(k)) {
-            const sourceKey = rawGetSourceKey(k);
-            if (sourceKey && NO_FORMAT_DATE_KEYS.has(sourceKey)) return v;
-            return fmtDate(v);
-          }
+          if (isDateKey(k)) return formatDateUnified(v);
           // For returns: only negate quantity/total-amount fields, keep unit price & free qty positive
           if (isRet && (isQtyKey(k) || isTotalAmountKey(k))) {
             const n = toNum(v);
@@ -1552,7 +1538,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         s.item?.name ?? '',
         isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
         s.totalValue ?? 0,   // value always positive
-        fmtDate(s.saleDate),
+        formatDateUnified(s.saleDate),
       ];
     });
     return [header, ...dataRows];
