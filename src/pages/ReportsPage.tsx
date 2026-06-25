@@ -179,7 +179,10 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     XLSX.writeFile(wb, fileName);
   };
 
-  const colCount = sheet.rows[0]?.length ?? 0;
+  // Widest row, not just row 0 — summary-style sheets (e.g. «الملخص») start with a
+  // short title row but have wider data rows below, so deriving the column count
+  // from row 0 alone would hide every value column.
+  const colCount = sheet.rows.reduce((m, r) => Math.max(m, r.length), 0);
 
   // Clear selection when switching sheets
   useEffect(() => { setSelStart(null); setSelEnd(null); }, [activeIdx]);
@@ -330,7 +333,9 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                 <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', textAlign: 'center', background: '#f8fafc' }}>
                   <button onClick={() => deleteRow(0)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
                 </td>
-                {(sheet.rows[0] ?? []).map((cell, ci) => (
+                {Array.from({ length: colCount }, (_, ci) => {
+                  const cell = sheet.rows[0]?.[ci] ?? '';
+                  return (
                   <td
                     key={ci}
                     onDoubleClick={() => startEdit(0, ci)}
@@ -350,7 +355,8 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                       />
                     ) : String(cell ?? '')}
                   </td>
-                ))}
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
