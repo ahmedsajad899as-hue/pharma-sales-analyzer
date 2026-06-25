@@ -541,6 +541,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // companies are summed together (the backend aggregates by the shared area/item records).
   const [overallFileIds, setOverallFileIds] = useState<number[]>([]);
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
+  // Remembers the last AUTO-populated date range so we can tell it apart from dates the
+  // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
+  // whose rows are all date-defaulted); only user-chosen dates filter the result.
+  const overallAutoDatesRef = useRef<{ from: string; to: string } | null>(null);
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
   // Preview modal state
@@ -820,9 +824,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
       });
+      // Only send dates the USER chose. Auto-populated dates (matching the ref) are
+      // treated as "no filter" so the backend's per-file detection runs and every
+      // selected file is included (a file whose rows are all date-defaulted would
+      // otherwise be re-excluded by its own auto-detected range).
+      const datesAreAuto = !!overallAutoDatesRef.current
+        && overallAutoDatesRef.current.from === fromDate
+        && overallAutoDatesRef.current.to === toDate;
+      const useUserDates = (!!fromDate || !!toDate) && !datesAreAuto;
       const params = new URLSearchParams();
-      if (fromDate) params.set('startDate', fromDate);
-      if (toDate)   params.set('endDate', toDate);
+      if (useUserDates && fromDate) params.set('startDate', fromDate);
+      if (useUserDates && toDate)   params.set('endDate', toDate);
       // Scope to all selected files — the backend sums matching areas/items/companies.
       params.set('fileIds', fileIds.join(','));
       const [salesRes, returnsRes] = await Promise.all([
@@ -842,9 +854,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const day = String(d.getDate()).padStart(2, '0');
         return `${y}-${m}-${day}`;
       };
-      if (!fromDate && !toDate) {
-        if (salesData.minDate) setFromDate(toLocalDate(salesData.minDate));
-        if (salesData.maxDate) setToDate(toLocalDate(salesData.maxDate));
+      // Reflect the detected range in the inputs whenever we did NOT filter by
+      // user dates, and remember it so the next run still treats it as "auto".
+      if (!useUserDates) {
+        const nf = salesData.minDate ? toLocalDate(salesData.minDate) : '';
+        const nt = salesData.maxDate ? toLocalDate(salesData.maxDate) : '';
+        setFromDate(nf); setToDate(nt);
+        overallAutoDatesRef.current = { from: nf, to: nt };
       }
       setOverallSales(parseOverall(salesData));
       setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);

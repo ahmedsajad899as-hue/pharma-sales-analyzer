@@ -99,55 +99,44 @@ router.get('/overall', async (req, res) => {
       ? (() => { const d = new Date(endDate); d.setUTCHours(23, 59, 59, 999); return d; })()
       : null;
 
+    // When no explicit dates are given, exclude each file's date-defaulted "garbage"
+    // rows (Excel had no date → saleDate = @default(now()) ≈ that file's uploadedAt)
+    // PER FILE — never via a single global min/max range. A global range would drop an
+    // ENTIRE file whose rows are all date-defaulted (e.g. a stock file with no date
+    // column), which silently excluded the 2nd file in multi-file analysis.
+    let noDateFileFilter = null;
     if (!startDate && !endDate && parsedFileIds.length > 0) {
-      // Get the upload dates of ALL selected files (supports multi-file analysis).
       const fileRecords = await prisma.uploadedFile.findMany({
         where: { id: { in: parsedFileIds } },
-        select: { uploadedAt: true },
+        select: { id: true, uploadedAt: true },
       });
-
-      // Use the LATEST upload moment across the selected files as the cutoff, so real
-      // data from every file is kept while garbage records (no Excel date → saleDate
-      // defaulted to @default(now()) ≈ that file's uploadedAt) are still excluded.
-      const latestUploadedAt = fileRecords.reduce((max, f) => {
-        if (!f.uploadedAt) return max;
-        const d = new Date(f.uploadedAt);
-        return !max || d > max ? d : max;
-      }, null);
-
-      if (latestUploadedAt) {
-        // Find real date range: only records with saleDate strictly before the upload moment
-        const dateRange = await prisma.sale.aggregate({
-          where: {
-            ...fileFilter,
-            ...userOwnershipFilter,
-            ...areaFilter,
-            ...(recordType ? { recordType } : {}),
-            saleDate: { lt: latestUploadedAt },
-          },
-          _min: { saleDate: true },
-          _max: { saleDate: true },
+      const orConds = [];
+      for (const f of fileRecords) {
+        if (!f.uploadedAt) { orConds.push({ uploadedFileId: f.id }); continue; }
+        const up = new Date(f.uploadedAt);
+        // Keep this file's rows dated before its own upload moment. If it has NONE
+        // (all rows date-defaulted), keep ALL its rows rather than dropping the file.
+        const realCount = await prisma.sale.count({
+          where: { uploadedFileId: f.id, ...(recordType ? { recordType } : {}), saleDate: { lt: up } },
         });
-
-        if (dateRange._min.saleDate && dateRange._max.saleDate) {
-          // Found real dates — scope to that range only
-          effectiveStartDate = dateRange._min.saleDate;
-          effectiveEndDate   = dateRange._max.saleDate;
-        }
-        // else: no real Excel dates found at all → leave null → no date filter → return all records
+        orConds.push(realCount > 0 ? { uploadedFileId: f.id, saleDate: { lt: up } } : { uploadedFileId: f.id });
       }
+      if (orConds.length > 0) noDateFileFilter = { OR: orConds };
     }
 
     const where = {
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
-      ...(effectiveStartDate || effectiveEndDate ? {
-        saleDate: {
-          ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),
-          ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
-        },
-      } : {}),
+      // No explicit dates → per-file garbage exclusion; otherwise the explicit range.
+      ...(noDateFileFilter
+        ? noDateFileFilter
+        : (effectiveStartDate || effectiveEndDate ? {
+            saleDate: {
+              ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),
+              ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
+            },
+          } : {})),
       ...(recordType ? { recordType } : {}),
     };
 
