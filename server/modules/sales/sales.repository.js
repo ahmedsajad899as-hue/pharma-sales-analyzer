@@ -182,24 +182,105 @@ export async function getAllAreas(userId) {
 // ─── Merge-duplicate helpers ──────────────────────────────────────────────────
 
 /**
- * Merge a duplicate item into a canonical item:
- *  - Re-point all Sales that reference `fromId` → `toId`
- *  - Re-point all RepresentativeItem rows that reference `fromId` → `toId`
- *    (skip if the canonical already has that rep-item pair)
- *  - Delete the duplicate item record.
+ * Merge a duplicate item INTO a canonical item, within an existing Prisma
+ * transaction `tx`. Re-points EVERY relation that references the item BEFORE
+ * deleting the source, so nothing is lost to the schema's `onDelete: Cascade`
+ * FKs (which would otherwise silently delete the source item's targets,
+ * rep/plan/user assignments, etc. when the row is removed).
+ *
+ * - Composite-unique relations (one row per other-entity + item) are moved,
+ *   de-duplicated against any row the target already has.
+ * - RepItemTarget is merged on its unique (repType, repId, itemId, month, year);
+ *   on conflict the LARGER target value is kept so a manager's target is never
+ *   silently dropped or double-counted.
+ * - Plain FK relations are bulk re-pointed.
+ *
+ * This is the single source of truth for item merges — both the manual
+ * /api/items/:id/merge endpoint and the bulk /api/dedup-names path use it, so
+ * the two can never diverge.
+ *
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {number} sourceId  – duplicate item id (deleted)
+ * @param {number} targetId  – canonical (kept) item id
+ * @returns {Promise<Record<string, any>>} counters per relation
+ */
+export async function mergeItemInto(tx, sourceId, targetId) {
+  const counters = {};
+
+  // ── Composite-unique relations: (otherKey, itemId) ──
+  const compositeRels = [
+    { table: 'representativeItem', key: 'representativeId' },
+    { table: 'scientificRepItem',  key: 'scientificRepId'  },
+    { table: 'planEntryItem',      key: 'planEntryId'      },
+    { table: 'productLineItem',    key: 'lineId'           },
+    { table: 'userItemAssignment', key: 'userId'           },
+  ];
+  for (const { table, key } of compositeRels) {
+    const sourceRows = await tx[table].findMany({ where: { itemId: sourceId } });
+    if (sourceRows.length === 0) continue;
+    const targetRows = await tx[table].findMany({
+      where: { itemId: targetId, [key]: { in: sourceRows.map(r => r[key]) } },
+      select: { [key]: true },
+    });
+    const existing = new Set(targetRows.map(r => r[key]));
+    const toMove   = sourceRows.filter(r => !existing.has(r[key]));
+    const toDelete = sourceRows.filter(r =>  existing.has(r[key]));
+    for (const row of toMove) {
+      await tx[table].update({ where: { [`${key}_itemId`]: { [key]: row[key], itemId: sourceId } }, data: { itemId: targetId } });
+    }
+    for (const row of toDelete) {
+      await tx[table].delete({ where: { [`${key}_itemId`]: { [key]: row[key], itemId: sourceId } } });
+    }
+    counters[table] = { moved: toMove.length, removed: toDelete.length };
+  }
+
+  // ── RepItemTarget — unique (repType, repId, itemId, month, year); operate by id ──
+  const srcTargets = await tx.repItemTarget.findMany({ where: { itemId: sourceId } });
+  let tMoved = 0, tMerged = 0;
+  for (const st of srcTargets) {
+    const dup = await tx.repItemTarget.findFirst({
+      where: { repType: st.repType, repId: st.repId, itemId: targetId, month: st.month, year: st.year },
+    });
+    if (!dup) {
+      await tx.repItemTarget.update({ where: { id: st.id }, data: { itemId: targetId } });
+      tMoved++;
+    } else {
+      if (st.target > dup.target) await tx.repItemTarget.update({ where: { id: dup.id }, data: { target: st.target } });
+      await tx.repItemTarget.delete({ where: { id: st.id } });
+      tMerged++;
+    }
+  }
+  counters.repTargets = { moved: tMoved, merged: tMerged };
+
+  // ── Plain FK relations (no composite unique on itemId) ──
+  const [sales, doctorsTarget, visits, pharmVisitItems, commInvItems, fmsItems] = await Promise.all([
+    tx.sale.updateMany({                 where: { itemId: sourceId }, data: { itemId: targetId } }),
+    tx.doctor.updateMany({               where: { targetItemId: sourceId }, data: { targetItemId: targetId } }),
+    tx.doctorVisit.updateMany({          where: { itemId: sourceId }, data: { itemId: targetId } }),
+    tx.pharmacyVisitItem.updateMany({    where: { itemId: sourceId }, data: { itemId: targetId } }),
+    tx.commercialInvoiceItem.updateMany({ where: { itemId: sourceId }, data: { itemId: targetId } }),
+    tx.fmsPlanItem.updateMany({          where: { itemId: sourceId }, data: { itemId: targetId } }),
+  ]);
+  counters.sales                  = sales.count;
+  counters.doctorsTarget          = doctorsTarget.count;
+  counters.doctorVisits           = visits.count;
+  counters.pharmacyVisitItems     = pharmVisitItems.count;
+  counters.commercialInvoiceItems = commInvItems.count;
+  counters.fmsPlanItems           = fmsItems.count;
+
+  await tx.item.delete({ where: { id: sourceId } });
+  return counters;
+}
+
+/**
+ * Merge a duplicate item into a canonical item (own transaction wrapper around
+ * mergeItemInto). Used by the bulk /api/dedup-names path.
  * @param {number} fromId  – duplicate item id
  * @param {number} toId    – canonical (kept) item id
  */
 export async function mergeItems(fromId, toId) {
   if (fromId === toId) return;
-  await prisma.$transaction([
-    // Update sales
-    prisma.sale.updateMany({ where: { itemId: fromId }, data: { itemId: toId } }),
-    // Delete old rep-item pairs for fromId (canonical will already have or get them)
-    prisma.representativeItem.deleteMany({ where: { itemId: fromId } }),
-    // Delete the duplicate item
-    prisma.item.delete({ where: { id: fromId } }),
-  ]);
+  await prisma.$transaction(tx => mergeItemInto(tx, fromId, toId), { timeout: 30000 });
 }
 
 /**

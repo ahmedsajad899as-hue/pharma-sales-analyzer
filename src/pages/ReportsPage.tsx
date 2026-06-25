@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { buildTargetActuals } from '../utils/itemNameMatch';
+import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
@@ -73,7 +73,11 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   // ── Sync summary sheet after any edit to a data sheet ────
   const recalcSummary = (sheetIdx: number, newRows: string[][], prev: PreviewSheet[]): PreviewSheet[] => {
     const updated = prev.map((s, i) => i === sheetIdx ? { ...s, rows: newRows } : s);
-    if (sheetIdx === 0 || !prev[0]) return updated;
+    // Auto-recalc only applies when sheet 0 is the cross-rep «ملخص عام» summary
+    // (its first header cell is '#'). Other layouts — e.g. a single-rep preview whose
+    // first sheet is the data itself, or the per-rep «الملخص» sheet — must NOT be
+    // rewritten on edit, otherwise editing one would corrupt the data sheet.
+    if (sheetIdx === 0 || !prev[0] || prev[0].rows[0]?.[0] !== '#') return updated;
 
     const header  = newRows[0] ?? [];
     const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
@@ -1385,6 +1389,87 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return sheets;
   };
 
+  /* ─── Fetch a rep's monthly item targets (no state mutation) — used to fill the
+        التاركت / نسبة التحقيق columns of the «الملخص» sheet during export. ─── */
+  const fetchRepTargets = async (
+    repType: 'scientific' | 'commercial',
+    repId: string | number,
+  ): Promise<{ itemId: number; itemName: string; target: number }[]> => {
+    try {
+      const refDate = fromDate ? new Date(fromDate) : new Date();
+      const qs = new URLSearchParams({
+        repType, repId: String(repId),
+        month: String(refDate.getMonth() + 1), year: String(refDate.getFullYear()),
+      });
+      const res  = await fetch(`/api/targets?${qs}`, { headers: authH() });
+      const json = await res.json();
+      return (json.data ?? []).map((t: any) => ({
+        itemId: t.itemId, itemName: t.item?.name ?? '—', target: t.target ?? 0,
+      }));
+    } catch { return []; }
+  };
+
+  /* ─── Build the «الملخص» summary sheet — mirrors the server export-user-sales
+        format (رفع الملفات export): rep name, assigned-area count, sales/return row
+        counts & values, net, and a per-item NET (sold − returned) table with
+        target + achievement %. Values use convertSaleVal so they match the
+        on-screen currency. ─── */
+  const buildSummarySheet = (
+    repName: string,
+    sales: any[],
+    opts: { areaCount?: number | null; targets?: { itemId: number; itemName: string; target: number }[] } = {},
+  ): (string | number)[][] => {
+    const saleRows   = sales.filter(s => s.recordType !== 'return');
+    const returnRows = sales.filter(s => s.recordType === 'return');
+    const totalSalesVal   = Math.round(saleRows.reduce((a, s)   => a + convertSaleVal(s, s.totalValue || 0), 0));
+    const totalReturnsVal = Math.round(returnRows.reduce((a, s) => a + convertSaleVal(s, s.totalValue || 0), 0));
+
+    // Per-item NET quantity (sold − returned), keyed by item name
+    const itemAgg = new Map<string, number>();
+    for (const s of sales) {
+      const name = s.item?.name ?? s.itemName;
+      if (!name) continue;
+      const q = s.quantity || 0;
+      itemAgg.set(name, (itemAgg.get(name) || 0) + (s.recordType === 'return' ? -q : q));
+    }
+
+    const targets = opts.targets ?? [];
+    const targetFor = (itemName: string): number => {
+      const norm  = normalizeItemName(itemName);
+      const exact = targets.find(t => normalizeItemName(t.itemName) === norm);
+      if (exact) return exact.target || 0;
+      const fuzzy = targets.find(t => fuzzyItemMatch(itemName, t.itemName));
+      return fuzzy?.target || 0;
+    };
+
+    const itemRows: (string | number)[][] = [...itemAgg.entries()]
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'ar'))
+      .map(([name, net]) => {
+        const tgt = targetFor(name);
+        const pct = tgt > 0 ? `${Math.round((net / tgt) * 100)}%` : '—';
+        return [name, Math.round(net), tgt > 0 ? Math.round(tgt) : '—', pct];
+      });
+
+    const rows: (string | number)[][] = [
+      ['ملخص بيانات المستخدم'],
+      [''],
+      ['المستخدم', repName],
+    ];
+    if (opts.areaCount != null) rows.push(['عدد المناطق المعيّنة', opts.areaCount]);
+    rows.push(
+      ['إجمالي صفوف المبيعات',  saleRows.length],
+      ['إجمالي صفوف المرتجعات', returnRows.length],
+      ['إجمالي قيمة المبيعات',  totalSalesVal],
+      ['إجمالي قيمة المرتجعات', totalReturnsVal],
+      ['الصافي',                totalSalesVal - totalReturnsVal],
+      [''],
+      ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
+      ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
+      ...itemRows,
+    );
+    return rows;
+  };
+
   /* ─── Build preview sheets (same data as export, returned as AOA) ─── */
   const buildPreviewData = async (): Promise<PreviewSheet[]> => {
     const qp = new URLSearchParams();
@@ -1394,10 +1479,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const qStr = qp.toString();
 
     const result: PreviewSheet[] = [];
+    // Per-rep «الملخص» sheets are collected separately and appended AFTER all the
+    // data sheets, so the cross-rep summary's row→sheet index mapping (used by the
+    // preview's auto-recalc) stays 1:1 with the data sheets.
+    const perRepSummaries: PreviewSheet[] = [];
     const summaryData: string[][] = [
       ['#', t.reports.exportSumType, t.reports.exportColRepName, t.reports.exportSumTotalQty, t.reports.exportSumTotalVal]
     ];
     let idx = 1;
+    const toStr = (rows: (string | number)[][]) => rows.map(r => r.map(v => String(v ?? '')));
 
     for (const repId of Array.from(selCommIds)) {
       const rep = commReps.find(r => r.id === repId);
@@ -1415,6 +1505,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(netVal))]);
       const rows = buildSheet(sales);
       result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+      const targets = await fetchRepTargets('commercial', repId);
+      perRepSummaries.push({ name: `ملخص-${repName}`.slice(0, 31), rows: toStr(buildSummarySheet(repName, sales, { targets })) });
     }
 
     for (const repId of Array.from(selSciIds)) {
@@ -1423,6 +1515,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const rJson = await rRes.json();
       const d = rJson.data ?? rJson;
       const sciName       = d.scientificRep?.name ?? rep?.name ?? `${t.reports.exportSciType} ${repId}`;
+      const areaCount     = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
       const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
       let sales2: any[] = [];
       if (assignedIds.length > 0) {
@@ -1438,6 +1531,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(netVal2))]);
       const rows = buildSheet(sales2, sciName);
       result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+      const targets = await fetchRepTargets('scientific', repId);
+      perRepSummaries.push({ name: `ملخص-${sciName}`.slice(0, 31), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })) });
     }
 
     if (summaryData.length > 1) {
@@ -1446,6 +1541,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       summaryData.push(['', t.reports.exportGrandTotal, '', String(gQty), String(gVal)]);
     }
     result.unshift({ name: t.reports.exportSummarySheet, rows: summaryData });
+    result.push(...perRepSummaries);
     return result;
   };
 
@@ -1601,6 +1697,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
 
       let sales: any[] = [];
+      let areaCount: number | null = null;            // assigned areas (scientific only)
 
       if (mode === 'commercial' && commRepId) {
         const res  = await fetch(`/api/export/raw-sales?commRepIds=${commRepId}&${qp.toString()}`, { headers: authH() });
@@ -1610,6 +1707,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const rRes  = await fetch(`/api/scientific-reps/${sciRepId}/report?${qp.toString()}`, { headers: authH() });
         const rJson = await rRes.json();
         const d = rJson.data ?? rJson;
+        areaCount = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
         const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
         if (assignedIds.length > 0) {
           const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${sciRepId}&${qp.toString()}`, { headers: authH() });
@@ -1630,9 +1728,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const sheetData = buildMergedSheet(sales, recFilter);
       const stringRows = sheetData.map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
 
+      // ── Build the «الملخص» sheet (always full net, regardless of the data view) ──
+      const targets = mode === 'commercial'
+        ? (commRepId ? await fetchRepTargets('commercial', commRepId) : [])
+        : (sciRepId  ? await fetchRepTargets('scientific', sciRepId)   : []);
+      const summaryRows = buildSummarySheet(repName, sales, { areaCount, targets })
+        .map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
+
       // Show data in the preview/editor modal — no auto-download; user saves via "تصدير Excel" when ready
       setPreviewFileName(`${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
-      setPreviewSheets([{ name: repName.slice(0, 31), rows: stringRows }]);
+      setPreviewSheets([
+        { name: repName.slice(0, 31), rows: stringRows },
+        { name: 'الملخص', rows: summaryRows },
+      ]);
       setShowPreviewModal(true);
     } catch (err) {
       console.error('fetchRowPreview error:', err);

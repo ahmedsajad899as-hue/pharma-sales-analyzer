@@ -18,7 +18,7 @@ import { buildNormalizationMap, areSimilar } from './lib/fuzzyMatch.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
-  mergeItems, mergeReps, mergeCompanies,
+  mergeItems, mergeItemInto, mergeReps, mergeCompanies,
   normalizeArabic,
 } from './modules/sales/sales.repository.js';
 import { COLUMN_ALIASES } from './modules/sales/sales.service.js';
@@ -999,61 +999,9 @@ app.post('/api/items/:sourceId/merge', requireAuth, async (req, res) => {
     if (!source) return res.status(404).json({ error: 'الايتم المصدر غير موجود' });
     if (!target) return res.status(404).json({ error: 'الايتم الهدف غير موجود' });
 
-    // Composite-unique relations: (otherKey, itemId)
-    const compositeRels = [
-      { table: 'representativeItem',  key: 'representativeId' },
-      { table: 'scientificRepItem',   key: 'scientificRepId'  },
-      { table: 'planEntryItem',       key: 'planEntryId'      },
-      { table: 'productLineItem',     key: 'lineId'           },
-      { table: 'userItemAssignment',  key: 'userId'           },
-    ];
-
-    const result = await prisma.$transaction(async (tx) => {
-      const counters = {};
-      for (const { table, key } of compositeRels) {
-        const sourceRows = await tx[table].findMany({ where: { itemId: sourceId } });
-        if (sourceRows.length === 0) continue;
-        const targetRows = await tx[table].findMany({
-          where: { itemId: targetId, [key]: { in: sourceRows.map(r => r[key]) } },
-          select: { [key]: true },
-        });
-        const existing = new Set(targetRows.map(r => r[key]));
-        const toMove   = sourceRows.filter(r => !existing.has(r[key]));
-        const toDelete = sourceRows.filter(r =>  existing.has(r[key]));
-
-        for (const row of toMove) {
-          await tx[table].update({
-            where: { [`${key}_itemId`]: { [key]: row[key], itemId: sourceId } },
-            data:  { itemId: targetId },
-          });
-        }
-        for (const row of toDelete) {
-          await tx[table].delete({
-            where: { [`${key}_itemId`]: { [key]: row[key], itemId: sourceId } },
-          });
-        }
-        counters[table] = { moved: toMove.length, removed: toDelete.length };
-      }
-
-      // Plain FK relations (no composite unique on itemId)
-      const [sales, doctorsTarget, visits, pharmVisitItems, commInvItems, fmsItems] = await Promise.all([
-        tx.sale.updateMany({              where: { itemId: sourceId }, data: { itemId: targetId } }),
-        tx.doctor.updateMany({            where: { targetItemId: sourceId }, data: { targetItemId: targetId } }),
-        tx.doctorVisit.updateMany({       where: { itemId: sourceId }, data: { itemId: targetId } }),
-        tx.pharmacyVisitItem.updateMany({ where: { itemId: sourceId }, data: { itemId: targetId } }),
-        tx.commercialInvoiceItem.updateMany({ where: { itemId: sourceId }, data: { itemId: targetId } }),
-        tx.fmsPlanItem.updateMany({       where: { itemId: sourceId }, data: { itemId: targetId } }),
-      ]);
-      counters.sales                 = sales.count;
-      counters.doctorsTarget         = doctorsTarget.count;
-      counters.doctorVisits          = visits.count;
-      counters.pharmacyVisitItems    = pharmVisitItems.count;
-      counters.commercialInvoiceItems = commInvItems.count;
-      counters.fmsPlanItems          = fmsItems.count;
-
-      await tx.item.delete({ where: { id: sourceId } });
-      return counters;
-    }, { timeout: 30000 });
+    // Re-point every relation (incl. RepItemTarget) then delete the source —
+    // shared with the bulk /api/dedup-names path so neither can lose targets.
+    const result = await prisma.$transaction(tx => mergeItemInto(tx, sourceId, targetId), { timeout: 30000 });
 
     res.json({ success: true, merged: { from: source.name, into: target.name }, counts: result });
   } catch (err) {
