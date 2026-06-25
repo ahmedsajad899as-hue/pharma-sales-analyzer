@@ -25,7 +25,7 @@ const normalizeAr = (s: string): string =>
 /* ─────────────────────────────────────────────────────────────────────────────
    ExcelPreviewModal — spreadsheet-like editor before export
 ───────────────────────────────────────────────────────────────────────────── */
-interface PreviewSheet { name: string; rows: string[][]; }
+interface PreviewSheet { name: string; rows: string[][]; noTotals?: boolean; }
 
 // Normalise a phone number to an international (Iraq-default) wa.me target: digits
 // only, leading 0 → 964, 00 prefix dropped, bare local numbers get 964 prepended.
@@ -393,6 +393,10 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                 );
               })}
             </tbody>
+            {/* Column-Σ footer — skipped on summary sheets («الملخص»), whose columns mix
+                heterogeneous values (area count, row counts, monetary values, item net
+                quantities) so a per-column sum would be meaningless. */}
+            {!sheet.noTotals && (
             <tfoot>
               <tr style={{ background: '#f0fdf4', fontWeight: 700 }}>
                 <td style={{ width: 28, minWidth: 28, borderRight: '1px solid #e5e7eb', background: '#dcfce7', textAlign: 'center', fontSize: 11, color: '#16a34a', padding: '4px 0' }}>Σ</td>
@@ -403,6 +407,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
                 ))}
               </tr>
             </tfoot>
+            )}
           </table>
         </div>
 
@@ -1512,7 +1517,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const rows = buildSheet(sales);
       result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
       const targets = await fetchRepTargets('commercial', repId);
-      perRepSummaries.push({ name: `ملخص-${repName}`.slice(0, 31), rows: toStr(buildSummarySheet(repName, sales, { targets })) });
+      perRepSummaries.push({ name: `ملخص-${repName}`.slice(0, 31), rows: toStr(buildSummarySheet(repName, sales, { targets })), noTotals: true });
     }
 
     for (const repId of Array.from(selSciIds)) {
@@ -1538,7 +1543,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const rows = buildSheet(sales2, sciName);
       result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
       const targets = await fetchRepTargets('scientific', repId);
-      perRepSummaries.push({ name: `ملخص-${sciName}`.slice(0, 31), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })) });
+      perRepSummaries.push({ name: `ملخص-${sciName}`.slice(0, 31), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })), noTotals: true });
     }
 
     if (summaryData.length > 1) {
@@ -1745,7 +1750,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setPreviewFileName(`${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
       setPreviewSheets([
         { name: repName.slice(0, 31), rows: stringRows },
-        { name: 'الملخص', rows: summaryRows },
+        { name: 'الملخص', rows: summaryRows, noTotals: true },
       ]);
       setShowPreviewModal(true);
     } catch (err) {
