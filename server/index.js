@@ -28,6 +28,7 @@ import salesRoutes              from './modules/sales/sales.routes.js';
 import representativesRoutes    from './modules/representatives/representatives.routes.js';
 import reportsRoutes            from './modules/reports/reports.routes.js';
 import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.routes.js';
+import { getRawSalesForExport } from './modules/scientific-reps/scientific-reps.service.js';
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
 import superAdminRoutes         from './modules/super-admin/super-admin.routes.js';
@@ -680,58 +681,47 @@ app.post('/api/areas', async (req, res) => {
 app.get('/api/export/raw-sales', async (req, res) => {
   try {
     const { commRepIds, fileId, fileIds, startDate, endDate, recordType, sciRepId, areaName, itemName } = req.query;
-    const userId = req.user?.id ?? null;
-    const repIds = commRepIds
-      ? String(commRepIds).split(',').map(Number).filter(Boolean)
-      : [];
-    if (repIds.length === 0) return res.json({ success: true, data: [] });
 
     // Support both fileIds=1,2,3 (multi) and legacy fileId=1 (single)
     const rawFileIds = fileIds || fileId;
     const parsedFileIds = rawFileIds
       ? String(rawFileIds).split(',').map(Number).filter(Boolean)
       : [];
+
+    // ── Scientific rep export: delegate entirely to the SAME rep/area/item
+    // resolution + shared-file + dedup logic used by the report endpoint, so
+    // the export's totals can never drift from what the on-screen report shows.
+    // (commRepIds is ignored here — getRawSalesForExport re-derives the full,
+    // expanded commercial-rep set itself, which is broader than the explicit
+    // links the frontend passes in.)
+    const sciId = sciRepId ? Number(sciRepId) : NaN;
+    if (!isNaN(sciId)) {
+      const sales = await getRawSalesForExport(sciId, {
+        fileIds:    parsedFileIds.length > 0 ? parsedFileIds : null,
+        startDate:  startDate || undefined,
+        endDate:    endDate   || undefined,
+        recordType: recordType || null,
+      });
+      return res.json({ success: true, data: sales });
+    }
+
+    // ── Commercial-rep export: plain rep/file/date/record filter ──────────
+    const userId = req.user?.id ?? null;
+    const repIds = commRepIds
+      ? String(commRepIds).split(',').map(Number).filter(Boolean)
+      : [];
+    if (repIds.length === 0) return res.json({ success: true, data: [] });
+
     const fileIdsFilter = parsedFileIds.length === 0
       ? {}
       : parsedFileIds.length === 1
         ? { uploadedFileId: parsedFileIds[0] }
         : { uploadedFileId: { in: parsedFileIds } };
 
-    // ── Scientific rep area+item filtering (same cross-user resolution as report) ──
-    let areaFilter   = {};
-    let itemFilter   = {};
-    if (sciRepId) {
-      const sciId = Number(sciRepId);
-      if (!isNaN(sciId)) {
-        const [areaLinks, itemLinks] = await Promise.all([
-          prisma.scientificRepArea.findMany({
-            where: { scientificRepId: sciId },
-            select: { area: { select: { name: true } } },
-          }),
-          prisma.scientificRepItem.findMany({
-            where: { scientificRepId: sciId },
-            select: { item: { select: { name: true } } },
-          }),
-        ]);
-        if (areaLinks.length) {
-          const areaNames = areaLinks.map(l => l.area.name);
-          const matchingAreas = await prisma.area.findMany({ where: { name: { in: areaNames } }, select: { id: true } });
-          areaFilter = { areaId: { in: matchingAreas.map(a => a.id) } };
-        }
-        if (itemLinks.length) {
-          const itemNames = itemLinks.map(l => l.item.name);
-          const matchingItems = await prisma.item.findMany({ where: { name: { in: itemNames } }, select: { id: true } });
-          itemFilter = { itemId: { in: matchingItems.map(i => i.id) } };
-        }
-      }
-    }
-
     const where = {
       representativeId: { in: repIds },
       ...(userId ? { userId } : {}),
       ...fileIdsFilter,
-      ...areaFilter,
-      ...itemFilter,
       ...(startDate || endDate ? {
         saleDate: {
           ...(startDate ? { gte: new Date(startDate) } : {}),

@@ -364,19 +364,26 @@ export async function getAssignedAreaIds(id) {
 // ─── Report ──────────────────────────────────────────────────
 
 /**
- * Generate a sales report for a scientific representative.
- * Aggregates across all assigned commercial reps,
- * filtered by assigned areas + items.
+ * Resolve which raw Sale rows belong to a scientific rep: commercial-rep
+ * expansion, area/item assignment, shared-file detection, and cross-file
+ * dedup. `select` lets callers fetch only the Prisma fields they need.
+ *
+ * Shared by getReport() (aggregated summary) and getRawSalesForExport()
+ * (full-row export) so the two can never drift out of sync — the export
+ * endpoint used to re-implement a simplified version of this filter
+ * (missing the commercial-rep name expansion, the name-match fallback, and
+ * Arabic-normalized area matching), which made its totals come out lower
+ * than the report's.
  */
-export async function getReport(id, query = {}) {
+async function resolveSciRepSales(id, query = {}, select) {
   const rep = await assertExists(id);
 
   // ── Arabic normalizer (unify alef variants, teh marbuta, remove diacritics) ──
   const _normalizeAr = s => String(s).trim()
-    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
-    .replace(/\u0629/g, '\u0647')
-    .replace(/\u0640/g, '')
-    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ـ/g, '')
+    .replace(/[ً-ٟ]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -465,10 +472,6 @@ export async function getReport(id, query = {}) {
   const hasItems = itemIds && itemIds.length > 0;
   const hasCommReps = expandedCommRepIds.length > 0;
 
-  const nameMatchSet = new Set(nameMatchIds);
-  const explicitSet  = new Set(explicitCommRepIds);
-  const allRepIds    = [...new Set([...nameMatchIds, ...expandedCommRepIds])];
-
   // ── Helper: build the sales-row WHERE filter ──────────────────────────────
   // RULE: always restrict to assigned commercial reps (or name-match) FIRST,
   // then intersect with area/item filters using AND.
@@ -490,30 +493,15 @@ export async function getReport(id, query = {}) {
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 
-  console.log('[SciRep.getReport] DEBUG', JSON.stringify({
-    repId: id, repName: rep.name, fileIds,
-    nameMatchCandidates: nameMatchCandidates.length,
-    nameMatchIds,
-    explicitCommRepIds,
-    expandedCommRepIds,
-    allRepIds,
-    areaIds,
-    itemIds,
-  }));
-
-  const emptyResult = {
-    scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
-    assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
-    assignedAreas: areaLinks.map(l => l.area),
-    assignedItems: itemLinks.map(l => l.item),
-    dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
-    summary: { totalQuantity: 0, totalValue: 0 },
-    byArea: [], byItem: [], byRep: [],
+  const meta = {
+    rep, commercialLinks, areaLinks, itemLinks,
+    explicitCommRepIds, expandedCommRepIds, nameMatchIds, areaIds, itemIds, fileIds,
   };
 
-  if (!fileIds || (Array.isArray(fileIds) && fileIds.length === 0)) return emptyResult;
+  if (!fileIds || fileIds.length === 0) {
+    return { ...meta, rawSales: [], sharedFileIds: [], nonSharedFileIds: [], linkedUserId: null };
+  }
 
-  const dateRange  = { startDate: query.startDate, endDate: query.endDate };
   const startDate  = query.startDate ? new Date(query.startDate) : null;
   const endDate    = query.endDate   ? new Date(query.endDate)   : null;
   const recordType = query.recordType || null;
@@ -527,7 +515,7 @@ export async function getReport(id, query = {}) {
     where: { linkedRepId: rep.id },
     select: { id: true },
   });
-  if (linkedUser && fileIds && fileIds.length > 0) {
+  if (linkedUser) {
     const sharedFiles = await prisma.uploadedFile.findMany({
       where: { id: { in: fileIds }, fileShares: { some: { userId: linkedUser.id } } },
       select: { id: true },
@@ -535,67 +523,40 @@ export async function getReport(id, query = {}) {
     sharedFileIds = sharedFiles.map(f => f.id);
   }
   // Files NOT shared directly with the rep → use normal name/area filter
-  const nonSharedFileIds = fileIds ? fileIds.filter(fid => !sharedFileIds.includes(fid)) : [];
-
-  console.log('[SciRep.getReport] linkedUser:', linkedUser?.id ?? null, '| sharedFileIds:', sharedFileIds, '| nonSharedFileIds:', nonSharedFileIds);
+  const nonSharedFileIds = fileIds.filter(fid => !sharedFileIds.includes(fid));
 
   let rawSales = [];
+  const salesWhere = buildSalesWhere();
 
-  // ── A. Shared files ────────────────────────────────────────────────────────
-  // If the rep has commercial-rep or area/item assignments, apply the same
-  // filter as non-shared files so only the rep's relevant data is shown.
-  // If the rep has NO assignments, skip — we can't identify their data.
-  if (sharedFileIds.length > 0) {
-    const sharedBase = {
-      ...(sharedFileIds.length === 1 ? { uploadedFileId: sharedFileIds[0] } : { uploadedFileId: { in: sharedFileIds } }),
-      ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
-      ...(recordType ? { recordType } : {}),
-    };
-    const salesSelect = {
-      quantity: true, totalValue: true,
-      areaId: true, itemId: true, customerId: true,
-      saleDate: true, recordType: true, uploadedFileId: true,
-      area: { select: { id: true, name: true } },
-      item: { select: { id: true, name: true } },
-      representative: { select: { id: true, name: true } },
-    };
+  if (salesWhere) {
+    const dateFilter = (startDate || endDate)
+      ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } }
+      : {};
 
-    // Always restrict to assigned commercial reps first, then area/item.
-    const sharedWhere = buildSalesWhere();
-
-    if (sharedWhere) {
+    // ── A. Shared files ────────────────────────────────────────────────────
+    if (sharedFileIds.length > 0) {
       const sharedSales = await prisma.sale.findMany({
-        where: { ...sharedBase, ...sharedWhere },
-        select: salesSelect,
+        where: {
+          ...(sharedFileIds.length === 1 ? { uploadedFileId: sharedFileIds[0] } : { uploadedFileId: { in: sharedFileIds } }),
+          ...dateFilter,
+          ...(recordType ? { recordType } : {}),
+          ...salesWhere,
+        },
+        select,
       });
       rawSales = rawSales.concat(sharedSales);
     }
-  }
 
-  // ── B. Non-shared files: use name-match + explicit-rep + area/item filter ─
-  if (nonSharedFileIds.length > 0) {
-    const nonSharedBase = {
-      ...(nonSharedFileIds.length === 1 ? { uploadedFileId: nonSharedFileIds[0] } : { uploadedFileId: { in: nonSharedFileIds } }),
-      ...(startDate || endDate ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
-      ...(recordType ? { recordType } : {}),
-    };
-
-    const nonSharedSalesSelect = {
-      quantity: true, totalValue: true,
-      areaId: true, itemId: true, customerId: true,
-      saleDate: true, recordType: true, uploadedFileId: true,
-      area: { select: { id: true, name: true } },
-      item: { select: { id: true, name: true } },
-      representative: { select: { id: true, name: true } },
-    };
-
-    // Always restrict to assigned commercial reps first, then area/item.
-    const nonSharedWhere = buildSalesWhere();
-
-    if (nonSharedWhere) {
+    // ── B. Non-shared files: name-match + explicit-rep + area/item filter ──
+    if (nonSharedFileIds.length > 0) {
       const nonSharedSales = await prisma.sale.findMany({
-        where: { ...nonSharedBase, ...nonSharedWhere },
-        select: nonSharedSalesSelect,
+        where: {
+          ...(nonSharedFileIds.length === 1 ? { uploadedFileId: nonSharedFileIds[0] } : { uploadedFileId: { in: nonSharedFileIds } }),
+          ...dateFilter,
+          ...(recordType ? { recordType } : {}),
+          ...salesWhere,
+        },
+        select,
       });
       rawSales = rawSales.concat(nonSharedSales);
     }
@@ -610,26 +571,56 @@ export async function getReport(id, query = {}) {
   // then for each key keep the rows from the single file that contains the MOST
   // occurrences. This collapses cross-file overlap while preserving every
   // genuine intra-file duplicate.
-  {
-    const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
-    for (const s of rawSales) {
-      const dayKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate';
-      const key = `${s.representative.id}|${s.areaId}|${s.itemId}|${s.customerId ?? 'no-customer'}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
-      let fileMap = keyToFileRows.get(key);
-      if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
-      const fid = s.uploadedFileId ?? 0;
-      const arr = fileMap.get(fid);
-      if (arr) arr.push(s); else fileMap.set(fid, [s]);
+  const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
+  for (const s of rawSales) {
+    const dayKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate';
+    const key = `${s.representative.id}|${s.areaId}|${s.itemId}|${s.customerId ?? 'no-customer'}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
+    let fileMap = keyToFileRows.get(key);
+    if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
+    const fid = s.uploadedFileId ?? 0;
+    const arr = fileMap.get(fid);
+    if (arr) arr.push(s); else fileMap.set(fid, [s]);
+  }
+  const deduped = [];
+  for (const fileMap of keyToFileRows.values()) {
+    let best = null;
+    for (const rows of fileMap.values()) {
+      if (!best || rows.length > best.length) best = rows;
     }
-    const deduped = [];
-    for (const fileMap of keyToFileRows.values()) {
-      let best = null;
-      for (const rows of fileMap.values()) {
-        if (!best || rows.length > best.length) best = rows;
-      }
-      if (best) deduped.push(...best);
-    }
-    rawSales = deduped;
+    if (best) deduped.push(...best);
+  }
+
+  return { ...meta, rawSales: deduped, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
+}
+
+const REPORT_SALES_SELECT = {
+  quantity: true, totalValue: true,
+  areaId: true, itemId: true, customerId: true,
+  saleDate: true, recordType: true, uploadedFileId: true,
+  area: { select: { id: true, name: true } },
+  item: { select: { id: true, name: true } },
+  representative: { select: { id: true, name: true } },
+};
+
+/**
+ * Generate a sales report for a scientific representative.
+ * Aggregates across all assigned commercial reps,
+ * filtered by assigned areas + items.
+ */
+export async function getReport(id, query = {}) {
+  const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT);
+  const { rep, commercialLinks, areaLinks, itemLinks, rawSales, fileIds } = resolved;
+
+  if (!fileIds || fileIds.length === 0) {
+    return {
+      scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
+      assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
+      assignedAreas: areaLinks.map(l => l.area),
+      assignedItems: itemLinks.map(l => l.item),
+      dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
+      summary: { totalQuantity: 0, totalValue: 0 },
+      byArea: [], byItem: [], byRep: [],
+    };
   }
 
   const aggregated = aggregateSalesWithReps(rawSales);
@@ -648,16 +639,35 @@ export async function getReport(id, query = {}) {
     byRep,
     _debug: {
       fileIds,
-      sharedFileIds,
-      nonSharedFileIds,
-      linkedUserId: linkedUser?.id ?? null,
-      nameMatchIds,
-      explicitCommRepIds,
-      expandedCommRepIds,
-      areaIds,
-      itemIds,
+      sharedFileIds: resolved.sharedFileIds,
+      nonSharedFileIds: resolved.nonSharedFileIds,
+      linkedUserId: resolved.linkedUserId,
+      nameMatchIds: resolved.nameMatchIds,
+      explicitCommRepIds: resolved.explicitCommRepIds,
+      expandedCommRepIds: resolved.expandedCommRepIds,
+      areaIds: resolved.areaIds,
+      itemIds: resolved.itemIds,
       rawRowCount: rawSales.length,
       totals,
     },
   };
+}
+
+const EXPORT_SALES_SELECT = {
+  quantity: true, totalValue: true, recordType: true, saleDate: true, rawData: true,
+  areaId: true, itemId: true, customerId: true, uploadedFileId: true,
+  area: { select: { id: true, name: true } },
+  item: { select: { id: true, name: true } },
+  representative: { select: { id: true, name: true } },
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
+};
+
+/**
+ * Raw (non-aggregated) Sale rows for a scientific rep's Excel export.
+ * Uses the EXACT same filter as getReport() via resolveSciRepSales(), so
+ * export totals always match the on-screen report's totals.
+ */
+export async function getRawSalesForExport(id, query = {}) {
+  const { rawSales } = await resolveSciRepSales(id, query, EXPORT_SALES_SELECT);
+  return rawSales;
 }
