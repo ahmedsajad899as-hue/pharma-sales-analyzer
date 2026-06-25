@@ -1760,6 +1760,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
     let sales: any[] = [];
     let sciName: string | undefined;
+    let areaCount: number | null = null;
     if (kind === 'comm') {
       const res = await fetch(`/api/export/raw-sales?commRepIds=${rep.id}&${qStr}`, { headers: authH() });
       sales = (await res.json()).data ?? [];
@@ -1767,6 +1768,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const rRes = await fetch(`/api/scientific-reps/${rep.id}/report?${qStr}`, { headers: authH() });
       const d = (await rRes.json()).data ?? {};
       sciName = d.scientificRep?.name ?? rep.name;
+      areaCount = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
       const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
       if (assignedIds.length > 0) {
         const sRes = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${rep.id}&${qStr}`, { headers: authH() });
@@ -1779,6 +1781,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     if (rows[0]) ws['!cols'] = rows[0].map(() => ({ wch: 22 }));
     XLSX.utils.book_append_sheet(wb, ws, rep.name.slice(0, 31));
+    // «الملخص» sheet — same format as the رفع الملفات export
+    const targets    = await fetchRepTargets(kind === 'comm' ? 'commercial' : 'scientific', rep.id);
+    const summaryRows = buildSummarySheet(sciName ?? rep.name, sales, { areaCount, targets });
+    const wsSummary  = XLSX.utils.aoa_to_sheet(summaryRows);
+    wsSummary['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
     const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const fileName = `${rep.name}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     return { blob: new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName };
@@ -1851,6 +1859,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         }, 0);
         summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportCommPrefix}-${repName}`, buildSheet(sales));  // no sciRepName for commercial
+        const targets = await fetchRepTargets('commercial', repId);
+        addSheet(`ملخص-${repName}`, buildSummarySheet(repName, sales, { targets }));
       }
 
       // ── Scientific reps (show sales of their assigned commercial reps) ─
@@ -1861,6 +1871,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const rJson = await rRes.json();
         const d = rJson.data ?? rJson;
         const sciName       = d.scientificRep?.name ?? rep?.name ?? `${t.reports.exportSciType} ${repId}`;
+        const areaCount     = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
         const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
         let sales: any[] = [];
         if (assignedIds.length > 0) {
@@ -1875,6 +1886,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         }, 0);
         summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
+        const targets = await fetchRepTargets('scientific', repId);
+        addSheet(`ملخص-${sciName}`, buildSummarySheet(sciName, sales, { areaCount, targets }));
       }
 
       // ── Grand total row ──────────────────────────────
