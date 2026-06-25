@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { buildTargetActuals } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
@@ -2218,6 +2219,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const finalSalesCompany = crossCompanies(salesCompanyFiltered, overallSales.byAreaItem, salesItemsFiltered);
         const finalRetCompany   = crossCompanies(retCompanyFiltered,   overallReturns?.byAreaItem ?? [], retItemsFiltered);
         const toggleExcluded = (k: string) => setOverallExcluded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+        // Net qty per target item, matched tolerantly (slash/space, pack suffixes…) — see itemNameMatch.ts
+        const targetActualNet = buildTargetActuals(targetData, finalSalesItems, finalRetItems);
 
         // ─── KPI totals: use filtered items tab (most stable aggregation) ────
         const isFiltered = hasTags || (normalise(overallSearch).length > 0);
@@ -2454,14 +2457,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                               <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 28, fontSize: 13 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
                             ) : targetData.filter(td => {
                               if (!hideEmptyTargetRows) return true;
-                              const salesRow = finalSalesItems.find(r => r.name === td.itemName);
-                              const retRow   = finalRetItems.find(r => r.name === td.itemName);
-                              const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                              const netQty   = targetActualNet.get(td.itemId) ?? 0;
                               return td.target > 0 || netQty !== 0;
                             }).map((td, i) => {
-                              const salesRow = finalSalesItems.find(r => r.name === td.itemName);
-                              const retRow   = finalRetItems.find(r => r.name === td.itemName);
-                              const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                              const netQty   = targetActualNet.get(td.itemId) ?? 0;
                               const pct      = td.target > 0 ? (netQty / td.target) * 100 : null;
                               const color    = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
                               const rowBg    = i % 2 === 0 ? '#fff' : '#f9fafb';
@@ -2483,11 +2482,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           </tbody>
                           {targetData.length > 0 && (() => {
                             const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
-                            const totalNet    = targetData.reduce((s, td) => {
-                              const salesRow = finalSalesItems.find(r => r.name === td.itemName);
-                              const retRow   = finalRetItems.find(r => r.name === td.itemName);
-                              return s + (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
-                            }, 0);
+                            const totalNet    = targetData.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
                             const totalPct  = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
                             const pctColor  = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                             return (
@@ -2519,6 +2514,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netValTotal = (commReport?.totalValue ?? 0) - (commReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
         const hasRet = (commReturnsReport?.totalQty ?? 0) > 0;
+        // Net qty per target item, matched tolerantly (slash/space, pack suffixes…) — see itemNameMatch.ts
+        const targetActualNet = buildTargetActuals(targetData, commReport.byItem, commReturnsReport?.byItem ?? []);
         return (
         <>
           {/* KPI Cards — Commercial */}
@@ -2609,14 +2606,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 28, fontSize: 13 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
                         ) : targetData.filter(td => {
                           if (!hideEmptyTargetRows) return true;
-                          const salesRow = commReport.byItem.find(r => r.name === td.itemName);
-                          const retRow   = commReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          const netQty   = targetActualNet.get(td.itemId) ?? 0;
                           return td.target > 0 || netQty !== 0;
                         }).map((td, i) => {
-                          const salesRow  = commReport.byItem.find(r => r.name === td.itemName);
-                          const retRow    = commReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          const netQty    = targetActualNet.get(td.itemId) ?? 0;
                           const pct       = td.target > 0 ? (netQty / td.target) * 100 : null;
                           const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
                           const rowBg = i % 2 === 0 ? '#fff' : '#f9fafb';
@@ -2638,11 +2631,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       </tbody>
                       {targetData.length > 0 && (() => {
                         const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
-                        const totalNet    = targetData.reduce((s, td) => {
-                          const salesRow = commReport.byItem.find(r => r.name === td.itemName);
-                          const retRow   = commReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          return s + (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
-                        }, 0);
+                        const totalNet    = targetData.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
                         const totalPct    = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
                         const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                         return (
@@ -2674,6 +2663,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netValTotal = (sciReport?.totalValue ?? 0) - (sciReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
         const hasRet = (sciReturnsReport?.totalQty ?? 0) > 0;
+        // Net qty per target item, matched tolerantly (slash/space, pack suffixes…) — see itemNameMatch.ts
+        const targetActualNet = buildTargetActuals(targetData, sciReport.byItem, sciReturnsReport?.byItem ?? []);
         return (
         <>
           {/* Info tags */}
@@ -2782,14 +2773,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           <tr><td colSpan={4} style={{ textAlign: 'center', color: '#9ca3af', padding: 28, fontSize: 13 }}>لا يوجد تارگت مسجل لهذا المندوب في الفترة المحددة</td></tr>
                         ) : targetData.filter(td => {
                           if (!hideEmptyTargetRows) return true;
-                          const salesRow = sciReport.byItem.find(r => r.name === td.itemName);
-                          const retRow   = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          const netQty   = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          const netQty   = targetActualNet.get(td.itemId) ?? 0;
                           return td.target > 0 || netQty !== 0;
                         }).map((td, i) => {
-                          const salesRow  = sciReport.byItem.find(r => r.name === td.itemName);
-                          const retRow    = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          const netQty    = (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
+                          const netQty    = targetActualNet.get(td.itemId) ?? 0;
                           const pct       = td.target > 0 ? (netQty / td.target) * 100 : null;
                           const color     = pct === null ? '#6b7280' : pct >= 100 ? '#059669' : pct >= 80 ? '#d97706' : '#dc2626';
                           const rowBg = i % 2 === 0 ? '#fff' : '#f9fafb';
@@ -2811,11 +2798,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       </tbody>
                       {targetData.length > 0 && (() => {
                         const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
-                        const totalNet    = targetData.reduce((s, td) => {
-                          const salesRow = sciReport.byItem.find(r => r.name === td.itemName);
-                          const retRow   = sciReturnsReport?.byItem.find(r => r.name === td.itemName);
-                          return s + (salesRow?.totalQty ?? 0) - (retRow?.totalQty ?? 0);
-                        }, 0);
+                        const totalNet    = targetData.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
                         const totalPct    = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
                         const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                         return (
