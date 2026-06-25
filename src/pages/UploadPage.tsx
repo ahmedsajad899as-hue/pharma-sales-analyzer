@@ -804,7 +804,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
                     <span>📅 {fmtDate(f.uploadedAt)}</span>
                     <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
-                      {currIsDollar ? 'USD $' : 'IQD ﷼'}
+                      {currIsDollar ? 'USD $' : 'IQD د.ع'}
                     </span>
                   </div>
                 </div>
