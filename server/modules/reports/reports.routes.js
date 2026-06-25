@@ -6,6 +6,7 @@
 
 import { Router } from 'express';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
+import { COLUMN_ALIASES } from '../sales/sales.service.js';
 import prisma from '../../lib/prisma.js';
 
 const router = Router();
@@ -159,16 +160,28 @@ router.get('/overall', async (req, res) => {
       if (!rawData) return null;
       try {
         const raw = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+        // Priority 1: an actual "company name" column (الشركة/company/المورد/...) —
+        // this is the real source of truth when present, even if its value is a
+        // messy concatenation like "HUMANISTurkeyN/A".
+        for (const key of COLUMN_ALIASES.company) {
+          if (raw[key] && String(raw[key]).trim()) return String(raw[key]).trim();
+        }
+        // Priority 2: known "item/material code" columns, which on some files
+        // carry the company name instead (e.g. "رقم المادة" → "HUMANISTurkeyN/A").
         for (const key of COMPANY_CODE_KEYS) {
           if (raw[key] && String(raw[key]).trim()) return String(raw[key]).trim();
         }
-        // Also scan all keys for one whose value looks like a company code
-        // (contains only Latin letters + no spaces, like "HUMANISTurkeyN/A")
+        // Priority 3: scan remaining keys for one whose value looks like a company
+        // code (Latin letters only, no spaces). Restricted to "code"/"كود" headers —
+        // NOT a bare "رقم"/"number" substring, which also matches invoice/order
+        // number columns ("رقم الفاتورة") and was wrongly picking up invoice
+        // numbers as the "company name".
         for (const [k, v] of Object.entries(raw)) {
           const val = String(v || '').trim();
           if (val && /^[A-Za-z0-9/\-_]+$/.test(val) && val.length > 3 && val.length < 40) {
             const keyLower = k.toLowerCase();
-            if (keyLower.includes('رقم') || keyLower.includes('code') || keyLower.includes('كود') || keyLower.includes('no.') || keyLower.includes('number')) {
+            const looksLikeInvoiceOrOrder = keyLower.includes('فاتورة') || keyLower.includes('فاتوره') || keyLower.includes('invoice') || keyLower.includes('طلب') || keyLower.includes('order');
+            if (!looksLikeInvoiceOrOrder && (keyLower.includes('code') || keyLower.includes('كود'))) {
               return val;
             }
           }
