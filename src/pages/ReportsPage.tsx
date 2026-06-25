@@ -537,7 +537,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company'>('area');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
-  const [overallFileId, setOverallFileId]   = useState<string>('');
+  // Overall mode supports analysing several files at once — their matching areas/items/
+  // companies are summed together (the backend aggregates by the shared area/item records).
+  const [overallFileIds, setOverallFileIds] = useState<number[]>([]);
+  const [overallFilesOpen, setOverallFilesOpen] = useState(false);
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
   // Preview modal state
@@ -622,11 +625,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           rowCount: f._count?.sales ?? f.rowCount,
           uploadedAt: f.uploadedAt,
         })));
-        // Always select the newest active file when activeFileIds changes
-        // (user can manually pick a different file afterwards)
-        // Also clear stale dates so backend auto-detects the new file's date range
+        // Default to selecting ALL active files for overall analysis (user can
+        // uncheck files afterwards). Also clear stale dates so the backend
+        // auto-detects the combined date range across the selected files.
         if (activeFiles.length > 0) {
-          setOverallFileId(String(activeFiles[0].id));
+          setOverallFileIds(activeFiles.map((f: any) => f.id));
           setFromDate('');
           setToDate('');
         }
@@ -801,8 +804,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   const loadOverallReport = async () => {
-    const fid = overallFileId || (activeFileIds.length > 0 ? String(activeFileIds[activeFileIds.length - 1]) : '');
-    if (!fid) { setError('يرجى اختيار ملف للتحليل'); return; }
+    // Selected files (multi). Fall back to all active files when none explicitly picked.
+    const fileIds = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
+    if (fileIds.length === 0) { setError('يرجى اختيار ملف للتحليل'); return; }
     setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); setTargetData([]);
     try {
       const parseOverall = (d: any): OverallReport => ({
@@ -819,12 +823,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const params = new URLSearchParams();
       if (fromDate) params.set('startDate', fromDate);
       if (toDate)   params.set('endDate', toDate);
-      // Always scope to a single selected file to avoid summing multiple files
-      if (overallFileId) {
-        params.set('fileIds', overallFileId);
-      } else if (activeFileIds.length > 0) {
-        params.set('fileIds', String(activeFileIds[activeFileIds.length - 1]));
-      }
+      // Scope to all selected files — the backend sums matching areas/items/companies.
+      params.set('fileIds', fileIds.join(','));
       const [salesRes, returnsRes] = await Promise.all([
         fetch(`/api/reports/overall?${params}&recordType=sale`,   { headers: authH() }),
         fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
@@ -1328,8 +1328,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     searchLabel: string,
   ): PreviewSheet[] => {
     if (!overallSales) return [];
-    const fileMeta = availableFiles.find(f => String(f.id) === overallFileId);
-    const fileName = (fileMeta as any)?.originalName || fileMeta?.filename || `ملف ${overallFileId}`;
+    const selIds  = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
+    const fileMeta = selIds.length === 1 ? availableFiles.find(f => f.id === selIds[0]) : null;
+    const fileName = selIds.length === 1
+      ? ((fileMeta as any)?.originalName || fileMeta?.filename || `ملف ${selIds[0]}`)
+      : `تحليل شامل (${selIds.length} ملفات)`;
     const cur = fileCurrencyMode === 'USD' ? '$' : 'IQD';
 
     // ── helper: merge sales + returns into combined rows ──
@@ -2060,15 +2063,51 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : (
-            <select className="form-input" style={{ flex: '1 1 200px', maxWidth: 360 }} value={overallFileId}
-              onChange={e => { setOverallFileId(e.target.value); setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate(''); }}>
-              <option value="">-- اختر ملف --</option>
-              {availableFiles.map(f => (
-                <option key={f.id} value={f.id}>
-                  {f.filename}{f.rowCount != null ? ` (صفوف: ${f.rowCount.toLocaleString()})` : ''}{f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
-                </option>
-              ))}
-            </select>
+            <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
+              <button
+                type="button"
+                className="form-input"
+                onClick={() => setOverallFilesOpen(o => !o)}
+                style={{ width: '100%', textAlign: 'right', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#fff' }}
+              >
+                <span style={{ color: '#6b7280', fontSize: 11 }}>{overallFilesOpen ? '▲' : '▼'}</span>
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                  {overallFileIds.length === 0
+                    ? '-- اختر ملف(ات) --'
+                    : overallFileIds.length === 1
+                      ? (availableFiles.find(f => f.id === overallFileIds[0])?.filename ?? `ملف ${overallFileIds[0]}`)
+                      : `${overallFileIds.length} ملفات مختارة`}
+                </span>
+              </button>
+              {overallFilesOpen && (
+                <>
+                  {/* click-outside backdrop */}
+                  <div onClick={() => setOverallFilesOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
+                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: 300, overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #eee', fontSize: 12, position: 'sticky', top: 0, background: '#fff' }}>
+                      <button type="button" onClick={() => { setOverallFileIds(availableFiles.map(f => f.id)); setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate(''); }} style={{ background: 'none', border: 'none', color: '#059669', cursor: 'pointer', fontWeight: 700 }}>تحديد الكل</button>
+                      <button type="button" onClick={() => { setOverallFileIds([]); setOverallSales(null); setOverallReturns(null); }} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: 700 }}>إلغاء الكل</button>
+                    </div>
+                    {availableFiles.length === 0
+                      ? <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>لا توجد ملفات مفعّلة — فعّل ملفات من «رفع الملفات»</div>
+                      : availableFiles.map(f => {
+                        const checked = overallFileIds.includes(f.id);
+                        return (
+                          <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: checked ? '#f0fdf4' : '#fff', borderBottom: '1px solid #f3f4f6' }}>
+                            <input type="checkbox" checked={checked} onChange={e => {
+                              setOverallFileIds(prev => e.target.checked ? [...prev, f.id] : prev.filter(id => id !== f.id));
+                              setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate('');
+                            }} />
+                            <span style={{ fontSize: 13 }}>
+                              {f.filename}{f.rowCount != null ? ` (صفوف: ${f.rowCount.toLocaleString()})` : ''}{f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* Date range */}

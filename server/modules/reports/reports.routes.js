@@ -100,19 +100,22 @@ router.get('/overall', async (req, res) => {
       : null;
 
     if (!startDate && !endDate && parsedFileIds.length > 0) {
-      // Get the file's upload date — only if it belongs to the current user
-      const fileRecord = await prisma.uploadedFile.findFirst({
-        where: { id: parsedFileIds[0] },
+      // Get the upload dates of ALL selected files (supports multi-file analysis).
+      const fileRecords = await prisma.uploadedFile.findMany({
+        where: { id: { in: parsedFileIds } },
         select: { uploadedAt: true },
       });
 
-      if (fileRecord?.uploadedAt) {
-        // Use the exact upload timestamp (not midnight of upload day) as the cutoff.
-        // Records with no date in Excel get saleDate = @default(now()) ≈ uploadedAt,
-        // so using `lt: uploadedAt` correctly excludes only those garbage records
-        // while including real data from the same calendar day as the upload.
-        const uploadedAt = new Date(fileRecord.uploadedAt);
+      // Use the LATEST upload moment across the selected files as the cutoff, so real
+      // data from every file is kept while garbage records (no Excel date → saleDate
+      // defaulted to @default(now()) ≈ that file's uploadedAt) are still excluded.
+      const latestUploadedAt = fileRecords.reduce((max, f) => {
+        if (!f.uploadedAt) return max;
+        const d = new Date(f.uploadedAt);
+        return !max || d > max ? d : max;
+      }, null);
 
+      if (latestUploadedAt) {
         // Find real date range: only records with saleDate strictly before the upload moment
         const dateRange = await prisma.sale.aggregate({
           where: {
@@ -120,7 +123,7 @@ router.get('/overall', async (req, res) => {
             ...userOwnershipFilter,
             ...areaFilter,
             ...(recordType ? { recordType } : {}),
-            saleDate: { lt: uploadedAt },
+            saleDate: { lt: latestUploadedAt },
           },
           _min: { saleDate: true },
           _max: { saleDate: true },
