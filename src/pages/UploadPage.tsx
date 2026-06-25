@@ -164,6 +164,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [menuOpenUp, setMenuOpenUp] = useState(false);
   const [expandedSharesId, setExpandedSharesId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncDone, setSyncDone] = useState<number | null>(null);
@@ -690,7 +691,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     {/* 3-dots menu on visual left */}
                     <div style={{ position: 'relative', flexShrink: 0 }}>
                       <button
-                        onClick={() => setOpenMenuId(openMenuId === f.id ? null : f.id)}
+                        onClick={(e) => {
+                          if (openMenuId === f.id) { setOpenMenuId(null); return; }
+                          // Flip the menu upward when there isn't enough room below the
+                          // button (e.g. the last file card in a long list) so its lower
+                          // options aren't clipped by the viewport edge.
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setMenuOpenUp(window.innerHeight - rect.bottom < 280);
+                          setOpenMenuId(f.id);
+                        }}
                         style={{
                           width: 28, height: 28, border: '1px solid #e2e8f0', borderRadius: 6,
                           background: openMenuId === f.id ? '#f1f5f9' : '#fff',
@@ -702,9 +711,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
                       {openMenuId === f.id && (
                         <div style={{
-                          position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 1000,
+                          position: 'absolute', right: 0, zIndex: 1000,
+                          ...(menuOpenUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
                           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
                           boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 190,
+                          maxHeight: '70vh', overflowY: 'auto',
                           padding: '4px 0', direction: 'rtl',
                         }}>
                           {/* Activate/Deactivate */}
