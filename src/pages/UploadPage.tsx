@@ -178,6 +178,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   // Post-upload "merge similar items" confirmation modal
   type DedupEntry = { from: string; to: string; source: string; entityType: string };
   const [autoDedup, setAutoDedup] = useState<DedupEntry[] | null>(null);
+  const [autoDedupSel, setAutoDedupSel] = useState<Set<number>>(new Set());
   const [autoDedupApplying, setAutoDedupApplying] = useState(false);
 
   // Currency conversion state
@@ -331,18 +332,23 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const json = await res.json();
       if (!res.ok) return;
       const items: DedupEntry[] = (json.normalizations ?? []).filter((e: DedupEntry) => e.entityType === 'item');
-      if (items.length > 0) setAutoDedup(items);
+      if (items.length > 0) { setAutoDedup(items); setAutoDedupSel(new Set(items.map((_, i) => i))); }
     } catch { /* non-fatal — skip the suggestion */ }
   };
 
-  // Apply ONLY the item merges shown in the confirmation modal.
+  // Apply ONLY the item merges the user kept checked in the confirmation modal.
   const applyAutoDedup = async () => {
+    if (!autoDedup) return;
+    const merges = autoDedup
+      .filter((_, i) => autoDedupSel.has(i))
+      .map(e => ({ from: e.from, to: e.to, entityType: 'item' }));
+    if (merges.length === 0) { setAutoDedup(null); return; }
     setAutoDedupApplying(true);
     try {
       const res = await fetch(`${API}/api/dedup-names`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ apply: true, entityTypes: ['item'] }),
+        body: JSON.stringify({ apply: true, merges }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || t.upload.dedupFailed);
@@ -1011,13 +1017,22 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
               <strong style={{ color: '#92400e', fontSize: 15 }}>
-                ⚠️ تم اكتشاف {autoDedup.length} ايتم متشابه — أكّد الدمج (يُحتفظ بالاسم الأطول)
+                ⚠️ تم اكتشاف {autoDedup.length} ايتم متشابه — اختَر ما تريد دمجه (يُحتفظ بالاسم الأطول)
               </strong>
               <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#92400e' }}>✕</button>
             </div>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 14 }}>
               <thead>
                 <tr style={{ background: '#fef3c7' }}>
+                  <th style={{ padding: '6px 10px', textAlign: 'center', width: 34 }}>
+                    <input
+                      type="checkbox"
+                      checked={autoDedupSel.size === autoDedup.length}
+                      ref={cb => { if (cb) cb.indeterminate = autoDedupSel.size > 0 && autoDedupSel.size < autoDedup.length; }}
+                      onChange={e => setAutoDedupSel(e.target.checked ? new Set(autoDedup.map((_, i) => i)) : new Set())}
+                      title="تحديد الكل"
+                    />
+                  </th>
                   <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>سيُحذف</th>
                   <th style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</th>
                   <th style={{ padding: '6px 10px', textAlign: 'right', color: '#065f46', fontWeight: 700 }}>سيُبقى (الأطول)</th>
@@ -1028,20 +1043,25 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   const keepLonger = e.from.length >= e.to.length;
                   const keep   = keepLonger ? e.from : e.to;
                   const remove = keepLonger ? e.to   : e.from;
+                  const checked = autoDedupSel.has(i);
+                  const toggle = () => setAutoDedupSel(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
                   return (
-                    <tr key={i} style={{ borderTop: '1px solid #fde68a' }}>
-                      <td style={{ padding: '6px 10px', color: '#dc2626', textDecoration: 'line-through' }}>{remove}</td>
+                    <tr key={i} style={{ borderTop: '1px solid #fde68a', background: checked ? 'transparent' : '#f8fafc', cursor: 'pointer' }} onClick={toggle}>
+                      <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                        <input type="checkbox" checked={checked} onChange={toggle} onClick={ev => ev.stopPropagation()} />
+                      </td>
+                      <td style={{ padding: '6px 10px', color: checked ? '#dc2626' : '#94a3b8', textDecoration: checked ? 'line-through' : 'none' }}>{remove}</td>
                       <td style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</td>
-                      <td style={{ padding: '6px 10px', color: '#065f46', fontWeight: 600 }}>{keep}</td>
+                      <td style={{ padding: '6px 10px', color: checked ? '#065f46' : '#94a3b8', fontWeight: 600 }}>{keep}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={applyAutoDedup} disabled={autoDedupApplying}
-                style={{ background: '#d97706', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: autoDedupApplying ? 0.7 : 1 }}>
-                {autoDedupApplying ? '⏳ جاري الدمج...' : `🔀 تطبيق الدمج (${autoDedup.length} ايتم)`}
+              <button onClick={applyAutoDedup} disabled={autoDedupApplying || autoDedupSel.size === 0}
+                style={{ background: autoDedupSel.size === 0 ? '#cbd5e1' : '#d97706', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: autoDedupSel.size === 0 ? 'not-allowed' : 'pointer', opacity: autoDedupApplying ? 0.7 : 1 }}>
+                {autoDedupApplying ? '⏳ جاري الدمج...' : `🔀 دمج المحدد (${autoDedupSel.size})`}
               </button>
               <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying}
                 style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>

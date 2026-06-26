@@ -73,28 +73,47 @@ export default function ItemsPage() {
   type DedupEntry = { from: string; to: string; entityType: string };
   const [dedupLoading, setDedupLoading]   = useState(false);
   const [dedupPreview, setDedupPreview]   = useState<DedupEntry[] | null>(null);
+  const [dedupSel, setDedupSel]           = useState<Set<number>>(new Set());
   const [dedupApplying, setDedupApplying] = useState(false);
 
-  const runDedup = async (apply = false) => {
-    if (apply) setDedupApplying(true);
-    else setDedupLoading(true);
+  // Dry-run: detect similar items and show them all pre-checked for review.
+  const runDedup = async () => {
+    setDedupLoading(true);
     try {
       const r = await fetch(`${API}/api/dedup-names`, {
         method: 'POST',
         headers: jsonH(),
-        body: JSON.stringify({ apply }),
+        body: JSON.stringify({ apply: false }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'فشل');
-      if (apply) {
-        setDedupPreview(null);
-        await load();
-      } else {
-        // Show only item duplicates in this page
-        setDedupPreview((j.normalizations as DedupEntry[]).filter(e => e.entityType === 'item'));
-      }
+      const items = (j.normalizations as DedupEntry[]).filter(e => e.entityType === 'item');
+      setDedupPreview(items);
+      setDedupSel(new Set(items.map((_, i) => i)));
     } catch (e: any) { alert(e.message); }
-    finally { setDedupLoading(false); setDedupApplying(false); }
+    finally { setDedupLoading(false); }
+  };
+
+  // Apply ONLY the checked item pairs.
+  const applyDedup = async () => {
+    if (!dedupPreview) return;
+    const merges = dedupPreview
+      .filter((_, i) => dedupSel.has(i))
+      .map(e => ({ from: e.from, to: e.to, entityType: 'item' }));
+    if (merges.length === 0) { setDedupPreview(null); return; }
+    setDedupApplying(true);
+    try {
+      const r = await fetch(`${API}/api/dedup-names`, {
+        method: 'POST',
+        headers: jsonH(),
+        body: JSON.stringify({ apply: true, merges }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'فشل');
+      setDedupPreview(null);
+      await load();
+    } catch (e: any) { alert(e.message); }
+    finally { setDedupApplying(false); }
   };
 
 
@@ -335,7 +354,7 @@ export default function ItemsPage() {
             📥 استيراد Excel
           </button>
           <button
-            onClick={() => runDedup(false)}
+            onClick={() => runDedup()}
             disabled={dedupLoading}
             style={{
               background: '#fff', color: '#d97706',
@@ -414,7 +433,7 @@ export default function ItemsPage() {
             <strong style={{ color: '#92400e', fontSize: 14 }}>
               {dedupPreview.length === 0
                 ? '✅ لا توجد أيتمات متشابهة'
-                : `⚠️ تم اكتشاف ${dedupPreview.length} أيتم متشابه — سيتم الاحتفاظ بالاسم الأطول`}
+                : `⚠️ تم اكتشاف ${dedupPreview.length} أيتم متشابه — اختَر ما تريد دمجه (يُحتفظ بالاسم الأطول)`}
             </strong>
             <button onClick={() => setDedupPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#92400e' }}>✕</button>
           </div>
@@ -423,6 +442,15 @@ export default function ItemsPage() {
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 12 }}>
                 <thead>
                   <tr style={{ background: '#fef3c7' }}>
+                    <th style={{ padding: '6px 10px', textAlign: 'center', width: 34 }}>
+                      <input
+                        type="checkbox"
+                        checked={dedupSel.size === dedupPreview.length}
+                        ref={cb => { if (cb) cb.indeterminate = dedupSel.size > 0 && dedupSel.size < dedupPreview.length; }}
+                        onChange={e => setDedupSel(e.target.checked ? new Set(dedupPreview.map((_, i) => i)) : new Set())}
+                        title="تحديد الكل"
+                      />
+                    </th>
                     <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>سيُحذف</th>
                     <th style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</th>
                     <th style={{ padding: '6px 10px', textAlign: 'right', color: '#065f46', fontWeight: 700 }}>سيُبقى (الأطول)</th>
@@ -433,25 +461,30 @@ export default function ItemsPage() {
                     const keepLonger = e.from.length >= e.to.length;
                     const keep   = keepLonger ? e.from : e.to;
                     const remove = keepLonger ? e.to   : e.from;
+                    const checked = dedupSel.has(i);
+                    const toggle = () => setDedupSel(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
                     return (
-                      <tr key={i} style={{ borderTop: '1px solid #fde68a' }}>
-                        <td style={{ padding: '6px 10px', color: '#dc2626', textDecoration: 'line-through' }}>{remove}</td>
+                      <tr key={i} style={{ borderTop: '1px solid #fde68a', cursor: 'pointer' }} onClick={toggle}>
+                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input type="checkbox" checked={checked} onChange={toggle} onClick={ev => ev.stopPropagation()} />
+                        </td>
+                        <td style={{ padding: '6px 10px', color: checked ? '#dc2626' : '#94a3b8', textDecoration: checked ? 'line-through' : 'none' }}>{remove}</td>
                         <td style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</td>
-                        <td style={{ padding: '6px 10px', color: '#065f46', fontWeight: 600 }}>{keep}</td>
+                        <td style={{ padding: '6px 10px', color: checked ? '#065f46' : '#94a3b8', fontWeight: 600 }}>{keep}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
               <button
-                onClick={() => runDedup(true)}
-                disabled={dedupApplying}
+                onClick={applyDedup}
+                disabled={dedupApplying || dedupSel.size === 0}
                 style={{
-                  background: '#d97706', color: '#fff', border: 'none', borderRadius: 8,
-                  padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  background: dedupSel.size === 0 ? '#cbd5e1' : '#d97706', color: '#fff', border: 'none', borderRadius: 8,
+                  padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: dedupSel.size === 0 ? 'not-allowed' : 'pointer',
                 }}
               >
-                {dedupApplying ? '⏳ جاري الدمج...' : `🔀 تطبيق الدمج (${dedupPreview.length} أيتم)`}
+                {dedupApplying ? '⏳ جاري الدمج...' : `🔀 دمج المحدد (${dedupSel.size})`}
               </button>
             </>
           )}

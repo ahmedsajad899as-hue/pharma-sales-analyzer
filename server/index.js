@@ -1642,6 +1642,9 @@ app.post('/api/dedup-names', async (req, res) => {
     const entityTypes = Array.isArray(req.body?.entityTypes) && req.body.entityTypes.length
       ? req.body.entityTypes
       : ['item', 'rep', 'company'];
+    // Optional explicit selection: merge ONLY these {from, to, entityType} pairs
+    // (the ones the user checked) instead of every detected pair.
+    const selected = Array.isArray(req.body?.merges) ? req.body.merges : null;
 
     const [allItemObjs, allRepObjs, allCompanyObjs] = await Promise.all([
       getAllItems(userId),
@@ -1656,35 +1659,36 @@ app.post('/api/dedup-names', async (req, res) => {
 
     const log = [...itemDedup.log, ...repDedup.log, ...companyDedup.log];
 
-    if (apply && log.length > 0) {
+    if (apply) {
       // Helper: get id for a name in an entity array
       const id = (arr, name) => arr.find(x => x.name === name)?.id;
-
-      if (entityTypes.includes('item')) {
-        for (const entry of itemDedup.log) {
-          const fromId = id(allItemObjs, entry.from);
-          const toId   = id(allItemObjs, entry.to);
-          if (fromId && toId) {
-            // Always keep the LONGER (more detailed) name — flip if needed
-            const keepId   = entry.from.length >= entry.to.length ? fromId : toId;
-            const deleteId = entry.from.length >= entry.to.length ? toId   : fromId;
+      const mergeOne = async (entityType, from, to) => {
+        if (entityType === 'item') {
+          const a = id(allItemObjs, from), b = id(allItemObjs, to);
+          if (a && b) {
+            const keepId   = from.length >= to.length ? a : b;
+            const deleteId = from.length >= to.length ? b : a;
             await mergeItems(deleteId, keepId);
           }
+        } else if (entityType === 'rep') {
+          const a = id(allRepObjs, from), b = id(allRepObjs, to);
+          if (a && b) await mergeReps(a, b);
+        } else if (entityType === 'company') {
+          const a = id(allCompanyObjs, from), b = id(allCompanyObjs, to);
+          if (a && b) await mergeCompanies(a, b);
         }
-      }
-      if (entityTypes.includes('rep')) {
-        for (const entry of repDedup.log) {
-          const fromId = id(allRepObjs, entry.from);
-          const toId   = id(allRepObjs, entry.to);
-          if (fromId && toId) await mergeReps(fromId, toId);
+      };
+
+      if (selected) {
+        // Merge only the explicitly-selected pairs
+        for (const m of selected) {
+          if (m && m.from && m.to) await mergeOne(m.entityType || 'item', m.from, m.to);
         }
-      }
-      if (entityTypes.includes('company')) {
-        for (const entry of companyDedup.log) {
-          const fromId = id(allCompanyObjs, entry.from);
-          const toId   = id(allCompanyObjs, entry.to);
-          if (fromId && toId) await mergeCompanies(fromId, toId);
-        }
+      } else if (log.length > 0) {
+        // No explicit selection → merge every detected pair within entityTypes
+        if (entityTypes.includes('item'))    for (const e of itemDedup.log)    await mergeOne('item', e.from, e.to);
+        if (entityTypes.includes('rep'))     for (const e of repDedup.log)     await mergeOne('rep', e.from, e.to);
+        if (entityTypes.includes('company')) for (const e of companyDedup.log) await mergeOne('company', e.from, e.to);
       }
     }
 
