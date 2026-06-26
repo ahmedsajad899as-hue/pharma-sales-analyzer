@@ -1631,12 +1631,17 @@ app.post('/api/cleanup-orphans', async (req, res) => {
 });
 
 // ── Deduplicate near-duplicate names in DB (dry-run or apply) ────────────────
-// POST /api/dedup-names  body: { apply?: boolean }
+// POST /api/dedup-names  body: { apply?: boolean, entityTypes?: ('item'|'rep'|'company')[] }
 // dry-run (apply=false) → returns what WOULD be merged; apply=true → actually merges.
+// entityTypes limits which kinds get merged on apply (default: all). The post-upload
+// confirmation flow passes ['item'] so it only merges the items shown to the user.
 app.post('/api/dedup-names', async (req, res) => {
   try {
     const userId  = req.user?.id ?? null;
     const apply   = req.body?.apply === true;
+    const entityTypes = Array.isArray(req.body?.entityTypes) && req.body.entityTypes.length
+      ? req.body.entityTypes
+      : ['item', 'rep', 'company'];
 
     const [allItemObjs, allRepObjs, allCompanyObjs] = await Promise.all([
       getAllItems(userId),
@@ -1655,25 +1660,31 @@ app.post('/api/dedup-names', async (req, res) => {
       // Helper: get id for a name in an entity array
       const id = (arr, name) => arr.find(x => x.name === name)?.id;
 
-      for (const entry of itemDedup.log) {
-        const fromId = id(allItemObjs, entry.from);
-        const toId   = id(allItemObjs, entry.to);
-        if (fromId && toId) {
-          // Always keep the LONGER (more detailed) name — flip if needed
-          const keepId   = entry.from.length >= entry.to.length ? fromId : toId;
-          const deleteId = entry.from.length >= entry.to.length ? toId   : fromId;
-          await mergeItems(deleteId, keepId);
+      if (entityTypes.includes('item')) {
+        for (const entry of itemDedup.log) {
+          const fromId = id(allItemObjs, entry.from);
+          const toId   = id(allItemObjs, entry.to);
+          if (fromId && toId) {
+            // Always keep the LONGER (more detailed) name — flip if needed
+            const keepId   = entry.from.length >= entry.to.length ? fromId : toId;
+            const deleteId = entry.from.length >= entry.to.length ? toId   : fromId;
+            await mergeItems(deleteId, keepId);
+          }
         }
       }
-      for (const entry of repDedup.log) {
-        const fromId = id(allRepObjs, entry.from);
-        const toId   = id(allRepObjs, entry.to);
-        if (fromId && toId) await mergeReps(fromId, toId);
+      if (entityTypes.includes('rep')) {
+        for (const entry of repDedup.log) {
+          const fromId = id(allRepObjs, entry.from);
+          const toId   = id(allRepObjs, entry.to);
+          if (fromId && toId) await mergeReps(fromId, toId);
+        }
       }
-      for (const entry of companyDedup.log) {
-        const fromId = id(allCompanyObjs, entry.from);
-        const toId   = id(allCompanyObjs, entry.to);
-        if (fromId && toId) await mergeCompanies(fromId, toId);
+      if (entityTypes.includes('company')) {
+        for (const entry of companyDedup.log) {
+          const fromId = id(allCompanyObjs, entry.from);
+          const toId   = id(allCompanyObjs, entry.to);
+          if (fromId && toId) await mergeCompanies(fromId, toId);
+        }
       }
     }
 

@@ -119,6 +119,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       // toggle-activate the new file (if not already active)
       if (newFileId && !activeFileIds.includes(newFileId)) onFileActivated(newFileId);
       await loadFiles();
+      // Suggest merging any newly-created near-duplicate items (confirmation modal)
+      checkSimilarItemsRef.current();
     } catch (err: any) {
       setError(err.message || t.upload.error);
     } finally {
@@ -173,6 +175,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [deduping, setDeduping] = useState(false);
   const [dedupResult, setDedupResult] = useState<{ count: number; normalizations: any[] } | null>(null);
   const [showDedupDetail, setShowDedupDetail] = useState(false);
+  // Post-upload "merge similar items" confirmation modal
+  type DedupEntry = { from: string; to: string; source: string; entityType: string };
+  const [autoDedup, setAutoDedup] = useState<DedupEntry[] | null>(null);
+  const [autoDedupApplying, setAutoDedupApplying] = useState(false);
 
   // Currency conversion state
   const [redetecting, setRedetecting] = useState<number | null>(null);
@@ -312,6 +318,46 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       setDeduping(false);
     }
   };
+
+  // After an upload, look for newly-created items that are near-duplicates of
+  // existing ones and pop a confirmation modal so the user can merge them.
+  const checkSimilarItems = async () => {
+    try {
+      const res  = await fetch(`${API}/api/dedup-names`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apply: false }),
+      });
+      const json = await res.json();
+      if (!res.ok) return;
+      const items: DedupEntry[] = (json.normalizations ?? []).filter((e: DedupEntry) => e.entityType === 'item');
+      if (items.length > 0) setAutoDedup(items);
+    } catch { /* non-fatal — skip the suggestion */ }
+  };
+
+  // Apply ONLY the item merges shown in the confirmation modal.
+  const applyAutoDedup = async () => {
+    setAutoDedupApplying(true);
+    try {
+      const res = await fetch(`${API}/api/dedup-names`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apply: true, entityTypes: ['item'] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || t.upload.dedupFailed);
+      setAutoDedup(null);
+      await loadFiles();
+    } catch (err: any) {
+      setError(err.message || t.upload.dedupError);
+    } finally {
+      setAutoDedupApplying(false);
+    }
+  };
+
+  // Stable ref so the memoised uploadFile callback always calls the latest checker.
+  const checkSimilarItemsRef = useRef(checkSimilarItems);
+  useEffect(() => { checkSimilarItemsRef.current = checkSimilarItems; });
 
   const cleanupOrphans = async () => {
     setCleaning(true);
@@ -947,6 +993,59 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 disabled={savingCurrency}
               >
                 {savingCurrency ? t.upload.currencySaving : t.upload.currencySave}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post-upload: confirm merging newly-detected similar items */}
+      {autoDedup && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => !autoDedupApplying && setAutoDedup(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 16, padding: '20px 22px', width: 'min(620px, 96vw)', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
+              <strong style={{ color: '#92400e', fontSize: 15 }}>
+                ⚠️ تم اكتشاف {autoDedup.length} ايتم متشابه — أكّد الدمج (يُحتفظ بالاسم الأطول)
+              </strong>
+              <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#92400e' }}>✕</button>
+            </div>
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 14 }}>
+              <thead>
+                <tr style={{ background: '#fef3c7' }}>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>سيُحذف</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'right', color: '#065f46', fontWeight: 700 }}>سيُبقى (الأطول)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {autoDedup.map((e, i) => {
+                  const keepLonger = e.from.length >= e.to.length;
+                  const keep   = keepLonger ? e.from : e.to;
+                  const remove = keepLonger ? e.to   : e.from;
+                  return (
+                    <tr key={i} style={{ borderTop: '1px solid #fde68a' }}>
+                      <td style={{ padding: '6px 10px', color: '#dc2626', textDecoration: 'line-through' }}>{remove}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</td>
+                      <td style={{ padding: '6px 10px', color: '#065f46', fontWeight: 600 }}>{keep}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={applyAutoDedup} disabled={autoDedupApplying}
+                style={{ background: '#d97706', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: autoDedupApplying ? 0.7 : 1 }}>
+                {autoDedupApplying ? '⏳ جاري الدمج...' : `🔀 تطبيق الدمج (${autoDedup.length} ايتم)`}
+              </button>
+              <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying}
+                style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                تخطّي
               </button>
             </div>
           </div>
