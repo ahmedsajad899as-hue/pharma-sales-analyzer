@@ -789,17 +789,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [mode, commReport, sciReport, commReturnsReport, sciReturnsReport]);
 
-  // ── Keyboard arrow-key navigation between the OVERALL sub-tabs (المنطقة / الايتم / الشركة) ──
-  // Mirrors the commercial/scientific view-toggle above, but only in «تحليل شامل».
-  // RTL: المنطقة (يمين) → الايتم → الشركة (يسار) — السهم الأيسر يتقدّم، الأيمن يرجع، بالتفاف.
-  // Ignores key presses while typing inside a form control so the date/search fields keep their behaviour.
+  // ── Keyboard shortcuts for the OVERALL analysis («تحليل شامل») only ──
+  //  • Left/Right arrows cycle the sub-tabs المنطقة → الايتم → الشركة
+  //    (RTL: السهم الأيسر يتقدّم، الأيمن يرجع، بالتفاف).
+  //  • Enter toggles the كمية ↔ قيمة view mode (same as clicking that button).
+  // Ignores presses while typing in a field; Enter also yields to a focused
+  // button/link so it keeps activating those natively.
   useEffect(() => {
     if (mode !== 'overall') return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Enter') return;
       if (!overallSales) return; // only once the overall report is on screen
       const el = document.activeElement as HTMLElement | null;
-      if (el && (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable)) return;
+      const tag = el?.tagName ?? '';
+      if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag) || el?.isContentEditable) return;
+
+      if (e.key === 'Enter') {
+        // Let Enter activate a focused button/link instead of hijacking it
+        if (/^(BUTTON|A)$/.test(tag)) return;
+        e.preventDefault();
+        setOverallViewMode(v => v === 'qty' ? 'value' : 'qty');
+        return;
+      }
 
       const tabs: Array<'area' | 'item' | 'company'> = ['area', 'item', 'company'];
       e.preventDefault();
