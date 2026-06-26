@@ -666,6 +666,39 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   useEffect(() => { sessionStorage.setItem('rpt_toDate', toDate); }, [toDate]);
   useEffect(() => { sessionStorage.setItem('rpt_view', reportView); }, [reportView]);
 
+  // ── Keyboard arrow-key navigation between report views (مبيعات / ارجاعات / نت) ──
+  // Left/Right arrows cycle the metric toggle. Skips the ارجاعات view when the rep has
+  // no returns (its button is disabled), and ignores key presses while the user is
+  // typing inside a form control so the date filters / search boxes keep arrow behaviour.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      // Only act while a report with the view toggle is actually on screen
+      const reportShown = (mode === 'commercial' && !!commReport) || (mode === 'scientific' && !!sciReport);
+      if (!reportShown) return;
+      // Don't hijack arrows while typing / inside an input, select or textarea
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable)) return;
+
+      const hasRet = mode === 'commercial'
+        ? (commReturnsReport?.totalQty ?? 0) > 0
+        : (sciReturnsReport?.totalQty ?? 0) > 0;
+      const views: ReportView[] = ['sales', ...(hasRet ? (['returns'] as ReportView[]) : []), 'net'];
+
+      e.preventDefault();
+      setReportView(prev => {
+        let idx = views.indexOf(prev);
+        if (idx < 0) idx = 0;
+        // RTL layout: مبيعات (يمين) → ارجاعات → نت (يسار).
+        // السهم الأيسر يتقدّم نحو «نت»، والأيمن يرجع نحو «مبيعات»، مع التفاف دائري.
+        const delta = e.key === 'ArrowLeft' ? 1 : -1;
+        return views[(idx + delta + views.length) % views.length];
+      });
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [mode, commReport, sciReport, commReturnsReport, sciReturnsReport]);
+
   // Auto-reload last report after page refresh (once reps list is loaded)
   const autoLoaded = useRef(false);
   useEffect(() => {
