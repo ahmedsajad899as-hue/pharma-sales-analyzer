@@ -789,6 +789,31 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [mode, commReport, sciReport, commReturnsReport, sciReturnsReport]);
 
+  // ── Keyboard arrow-key navigation between the OVERALL sub-tabs (المنطقة / الايتم / الشركة) ──
+  // Mirrors the commercial/scientific view-toggle above, but only in «تحليل شامل».
+  // RTL: المنطقة (يمين) → الايتم → الشركة (يسار) — السهم الأيسر يتقدّم، الأيمن يرجع، بالتفاف.
+  // Ignores key presses while typing inside a form control so the date/search fields keep their behaviour.
+  useEffect(() => {
+    if (mode !== 'overall') return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (!overallSales) return; // only once the overall report is on screen
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable)) return;
+
+      const tabs: Array<'area' | 'item' | 'company'> = ['area', 'item', 'company'];
+      e.preventDefault();
+      setOverallTab(prev => {
+        let idx = tabs.indexOf(prev);
+        if (idx < 0) idx = 0;
+        const delta = e.key === 'ArrowLeft' ? 1 : -1;
+        return tabs[(idx + delta + tabs.length) % tabs.length];
+      });
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [mode, overallSales]);
+
   // Auto-reload last report after page refresh (once reps list is loaded)
   const autoLoaded = useRef(false);
   useEffect(() => {
@@ -1469,6 +1494,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     visibleAreas: { sales: BreakdownRow[]; returns: BreakdownRow[] },
     visibleItems: { sales: BreakdownRow[]; returns: BreakdownRow[] },
     searchLabel: string,
+    detailAreaItem: { sales: AreaItemRow[]; returns: AreaItemRow[] } | null = null,
   ): PreviewSheet[] => {
     if (!overallSales) return [];
     const selIds  = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
@@ -1508,16 +1534,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
     const isFiltered = searchLabel.trim() !== '';
 
+    // Filtered totals come from the area×item detail (the single source of truth): summing
+    // the area breakdown AND the item breakdown would double-count the same sales.
+    const sumQ = (rows: AreaItemRow[]) => rows.reduce((a, r) => a + r.totalQty, 0);
+    const sumV = (rows: AreaItemRow[]) => rows.reduce((a, r) => a + r.totalValue, 0);
+    const detSales = detailAreaItem?.sales   ?? [];
+    const detRet   = detailAreaItem?.returns ?? [];
+
     // ── Sheet 1: Summary ──
     const summaryRows: string[][] = [
       ['الملف', fileName],
       ['الفترة', fromDate && toDate ? `${fromDate} → ${toDate}` : fromDate || toDate || 'كل الفترات'],
       ...(isFiltered ? [['فلتر البحث', searchLabel]] : []),
       [''],
-      ['إجمالي الكميات المباعة', String(Math.round(isFiltered ? visibleAreas.sales.reduce((a,r)=>a+r.totalQty,0)+visibleItems.sales.reduce((a,r)=>a+r.totalQty,0) : overallSales.totalQuantity))],
-      ['إجمالي الكميات المرتجعة', String(Math.round(isFiltered ? visibleAreas.returns.reduce((a,r)=>a+r.totalQty,0)+visibleItems.returns.reduce((a,r)=>a+r.totalQty,0) : (overallReturns?.totalQuantity ?? 0)))],
-      ['إجمالي قيمة المبيعات', fmtVal(isFiltered ? visibleAreas.sales.reduce((a,r)=>a+r.totalValue,0)+visibleItems.sales.reduce((a,r)=>a+r.totalValue,0) : overallSales.totalValue)],
-      ['إجمالي قيمة المرتجعات', fmtVal(isFiltered ? visibleAreas.returns.reduce((a,r)=>a+r.totalValue,0)+visibleItems.returns.reduce((a,r)=>a+r.totalValue,0) : (overallReturns?.totalValue ?? 0))],
+      ['إجمالي الكميات المباعة', String(Math.round(isFiltered ? sumQ(detSales) : overallSales.totalQuantity))],
+      ['إجمالي الكميات المرتجعة', String(Math.round(isFiltered ? sumQ(detRet) : (overallReturns?.totalQuantity ?? 0)))],
+      ['إجمالي قيمة المبيعات', fmtVal(isFiltered ? sumV(detSales) : overallSales.totalValue)],
+      ['إجمالي قيمة المرتجعات', fmtVal(isFiltered ? sumV(detRet) : (overallReturns?.totalValue ?? 0))],
     ];
 
     // ── Sheet 2: By Area (visible) ──
@@ -1532,11 +1565,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       { name: 'حسب المادة', rows: [...header('المادة'), ...itemRows] },
     ];
 
-    // ── Sheet 4: Area × Item breakdown — only when no search filter ──
-    if (!isFiltered) {
+    // ── Sheet 4: Area × Item breakdown ──
+    // When a filter (selected tags or text search) is active, show ONLY the selected
+    // options' rows; otherwise show the whole file's area×item breakdown.
+    const aiSales = isFiltered ? detSales : overallSales.byAreaItem;
+    const aiRet   = isFiltered ? detRet   : (overallReturns?.byAreaItem ?? []);
+    if (aiSales.length > 0) {
       const areaItemHeader: string[][] = [['#', 'المنطقة', 'المادة', `كمية المبيعات`, `قيمة المبيعات (${cur})`, `كمية المرتجعات`, `قيمة المرتجعات (${cur})`, `صافي الكمية`, `صافي القيمة (${cur})`]];
-      const retAIMap = Object.fromEntries((overallReturns?.byAreaItem ?? []).map(r => [`${r.areaName}::${r.itemName}`, r]));
-      const areaItemRows: string[][] = overallSales.byAreaItem.map((s, i) => {
+      const retAIMap = Object.fromEntries(aiRet.map(r => [`${r.areaName}::${r.itemName}`, r]));
+      const areaItemRows: string[][] = aiSales.map((s, i) => {
         const r = retAIMap[`${s.areaName}::${s.itemName}`] ?? { totalQty: 0, totalValue: 0 };
         return [String(i + 1), s.areaName, s.itemName, String(Math.round(s.totalQty)), fmtVal(s.totalValue), String(Math.round(r.totalQty)), fmtVal(r.totalValue), String(Math.round(s.totalQty - r.totalQty)), fmtValSigned(s.totalValue - r.totalValue)];
       });
@@ -2308,10 +2345,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       {mode === 'overall' && overallSales && (() => {
 
         const handleOverallPreview = () => {
+          // Area×item detail scoped to the active filter: selected tags → text query → whole file.
+          const detailSales = hasTags ? salesTaggedRows
+            : q ? overallSales!.byAreaItem.filter(r => normalise(r.areaName).includes(q) || normalise(r.itemName).includes(q))
+            : overallSales!.byAreaItem;
+          const detailRet = hasTags ? retTaggedRows
+            : q ? (overallReturns?.byAreaItem ?? []).filter(r => normalise(r.areaName).includes(q) || normalise(r.itemName).includes(q))
+            : (overallReturns?.byAreaItem ?? []);
+          // Label the active filter (tag names, else the typed text) so the export is marked
+          // as scoped — this is what flips `isFiltered` on inside buildOverallPreviewSheets.
+          const filterLabel = hasTags ? overallSelectedTags.map(t => t.name).join('، ') : overallSearch.trim();
           const sheets = buildOverallPreviewSheets(
             { sales: salesAreasFiltered, returns: retAreasFiltered },
             { sales: salesItemsFiltered, returns: retItemsFiltered },
-            overallSearch.trim(),
+            filterLabel,
+            { sales: detailSales, returns: detailRet },
           );
           setPreviewSheets(sheets);
           setShowPreviewModal(true);
