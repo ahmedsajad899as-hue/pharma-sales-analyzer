@@ -756,19 +756,30 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   useEffect(() => { sessionStorage.setItem('rpt_toDate', toDate); }, [toDate]);
   useEffect(() => { sessionStorage.setItem('rpt_view', reportView); }, [reportView]);
 
-  // ── Keyboard arrow-key navigation between report views (مبيعات / ارجاعات / نت) ──
-  // Left/Right arrows cycle the metric toggle. Skips the ارجاعات view when the rep has
-  // no returns (its button is disabled), and ignores key presses while the user is
-  // typing inside a form control so the date filters / search boxes keep arrow behaviour.
+  // ── Keyboard shortcuts for the commercial/scientific reports ──
+  // Left/Right arrows cycle the view toggle (مبيعات / ارجاعات / نت); skips ارجاعات
+  // when the rep has no returns. Enter toggles the كمية ↔ قيمة view mode (same as
+  // clicking that button) — matching the overall-analysis shortcuts.
+  // Ignores presses while typing in a field; Enter also yields to a focused button/link.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Enter') return;
       // Only act while a report with the view toggle is actually on screen
       const reportShown = (mode === 'commercial' && !!commReport) || (mode === 'scientific' && !!sciReport);
       if (!reportShown) return;
-      // Don't hijack arrows while typing / inside an input, select or textarea
+      // Don't hijack keys while typing / inside an input, select or textarea
       const el = document.activeElement as HTMLElement | null;
-      if (el && (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable)) return;
+      const tag = el?.tagName ?? '';
+      if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag) || el?.isContentEditable) return;
+
+      if (e.key === 'Enter') {
+        // Let Enter activate a focused button/link instead of hijacking it
+        if (/^(BUTTON|A)$/.test(tag)) return;
+        e.preventDefault();
+        if (mode === 'commercial') setCommViewMode(v => v === 'qty' ? 'value' : 'qty');
+        else                       setSciViewMode(v => v === 'qty' ? 'value' : 'qty');
+        return;
+      }
 
       const hasRet = mode === 'commercial'
         ? (commReturnsReport?.totalQty ?? 0) > 0
