@@ -70,51 +70,141 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
 
   const sheet = sheets[activeIdx];
 
+  // Recompute the single-rep «الملخص» sheet (monetary totals + per-item NET table) from
+  // the rep's edited data sheet, so deleting a row / editing any value live-updates the
+  // summary. Data-sheet values are already currency-converted, so we only re-sum & re-group
+  // — no currency logic here. repName and per-item targets are preserved from the old summary.
+  const recalcUserSummary = (summaryRows: string[][], dataRows: string[][]): string[][] => {
+    const norm = (h: any) => String(h ?? '').trim();
+    const VALUE_HEADERS = new Set(['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي', 'إجمالي القيمة ($)']);
+    const ITEM_HEADERS  = new Set(['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج', 'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر', 'الايتم', 'ايتم', 'آيتم', 'الآيتم']);
+    const QTY_HEADERS   = new Set(['الكمية', 'كمية', 'الكميه', 'كميه']);
+
+    const header  = (dataRows[0] ?? []).map(norm);
+    const valCol  = header.findIndex(h => VALUE_HEADERS.has(h) || (!/سعر\s*الوحد|unit\s*price/i.test(h) && /إجمالي\s*القيمة|السعر\s*الكلي|المجموع\s*الكلي/.test(h)));
+    const itemCol = header.findIndex(h => ITEM_HEADERS.has(h));
+    const qtyCol  = header.findIndex(h => QTY_HEADERS.has(h));
+    const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
+
+    const num = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
+    const fmtT = (n: number) => Math.round(n || 0).toLocaleString('en-US');
+    const body = dataRows.slice(1);
+
+    // ── Monetary totals (only when a value column is present) ──
+    let salesVal = 0, returnsVal = 0;
+    const itemNet = new Map<string, number>();
+    for (const row of body) {
+      const val   = valCol >= 0 ? num(row[valCol]) : 0;
+      // Returns are marked either by a record-type column or (raw exports) by a negative value
+      const isRet = rtCol >= 0 ? /↩|ارجاع|إرجاع|return/i.test(norm(row[rtCol])) : val < 0;
+      if (isRet) returnsVal += Math.abs(val); else salesVal += Math.abs(val);
+      if (itemCol >= 0 && qtyCol >= 0) {
+        const name = norm(row[itemCol]);
+        if (name) itemNet.set(name, (itemNet.get(name) || 0) + num(row[qtyCol])); // qty already signed for returns
+      }
+    }
+
+    // Preserve repName + per-item targets from the previous summary
+    const repName = summaryRows.find(r => r[0] === 'المستخدم')?.[1] ?? '';
+    const itemHdrIdx = summaryRows.findIndex(r => r[0] === 'الايتم');
+    // Key targets by NORMALISED item name so raw-Excel spellings in the data sheet still
+    // match the DB-named items the original summary used (slash/space/pack-suffix variants).
+    const targetByItem = new Map<string, string>();
+    if (itemHdrIdx >= 0) for (const r of summaryRows.slice(itemHdrIdx + 1)) {
+      if (r[0]) targetByItem.set(normalizeItemName(String(r[0])), String(r[2] ?? '—'));
+    }
+
+    // Totals row cells — recompute when a value column exists, else keep the originals
+    const orig = (label: string) => summaryRows.find(r => r[0] === label)?.[1] ?? '0';
+    const salesCell   = valCol >= 0 ? fmtT(salesVal)             : orig('إجمالي قيمة المبيعات');
+    const returnsCell = valCol >= 0 ? fmtT(returnsVal)           : orig('إجمالي قيمة المرتجعات');
+    const netCell     = valCol >= 0 ? fmtT(salesVal - returnsVal): orig('الصافي');
+
+    // Per-item NET table — rebuild when item+qty columns exist, else keep the originals
+    const itemTable: string[][] = (itemCol >= 0 && qtyCol >= 0)
+      ? [...itemNet.entries()]
+          .sort((a, b) => a[0].localeCompare(b[0], 'ar'))
+          .map(([name, q]) => {
+            const tgtStr = targetByItem.get(normalizeItemName(name)) ?? '—';
+            const tgt = num(tgtStr), netQ = Math.round(q);
+            return [name, String(netQ), tgtStr, tgt > 0 ? `${Math.round((netQ / tgt) * 100)}%` : '—'];
+          })
+      : (itemHdrIdx >= 0 ? summaryRows.slice(itemHdrIdx + 1).map(r => [...r]) : []);
+
+    return [
+      ['ملخص بيانات المستخدم'],
+      [''],
+      ['المستخدم', String(repName)],
+      ['إجمالي قيمة المبيعات',  salesCell],
+      ['إجمالي قيمة المرتجعات', returnsCell],
+      ['الصافي',                netCell],
+      [''],
+      ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
+      ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
+      ...itemTable,
+    ];
+  };
+
   // ── Sync summary sheet after any edit to a data sheet ────
   const recalcSummary = (sheetIdx: number, newRows: string[][], prev: PreviewSheet[]): PreviewSheet[] => {
     const updated = prev.map((s, i) => i === sheetIdx ? { ...s, rows: newRows } : s);
-    // Auto-recalc only applies when sheet 0 is the cross-rep «ملخص عام» summary
-    // (its first header cell is '#'). Other layouts — e.g. a single-rep preview whose
-    // first sheet is the data itself, or the per-rep «الملخص» sheet — must NOT be
-    // rewritten on edit, otherwise editing one would corrupt the data sheet.
-    if (sheetIdx === 0 || !prev[0] || prev[0].rows[0]?.[0] !== '#') return updated;
 
-    const header  = newRows[0] ?? [];
-    const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
-    const qtyCol  = header.findIndex(h => /كمية|qty|quantity/i.test(h));
-    const valCol  = header.findIndex(h =>
-      !/سعر.*وحد|unit.?price/i.test(h) && /قيمة|إجمالي|total.*val|val.*total/i.test(h));
+    // ── Case A: cross-rep «ملخص عام» summary (sheet 0, first header cell '#') ──
+    // Editing the summary itself (sheet 0) changes nothing else; editing a data sheet
+    // re-sums that sheet's qty/value into its summary row + the grand-total footer.
+    const isCrossRep = prev[0]?.rows[0]?.[0] === '#';
+    if (isCrossRep) {
+      if (sheetIdx === 0) return updated;
+      const header  = newRows[0] ?? [];
+      const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
+      const qtyCol  = header.findIndex(h => /كمية|qty|quantity/i.test(h));
+      const valCol  = header.findIndex(h =>
+        !/سعر.*وحد|unit.?price/i.test(h) && /قيمة|إجمالي|total.*val|val.*total/i.test(h));
 
-    const dataRows = newRows.slice(1);
-    const sum = (col: number) => col < 0 ? null : dataRows.reduce((s, row) => {
-      const v = parseFloat(row[col] ?? ''); if (isNaN(v)) return s;
-      const isRet = rtCol >= 0 && /↩|ارجاع|return/i.test(row[rtCol] ?? '');
-      return s + (isRet ? -Math.abs(v) : Math.abs(v));
-    }, 0);
+      const dataRows = newRows.slice(1);
+      const sum = (col: number) => col < 0 ? null : dataRows.reduce((s, row) => {
+        const v = parseFloat(row[col] ?? ''); if (isNaN(v)) return s;
+        const isRet = rtCol >= 0 && /↩|ارجاع|return/i.test(row[rtCol] ?? '');
+        return s + (isRet ? -Math.abs(v) : Math.abs(v));
+      }, 0);
 
-    const tQty = sum(qtyCol);
-    const tVal = sum(valCol);
+      const tQty = sum(qtyCol);
+      const tVal = sum(valCol);
 
-    const summaryRows = prev[0].rows.map((row, ri) => {
-      if (ri !== sheetIdx) return row;
-      return row.map((v, ci) =>
-        ci === 3 && tQty !== null ? String(Math.round(tQty)) :
-        ci === 4 && tVal !== null ? String(Math.round(tVal)) : v
-      );
-    });
+      const summaryRows = prev[0].rows.map((row, ri) => {
+        if (ri !== sheetIdx) return row;
+        return row.map((v, ci) =>
+          ci === 3 && tQty !== null ? String(Math.round(tQty)) :
+          ci === 4 && tVal !== null ? String(Math.round(tVal)) : v
+        );
+      });
 
-    // Recalc grand total row (col 0 is empty)
-    const newSummary = [...summaryRows];
-    const gtIdx = newSummary.findIndex((row, ri) => ri > 0 && row[0] === '');
-    if (gtIdx >= 0) {
-      const gQty = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[3]) || 0), 0);
-      const gVal = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[4]) || 0), 0);
-      newSummary[gtIdx] = newSummary[gtIdx].map((v, ci) =>
-        ci === 3 ? String(Math.round(gQty)) : ci === 4 ? String(Math.round(gVal)) : v
-      );
+      // Recalc grand total row (col 0 is empty)
+      const newSummary = [...summaryRows];
+      const gtIdx = newSummary.findIndex((row, ri) => ri > 0 && row[0] === '');
+      if (gtIdx >= 0) {
+        const gQty = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[3]) || 0), 0);
+        const gVal = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[4]) || 0), 0);
+        newSummary[gtIdx] = newSummary[gtIdx].map((v, ci) =>
+          ci === 3 ? String(Math.round(gQty)) : ci === 4 ? String(Math.round(gVal)) : v
+        );
+      }
+
+      return updated.map((s, i) => i === 0 ? { ...s, rows: newSummary } : s);
     }
 
-    return updated.map((s, i) => i === 0 ? { ...s, rows: newSummary } : s);
+    // ── Case B: single-rep preview = [data sheet, «الملخص»] ──
+    // Recompute the «الملخص» totals + per-item NET from the edited data sheet so any
+    // row deletion / cell edit in the rep's data reflects live in the summary.
+    if (prev.length === 2) {
+      const summaryIdx = prev.findIndex(s => s.rows[0]?.[0] === 'ملخص بيانات المستخدم');
+      if (summaryIdx >= 0 && sheetIdx !== summaryIdx) {
+        const recomputed = recalcUserSummary(prev[summaryIdx].rows, newRows);
+        return updated.map((s, i) => i === summaryIdx ? { ...s, rows: recomputed } : s);
+      }
+    }
+
+    return updated;
   };
 
   const setRows = (rows: string[][]) =>
@@ -953,6 +1043,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       : Math.round(v).toLocaleString('ar-IQ-u-nu-latn');
   };
   const fmtValSigned = (n: number) => n >= 0 ? `+${fmtVal(Math.abs(n))}` : `-${fmtVal(Math.abs(n))}`;
+  // Group an ALREADY-currency-converted integer with thousands separators (commas) so
+  // large «الملخص» figures (millions) read clearly. Currency-agnostic — adds commas only,
+  // no further conversion (the value was already converted per-row via convertSaleVal).
+  const fmtThousands = (n: number) => Math.round(n || 0).toLocaleString('en-US');
   const currColHeader  = fileCurrencyMode === 'USD' ? `القيمة ($)` : t.reports.colValDinar;
   const currStatTotal  = fileCurrencyMode === 'USD' ? `إجمالي القيمة ($)` : t.reports.statTotalVal;
   const currStatNet    = fileCurrencyMode === 'USD' ? `صافي القيمة ($)` : t.reports.statNetVal;
@@ -1513,23 +1607,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return [name, Math.round(net), tgt > 0 ? Math.round(tgt) : '—', pct];
       });
 
+    // Note: «عدد المناطق المعيّنة» / «إجمالي صفوف المبيعات» / «إجمالي صفوف المرتجعات»
+    // were intentionally dropped from the summary per request — only the monetary totals
+    // (with thousands separators) and the per-item NET table remain.
     const rows: (string | number)[][] = [
       ['ملخص بيانات المستخدم'],
       [''],
       ['المستخدم', repName],
-    ];
-    if (opts.areaCount != null) rows.push(['عدد المناطق المعيّنة', opts.areaCount]);
-    rows.push(
-      ['إجمالي صفوف المبيعات',  saleRows.length],
-      ['إجمالي صفوف المرتجعات', returnRows.length],
-      ['إجمالي قيمة المبيعات',  totalSalesVal],
-      ['إجمالي قيمة المرتجعات', totalReturnsVal],
-      ['الصافي',                totalSalesVal - totalReturnsVal],
+      ['إجمالي قيمة المبيعات',  fmtThousands(totalSalesVal)],
+      ['إجمالي قيمة المرتجعات', fmtThousands(totalReturnsVal)],
+      ['الصافي',                fmtThousands(totalSalesVal - totalReturnsVal)],
       [''],
       ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
       ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
       ...itemRows,
-    );
+    ];
     return rows;
   };
 
@@ -1783,12 +1875,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ? (commReps.find(r => String(r.id) === commRepId)?.name ?? 'تقرير')
         : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
-      // Determine record filter from current view
-      const recFilter: 'sale' | 'return' | 'both' =
-        reportView === 'sales'   ? 'sale'   :
-        reportView === 'returns' ? 'return' : 'both';
-
-      const sheetData = buildMergedSheet(sales, recFilter);
+      // Always include BOTH sales and returns in the data sheet (this is the rep's full
+      // export — the button is «فتح كامل بيانات المندوب»). The «الملخص» sheet recomputes
+      // its totals live from this data sheet on edit, so it must hold every row the
+      // summary summarises, regardless of the current on-screen view toggle.
+      const sheetData = buildMergedSheet(sales, 'both');
       const stringRows = sheetData.map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
 
       // ── Build the «الملخص» sheet (always full net, regardless of the data view) ──
