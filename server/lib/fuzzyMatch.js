@@ -88,8 +88,14 @@ function hasDifferentCoreNumbers(a, b) {
   // Strip percentage-concentration patterns ("1%", "%1", "0.1%") before extracting
   // dose numbers — concentrations like "1%/0.1%" are NOT dose-distinguishing quantities.
   const stripConc = s => s.replace(/\d+(?:\.\d+)?%|%\d+(?:\.\d+)?/g, '');
-  const numsA = (stripConc(a).match(/\d+/g) || []);
-  const numsB = (stripConc(b).match(/\d+/g) || []);
+  // Strip pack-/count tokens ("48TAB", "60CAP", "30 tablets", "2x10") — these are how
+  // many units are in the box, NOT the dose, so they must not be compared as doses.
+  // Without this, "GASTRACTIVE 48TAB" (count 48) wrongly conflicts with the same drug's
+  // "680+80mg" dose. Real dose differences (250 vs 500 mg) are still caught.
+  const stripPack = s => s.replace(/\b\d+\s*(?:x\s*\d+\s*)?(?:tabs?|tablets?|caps?|capsules?|sachets?|amps?|ampoules?|vials?|pcs?|pieces?|strips?)\b/gi, ' ');
+  const clean = s => stripPack(stripConc(s));
+  const numsA = (clean(a).match(/\d+/g) || []);
+  const numsB = (clean(b).match(/\d+/g) || []);
   if (numsA.length === 0 || numsB.length === 0) return false;
   const shorter = numsA.length <= numsB.length ? numsA : numsB;
   const longer  = numsA.length <= numsB.length ? numsB : numsA;
@@ -114,9 +120,19 @@ function wordOverlapRatio(a, b) {
   const DOSE_RE = /^\d+(\w{0,4})?$/; // "500", "25mg", "30tab", "60cap", "50mcg" …
   // Also filter percentage-concentration tokens like "1%", "%1", "0.1%"
   const CONC_RE = /^%?\d+(?:\.\d+)?%?$/;
+  // Pharmaceutical unit / dosage-form words are NOT brand-distinguishing, so they must
+  // not dilute the overlap (otherwise "AIRTIDE … mcg … mcg" vs "AIRTIDE … 60CAP INHALER"
+  // share only "airtide" but score low because of "inhaler"/"mcg"). Strip them too.
+  const FORM_WORDS = new Set([
+    'mcg', 'mgs', 'gms', 'tab', 'tabs', 'tablet', 'tablets', 'cap', 'caps', 'capsule', 'capsules',
+    'inhaler', 'spray', 'syrup', 'susp', 'suspension', 'drops', 'drop', 'gel', 'jel', 'cream',
+    'ointment', 'pomade', 'pomad', 'amp', 'amps', 'ampoule', 'vial', 'vials', 'sachet', 'sachets',
+    'supp', 'suppository', 'injection', 'inj', 'solution', 'soln', 'lotion', 'powder', 'patch',
+    'patches', 'effervescent', 'oral', 'sachettes',
+  ]);
   const sig = s =>
     s.split(/[\s\/\-]+/)
-     .filter(w => w.length > 2 && !DOSE_RE.test(w) && !CONC_RE.test(w));
+     .filter(w => w.length > 2 && !DOSE_RE.test(w) && !CONC_RE.test(w) && !FORM_WORDS.has(w));
   const wa = sig(a), wb = sig(b);
   if (wa.length === 0 || wb.length === 0) return 0;
   const shorter = wa.length <= wb.length ? wa : wb;
