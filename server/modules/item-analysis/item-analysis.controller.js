@@ -1106,7 +1106,7 @@ export async function analyzeAllSurveysWithAI(req, res, next) {
       });
 
       if (!entries.length) {
-        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'no entries' });
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'لا توجد مدخلات أدوية في هذا السيرفي' });
         continue;
       }
 
@@ -1142,7 +1142,15 @@ ${JSON.stringify(entryList)}
           create: { surveyId: survey.id, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: err?.message, updatedAt: new Date() },
           update: { status: 'error', errorMsg: err?.message, updatedAt: new Date() },
         });
-        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason: 'Gemini error' });
+        const m = String(err?.message || '');
+        const reason = /429|quota/i.test(m)
+          ? 'تم استنفاد حصة مفاتيح Gemini — حاول لاحقاً أو أضِف مفتاحاً جديداً'
+          : /No Gemini API key/i.test(m)
+            ? 'لا يوجد مفتاح Gemini مُهيّأ على الخادم'
+            : /timeout/i.test(m)
+              ? 'انتهت مهلة Gemini'
+              : `خطأ Gemini: ${m.slice(0, 160)}`;
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason });
         continue;
       }
 
@@ -1152,7 +1160,7 @@ ${JSON.stringify(entryList)}
         analysisArray = JSON.parse(cleaned);
         if (!Array.isArray(analysisArray)) throw new Error('not array');
       } catch {
-        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason: 'JSON parse error' });
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason: 'تعذّر تحليل رد Gemini (JSON غير صالح)' });
         continue;
       }
 
@@ -1165,8 +1173,22 @@ ${JSON.stringify(entryList)}
       results.push({ surveyId: survey.id, surveyName: survey.name, status: 'done', entryCount: analysisArray.length });
     }
 
-    const done = results.filter(r => r.status === 'done').length;
-    res.json({ ok: true, surveyCount: surveys.length, done, results });
+    const done    = results.filter(r => r.status === 'done').length;
+    const errored = results.filter(r => r.status === 'error');
+    const skipped = results.filter(r => r.status === 'skipped');
+
+    // Build a clear, user-facing summary so the UI never shows a silent "0 of N".
+    let message;
+    if (done === surveys.length) {
+      message = `✅ تم تحليل ${done} من ${surveys.length} سيرفي بنجاح`;
+    } else {
+      const parts = [`تم تحليل ${done} من ${surveys.length} سيرفي`];
+      if (errored.length)  parts.push(`فشل ${errored.length}: ${errored[0].reason}`);
+      if (skipped.length)  parts.push(`تخطّي ${skipped.length}: ${skipped[0].reason}`);
+      message = `⚠️ ${parts.join(' — ')}`;
+    }
+
+    res.json({ ok: true, surveyCount: surveys.length, done, ok_all: done === surveys.length, results, message });
   } catch (e) { next(e); }
 }
 

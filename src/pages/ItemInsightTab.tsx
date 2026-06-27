@@ -1105,7 +1105,8 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                           setSurveyAnalyzeMsg('⚠️ لا توجد سيرفيات أسعار نشطة في النظام');
                           return;
                         }
-                        setSurveyAnalyzeMsg(`✅ تم تحليل ${j.done} من ${j.surveyCount} سيرفي`);
+                        // Surface the real outcome (incl. failure reason) instead of a silent "0 of N"
+                        setSurveyAnalyzeMsg(j.message || `تم تحليل ${j.done} من ${j.surveyCount} سيرفي`);
                         // Reload market prices
                         setMarketLoading(true);
                         const mr = await fetch(`${API}/api/item-analysis/${selectedId}/market-prices`, { headers });
@@ -1129,11 +1130,17 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                 )}
               </div>
 
-              {surveyAnalyzeMsg && (
-                <div style={{ padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12, color: '#065f46', marginBottom: 12 }}>
-                  {surveyAnalyzeMsg}
-                </div>
-              )}
+              {surveyAnalyzeMsg && (() => {
+                const isWarn = surveyAnalyzeMsg.startsWith('⚠️');
+                const c = isWarn
+                  ? { bg: '#fffbeb', border: '#fde68a', text: '#92400e' }
+                  : { bg: '#f0fdf4', border: '#bbf7d0', text: '#065f46' };
+                return (
+                  <div style={{ padding: '8px 14px', background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 12, color: c.text, marginBottom: 12, lineHeight: 1.6 }}>
+                    {surveyAnalyzeMsg}
+                  </div>
+                );
+              })()}
 
               {/* AI match info banner */}
               {marketResult?.matchMode === 'ai' && marketPrices.length > 0 && (() => {
