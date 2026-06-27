@@ -131,6 +131,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [clAccuracy, setClAccuracy]           = useState<number | null>(null);
   const [clGpsStatus, setClGpsStatus]         = useState<'idle'|'getting'|'got'|'denied'>('idle');
   const [clGpsWarning, setClGpsWarning]         = useState(false); // show GPS alert before submit
+  const [clGpsRefining, setClGpsRefining]       = useState(false); // GPS watch still running, accuracy may still improve
   const [waitingForSettings, setWaitingForSettings] = useState(false); // waiting for user to return from location settings
   const clTimerRef = useRef<any>(null);
   const itemInputRef = useRef<HTMLInputElement>(null);
@@ -513,13 +514,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   // ── Shared GPS helper ──────────────────────────────────────
-  // Uses watchPosition to keep improving accuracy until ≤50m or 30s timeout.
+  // Uses watchPosition to keep improving accuracy until ≤15m or the hard-stop timeout.
   // Falls back to low-accuracy on permission-only browsers.
   const stopGpsWatch = () => {
     if (clGpsWatchRef.current !== null) {
       navigator.geolocation.clearWatch(clGpsWatchRef.current);
       clGpsWatchRef.current = null;
     }
+    setClGpsRefining(false);
   };
 
   const startGpsCapture = () => {
@@ -532,9 +534,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     if (!navigator.geolocation) { setClGpsStatus('denied'); return; }
     stopGpsWatch();
     setClLat(null); setClLng(null); setClAccuracy(null); setClGpsStatus('getting');
+    setClGpsRefining(true);
     clGpsBestAccRef.current = Infinity;
 
-    const GOOD_ACCURACY = 50; // metres — accept immediately if ≤ this
+    const GOOD_ACCURACY = 15; // metres — keep refining until accuracy reaches this, then stop
 
     const applyPosition = (pos: GeolocationPosition) => {
       const acc = pos.coords.accuracy;
@@ -2471,6 +2474,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         : clGpsStatus === 'getting' ? 'جاري...'
                         : '✕ موقع'}
                     </span>
+                    {/* Still refining hint — a tighter reading may still arrive */}
+                    {clGpsStatus === 'got' && clGpsRefining && clAccuracy !== null && clAccuracy > 15 && (
+                      <span style={{ fontSize: '8px', fontWeight: 600, color: '#d97706', whiteSpace: 'nowrap', lineHeight: 1 }}>
+                        ↓ يحسّن…
+                      </span>
+                    )}
                   </div>
                   <button onClick={() => { clearInterval(clTimerRef.current); stopGpsWatch(); setShowCallLog(false); }} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer', color: '#6b7280', lineHeight: 1, padding: '0 4px' }}>×</button>
                 </div>
