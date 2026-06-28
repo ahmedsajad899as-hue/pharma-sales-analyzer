@@ -31,6 +31,7 @@ import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.
 import { getRawSalesForExport } from './modules/scientific-reps/scientific-reps.service.js';
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
+import dailyPlansRoutes         from './modules/daily-plans/daily-plans.routes.js';
 import superAdminRoutes         from './modules/super-admin/super-admin.routes.js';
 import surveyAdminRoutes        from './modules/super-admin/survey-admin.routes.js';
 import officesRoutes            from './modules/offices/offices.routes.js';
@@ -545,6 +546,7 @@ app.use('/api/scientific-reps',   scientificRepsRoutes);
 app.use('/api/reports',           reportsRoutes);
 app.use('/api/doctors',           doctorsRoutes);
 app.use('/api/monthly-plans',     monthlyPlansRoutes);
+app.use('/api/daily-plans',       dailyPlansRoutes);
 app.use('/api/ai-assistant',      aiAssistantRoutes);
 app.use('/api/commercial',        commercialRoutes);
 app.use('/api/tracking',          trackingRoutes);

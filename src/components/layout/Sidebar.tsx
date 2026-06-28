@@ -98,6 +98,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     // Individual pages removed from sidebar — accessible only as tabs inside rep-analysis page
     { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
     { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
+    { id: 'daily-plan',      label: t.nav.dailyPlan,       icon: '📆', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','user'] },
     { id: 'master-survey',   label: 'سيرفي اوردين',        icon: '🗂️', roles: [] },
     { id: 'fms',             label: 'FMS — عينات شهرية',  icon: '🧪', roles: ['company_manager','admin','manager'] },
     { id: 'sales-data',      label: 'Stock',                icon: '📊', roles: [] },
@@ -115,6 +116,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // Multiple keys can map to the same page; any disabled key will hide that page
   const featurePageMap: Record<string, PageId> = {
     monthly_plans:  'monthly-plans',
+    daily_plans:    'daily-plan',
     reports:        'reports',
     rep_analysis:   'rep-analysis',
     rep_files:      'rep-analysis',

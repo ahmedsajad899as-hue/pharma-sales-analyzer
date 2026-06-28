@@ -103,6 +103,11 @@ model User {
   bonusDeliveries          BonusSalesRow[]     @relation("BonusDeliveryUser")
   bonusAssignments         BonusRowAssignment[] @relation("BonusAssignedUser")
 
+  // Daily Plan (البلان اليومي)
+  dailyPlans          DailyPlan[]
+  dailyPlanComments   DailyPlanComment[]
+  dailyPlanSettings   DailyPlanSettings?
+
   @@index([officeId])
   @@map("users")
 }
@@ -152,6 +157,7 @@ model Area {
   pharmacyVisits      PharmacyVisit[]
   pharmacies          Pharmacy[]
   planAreas           PlanArea[]
+  dailyPlanEntries    DailyPlanEntry[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -470,6 +476,7 @@ model Doctor {
   planEntries PlanEntry[]
   visits      DoctorVisit[]
   wishlists   DoctorWishlist[]
+  dailyPlanEntries DailyPlanEntry[]
 
   @@index([userId])
   @@index([areaId])
@@ -1524,4 +1531,88 @@ model BonusCompRow {
 
   @@index([uploadId])
   @@map("bonus_comp_rows")
+}
+
+// ════════════════════════════════════════════════════════════
+// DAILY PLAN — البلان اليومي
+// ════════════════════════════════════════════════════════════
+
+// ─── Daily Plan (خطة المندوب اليومية) ───────────────────────
+model DailyPlan {
+  id              Int      @id @default(autoincrement())
+  userId          Int      // الحساب المالك (يطابق نمط MonthlyPlan.userId)
+  scientificRepId Int?     // المندوب (nullable للمدير)
+  repUserId       Int?     // user.id للمندوب — لمطابقة الزيارات بـ OR[scientificRepId,userId]
+  planDate        String   // "YYYY-MM-DD" (نفس نمط RepLocationPoint.workDate)
+  status          String   @default("active") // active | completed
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id])
+  entries  DailyPlanEntry[]
+  comments DailyPlanComment[]
+
+  @@unique([userId, scientificRepId, planDate])
+  @@index([userId])
+  @@index([scientificRepId])
+  @@index([planDate])
+  @@map("daily_plans")
+}
+
+// ─── Daily Plan Entry (طبيب/صيدلية في بلان اليوم) ───────────
+model DailyPlanEntry {
+  id                    Int      @id @default(autoincrement())
+  planId                Int
+  entryType             String   // "doctor" | "pharmacy"
+  doctorId              Int?     // لمدخلات الأطباء
+  pharmacyName          String?  // لمدخلات الصيدليات (free-text مثل PharmacyVisit)
+  areaId                Int?
+  status                String   @default("planned") // planned | visited | postponed
+  postponeReason        String?  // absent | traveling | declined | other
+  postponeNote          String?
+  linkedVisitId         Int?     // DoctorVisit.id بعد المطابقة (scalar، بدون relation)
+  linkedPharmacyVisitId Int?     // PharmacyVisit.id بعد المطابقة
+  isNewDoctor           Boolean  @default(false) // طبيب بلا زيارة سابقة (لحصة الجدد)
+  createdAt             DateTime @default(now())
+
+  plan   DailyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  doctor Doctor?   @relation(fields: [doctorId], references: [id])
+  area   Area?     @relation(fields: [areaId], references: [id])
+
+  @@index([planId])
+  @@index([doctorId])
+  @@map("daily_plan_entries")
+}
+
+// ─── Daily Plan Comment (تعليق المدير على البلان) ───────────
+model DailyPlanComment {
+  id        Int      @id @default(autoincrement())
+  planId    Int
+  userId    Int
+  content   String
+  createdAt DateTime @default(now())
+
+  plan DailyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id])
+
+  @@index([planId])
+  @@map("daily_plan_comments")
+}
+
+// ─── Daily Plan Settings (إعدادات مدير الشركة) ──────────────
+model DailyPlanSettings {
+  id                         Int      @id @default(autoincrement())
+  userId                     Int      @unique // الحساب المالك (مدير الشركة)
+  repeatWindowDays           Int      @default(7)
+  repeatThreshold            Int      @default(3)
+  alertOnRepeatAfterPositive Boolean  @default(true)
+  lowAchievementThreshold    Int      @default(50) // %
+  minNewDoctorsPerDay        Int      @default(0)  // 0 = معطّل
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("daily_plan_settings")
 }

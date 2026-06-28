@@ -28,6 +28,7 @@ const _importRepresentatives = () => import('./pages/RepresentativesPage');
 const _importScientificReps  = () => import('./pages/ScientificRepsPage');
 const _importDoctors         = () => import('./pages/DoctorsPage');
 const _importMonthlyPlans    = () => import('./pages/MonthlyPlansPage');
+const _importDailyPlan       = () => import('./pages/DailyPlanPage');
 const _importReports         = () => import('./pages/ReportsPage');
 const _importUsers           = () => import('./pages/UsersPage');
 const _importCommercial      = () => import('./pages/CommercialRepPage');
@@ -48,6 +49,7 @@ const RepresentativesPage = lazyWithRetry(_importRepresentatives);
 const ScientificRepsPage  = lazyWithRetry(_importScientificReps);
 const DoctorsPage         = lazyWithRetry(_importDoctors);
 const MonthlyPlansPage    = lazyWithRetry(_importMonthlyPlans);
+const DailyPlanPage       = lazyWithRetry(_importDailyPlan);
 const ReportsPage         = lazyWithRetry(_importReports);
 const UsersPage           = lazyWithRetry(_importUsers);
 const CommercialRepPage   = lazyWithRetry(_importCommercial);
@@ -67,7 +69,7 @@ function preloadAllChunks() {
   idle(() => {
     _importDashboard(); _importRepAnalysis(); _importUpload();
     _importRepresentatives(); _importScientificReps(); _importDoctors();
-    _importMonthlyPlans(); _importReports(); _importUsers();
+    _importMonthlyPlans(); _importDailyPlan(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
     _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis();
     _importBonusSales(); _importOrgStructure();
@@ -100,6 +102,7 @@ export type PageId =
   | 'scientific-reps'
   | 'doctors'
   | 'monthly-plans'
+  | 'daily-plan'
   | 'reports'
   | 'users'
   | 'rep-analysis'
@@ -374,7 +377,7 @@ function AppInner() {
   // By the time the user taps a page icon, data is already loaded.
   const allPageIds: PageId[] = [
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
-    'monthly-plans', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
+    'monthly-plans', 'daily-plan', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
     'distributor-sales', 'file-filter', 'pharmacy-analysis', 'bonus-sales', 'org-structure',
   ];
   useEffect(() => {
@@ -424,6 +427,7 @@ function AppInner() {
     { id: 'scientific-reps', node: <ScientificRepsPage /> },
     { id: 'doctors',         node: <DoctorsPage /> },
     { id: 'monthly-plans',   node: <MonthlyPlansPage /> },
+    { id: 'daily-plan',      node: <DailyPlanPage /> },
     { id: 'reports',         node: <ReportsPage activeFileIds={activeFileIds} onNavigate={navigateTo} /> },
     { id: 'users',           node: <UsersPage /> },
     { id: 'rep-analysis',    node: <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },

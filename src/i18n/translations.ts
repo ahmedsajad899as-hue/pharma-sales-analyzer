@@ -15,6 +15,7 @@ const translations = {
       users: 'المستخدمين',
       doctors: 'تحليل الكولات',
       monthlyPlans: 'البلان الشهري',
+      dailyPlan: 'البلان اليومي',
     },
     sidebar: {
       collapse: 'طي القائمة',
@@ -540,6 +541,7 @@ const translations = {
       users: 'Users',
       doctors: 'Survey Doctors',
       monthlyPlans: 'Monthly Plan',
+      dailyPlan: 'Daily Plan',
     },
     sidebar: {
       collapse: 'Collapse menu',
