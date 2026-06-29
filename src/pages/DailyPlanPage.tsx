@@ -30,6 +30,9 @@ const FEEDBACK_LABELS: Record<string, string> = {
   not_interested: 'غير مهتم', unavailable: 'غير متوفر', pending: 'معلق',
 };
 const FEEDBACK_OPTIONS = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
+const FEEDBACK_ICONS: Record<string, string> = {
+  writing: '✍️', stocked: '📦', interested: '👍', not_interested: '👎', unavailable: '🚫', pending: '⏳',
+};
 const POSTPONE_REASONS: Record<string, string> = { absent: 'الطبيب غير موجود', traveling: 'مسافر', declined: 'اعتذر عن الاستقبال', other: 'سبب آخر' };
 const POSTPONE_REASON_ICONS: Record<string, string> = { absent: '🚪', traveling: '✈️', declined: '🙅', other: '❓' };
 const STATUS_LABEL: Record<string, string> = { planned: 'مخطط', visited: 'تمت الزيارة', postponed: 'مؤجل' };
@@ -665,12 +668,25 @@ export default function DailyPlanPage() {
           <div style={{ fontSize: 12.5, color: TEXT_MUTED, marginBottom: 10 }}>{recordFor.entryType === 'doctor' ? (recordFor.doctor?.name ?? 'طبيب') : recordFor.pharmacyName}</div>
           {recordFor.entryType === 'doctor' && (
             <>
-              <label style={{ display: 'block', marginBottom: 10 }}>
-                <span style={{ fontSize: 12, color: TEXT_MUTED }}>النتيجة (feedback)</span>
-                <select value={recordFeedback} onChange={e => setRecordFeedback(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
-                  {FEEDBACK_OPTIONS.map(f => <option key={f} value={f}>{FEEDBACK_LABELS[f]}</option>)}
-                </select>
-              </label>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: TEXT_MUTED, display: 'block', marginBottom: 6 }}>النتيجة (feedback)</span>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {FEEDBACK_OPTIONS.map(f => (
+                    <button key={f} type="button" onClick={() => setRecordFeedback(f)}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                        minWidth: 72, padding: '10px 8px', borderRadius: 8, cursor: 'pointer',
+                        border: `1px solid ${recordFeedback === f ? NAVY : BORDER}`,
+                        background: recordFeedback === f ? '#eff6ff' : '#fff',
+                        color: recordFeedback === f ? NAVY : TEXT_DARK,
+                        fontWeight: recordFeedback === f ? 700 : 500,
+                      }}>
+                      <span style={{ fontSize: 20 }}>{FEEDBACK_ICONS[f]}</span>
+                      <span style={{ fontSize: 11 }}>{FEEDBACK_LABELS[f]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label style={{ display: 'block', marginBottom: 10 }}>
                 <span style={{ fontSize: 12, color: TEXT_MUTED }}>الايتم المستهدف (اختياري)</span>
                 <select value={recordItemId} onChange={e => setRecordItemId(e.target.value ? Number(e.target.value) : '')} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
