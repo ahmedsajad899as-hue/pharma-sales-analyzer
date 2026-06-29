@@ -225,15 +225,18 @@ export async function getMyCommercialReps(userId) {
   return rows.map(r => r.commercialRep);
 }
 
-// Items found in sales rows of files explicitly shared with the currently
-// logged-in scientific rep (UploadedFile.sharedWithRepId) — what the rep
-// should see in their read-only "الايتمات" tab, as opposed to the full
-// company-wide item catalog.
+// Items found in sales rows of files shared with the currently logged-in
+// scientific rep — either directly (UploadedFile.sharedWithRepId, the legacy
+// per-rep share) or via the file-sharing UI used today (FileUserShare junction,
+// keyed by the user's own account id) — what the rep should see in their
+// read-only "الايتمات" tab, as opposed to the full company-wide item catalog.
 export async function getMySharedItems(userId) {
   const repId = await resolveMyRepId(userId);
-  if (!repId) return [];
-  const files = await prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } });
-  const fileIds = files.map(f => f.id);
+  const [byRep, byUser] = await Promise.all([
+    repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
+    prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
+  ]);
+  const fileIds = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
   if (fileIds.length === 0) return [];
   const rows = await prisma.sale.findMany({
     where: { uploadedFileId: { in: fileIds } },
