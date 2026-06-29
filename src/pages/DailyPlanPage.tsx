@@ -132,6 +132,10 @@ export default function DailyPlanPage() {
   // collapsible postpone-reasons analysis panel
   const [postponeAnalysisOpen, setPostponeAnalysisOpen] = useState(false);
   const postponeBoxRef = useRef<HTMLDivElement>(null);
+  // post-add reminder: pick the target item for a just-added doctor (skippable)
+  const [itemPromptEntryId, setItemPromptEntryId] = useState<number | null>(null);
+  const [itemPromptName, setItemPromptName] = useState('');
+  const [itemPromptValue, setItemPromptValue] = useState<number | ''>('');
 
   const repParam = selectedRep ? `&repUserId=${selectedRep}` : '';
   const repQS = selectedRep ? `repUserId=${selectedRep}` : '';
@@ -231,9 +235,23 @@ export default function DailyPlanPage() {
         flash(`تنبيه تكرار: الطبيب مخطط في ${rp.count} أيام${rp.hadPositive ? ' وسبق زيارته بنجاح' : ''} — تم إعلام المدير.`);
       } else flash('تمت الإضافة');
       setDocSearch('');
+      const newEntryId = j.data?.entry?.id;
+      if (newEntryId) {
+        setItemPromptEntryId(newEntryId);
+        setItemPromptName(doctors.find(d => d.id === doctorId)?.name ?? 'الطبيب');
+        setItemPromptValue('');
+      }
       await load();
     } catch (e: any) { setError(e.message); }
   };
+
+  // Reminder after adding a doctor (rep or manager): pick the target item now, or skip — never mandatory.
+  const confirmItemPrompt = async () => {
+    if (itemPromptEntryId == null) return;
+    if (itemPromptValue) await setEntryItem(itemPromptEntryId, itemPromptValue);
+    setItemPromptEntryId(null); setItemPromptName(''); setItemPromptValue('');
+  };
+  const skipItemPrompt = () => { setItemPromptEntryId(null); setItemPromptName(''); setItemPromptValue(''); };
 
   const addPharmacy = async (nameOverride?: string) => {
     const name = (nameOverride ?? pharmName).trim();
@@ -482,6 +500,25 @@ export default function DailyPlanPage() {
             )}
           </div>
 
+          {/* Reminder: pick the target item for the doctor just added — optional, skippable */}
+          {itemPromptEntryId != null && (
+            <div style={{ ...CARD, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5, color: TEXT_DARK }}>
+                  تمت إضافة <strong>{itemPromptName}</strong> — اختر الايتم المستهدف لهذه الزيارة (اختياري، يمكنك تخطّيه):
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <select value={itemPromptValue} onChange={e => setItemPromptValue(e.target.value ? Number(e.target.value) : '')} style={INPUT}>
+                    <option value="">— بدون تحديد —</option>
+                    {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                  </select>
+                  <button onClick={confirmItemPrompt} style={btnPrimary()}>تأكيد</button>
+                  <button onClick={skipItemPrompt} style={btnNeutral()}>تخطّي</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Entries list */}
           <div style={CARD}>
             <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>قائمة اليوم ({view.entries.length})</strong>
@@ -521,8 +558,8 @@ export default function DailyPlanPage() {
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {e.status !== 'visited' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }} style={btnPrimary()}>سجّل كول</button>}
-                            {e.status !== 'visited' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); }} style={btnNeutral()}>تأجيل</button>}
+                            {e.status === 'planned' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }} style={btnPrimary()}>سجّل كول</button>}
+                            {e.status === 'planned' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); }} style={btnNeutral()}>تأجيل</button>}
                             <button onClick={() => removeEntry(e.id)} style={btnDanger()}>حذف</button>
                           </div>
                         </div>
