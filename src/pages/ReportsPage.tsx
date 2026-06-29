@@ -2226,7 +2226,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <div className="page">
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
-        {([['overall','تحليل شامل'], ['scientific',t.reports.modeScientific], ['commercial',t.reports.modeCommercial]] as [string,string][]).map(([id, label]) => (
+        {([['overall','تحليل شامل'], ['scientific',t.reports.modeScientific], ['commercial',t.reports.modeCommercial]] as [string,string][])
+          .filter(([id]) => !(id === 'commercial' && user?.role === 'scientific_rep'))
+          .map(([id, label]) => (
           <button key={id} onClick={() => {
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
             if (id === 'scientific') { setMode('scientific'); setError(''); setSciReport(null); }
