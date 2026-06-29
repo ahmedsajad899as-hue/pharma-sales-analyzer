@@ -357,7 +357,8 @@ export default function MonthlyPlansPage() {
   // Feedback doctors popup
   const [fbPopup, setFbPopup] = useState<{ fb: string; label: string; meta: { color: string; bg: string }; doctors: { name: string; entryId: number }[] } | null>(null);
 
-  // Doctor history popup (company_manager only) — visit dates + daily-plan dates across all reps, to spot repetition
+  // Doctor history popup (company_manager/admin) — visit dates + daily-plan dates across all reps, to spot repetition
+  const canViewDoctorHistory = isCompanyManager || authUser?.role === 'admin';
   const [doctorHistoryFor, setDoctorHistoryFor] = useState<{ doctorId: number; name: string } | null>(null);
   const [doctorHistoryData, setDoctorHistoryData] = useState<{ visits: { date: string; feedback: string; repName: string }[]; planEntries: { planDate: string; status: string; repName: string }[] } | null>(null);
   const [doctorHistoryLoading, setDoctorHistoryLoading] = useState(false);
@@ -3709,7 +3710,7 @@ export default function MonthlyPlansPage() {
                       {/* Doctor name + specialty */}
                       <div className="mp-entry-name" style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {isCompanyManager ? (
+                          {canViewDoctorHistory ? (
                             <span
                               onClick={e => { e.stopPropagation(); openDoctorHistory(entry.doctorId, entry.doctor.name); }}
                               title="عرض تواريخ الزيارات والإضافة للبلان اليومي لهذا الطبيب"
