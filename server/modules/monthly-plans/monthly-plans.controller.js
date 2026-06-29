@@ -2540,3 +2540,48 @@ export async function getPharmacyVisits(req, res, next) {
     res.json(visits);
   } catch (e) { next(e); }
 }
+
+// ── Doctor history across all of a company manager's reps (visits + daily-plan additions) ──
+// GET /api/monthly-plans/doctor-history/:doctorId
+// Lets a company manager spot whether a doctor keeps getting re-added/re-visited, and by whom.
+export async function getDoctorHistory(req, res, next) {
+  try {
+    const { role, id: managerId } = req.user;
+    if (!['admin', 'company_manager'].includes(role)) {
+      return res.status(403).json({ error: 'هذه البيانات متاحة لمدير الشركة فقط.' });
+    }
+
+    const doctorId = parseInt(req.params.doctorId);
+    if (!doctorId) return res.status(400).json({ error: 'doctorId غير صالح.' });
+
+    // All reps (direct + indirect) under this manager.
+    const direct = await prisma.userManagerAssignment.findMany({ where: { managerId }, select: { userId: true } });
+    let repIds = direct.map(d => d.userId);
+    if (repIds.length) {
+      const indirect = await prisma.userManagerAssignment.findMany({ where: { managerId: { in: repIds } }, select: { userId: true } });
+      repIds = [...new Set([...repIds, ...indirect.map(i => i.userId)])];
+    }
+    if (!repIds.length) return res.json({ success: true, data: { visits: [], planEntries: [] } });
+
+    const [visits, entries] = await Promise.all([
+      prisma.doctorVisit.findMany({
+        where: { doctorId, userId: { in: repIds } },
+        select: { visitDate: true, feedback: true, user: { select: { displayName: true, username: true } } },
+        orderBy: { visitDate: 'desc' },
+      }),
+      prisma.dailyPlanEntry.findMany({
+        where: { doctorId, entryType: 'doctor', plan: { userId: { in: repIds } } },
+        select: { status: true, createdAt: true, plan: { select: { planDate: true, user: { select: { displayName: true, username: true } } } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        visits: visits.map(v => ({ date: v.visitDate, feedback: v.feedback, repName: v.user?.displayName || v.user?.username || '—' })),
+        planEntries: entries.map(e => ({ planDate: e.plan.planDate, status: e.status, repName: e.plan.user?.displayName || e.plan.user?.username || '—' })),
+      },
+    });
+  } catch (e) { next(e); }
+}

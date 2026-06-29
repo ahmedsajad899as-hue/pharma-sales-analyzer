@@ -357,6 +357,22 @@ export default function MonthlyPlansPage() {
   // Feedback doctors popup
   const [fbPopup, setFbPopup] = useState<{ fb: string; label: string; meta: { color: string; bg: string }; doctors: { name: string; entryId: number }[] } | null>(null);
 
+  // Doctor history popup (company_manager only) — visit dates + daily-plan dates across all reps, to spot repetition
+  const [doctorHistoryFor, setDoctorHistoryFor] = useState<{ doctorId: number; name: string } | null>(null);
+  const [doctorHistoryData, setDoctorHistoryData] = useState<{ visits: { date: string; feedback: string; repName: string }[]; planEntries: { planDate: string; status: string; repName: string }[] } | null>(null);
+  const [doctorHistoryLoading, setDoctorHistoryLoading] = useState(false);
+  const openDoctorHistory = async (doctorId: number, name: string) => {
+    setDoctorHistoryFor({ doctorId, name });
+    setDoctorHistoryData(null);
+    setDoctorHistoryLoading(true);
+    try {
+      const r = await fetch(`${API}/api/monthly-plans/doctor-history/${doctorId}`, { headers: H() });
+      const j = await r.json();
+      if (r.ok && j.success) setDoctorHistoryData(j.data);
+    } catch {}
+    setDoctorHistoryLoading(false);
+  };
+
   // Transfer plan modal
   interface RepUser { id: number; username: string; linkedRepId: number | null; }
   const [transferPlan, setTransferPlan]   = useState<Plan | null>(null);
@@ -3693,7 +3709,14 @@ export default function MonthlyPlansPage() {
                       {/* Doctor name + specialty */}
                       <div className="mp-entry-name" style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {entry.doctor.name}
+                          {isCompanyManager ? (
+                            <span
+                              onClick={e => { e.stopPropagation(); openDoctorHistory(entry.doctorId, entry.doctor.name); }}
+                              title="عرض تواريخ الزيارات والإضافة للبلان اليومي لهذا الطبيب"
+                              style={{ textDecoration: 'underline', textDecorationStyle: 'dotted', cursor: 'pointer' }}>
+                              {entry.doctor.name}
+                            </span>
+                          ) : entry.doctor.name}
                           {voiceNewEntries.has(entry.id) && (
                             <span style={{
                               marginRight: 6, fontSize: 10, fontWeight: 800,
@@ -4603,6 +4626,69 @@ export default function MonthlyPlansPage() {
 
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setFbPopup(null)} style={btnStyle('#64748b')}>إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Doctor history popup (company_manager): visit dates + daily-plan dates across all reps ── */}
+      {doctorHistoryFor && (
+        <div style={overlayStyle} onClick={() => setDoctorHistoryFor(null)}>
+          <div style={{ ...modalStyle, maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b' }}>🗓 سجلّ {doctorHistoryFor.name}</h2>
+              <button onClick={() => setDoctorHistoryFor(null)}
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
+            </div>
+
+            {doctorHistoryLoading ? (
+              <p style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 0' }}>جاري التحميل...</p>
+            ) : !doctorHistoryData ? (
+              <p style={{ textAlign: 'center', color: '#ef4444', padding: '20px 0' }}>تعذّر تحميل السجلّ</p>
+            ) : (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <strong style={{ fontSize: 13, color: '#374151', display: 'block', marginBottom: 8 }}>
+                    تواريخ الزيارات الفعلية ({doctorHistoryData.visits.length})
+                  </strong>
+                  {doctorHistoryData.visits.length === 0 ? (
+                    <p style={{ fontSize: 12.5, color: '#94a3b8', margin: 0 }}>لا توجد زيارات مسجّلة</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
+                      {doctorHistoryData.visits.map((v, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '6px 10px', fontSize: 12.5 }}>
+                          <span style={{ color: '#166534', fontWeight: 600 }}>{new Date(v.date).toLocaleDateString('en-CA')}</span>
+                          <span style={{ color: '#374151' }}>{v.repName}</span>
+                          <span style={{ color: '#64748b' }}>{FEEDBACK_LABELS[v.feedback]?.label ?? v.feedback}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <strong style={{ fontSize: 13, color: '#374151', display: 'block', marginBottom: 8 }}>
+                    تواريخ الإضافة للبلان اليومي ({doctorHistoryData.planEntries.length})
+                  </strong>
+                  {doctorHistoryData.planEntries.length === 0 ? (
+                    <p style={{ fontSize: 12.5, color: '#94a3b8', margin: 0 }}>لم يُضَف لأي بلان يومي</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
+                      {doctorHistoryData.planEntries.map((p, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 7, padding: '6px 10px', fontSize: 12.5 }}>
+                          <span style={{ color: '#1e40af', fontWeight: 600 }}>{p.planDate}</span>
+                          <span style={{ color: '#374151' }}>{p.repName}</span>
+                          <span style={{ color: '#64748b' }}>{p.status === 'visited' ? 'تمت' : p.status === 'postponed' ? 'مؤجل' : 'مخطط'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDoctorHistoryFor(null)} style={btnStyle('#64748b')}>إغلاق</button>
             </div>
           </div>
         </div>

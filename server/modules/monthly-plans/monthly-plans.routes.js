@@ -15,6 +15,7 @@ const upload  = multer({ dest: uploadsDir });
 router.get('/',                        ctrl.list);
 router.get('/suggest',                 ctrl.suggest);
 router.get('/suggest-areas',           ctrl.suggestAreas);
+router.get('/doctor-history/:doctorId', ctrl.getDoctorHistory);
 router.get('/:id',                     ctrl.getOne);
 router.post('/',                       ctrl.create);
 router.put('/:id',                     ctrl.update);
