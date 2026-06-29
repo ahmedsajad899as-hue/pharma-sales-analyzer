@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { resolveMyRepId } from '../scientific-reps/scientific-reps.service.js';
 
 // GET /api/targets?repType=scientific&repId=1&month=5&year=2026
 export async function getTargets(req, res, next) {
@@ -83,12 +84,10 @@ export async function getMyTargets(req, res, next) {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'غير مصرح' });
 
-    // Resolve the scientific rep ID for this user
-    let repId = req.user?.linkedRepId ?? null;
-    if (!repId) {
-      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-      repId = rep?.id ?? null;
-    }
+    // Resolve (and auto-create if missing) the scientific rep linked to this user —
+    // without this, a rep's first login before any manager opened the reps list
+    // would see an empty target list even though one may already be set for them.
+    const repId = await resolveMyRepId(userId);
     if (!repId) return res.json({ success: true, data: [] });
 
     const now = new Date();

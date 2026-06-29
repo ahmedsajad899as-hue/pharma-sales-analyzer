@@ -8,6 +8,7 @@ router.post('/',          ctrl.createRep);
 router.get('/',           ctrl.listReps);
 router.get('/my-areas',            ctrl.getMyAreas);            // must be before /:id
 router.get('/my-commercial-reps',  ctrl.getMyCommercialReps);    // must be before /:id
+router.get('/my-shared-items',     ctrl.getMySharedItems);       // must be before /:id
 router.post('/sync-commercials-by-file', ctrl.syncCommercialsByFile); // must be before /:id
 router.get('/:id',        ctrl.getRep);
 router.patch('/:id', ctrl.updateRep);

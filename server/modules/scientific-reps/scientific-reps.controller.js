@@ -63,6 +63,15 @@ export async function getMyCommercialReps(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// GET /api/scientific-reps/my-shared-items
+// Returns items found in files shared with the currently logged-in scientific rep
+export async function getMySharedItems(req, res, next) {
+  try {
+    const items = await svc.getMySharedItems(req.user?.id ?? null);
+    res.json({ success: true, data: items });
+  } catch (err) { next(err); }
+}
+
 export async function updateRep(req, res, next) {
   try {
     const rep = await svc.update(+req.params.id, req.body);

@@ -169,16 +169,34 @@ export async function remove(id) {
   return repo.deleteScientificRep(id);
 }
 
+// Resolve (and auto-create if missing) the ScientificRepresentative linked to a
+// logged-in user account. The company-scoped branch of list() above does this
+// find-or-create lazily whenever a manager browses the reps list — but a rep's
+// very first login, before any manager has opened that page, would otherwise
+// see empty targets/areas/items because no linked record exists yet.
+export async function resolveMyRepId(userId) {
+  if (!userId) return null;
+  const userRow = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { linkedRepId: true, displayName: true, username: true, phone: true },
+  });
+  if (!userRow) return null;
+  if (userRow.linkedRepId) return userRow.linkedRepId;
+
+  let rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+  if (!rep) {
+    rep = await prisma.scientificRepresentative.create({
+      data: { name: userRow.displayName || userRow.username, phone: userRow.phone || null, userId },
+      select: { id: true },
+    });
+  }
+  await prisma.user.update({ where: { id: userId }, data: { linkedRepId: rep.id } });
+  return rep.id;
+}
+
 // Returns areas for the currently logged-in scientific rep (by userId)
 export async function getMyAreas(userId) {
-  if (!userId) return [];
-  // Try linkedRepId first via User lookup, then fall back to findFirst
-  const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-  let repId = userRow?.linkedRepId ?? null;
-  if (!repId) {
-    const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-    repId = rep?.id ?? null;
-  }
+  const repId = await resolveMyRepId(userId);
   if (!repId) return [];
   const rows = await prisma.scientificRepArea.findMany({
     where: { scientificRepId: repId },
@@ -189,13 +207,7 @@ export async function getMyAreas(userId) {
 }
 
 export async function getMyCommercialReps(userId) {
-  if (!userId) return [];
-  const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-  let repId = userRow?.linkedRepId ?? null;
-  if (!repId) {
-    const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-    repId = rep?.id ?? null;
-  }
+  const repId = await resolveMyRepId(userId);
   if (!repId) return [];
   const rows = await prisma.scientificRepCommercial.findMany({
     where: { scientificRepId: repId },
@@ -211,6 +223,24 @@ export async function getMyCommercialReps(userId) {
     orderBy: { commercialRep: { name: 'asc' } },
   });
   return rows.map(r => r.commercialRep);
+}
+
+// Items found in sales rows of files explicitly shared with the currently
+// logged-in scientific rep (UploadedFile.sharedWithRepId) — what the rep
+// should see in their read-only "الايتمات" tab, as opposed to the full
+// company-wide item catalog.
+export async function getMySharedItems(userId) {
+  const repId = await resolveMyRepId(userId);
+  if (!repId) return [];
+  const files = await prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } });
+  const fileIds = files.map(f => f.id);
+  if (fileIds.length === 0) return [];
+  const rows = await prisma.sale.findMany({
+    where: { uploadedFileId: { in: fileIds } },
+    select: { item: { select: { id: true, name: true } } },
+    distinct: ['itemId'],
+  });
+  return rows.map(r => r.item).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ─── Assignments ─────────────────────────────────────────────

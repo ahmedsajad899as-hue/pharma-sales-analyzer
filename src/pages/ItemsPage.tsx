@@ -22,9 +22,10 @@ interface Item {
 const EMPTY_FORM = { name: '', scientificName: '', dosage: '', form: '', price: '', scientificMessage: '', companyId: '' };
 
 export default function ItemsPage() {
-  const { token }   = useAuth();
+  const { token, user } = useAuth();
   const authH       = () => ({ Authorization: `Bearer ${token}` });
   const jsonH       = () => ({ 'Content-Type': 'application/json', ...authH() });
+  const isRep       = user?.role === 'scientific_rep';
 
   const [items, setItems]       = useState<Item[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -125,8 +126,11 @@ export default function ItemsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
+      // A scientific rep only sees items found in files that were shared with
+      // them — never the full company-wide catalog.
+      const itemsUrl = isRep ? `${API}/api/scientific-reps/my-shared-items` : `${API}/api/items`;
       const [ir, cr] = await Promise.all([
-        fetch(`${API}/api/items`, { headers: authH() }).then(r => r.json()),
+        fetch(itemsUrl, { headers: authH() }).then(r => r.json()),
         fetch(`${API}/api/companies`, { headers: authH() }).then(r => r.json()),
       ]);
       if (ir.success) setItems(ir.data ?? []);
@@ -134,7 +138,7 @@ export default function ItemsPage() {
     } catch {
       setError('فشل تحميل البيانات');
     } finally { setLoading(false); }
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, isRep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -338,10 +342,13 @@ export default function ItemsPage() {
             <span style={{ fontSize:22 }}>💊</span> الايتمات
           </h2>
           <p style={{ margin:0, fontSize:12, color:'#94a3b8', marginTop:3 }}>
-            إجمالي: <strong style={{ color:'#6366f1' }}>{items.length}</strong> ايتم · معروض: <strong>{filtered.length}</strong>
+            {isRep
+              ? <>ايتمات الملفات المشتركة معك: <strong style={{ color:'#6366f1' }}>{items.length}</strong></>
+              : <>إجمالي: <strong style={{ color:'#6366f1' }}>{items.length}</strong> ايتم · معروض: <strong>{filtered.length}</strong></>
+            }
           </p>
         </div>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+        {!isRep && <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           <button
             onClick={() => { setImportFile(null); setImportResult(null); setModal('import'); }}
             style={{
@@ -377,7 +384,7 @@ export default function ItemsPage() {
           >
             ＋ إضافة ايتم جديد
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* ── Filters ─────────────────────────────────────────── */}
@@ -495,7 +502,9 @@ export default function ItemsPage() {
         <div style={{ textAlign:'center', padding:'60px 20px', color:'#94a3b8' }}>
           <div style={{ fontSize:48, marginBottom:12 }}>💊</div>
           <p style={{ fontSize:14, fontWeight:600 }}>لا توجد ايتمات</p>
-          <p style={{ fontSize:12, marginTop:4 }}>اضغط "إضافة ايتم جديد" لبدء الإضافة</p>
+          <p style={{ fontSize:12, marginTop:4 }}>
+            {isRep ? 'لم يتم مشاركة أي ملف مبيعات معك بعد' : 'اضغط "إضافة ايتم جديد" لبدء الإضافة'}
+          </p>
         </div>
       )}
 
@@ -549,21 +558,21 @@ export default function ItemsPage() {
                       title="تفاصيل"
                       style={{ background:'#f0f9ff', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#0284c7' }}
                     >👁</button>
-                    <button
+                    {!isRep && <button
                       onClick={() => openEdit(item)}
                       title="تعديل"
                       style={{ background:'#f0fdf4', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#059669' }}
-                    >✏️</button>
-                    <button
+                    >✏️</button>}
+                    {!isRep && <button
                       onClick={() => openMerge(item)}
                       title="دمج مع ايتم آخر"
                       style={{ background:'#fef3c7', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#b45309' }}
-                    >🔀</button>
-                    <button
+                    >🔀</button>}
+                    {!isRep && <button
                       onClick={() => handleDelete(item)}
                       title="حذف"
                       style={{ background:'#fff1f2', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#e11d48' }}
-                    >🗑</button>
+                    >🗑</button>}
                   </div>
                 </div>
 
@@ -674,14 +683,14 @@ export default function ItemsPage() {
               {selected.imageUrl ? (
                 <div style={{ height: 200, background: '#f1f5f9', overflow: 'hidden', borderRadius: '18px 18px 0 0' }}>
                   <img src={`${API}${selected.imageUrl}`} alt={selected.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 6 }}>
+                  {!isRep && <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 6 }}>
                     <button onClick={() => imageInputRef.current?.click()} style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
                       {imageUploading ? '⏳' : '📷 تغيير'}
                     </button>
                     <button onClick={() => handleRemoveImage(selected.id)} style={{ background: 'rgba(220,38,38,0.7)', backdropFilter: 'blur(4px)', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>🗑 حذف</button>
-                  </div>
+                  </div>}
                 </div>
-              ) : (
+              ) : !isRep ? (
                 <div
                   onClick={() => imageInputRef.current?.click()}
                   style={{ height: 100, background: '#f8fafc', borderRadius: '18px 18px 0 0', border: '2px dashed #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', gap: 4 }}
@@ -689,7 +698,7 @@ export default function ItemsPage() {
                   <span style={{ fontSize: 28 }}>🖼️</span>
                   <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{imageUploading ? '⏳ جاري الرفع...' : '📷 إضافة صورة'}</span>
                 </div>
-              )}
+              ) : null}
               <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f && selected) handleImageUpload(selected.id, f); e.target.value = ''; }}
               />
@@ -726,10 +735,10 @@ export default function ItemsPage() {
             )}
 
             <div style={{ display:'flex', gap:10, marginTop:18 }}>
-              <button
+              {!isRep && <button
                 onClick={() => { openEdit(selected); }}
                 style={{ flex:1, background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px', fontSize:13, fontWeight:700, cursor:'pointer', color:'#059669' }}
-              >✏️ تعديل</button>
+              >✏️ تعديل</button>}
               <button
                 onClick={() => setModal(null)}
                 style={{ flex:1, background:'#f1f5f9', border:'none', borderRadius:10, padding:'10px', fontSize:13, fontWeight:700, cursor:'pointer', color:'#475569' }}
