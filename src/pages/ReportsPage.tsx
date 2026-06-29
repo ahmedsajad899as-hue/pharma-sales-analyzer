@@ -1336,21 +1336,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     </div>
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {/* ── Export-all (per-rep) button — relocated here from the page header ── */}
-      <button
-        onClick={() => setShowExportModal(true)}
-        disabled={exporting}
-        title={exporting ? exportProgress : t.reports.export}
-        style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-          padding: '7px 12px 6px', borderRadius: 12,
-          border: '2.5px solid #059669', cursor: exporting ? 'not-allowed' : 'pointer',
-          background: exporting ? '#d1fae5' : '#ecfdf5', color: '#065f46',
-          opacity: exporting ? 0.6 : 1,
-          boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
-        }}>
-        <span style={{ fontSize: 17, lineHeight: 1 }}>{exporting ? '⏳' : '📥'}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>تصدير</span>
-      </button>
+      {user?.role !== 'scientific_rep' && (
+        <button
+          onClick={() => setShowExportModal(true)}
+          disabled={exporting}
+          title={exporting ? exportProgress : t.reports.export}
+          style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+            padding: '7px 12px 6px', borderRadius: 12,
+            border: '2.5px solid #059669', cursor: exporting ? 'not-allowed' : 'pointer',
+            background: exporting ? '#d1fae5' : '#ecfdf5', color: '#065f46',
+            opacity: exporting ? 0.6 : 1,
+            boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
+          }}>
+          <span style={{ fontSize: 17, lineHeight: 1 }}>{exporting ? '⏳' : '📥'}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>تصدير</span>
+        </button>
+      )}
       {/* ── Excel export button — pinned to the opposite end of the toggle group ── */}
       <button
         title="فتح كامل بيانات المندوب في Excel"
