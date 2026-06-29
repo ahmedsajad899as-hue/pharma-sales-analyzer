@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -10,6 +10,7 @@ interface Entry {
   id: number; entryType: 'doctor' | 'pharmacy'; doctorId: number | null; pharmacyName: string | null;
   areaId: number | null; status: 'planned' | 'visited' | 'postponed';
   postponeReason: string | null; postponeNote: string | null; isNewDoctor: boolean;
+  addedByManager: boolean; addedByName: string | null;
   doctor?: { id: number; name: string; specialty?: string | null; pharmacyName?: string | null } | null;
   area?: { id: number; name: string } | null; currentFeedback?: string | null;
 }
@@ -21,22 +22,13 @@ interface PlanView { plan: { id: number; planDate: string; status: string; notes
 interface RepeatRow { doctorId: number; name: string; specialty?: string | null; plannedCount: number; plannedDays: string[]; visitedDays: string[]; lastFeedback: string | null; hadPositive: boolean; flagged: boolean; }
 interface SubRep { userId: number; name: string; linkedRepId: number | null; }
 
-const FEEDBACK_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  writing: { label: 'يكتب', color: '#166534', bg: '#dcfce7' },
-  stocked: { label: 'نزل الايتم', color: '#1e40af', bg: '#dbeafe' },
-  interested: { label: 'مهتم', color: '#7c3aed', bg: '#ede9fe' },
-  not_interested: { label: 'غير مهتم', color: '#991b1b', bg: '#fee2e2' },
-  unavailable: { label: 'غير متوفر', color: '#92400e', bg: '#fef3c7' },
-  pending: { label: 'معلق', color: '#475569', bg: '#f1f5f9' },
+const FEEDBACK_LABELS: Record<string, string> = {
+  writing: 'يكتب', stocked: 'نزل الايتم', interested: 'مهتم',
+  not_interested: 'غير مهتم', unavailable: 'غير متوفر', pending: 'معلق',
 };
 const FEEDBACK_OPTIONS = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
 const POSTPONE_REASONS: Record<string, string> = { absent: 'الطبيب غير موجود', traveling: 'مسافر', declined: 'اعتذر عن الاستقبال', other: 'سبب آخر' };
-
-const STATUS_CHIP: Record<string, { label: string; color: string; bg: string }> = {
-  planned: { label: 'مخطط', color: '#475569', bg: '#f1f5f9' },
-  visited: { label: 'تمت الزيارة', color: '#166534', bg: '#dcfce7' },
-  postponed: { label: 'مؤجل', color: '#92400e', bg: '#fef3c7' },
-};
+const STATUS_LABEL: Record<string, string> = { planned: 'مخطط', visited: 'تمت الزيارة', postponed: 'مؤجل' };
 
 const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
   new Promise(resolve => {
@@ -53,7 +45,31 @@ const todayLocal = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const btn = (bg: string, color = '#fff'): React.CSSProperties => ({ background: bg, color, border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600 });
+// ── Pharmacy Net visual language: white cards on light-slate background,
+// navy as the single accent color, red reserved for true alerts only ──
+const PAGE_BG = '#f0f4f8';
+const NAVY = '#1e40af';
+const TEXT_DARK = '#1e293b';
+const TEXT_MUTED = '#64748b';
+const BORDER = '#e2e8f0';
+
+const CARD: React.CSSProperties = { background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '14px 16px', marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,.04)' };
+const INPUT: React.CSSProperties = { padding: '7px 10px', borderRadius: 6, border: `1px solid ${BORDER}`, fontSize: 13, color: TEXT_DARK, boxSizing: 'border-box' };
+const TH: React.CSSProperties = { padding: '8px 10px', textAlign: 'right', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' };
+const TD: React.CSSProperties = { padding: '7px 10px', borderBottom: '1px solid #f1f5f9', fontSize: 12.5, color: '#374151' };
+
+function btnPrimary(): React.CSSProperties { return { background: NAVY, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }; }
+function btnNeutral(): React.CSSProperties { return { background: '#f1f5f9', color: TEXT_DARK, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }; }
+function btnDanger(): React.CSSProperties { return { background: '#fff', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }; }
+
+function StatusChip({ status }: { status: Entry['status'] }) {
+  const icon = status === 'visited' ? '✓' : status === 'postponed' ? '⏸' : '○';
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, color: status === 'visited' ? NAVY : TEXT_MUTED, border: `1px solid ${status === 'visited' ? NAVY : BORDER}`, borderRadius: 5, padding: '1px 7px' }}>
+      {icon} {STATUS_LABEL[status]}
+    </span>
+  );
+}
 
 export default function DailyPlanPage() {
   const { user, token, isManagerOrAdmin } = useAuth();
@@ -73,12 +89,15 @@ export default function DailyPlanPage() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
 
-  // doctor/area pickers (self mode)
+  // doctor/area pickers
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [docSearch, setDocSearch] = useState('');
   const [pharmName, setPharmName] = useState('');
   const [pharmArea, setPharmArea] = useState<number | ''>('');
+  const [pharmSugg, setPharmSugg] = useState<string[]>([]);
+  const [pharmOpen, setPharmOpen] = useState(false);
+  const pharmBoxRef = useRef<HTMLDivElement>(null);
 
   // suggestions
   const [suggestMode, setSuggestMode] = useState<'' | 'new' | 'carryover'>('');
@@ -111,7 +130,7 @@ export default function DailyPlanPage() {
       .catch(() => {});
   }, [isManager, token, H]);
 
-  // ── Load own doctors + areas (for the self-mode picker) ──
+  // ── Load own doctors + areas (used for the add-entry pickers) ──
   useEffect(() => {
     if (!token) return;
     Promise.all([
@@ -122,6 +141,25 @@ export default function DailyPlanPage() {
       setAreas(Array.isArray(aj) ? aj : (aj.data ?? []));
     }).catch(() => {});
   }, [token, H]);
+
+  // ── Pharmacy name suggestions (server-side, like the doctor search) ──
+  useEffect(() => {
+    if (!token || !pharmName.trim()) { setPharmSugg([]); return; }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      fetch(`${API}/api/doctors/pharmacy-names?q=${encodeURIComponent(pharmName.trim())}`, { headers: H(), signal: ctrl.signal })
+        .then(r => r.ok ? r.json() : [])
+        .then(list => { setPharmSugg(Array.isArray(list) ? list : []); setPharmOpen(true); })
+        .catch(() => {});
+    }, 200);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [pharmName, token, H]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (pharmBoxRef.current && !pharmBoxRef.current.contains(e.target as Node)) setPharmOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // ── Load plan view + repeats + postpone stats ──
   const load = useCallback(async () => {
@@ -147,7 +185,6 @@ export default function DailyPlanPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const flaggedDoctorIds = useMemo(() => new Set(repeats.filter(r => r.flagged).map(r => r.doctorId)), [repeats]);
   const repeatByDoctor = useMemo(() => { const m = new Map<number, RepeatRow>(); repeats.forEach(r => m.set(r.doctorId, r)); return m; }, [repeats]);
 
   // ── Actions ──
@@ -164,23 +201,24 @@ export default function DailyPlanPage() {
       if (!r.ok || !j.success) throw new Error(j.error || j.message || 'تعذّر الإضافة');
       if (j.data?.repeat?.flagged) {
         const rp = j.data.repeat;
-        flash(`⚠️ تنبيه تكرار: الطبيب مخطط في ${rp.count} أيام${rp.hadPositive ? ' وسبق زيارته بنجاح' : ''} — تم إعلام المدير.`);
+        flash(`تنبيه تكرار: الطبيب مخطط في ${rp.count} أيام${rp.hadPositive ? ' وسبق زيارته بنجاح' : ''} — تم إعلام المدير.`);
       } else flash('تمت الإضافة');
       setDocSearch('');
       await load();
     } catch (e: any) { setError(e.message); }
   };
 
-  const addPharmacy = async () => {
-    if (!planId || !pharmName.trim()) return;
+  const addPharmacy = async (nameOverride?: string) => {
+    const name = (nameOverride ?? pharmName).trim();
+    if (!planId || !name) return;
     try {
       const r = await fetch(`${API}/api/daily-plans/${planId}/entries`, {
         method: 'POST', headers: H(),
-        body: JSON.stringify({ entryType: 'pharmacy', pharmacyName: pharmName.trim(), areaId: pharmArea || undefined, repUserId: selectedRep ?? undefined }),
+        body: JSON.stringify({ entryType: 'pharmacy', pharmacyName: name, areaId: pharmArea || undefined, repUserId: selectedRep ?? undefined }),
       });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || j.message || 'تعذّر الإضافة');
-      setPharmName(''); setPharmArea(''); flash('تمت إضافة الصيدلية');
+      setPharmName(''); setPharmArea(''); setPharmOpen(false); flash('تمت إضافة الصيدلية');
       await load();
     } catch (e: any) { setError(e.message); }
   };
@@ -229,8 +267,9 @@ export default function DailyPlanPage() {
     try {
       const r = await fetch(`${API}/api/daily-plans/suggest?mode=${mode}&date=${date}&${repQS}`, { headers: H() });
       const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || j.message || 'تعذّر جلب الاقتراحات');
       setSuggestions(j.data ?? []);
-    } catch { setSuggestions([]); }
+    } catch (e: any) { setSuggestions([]); setError(e.message); }
   };
 
   const addComment = async () => {
@@ -270,33 +309,39 @@ export default function DailyPlanPage() {
 
   const ach = view?.achievement;
   const quota = view?.newDoctorQuota;
+  const lowAch = !!(ach && view && ach.percent < view.settings.lowAchievementThreshold);
 
   // ─── Render ───
   return (
-    <div style={{ minHeight: '100%', background: '#f8fafc', padding: 16, direction: 'rtl' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-        <h1 style={{ fontSize: 19, fontWeight: 800, color: '#0f172a', margin: 0 }}>📆 البلان اليومي</h1>
+    <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: PAGE_BG, minHeight: '100vh', padding: '16px 18px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ background: NAVY, borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>📆</div>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: TEXT_DARK }}>البلان اليومي</h1>
+            <p style={{ margin: 0, fontSize: 12, color: TEXT_MUTED }}>خطة زيارات اليوم ونسبة التحقيق</p>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {isManager && (
-            <select value={selectedRep ?? ''} onChange={e => setSelectedRep(e.target.value ? Number(e.target.value) : null)}
-              style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13 }}>
+            <select value={selectedRep ?? ''} onChange={e => setSelectedRep(e.target.value ? Number(e.target.value) : null)} style={INPUT}>
               <option value="">— بلاني (نفسي) —</option>
               {subReps.map(s => <option key={s.userId} value={s.userId}>{s.name}</option>)}
             </select>
           )}
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13 }} />
-          {isCompanyManager && <button onClick={openSettings} style={btn('#475569')}>⚙️ إعدادات</button>}
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INPUT} />
+          {isCompanyManager && <button onClick={openSettings} style={btnNeutral()}>⚙ إعدادات</button>}
         </div>
       </div>
 
-      {msg && <div style={{ background: '#ecfdf5', color: '#065f46', padding: '8px 12px', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>{msg}</div>}
-      {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '8px 12px', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>{error}</div>}
-      {loading && <div style={{ color: '#64748b', fontSize: 13 }}>جاري التحميل…</div>}
+      {msg && <div style={{ background: '#eef2f6', color: NAVY, padding: '8px 12px', borderRadius: 6, marginBottom: 10, fontSize: 12.5, border: `1px solid ${BORDER}` }}>{msg}</div>}
+      {error && <div style={{ background: '#fef2f2', color: '#b91c1c', padding: '8px 12px', borderRadius: 6, marginBottom: 10, fontSize: 12.5, border: '1px solid #fecaca' }}>{error}</div>}
+      {loading && <div style={{ color: TEXT_MUTED, fontSize: 13 }}>جاري التحميل...</div>}
 
       {isManager && !selectedRep && (
-        <div style={{ background: '#eff6ff', color: '#1e40af', padding: '10px 12px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>
-          اختر مندوباً من القائمة أعلاه لعرض بلانه اليومي ونسبة تحقيقه، أو اترك "نفسي" لعرض بلانك.
+        <div style={CARD}>
+          <span style={{ fontSize: 12.5, color: TEXT_MUTED }}>اختر مندوباً من القائمة أعلاه لعرض بلانه اليومي ونسبة تحقيقه والتعليق عليه وتعديله، أو اترك "نفسي" لعرض بلانك.</span>
         </div>
       )}
 
@@ -304,68 +349,84 @@ export default function DailyPlanPage() {
         <>
           {/* Achievement summary */}
           {ach && (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={CARD}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                <strong style={{ fontSize: 14, color: '#0f172a' }}>نسبة التحقيق اليومي</strong>
-                <span style={{ fontSize: 13, color: '#475569' }}>تمت {ach.visited} من {ach.total} — مؤجل {ach.postponed}</span>
+                <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>نسبة التحقيق اليومي</strong>
+                <span style={{ fontSize: 12.5, color: TEXT_MUTED }}>تمت {ach.visited} من {ach.total} — مؤجل {ach.postponed}</span>
               </div>
-              <div style={{ height: 12, background: '#f1f5f9', borderRadius: 999, overflow: 'hidden' }}>
-                <div style={{ width: `${ach.percent}%`, height: '100%', background: ach.percent >= 70 ? '#16a34a' : ach.percent >= 40 ? '#f59e0b' : '#ef4444', transition: 'width .3s' }} />
+              <div style={{ height: 10, background: '#f1f5f9', borderRadius: 999, overflow: 'hidden' }}>
+                <div style={{ width: `${ach.percent}%`, height: '100%', background: lowAch ? '#dc2626' : NAVY, transition: 'width .3s' }} />
               </div>
-              <div style={{ textAlign: 'center', fontWeight: 800, fontSize: 18, color: '#0f172a', marginTop: 6 }}>{ach.percent}%</div>
+              <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 17, color: lowAch ? '#dc2626' : TEXT_DARK, marginTop: 6 }}>{ach.percent}%</div>
               {quota && quota.required > 0 && (
-                <div style={{ marginTop: 8, fontSize: 13, color: quota.planned >= quota.required ? '#166534' : '#b45309' }}>
+                <div style={{ marginTop: 8, fontSize: 12.5, color: quota.planned >= quota.required ? TEXT_DARK : '#b91c1c' }}>
                   حصة الأطباء الجدد: {quota.planned}/{quota.required} مخطط · {quota.visited} تمت زيارته
-                  {quota.planned < quota.required && ' ⚠️ أقل من الحصة المطلوبة'}
+                  {quota.planned < quota.required && ' — أقل من الحصة المطلوبة'}
                 </div>
               )}
             </div>
           )}
 
           {/* Add entry tools */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <strong style={{ fontSize: 14, color: '#0f172a', display: 'block', marginBottom: 8 }}>إضافة إلى بلان اليوم</strong>
+          <div style={CARD}>
+            <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>إضافة إلى بلان اليوم</strong>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              {!selectedRep && (
-                <div style={{ position: 'relative', flex: '1 1 240px' }}>
-                  <input value={docSearch} onChange={e => setDocSearch(e.target.value)} placeholder="🔎 ابحث عن طبيب لإضافته…"
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, boxSizing: 'border-box' }} />
-                  {filteredDoctors.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.1)', marginTop: 2 }}>
-                      {filteredDoctors.map(d => (
-                        <div key={d.id} onClick={() => addDoctor(d.id)} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}>
-                          {d.name} {d.specialty && <span style={{ color: '#94a3b8' }}>· {d.specialty}</span>}
+              <div style={{ position: 'relative', flex: '1 1 240px' }}>
+                <input value={docSearch} onChange={e => setDocSearch(e.target.value)} placeholder="ابحث عن طبيب لإضافته…"
+                  style={{ ...INPUT, width: '100%' }} />
+                {filteredDoctors.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,.08)', marginTop: 2, maxHeight: 280, overflowY: 'auto' }}>
+                    {filteredDoctors.map(d => (
+                      <div key={d.id} onClick={() => addDoctor(d.id)} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12.5, borderBottom: '1px solid #f1f5f9' }}>
+                        <div style={{ color: TEXT_DARK, fontWeight: 600 }}>{d.name}</div>
+                        <div style={{ color: TEXT_MUTED, fontSize: 11, marginTop: 2 }}>
+                          {[d.specialty, d.area?.name, d.pharmacyName].filter(Boolean).join(' · ') || '—'}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <input value={pharmName} onChange={e => setPharmName(e.target.value)} placeholder="🏥 اسم صيدلية…"
-                style={{ flex: '1 1 160px', padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, boxSizing: 'border-box' }} />
-              <select value={pharmArea} onChange={e => setPharmArea(e.target.value ? Number(e.target.value) : '')}
-                style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13 }}>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div ref={pharmBoxRef} style={{ position: 'relative', flex: '1 1 200px' }}>
+                <input value={pharmName} onChange={e => setPharmName(e.target.value)} onFocus={() => pharmSugg.length > 0 && setPharmOpen(true)}
+                  placeholder="اسم صيدلية…" style={{ ...INPUT, width: '100%' }} />
+                {pharmOpen && pharmSugg.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,.08)', marginTop: 2, maxHeight: 220, overflowY: 'auto' }}>
+                    {pharmSugg.map(n => (
+                      <div key={n} onMouseDown={() => { setPharmName(n); setPharmOpen(false); addPharmacy(n); }}
+                        style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, color: TEXT_DARK, borderBottom: '1px solid #f1f5f9' }}>
+                        {n}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <select value={pharmArea} onChange={e => setPharmArea(e.target.value ? Number(e.target.value) : '')} style={INPUT}>
                 <option value="">المنطقة (اختياري)</option>
                 {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
-              <button onClick={addPharmacy} style={btn('#0ea5e9')}>+ صيدلية</button>
+              <button onClick={() => addPharmacy()} style={btnPrimary()}>+ صيدلية</button>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-              <button onClick={() => loadSuggestions('new')} style={btn('#6366f1')}>💡 اقترح أطباء جدد</button>
-              <button onClick={() => loadSuggestions('carryover')} style={btn('#f59e0b')}>↩️ ترحيل مؤجلي أمس</button>
-              {suggestMode && <button onClick={() => { setSuggestMode(''); setSuggestions([]); }} style={btn('#e2e8f0', '#334155')}>إغلاق</button>}
+              <button onClick={() => loadSuggestions('new')} style={btnNeutral()}>اقترح أطباء جدد</button>
+              <button onClick={() => loadSuggestions('carryover')} style={btnNeutral()}>ترحيل مؤجلي أمس</button>
+              {suggestMode && <button onClick={() => { setSuggestMode(''); setSuggestions([]); }} style={btnNeutral()}>إغلاق</button>}
             </div>
             {suggestMode && (
-              <div style={{ marginTop: 10, borderTop: '1px dashed #e2e8f0', paddingTop: 10 }}>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>
+              <div style={{ marginTop: 10, borderTop: `1px dashed ${BORDER}`, paddingTop: 10 }}>
+                <div style={{ fontSize: 12, color: TEXT_MUTED, marginBottom: 6 }}>
                   {suggestMode === 'new' ? 'أطباء من مناطقك لم تتم زيارتهم بعد:' : 'أطباء أُجّلوا أمس:'}
                 </div>
-                {suggestions.length === 0 ? <div style={{ fontSize: 13, color: '#94a3b8' }}>لا توجد اقتراحات</div> : (
+                {suggestions.length === 0 ? <div style={{ fontSize: 12.5, color: '#94a3b8' }}>لا توجد اقتراحات</div> : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {suggestions.map((s: any) => (
-                      <div key={s.doctorId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '6px 10px', borderRadius: 8 }}>
-                        <span style={{ fontSize: 13 }}>{s.name} {s.specialty && <span style={{ color: '#94a3b8' }}>· {s.specialty}</span>} {s.postponeReason && <span style={{ color: '#b45309' }}>· {POSTPONE_REASONS[s.postponeReason] ?? s.postponeReason}</span>}</span>
-                        <button onClick={() => addDoctor(s.doctorId)} style={btn('#16a34a')}>أضف</button>
+                      <div key={s.doctorId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '7px 10px', borderRadius: 6 }}>
+                        <span style={{ fontSize: 12.5, color: TEXT_DARK }}>
+                          {s.name}
+                          <span style={{ color: TEXT_MUTED }}> · {[s.specialty, s.areaName, s.pharmacyName].filter(Boolean).join(' · ')}</span>
+                          {s.postponeReason && <span style={{ color: '#b45309' }}> · {POSTPONE_REASONS[s.postponeReason] ?? s.postponeReason}</span>}
+                        </span>
+                        <button onClick={() => addDoctor(s.doctorId)} style={btnPrimary()}>أضف</button>
                       </div>
                     ))}
                   </div>
@@ -375,40 +436,42 @@ export default function DailyPlanPage() {
           </div>
 
           {/* Entries list */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <strong style={{ fontSize: 14, color: '#0f172a', display: 'block', marginBottom: 10 }}>قائمة اليوم ({view.entries.length})</strong>
-            {view.entries.length === 0 ? <div style={{ fontSize: 13, color: '#94a3b8' }}>لا توجد أسماء في بلان اليوم بعد.</div> : (
+          <div style={CARD}>
+            <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>قائمة اليوم ({view.entries.length})</strong>
+            {view.entries.length === 0 ? <div style={{ fontSize: 12.5, color: '#94a3b8' }}>لا توجد أسماء في بلان اليوم بعد.</div> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {view.entries.map(e => {
-                  const chip = STATUS_CHIP[e.status];
-                  const fb = e.currentFeedback ? FEEDBACK_LABELS[e.currentFeedback] : null;
                   const rep = e.doctorId ? repeatByDoctor.get(e.doctorId) : null;
                   const name = e.entryType === 'doctor' ? (e.doctor?.name ?? `#${e.doctorId}`) : e.pharmacyName;
                   return (
-                    <div key={e.id} style={{ border: '1px solid #f1f5f9', borderRadius: 10, padding: '10px 12px' }}>
+                    <div key={e.id} style={{ border: '1px solid #f1f5f9', borderRadius: 6, padding: '10px 12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 16 }}>{e.entryType === 'doctor' ? '🩺' : '🏥'}</span>
-                          <strong style={{ fontSize: 14, color: '#0f172a' }}>{name}</strong>
-                          {e.entryType === 'doctor' && e.doctor?.specialty && <span style={{ fontSize: 12, color: '#94a3b8' }}>· {e.doctor.specialty}</span>}
-                          {e.isNewDoctor && <span style={{ fontSize: 11, background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: 6 }}>جديد</span>}
-                          <span style={{ fontSize: 11, background: chip.bg, color: chip.color, padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>{chip.label}</span>
-                          {fb && <span style={{ fontSize: 11, background: fb.bg, color: fb.color, padding: '2px 8px', borderRadius: 6 }}>{fb.label}</span>}
+                          <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>{name}</strong>
+                          {e.entryType === 'doctor' && e.doctor?.specialty && <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>· {e.doctor.specialty}</span>}
+                          {e.isNewDoctor && <span style={{ fontSize: 11, color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 5, padding: '1px 6px' }}>جديد</span>}
+                          <StatusChip status={e.status} />
+                          {e.currentFeedback && <span style={{ fontSize: 11, color: TEXT_MUTED, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '1px 7px' }}>{FEEDBACK_LABELS[e.currentFeedback] ?? e.currentFeedback}</span>}
+                          {e.addedByManager && (
+                            <span title="أضافه المدير إلى بلانك" style={{ fontSize: 11, color: '#7c2d12', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 5, padding: '1px 7px' }}>
+                              من المدير{e.addedByName ? ` (${e.addedByName})` : ''}
+                            </span>
+                          )}
                           {rep?.flagged && (
                             <span title={`أيام التخطيط: ${rep.plannedDays.join('، ')} | أيام الزيارة: ${rep.visitedDays.join('، ') || '—'}`}
-                              style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
-                              ⚠️ مكرر ×{rep.plannedCount}
+                              style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', border: '1px solid #fecaca', borderRadius: 5, padding: '1px 7px' }}>
+                              مكرر ×{rep.plannedCount}
                             </span>
                           )}
                         </div>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {e.status !== 'visited' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); }} style={btn('#16a34a')}>📞 سجّل كول</button>}
-                          {e.status !== 'visited' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); }} style={btn('#f59e0b')}>⏸ تأجيل</button>}
-                          <button onClick={() => removeEntry(e.id)} style={btn('#ef4444')}>🗑</button>
+                          {e.status !== 'visited' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); }} style={btnPrimary()}>سجّل كول</button>}
+                          {e.status !== 'visited' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); }} style={btnNeutral()}>تأجيل</button>}
+                          <button onClick={() => removeEntry(e.id)} style={btnDanger()}>حذف</button>
                         </div>
                       </div>
                       {e.status === 'postponed' && e.postponeReason && (
-                        <div style={{ marginTop: 6, fontSize: 12, color: '#b45309' }}>سبب التأجيل: {POSTPONE_REASONS[e.postponeReason] ?? e.postponeReason}{e.postponeNote ? ` — ${e.postponeNote}` : ''}</div>
+                        <div style={{ marginTop: 6, fontSize: 11.5, color: '#92400e' }}>سبب التأجيل: {POSTPONE_REASONS[e.postponeReason] ?? e.postponeReason}{e.postponeNote ? ` — ${e.postponeNote}` : ''}</div>
                       )}
                     </div>
                   );
@@ -419,22 +482,22 @@ export default function DailyPlanPage() {
 
           {/* Repeats report */}
           {repeats.length > 0 && (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-              <strong style={{ fontSize: 14, color: '#0f172a', display: 'block', marginBottom: 10 }}>🔁 الأطباء المكرّرون (آخر 30 يوم)</strong>
+            <div style={CARD}>
+              <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>الأطباء المكرّرون (آخر 30 يوم)</strong>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                  <thead><tr style={{ color: '#64748b', textAlign: 'right' }}>
-                    <th style={{ padding: '4px 8px' }}>الطبيب</th><th style={{ padding: '4px 8px' }}>مرات التخطيط</th>
-                    <th style={{ padding: '4px 8px' }}>أيام التخطيط</th><th style={{ padding: '4px 8px' }}>أيام الزيارة</th><th style={{ padding: '4px 8px' }}>آخر نتيجة</th>
+                  <thead><tr style={{ background: NAVY, color: '#fff' }}>
+                    <th style={TH}>الطبيب</th><th style={TH}>مرات التخطيط</th>
+                    <th style={TH}>أيام التخطيط</th><th style={TH}>أيام الزيارة</th><th style={TH}>آخر نتيجة</th>
                   </tr></thead>
                   <tbody>
                     {repeats.map(r => (
-                      <tr key={r.doctorId} style={{ borderTop: '1px solid #f1f5f9', background: r.flagged ? '#fff7ed' : undefined }}>
-                        <td style={{ padding: '6px 8px' }}>{r.flagged && '⚠️ '}{r.name}</td>
-                        <td style={{ padding: '6px 8px', fontWeight: 700 }}>{r.plannedCount}</td>
-                        <td style={{ padding: '6px 8px', color: '#64748b' }}>{r.plannedDays.join('، ')}</td>
-                        <td style={{ padding: '6px 8px', color: '#64748b' }}>{r.visitedDays.join('، ') || '—'}</td>
-                        <td style={{ padding: '6px 8px' }}>{r.lastFeedback ? (FEEDBACK_LABELS[r.lastFeedback]?.label ?? r.lastFeedback) : '—'}</td>
+                      <tr key={r.doctorId}>
+                        <td style={TD}>{r.flagged && <span style={{ color: '#dc2626', fontWeight: 700 }}>● </span>}{r.name}</td>
+                        <td style={{ ...TD, fontWeight: 700 }}>{r.plannedCount}</td>
+                        <td style={{ ...TD, color: TEXT_MUTED }}>{r.plannedDays.join('، ')}</td>
+                        <td style={{ ...TD, color: TEXT_MUTED }}>{r.visitedDays.join('، ') || '—'}</td>
+                        <td style={TD}>{r.lastFeedback ? (FEEDBACK_LABELS[r.lastFeedback] ?? r.lastFeedback) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -445,13 +508,13 @@ export default function DailyPlanPage() {
 
           {/* Postpone analytics */}
           {postpone && postpone.total > 0 && (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-              <strong style={{ fontSize: 14, color: '#0f172a', display: 'block', marginBottom: 10 }}>📊 تحليل أسباب التأجيل (آخر 30 يوم) — {postpone.total}</strong>
+            <div style={CARD}>
+              <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>تحليل أسباب التأجيل (آخر 30 يوم) — {postpone.total}</strong>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
-                  <div key={k} style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 14px', minWidth: 110 }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>{label}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{postpone.counts[k] ?? 0}</div>
+                  <div key={k} style={{ background: '#f8fafc', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '8px 14px', minWidth: 110 }}>
+                    <div style={{ fontSize: 11, color: TEXT_MUTED }}>{label}</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: TEXT_DARK }}>{postpone.counts[k] ?? 0}</div>
                   </div>
                 ))}
               </div>
@@ -459,13 +522,13 @@ export default function DailyPlanPage() {
           )}
 
           {/* Comments */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
-            <strong style={{ fontSize: 14, color: '#0f172a', display: 'block', marginBottom: 10 }}>💬 ملاحظات وتعليقات</strong>
-            {view.comments.length === 0 ? <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 8 }}>لا توجد تعليقات.</div> : (
+          <div style={CARD}>
+            <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>ملاحظات وتعليقات</strong>
+            {view.comments.length === 0 ? <div style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 8 }}>لا توجد تعليقات.</div> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
                 {view.comments.map(c => (
-                  <div key={c.id} style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: 8 }}>
-                    <div style={{ fontSize: 13, color: '#0f172a' }}>{c.content}</div>
+                  <div key={c.id} style={{ background: '#f8fafc', border: `1px solid ${BORDER}`, padding: '8px 10px', borderRadius: 6 }}>
+                    <div style={{ fontSize: 12.5, color: TEXT_DARK }}>{c.content}</div>
                     <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{c.by} · {new Date(c.createdAt).toLocaleString('ar-IQ-u-nu-latn')}</div>
                   </div>
                 ))}
@@ -473,8 +536,8 @@ export default function DailyPlanPage() {
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="أضف ملاحظة للمندوب…"
-                style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 13, boxSizing: 'border-box' }} />
-              <button onClick={addComment} style={btn('#1e40af')}>إرسال</button>
+                style={{ ...INPUT, flex: 1 }} />
+              <button onClick={addComment} style={btnPrimary()}>إرسال</button>
             </div>
           </div>
         </>
@@ -483,20 +546,20 @@ export default function DailyPlanPage() {
       {/* Record-visit modal */}
       {recordFor && (
         <Modal title="تسجيل كول" onClose={() => setRecordFor(null)}>
-          <div style={{ fontSize: 13, color: '#475569', marginBottom: 10 }}>{recordFor.entryType === 'doctor' ? (recordFor.doctor?.name ?? 'طبيب') : recordFor.pharmacyName}</div>
+          <div style={{ fontSize: 12.5, color: TEXT_MUTED, marginBottom: 10 }}>{recordFor.entryType === 'doctor' ? (recordFor.doctor?.name ?? 'طبيب') : recordFor.pharmacyName}</div>
           {recordFor.entryType === 'doctor' && (
             <label style={{ display: 'block', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, color: '#64748b' }}>النتيجة (feedback)</span>
-              <select value={recordFeedback} onChange={e => setRecordFeedback(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px solid #e2e8f0', marginTop: 4 }}>
-                {FEEDBACK_OPTIONS.map(f => <option key={f} value={f}>{FEEDBACK_LABELS[f].label}</option>)}
+              <span style={{ fontSize: 12, color: TEXT_MUTED }}>النتيجة (feedback)</span>
+              <select value={recordFeedback} onChange={e => setRecordFeedback(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
+                {FEEDBACK_OPTIONS.map(f => <option key={f} value={f}>{FEEDBACK_LABELS[f]}</option>)}
               </select>
             </label>
           )}
           <label style={{ display: 'block', marginBottom: 12 }}>
-            <span style={{ fontSize: 12, color: '#64748b' }}>ملاحظة (اختياري)</span>
-            <input value={recordNote} onChange={e => setRecordNote(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px solid #e2e8f0', marginTop: 4, boxSizing: 'border-box' }} />
+            <span style={{ fontSize: 12, color: TEXT_MUTED }}>ملاحظة (اختياري)</span>
+            <input value={recordNote} onChange={e => setRecordNote(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }} />
           </label>
-          <button onClick={submitRecord} style={{ ...btn('#16a34a'), width: '100%', padding: '10px' }}>تأكيد التسجيل (مع الموقع)</button>
+          <button onClick={submitRecord} style={{ ...btnPrimary(), width: '100%', padding: '9px' }}>تأكيد التسجيل (مع الموقع)</button>
         </Modal>
       )}
 
@@ -504,16 +567,16 @@ export default function DailyPlanPage() {
       {postponeFor && (
         <Modal title="تأجيل الزيارة" onClose={() => setPostponeFor(null)}>
           <label style={{ display: 'block', marginBottom: 10 }}>
-            <span style={{ fontSize: 12, color: '#64748b' }}>السبب</span>
-            <select value={postponeReason} onChange={e => setPostponeReason(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px solid #e2e8f0', marginTop: 4 }}>
+            <span style={{ fontSize: 12, color: TEXT_MUTED }}>السبب</span>
+            <select value={postponeReason} onChange={e => setPostponeReason(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
               {Object.entries(POSTPONE_REASONS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </select>
           </label>
           <label style={{ display: 'block', marginBottom: 12 }}>
-            <span style={{ fontSize: 12, color: '#64748b' }}>ملاحظة (اختياري)</span>
-            <input value={postponeNote} onChange={e => setPostponeNote(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px solid #e2e8f0', marginTop: 4, boxSizing: 'border-box' }} />
+            <span style={{ fontSize: 12, color: TEXT_MUTED }}>ملاحظة (اختياري)</span>
+            <input value={postponeNote} onChange={e => setPostponeNote(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }} />
           </label>
-          <button onClick={submitPostpone} style={{ ...btn('#f59e0b'), width: '100%', padding: '10px' }}>تأكيد التأجيل</button>
+          <button onClick={submitPostpone} style={{ ...btnPrimary(), width: '100%', padding: '9px' }}>تأكيد التأجيل</button>
         </Modal>
       )}
 
@@ -522,13 +585,13 @@ export default function DailyPlanPage() {
         <Modal title="إعدادات البلان اليومي (مدير الشركة)" onClose={() => setSettingsOpen(false)}>
           <NumField label="عدد أيام نافذة التكرار" value={settingsDraft.repeatWindowDays} onChange={v => setSettingsDraft({ ...settingsDraft, repeatWindowDays: v })} />
           <NumField label="عدد مرات التكرار للتنبيه" value={settingsDraft.repeatThreshold} onChange={v => setSettingsDraft({ ...settingsDraft, repeatThreshold: v })} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', fontSize: 13 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0', fontSize: 12.5, color: TEXT_DARK }}>
             <input type="checkbox" checked={settingsDraft.alertOnRepeatAfterPositive} onChange={e => setSettingsDraft({ ...settingsDraft, alertOnRepeatAfterPositive: e.target.checked })} />
             تنبيه عند إعادة طبيب بعد زيارة ناجحة / تنزيل طلبية
           </label>
           <NumField label="حد الإنجاز المنخفض % (للإشعار)" value={settingsDraft.lowAchievementThreshold} onChange={v => setSettingsDraft({ ...settingsDraft, lowAchievementThreshold: v })} />
           <NumField label="حصة الأطباء الجدد يومياً (0 = معطّل)" value={settingsDraft.minNewDoctorsPerDay} onChange={v => setSettingsDraft({ ...settingsDraft, minNewDoctorsPerDay: v })} />
-          <button onClick={saveSettings} style={{ ...btn('#1e40af'), width: '100%', padding: '10px', marginTop: 8 }}>حفظ الإعدادات</button>
+          <button onClick={saveSettings} style={{ ...btnPrimary(), width: '100%', padding: '9px', marginTop: 8 }}>حفظ الإعدادات</button>
         </Modal>
       )}
     </div>
@@ -537,10 +600,10 @@ export default function DailyPlanPage() {
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 18, width: '100%', maxWidth: 420, direction: 'rtl' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} dir="rtl" style={{ background: '#fff', borderRadius: 10, padding: 18, width: '100%', maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,.18)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <strong style={{ fontSize: 15, color: '#0f172a' }}>{title}</strong>
+          <strong style={{ fontSize: 14.5, color: TEXT_DARK }}>{title}</strong>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
         </div>
         {children}
@@ -552,9 +615,8 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <label style={{ display: 'block', marginBottom: 10 }}>
-      <span style={{ fontSize: 12, color: '#64748b' }}>{label}</span>
-      <input type="number" value={value} onChange={e => onChange(Number(e.target.value))}
-        style={{ width: '100%', padding: '8px', borderRadius: 8, border: '1.5px solid #e2e8f0', marginTop: 4, boxSizing: 'border-box' }} />
+      <span style={{ fontSize: 12, color: TEXT_MUTED }}>{label}</span>
+      <input type="number" value={value} onChange={e => onChange(Number(e.target.value))} style={{ ...INPUT, width: '100%', marginTop: 4 }} />
     </label>
   );
 }

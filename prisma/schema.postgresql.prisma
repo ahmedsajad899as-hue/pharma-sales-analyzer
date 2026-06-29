@@ -1574,6 +1574,8 @@ model DailyPlanEntry {
   linkedVisitId         Int?     // DoctorVisit.id بعد المطابقة (scalar، بدون relation)
   linkedPharmacyVisitId Int?     // PharmacyVisit.id بعد المطابقة
   isNewDoctor           Boolean  @default(false) // طبيب بلا زيارة سابقة (لحصة الجدد)
+  addedByManager        Boolean  @default(false) // أضافه المدير (لا المندوب) لتنبيه المندوب
+  addedByName           String?  // اسم المدير الذي أضاف هذا المدخل (snapshot)
   createdAt             DateTime @default(now())
 
   plan   DailyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)

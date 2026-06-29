@@ -10,6 +10,13 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
+import { resolveDocOwnerUserId } from '../doctors/doctors.controller.js';
+
+// App locale is Iraq (ar-IQ, Baghdad) — UTC+3. "Today"/day-boundaries for matching
+// DoctorVisit/PharmacyVisit timestamps against a plan's calendar date must use this
+// fixed offset rather than UTC, otherwise visits near local midnight get attributed
+// to the wrong day (and look "missing"/mismatched when the plan reconciles).
+const TZ_OFFSET_MIN = 180;
 
 // Positive feedback = "successful visit / order dropped" (writing | stocked | interested)
 const POSITIVE_FEEDBACK = ['writing', 'stocked', 'interested'];
@@ -32,15 +39,21 @@ const DEFAULT_SETTINGS = {
 
 // ─── Helpers ─────────────────────────────────────────────────
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+// Baghdad-local "today" string, independent of the server OS timezone.
+const todayStr = () => new Date(Date.now() + TZ_OFFSET_MIN * 60000).toISOString().slice(0, 10);
+
+// Baghdad-local calendar-day string for a real timestamp (e.g. visitDate) —
+// avoids misattributing visits made just after local midnight to the previous day.
+const localDateStr = (date) => new Date(date.getTime() + TZ_OFFSET_MIN * 60000).toISOString().slice(0, 10);
 
 const normalizeName = (s) => String(s ?? '').trim().toLowerCase()
   .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
   .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ').trim();
 
-/** UTC day boundaries for a "YYYY-MM-DD" string. */
+/** Local-day (Baghdad UTC+3) boundaries for a "YYYY-MM-DD" string, expressed in UTC instants. */
 function dayRange(dateStr) {
   const gte = new Date(`${dateStr}T00:00:00.000Z`);
+  gte.setUTCMinutes(gte.getUTCMinutes() - TZ_OFFSET_MIN);
   const lt = new Date(gte);
   lt.setUTCDate(lt.getUTCDate() + 1);
   return { gte, lt };
@@ -301,7 +314,7 @@ export async function getDoctorRepeatInfo(ctx, doctorId, settings, asOfDate) {
     select: { feedback: true, visitDate: true },
     orderBy: { visitDate: 'desc' },
   });
-  const visitedDays = [...new Set(visits.map((v) => v.visitDate.toISOString().slice(0, 10)))];
+  const visitedDays = [...new Set(visits.map((v) => localDateStr(v.visitDate)))];
   const lastFeedback = visits[0]?.feedback ?? null;
   const hadPositive = visits.some((v) => POSITIVE_FEEDBACK.includes(v.feedback));
 
@@ -320,10 +333,18 @@ export async function addEntry(ctx, planId, dto) {
   const plan = await prisma.dailyPlan.findFirst({ where: { id: planId, userId: ctx.repUserId } });
   if (!plan) throw new AppError('البلان غير موجود', 404);
 
+  // When a manager adds to a rep's plan, snapshot who added it so the rep can see it.
+  let addedByManager = false, addedByName = null;
+  if (ctx.isManagerView && ctx.actorUserId !== ctx.repUserId) {
+    const actor = await prisma.user.findUnique({ where: { id: ctx.actorUserId }, select: { displayName: true, username: true } });
+    addedByManager = true;
+    addedByName = actor?.displayName || actor?.username || null;
+  }
+
   if (dto.entryType === 'pharmacy') {
     if (!dto.pharmacyName?.trim()) throw new AppError('اسم الصيدلية مطلوب', 400);
     const entry = await prisma.dailyPlanEntry.create({
-      data: { planId, entryType: 'pharmacy', pharmacyName: dto.pharmacyName.trim(), areaId: dto.areaId ? parseInt(dto.areaId) : null },
+      data: { planId, entryType: 'pharmacy', pharmacyName: dto.pharmacyName.trim(), areaId: dto.areaId ? parseInt(dto.areaId) : null, addedByManager, addedByName },
     });
     return { entry, repeat: null };
   }
@@ -340,7 +361,7 @@ export async function addEntry(ctx, planId, dto) {
   const repeat = await getDoctorRepeatInfo(ctx, doctorId, settings, plan.planDate);
 
   const entry = await prisma.dailyPlanEntry.create({
-    data: { planId, entryType: 'doctor', doctorId, areaId: dto.areaId ? parseInt(dto.areaId) : null, isNewDoctor: !priorVisit },
+    data: { planId, entryType: 'doctor', doctorId, areaId: dto.areaId ? parseInt(dto.areaId) : null, isNewDoctor: !priorVisit, addedByManager, addedByName },
   });
 
   // Notify managers when this addition crosses a configured threshold
@@ -449,8 +470,11 @@ export async function suggest(ctx, { mode = 'new', areaId, date }) {
   }
 
   // mode = 'new' → doctors in the rep's areas that were never visited by this rep
+  // Doctor rows are never owned by the field rep's own userId — they belong to the
+  // rep's manager account (resolveDocOwnerUserId mirrors GET /api/doctors' resolution).
+  const docOwnerUserId = await resolveDocOwnerUserId(ctx.repUserId);
   const repAreaIds = await getRepAreaIds(ctx);
-  const where = { userId: ctx.repUserId, isActive: true };
+  const where = { userId: docOwnerUserId, isActive: true };
   const areaFilter = areaId ? [parseInt(areaId)] : repAreaIds;
   if (areaFilter.length) where.areaId = { in: areaFilter };
 
@@ -525,7 +549,7 @@ export async function repeatsReport(ctx, { from, to }) {
     .map((d) => {
       const vs = visitsByDoctor.get(d.doctorId) || [];
       const plannedDays = [...d.days].sort();
-      const visitedDays = [...new Set(vs.map((v) => v.visitDate.toISOString().slice(0, 10)))].sort();
+      const visitedDays = [...new Set(vs.map((v) => localDateStr(v.visitDate)))].sort();
       const hadPositive = vs.some((v) => POSITIVE_FEEDBACK.includes(v.feedback));
       return {
         doctorId: d.doctorId, name: d.name, specialty: d.specialty,

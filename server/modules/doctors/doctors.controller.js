@@ -2,6 +2,31 @@ import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 
+// Field reps never own Doctor rows under their own userId — doctors belong to
+// the rep's manager (via ScientificRepresentative.userId) or, failing that, the
+// rep's UserManagerAssignment.managerId. Mirrors the inline resolution used in
+// list() (browseManagerId) so any endpoint reading a rep's doctors/pharmacies
+// resolves the same owner. Non-field roles own their own data (returns userId).
+export async function resolveDocOwnerUserId(userId) {
+  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+  const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, linkedRepId: true } });
+  if (!userRecord || !FIELD_ROLES.includes(userRecord.role)) return userId;
+  let ownerId = userId;
+  if (userRecord.linkedRepId) {
+    const repRecord = await prisma.scientificRepresentative.findUnique({
+      where: { id: userRecord.linkedRepId }, select: { userId: true },
+    });
+    if (repRecord?.userId) ownerId = repRecord.userId;
+  }
+  if (ownerId === userId) {
+    const managerAssign = await prisma.userManagerAssignment.findFirst({
+      where: { userId }, select: { managerId: true },
+    });
+    if (managerAssign?.managerId) ownerId = managerAssign.managerId;
+  }
+  return ownerId;
+}
+
 export async function visitsByArea(req, res, next) {
   try {
     const userId = req.user.id;
@@ -1261,10 +1286,10 @@ export async function getManagerSubReps(req, res, next) {
 
 export async function pharmacyNameSuggestions(req, res, next) {
   try {
-    const userId = req.user.id;
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
     const q = String(req.query.q ?? '').trim().toLowerCase();
     const docs = await prisma.doctor.findMany({
-      where: { userId, pharmacyName: { not: null } },
+      where: { userId: ownerUserId, pharmacyName: { not: null } },
       select: { pharmacyName: true },
       distinct: ['pharmacyName'],
       orderBy: { name: 'asc' },
