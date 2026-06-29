@@ -162,6 +162,22 @@ export default function DailyPlanPage() {
   const [actionsMenuFor, setActionsMenuFor] = useState<number | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
 
+  // Doctor history popup (company_manager/admin) — visit dates + daily-plan dates across all reps, to spot repetition
+  const [doctorHistoryFor, setDoctorHistoryFor] = useState<{ doctorId: number; name: string } | null>(null);
+  const [doctorHistoryData, setDoctorHistoryData] = useState<{ visits: { date: string; feedback: string; repName: string }[]; planEntries: { planDate: string; status: string; repName: string }[] } | null>(null);
+  const [doctorHistoryLoading, setDoctorHistoryLoading] = useState(false);
+  const openDoctorHistory = async (doctorId: number, name: string) => {
+    setDoctorHistoryFor({ doctorId, name });
+    setDoctorHistoryData(null);
+    setDoctorHistoryLoading(true);
+    try {
+      const r = await fetch(`${API}/api/monthly-plans/doctor-history/${doctorId}`, { headers: H() });
+      const j = await r.json();
+      if (r.ok && j.success) setDoctorHistoryData(j.data);
+    } catch {}
+    setDoctorHistoryLoading(false);
+  };
+
   const repParam = selectedRep ? `&repUserId=${selectedRep}` : '';
   const repQS = selectedRep ? `repUserId=${selectedRep}` : '';
 
@@ -577,7 +593,16 @@ export default function DailyPlanPage() {
                       <div style={entryCardStyle(e.status)}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>{name}</strong>
+                            <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>
+                              {isCompanyManager && e.entryType === 'doctor' && e.doctorId ? (
+                                <span
+                                  onClick={ev => { ev.stopPropagation(); openDoctorHistory(e.doctorId as number, name as string); }}
+                                  title="عرض تواريخ الزيارات والإضافة للبلان اليومي لهذا الطبيب"
+                                  style={{ textDecoration: 'underline', textDecorationStyle: 'dotted', cursor: 'pointer' }}>
+                                  {name}
+                                </span>
+                              ) : name}
+                            </strong>
                             {e.entryType === 'doctor' && e.doctor?.specialty && <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>· {e.doctor.specialty}</span>}
                             {e.isNewDoctor && <span style={{ fontSize: 11, color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 5, padding: '1px 6px' }}>جديد</span>}
                             {e.status !== 'planned' && <StatusChip status={e.status} />}
@@ -814,6 +839,57 @@ export default function DailyPlanPage() {
           <NumField label="حد الإنجاز المنخفض % (للإشعار)" value={settingsDraft.lowAchievementThreshold} onChange={v => setSettingsDraft({ ...settingsDraft, lowAchievementThreshold: v })} />
           <NumField label="حصة الأطباء الجدد يومياً (0 = معطّل)" value={settingsDraft.minNewDoctorsPerDay} onChange={v => setSettingsDraft({ ...settingsDraft, minNewDoctorsPerDay: v })} />
           <button onClick={saveSettings} style={{ ...btnPrimary(), width: '100%', padding: '9px', marginTop: 8 }}>حفظ الإعدادات</button>
+        </Modal>
+      )}
+
+      {/* Doctor history popup (company_manager/admin): visit dates + daily-plan dates across all reps */}
+      {doctorHistoryFor && (
+        <Modal title={`🗓 سجلّ ${doctorHistoryFor.name}`} onClose={() => setDoctorHistoryFor(null)}>
+          {doctorHistoryLoading ? (
+            <p style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 0' }}>جاري التحميل...</p>
+          ) : !doctorHistoryData ? (
+            <p style={{ textAlign: 'center', color: '#ef4444', padding: '20px 0' }}>تعذّر تحميل السجلّ</p>
+          ) : (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <strong style={{ fontSize: 13, color: '#374151', display: 'block', marginBottom: 8 }}>
+                  تواريخ الزيارات الفعلية ({doctorHistoryData.visits.length})
+                </strong>
+                {doctorHistoryData.visits.length === 0 ? (
+                  <p style={{ fontSize: 12.5, color: '#94a3b8', margin: 0 }}>لا توجد زيارات مسجّلة</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
+                    {doctorHistoryData.visits.map((v, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '6px 10px', fontSize: 12.5 }}>
+                        <span style={{ color: '#166534', fontWeight: 600 }}>{new Date(v.date).toLocaleDateString('en-CA')}</span>
+                        <span style={{ color: '#374151' }}>{v.repName}</span>
+                        <span style={{ color: '#64748b' }}>{FEEDBACK_LABELS[v.feedback] ?? v.feedback}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <strong style={{ fontSize: 13, color: '#374151', display: 'block', marginBottom: 8 }}>
+                  تواريخ الإضافة للبلان اليومي ({doctorHistoryData.planEntries.length})
+                </strong>
+                {doctorHistoryData.planEntries.length === 0 ? (
+                  <p style={{ fontSize: 12.5, color: '#94a3b8', margin: 0 }}>لم يُضَف لأي بلان يومي</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
+                    {doctorHistoryData.planEntries.map((p, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 7, padding: '6px 10px', fontSize: 12.5 }}>
+                        <span style={{ color: '#1e40af', fontWeight: 600 }}>{p.planDate}</span>
+                        <span style={{ color: '#374151' }}>{p.repName}</span>
+                        <span style={{ color: '#64748b' }}>{STATUS_LABEL[p.status] ?? p.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </Modal>
       )}
     </div>
