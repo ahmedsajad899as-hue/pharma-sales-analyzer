@@ -21,6 +21,11 @@ const TZ_OFFSET_MIN = 180;
 // Positive feedback = "successful visit / order dropped" (writing | stocked | interested)
 const POSITIVE_FEEDBACK = ['writing', 'stocked', 'interested'];
 
+// No rep action (visit / postpone / delete) within this window after an entry is
+// added → it's auto-postponed so it stops looking "still pending" indefinitely.
+const AUTO_POSTPONE_MS = 24 * 60 * 60 * 1000;
+const AUTO_POSTPONE_NOTE = 'لم يتم اتخاذ أي إجراء خلال 24 ساعة';
+
 const MANAGER_ROLES = new Set([
   'admin', 'manager', 'company_manager', 'supervisor', 'product_manager',
   'office_manager', 'commercial_supervisor', 'commercial_team_leader', 'team_leader',
@@ -199,7 +204,11 @@ export async function getPlanView(ctx, planDate) {
 
   const entries = await prisma.dailyPlanEntry.findMany({
     where: { planId: plan.id },
-    include: { doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true } }, area: { select: { id: true, name: true } } },
+    include: {
+      doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true } },
+      area: { select: { id: true, name: true } },
+      item: { select: { id: true, name: true } },
+    },
     orderBy: { createdAt: 'asc' },
   });
 
@@ -243,6 +252,14 @@ export async function getPlanView(ctx, planDate) {
           }
           e.status = 'visited'; e.linkedPharmacyVisitId = v.id;
         }
+      }
+      // Still no action (not visited) 24h after being added → auto-postpone.
+      if (e.status === 'planned' && Date.now() - e.createdAt.getTime() > AUTO_POSTPONE_MS) {
+        updates.push(prisma.dailyPlanEntry.update({
+          where: { id: e.id },
+          data: { status: 'postponed', postponeReason: 'other', postponeNote: AUTO_POSTPONE_NOTE, autoPostponed: true },
+        }));
+        e.status = 'postponed'; e.postponeReason = 'other'; e.postponeNote = AUTO_POSTPONE_NOTE; e.autoPostponed = true;
       }
     }
     return { ...e, currentFeedback: feedback };
@@ -344,7 +361,7 @@ export async function addEntry(ctx, planId, dto) {
   if (dto.entryType === 'pharmacy') {
     if (!dto.pharmacyName?.trim()) throw new AppError('اسم الصيدلية مطلوب', 400);
     const entry = await prisma.dailyPlanEntry.create({
-      data: { planId, entryType: 'pharmacy', pharmacyName: dto.pharmacyName.trim(), areaId: dto.areaId ? parseInt(dto.areaId) : null, addedByManager, addedByName },
+      data: { planId, entryType: 'pharmacy', pharmacyName: dto.pharmacyName.trim(), areaId: dto.areaId ? parseInt(dto.areaId) : null, itemId: dto.itemId ? parseInt(dto.itemId) : null, addedByManager, addedByName },
     });
     return { entry, repeat: null };
   }
@@ -361,7 +378,7 @@ export async function addEntry(ctx, planId, dto) {
   const repeat = await getDoctorRepeatInfo(ctx, doctorId, settings, plan.planDate);
 
   const entry = await prisma.dailyPlanEntry.create({
-    data: { planId, entryType: 'doctor', doctorId, areaId: dto.areaId ? parseInt(dto.areaId) : null, isNewDoctor: !priorVisit, addedByManager, addedByName },
+    data: { planId, entryType: 'doctor', doctorId, areaId: dto.areaId ? parseInt(dto.areaId) : null, itemId: dto.itemId ? parseInt(dto.itemId) : null, isNewDoctor: !priorVisit, addedByManager, addedByName },
   });
 
   // Notify managers when this addition crosses a configured threshold
@@ -384,6 +401,27 @@ export async function addEntry(ctx, planId, dto) {
   return { entry: { ...entry, isNewDoctor: !priorVisit }, repeat };
 }
 
+/** Ensure the source entry's doctor/pharmacy also appears on the chosen plan date (idempotent). */
+async function carryOverToDate(ctx, sourceEntry, targetDateStr) {
+  const plan = await getOrCreatePlan(ctx, targetDateStr);
+  const dupWhere = sourceEntry.entryType === 'doctor'
+    ? { planId: plan.id, doctorId: sourceEntry.doctorId }
+    : { planId: plan.id, entryType: 'pharmacy', pharmacyName: sourceEntry.pharmacyName };
+  const dup = await prisma.dailyPlanEntry.findFirst({ where: dupWhere });
+  if (dup) return dup;
+  return prisma.dailyPlanEntry.create({
+    data: {
+      planId: plan.id,
+      entryType: sourceEntry.entryType,
+      doctorId: sourceEntry.doctorId,
+      pharmacyName: sourceEntry.pharmacyName,
+      areaId: sourceEntry.areaId,
+      itemId: sourceEntry.itemId,
+      isNewDoctor: sourceEntry.isNewDoctor,
+    },
+  });
+}
+
 export async function updateEntry(ctx, entryId, dto) {
   const entry = await prisma.dailyPlanEntry.findFirst({
     where: { id: entryId, plan: { userId: ctx.repUserId } },
@@ -395,9 +433,17 @@ export async function updateEntry(ctx, entryId, dto) {
   if (dto.status === 'postponed') {
     data.postponeReason = dto.postponeReason ?? 'other'; // absent | traveling | declined | other
     data.postponeNote = dto.postponeNote ?? null;
+    data.postponeToDate = dto.postponeToDate?.trim() || null;
+    data.autoPostponed = false; // manual postpone overrides the 24h-auto flag
   }
-  if (dto.status && dto.status !== 'postponed') { data.postponeReason = null; data.postponeNote = null; }
-  return prisma.dailyPlanEntry.update({ where: { id: entryId }, data });
+  if (dto.status && dto.status !== 'postponed') {
+    data.postponeReason = null; data.postponeNote = null; data.postponeToDate = null; data.autoPostponed = false;
+  }
+  if (dto.itemId !== undefined) data.itemId = dto.itemId ? parseInt(dto.itemId) : null;
+
+  const updated = await prisma.dailyPlanEntry.update({ where: { id: entryId }, data });
+  if (data.postponeToDate) await carryOverToDate(ctx, entry, data.postponeToDate);
+  return updated;
 }
 
 export async function removeEntry(ctx, entryId) {
@@ -422,7 +468,7 @@ export async function recordVisit(ctx, entryId, dto) {
         doctorId: entry.doctorId,
         scientificRepId: ctx.scientificRepId,
         visitDate,
-        itemId: dto.itemId ? parseInt(dto.itemId) : null,
+        itemId: dto.itemId ? parseInt(dto.itemId) : (entry.itemId ?? null),
         feedback: dto.feedback ?? 'pending',
         notes: dto.notes ?? '',
         latitude: dto.latitude != null ? parseFloat(dto.latitude) : null,

@@ -204,6 +204,7 @@ model Item {
   pharmacyVisitItems  PharmacyVisitItem[]
   commercialItems     CommercialInvoiceItem[]
   repTargets          RepItemTarget[]
+  dailyPlanEntries    DailyPlanEntry[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -1561,16 +1562,20 @@ model DailyPlanEntry {
   status                String   @default("planned") // planned | visited | postponed
   postponeReason        String? // absent | traveling | declined | other
   postponeNote          String?
+  postponeToDate        String? // "YYYY-MM-DD" — تاريخ جديد مختار عند التأجيل، يُضاف الاسم لبلان ذلك اليوم تلقائياً
+  autoPostponed         Boolean  @default(false) // أُجِّل تلقائياً بعد 24 ساعة بدون أي إجراء من المندوب
   linkedVisitId         Int? // DoctorVisit.id بعد المطابقة (scalar، بدون relation)
   linkedPharmacyVisitId Int? // PharmacyVisit.id بعد المطابقة
   isNewDoctor           Boolean  @default(false) // طبيب بلا زيارة سابقة (لحصة الجدد)
   addedByManager        Boolean  @default(false) // أضافه المدير (لا المندوب) لتنبيه المندوب
   addedByName           String? // اسم المدير الذي أضاف هذا المدخل (snapshot)
+  itemId                Int? // الايتم المستهدف لهذه الزيارة (اختياري)
   createdAt             DateTime @default(now())
 
   plan   DailyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   doctor Doctor?   @relation(fields: [doctorId], references: [id])
   area   Area?     @relation(fields: [areaId], references: [id])
+  item   Item?     @relation(fields: [itemId], references: [id])
 
   @@index([planId])
   @@index([doctorId])

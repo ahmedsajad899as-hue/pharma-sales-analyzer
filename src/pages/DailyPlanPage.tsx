@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -6,13 +6,16 @@ const API = import.meta.env.VITE_API_URL || '';
 // ─── Types ───────────────────────────────────────────────────
 interface Doctor { id: number; name: string; specialty?: string | null; pharmacyName?: string | null; area?: { id: number; name: string } | null; areaId?: number | null; }
 interface Area { id: number; name: string; }
+interface Item { id: number; name: string; }
 interface Entry {
   id: number; entryType: 'doctor' | 'pharmacy'; doctorId: number | null; pharmacyName: string | null;
   areaId: number | null; status: 'planned' | 'visited' | 'postponed';
-  postponeReason: string | null; postponeNote: string | null; isNewDoctor: boolean;
+  postponeReason: string | null; postponeNote: string | null; postponeToDate: string | null; autoPostponed: boolean;
+  isNewDoctor: boolean; createdAt: string;
   addedByManager: boolean; addedByName: string | null;
   doctor?: { id: number; name: string; specialty?: string | null; pharmacyName?: string | null } | null;
   area?: { id: number; name: string } | null; currentFeedback?: string | null;
+  itemId: number | null; item?: { id: number; name: string } | null;
 }
 interface Achievement { total: number; visited: number; postponed: number; planned: number; percent: number; visitedNames: string[]; pendingNames: string[]; }
 interface Quota { required: number; planned: number; visited: number; }
@@ -62,6 +65,14 @@ function btnPrimary(): React.CSSProperties { return { background: NAVY, color: '
 function btnNeutral(): React.CSSProperties { return { background: '#f1f5f9', color: TEXT_DARK, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }; }
 function btnDanger(): React.CSSProperties { return { background: '#fff', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }; }
 
+// Visited cards get a soft green tint, postponed ones a muted/dimmed tint —
+// makes the "done vs. still pending" split obvious without extra chrome.
+function entryCardStyle(status: Entry['status']): React.CSSProperties {
+  if (status === 'visited') return { border: '1px solid #bbf7d0', background: '#f0fdf4', borderRadius: 6, padding: '10px 12px' };
+  if (status === 'postponed') return { border: `1px solid ${BORDER}`, background: '#f8fafc', borderRadius: 6, padding: '10px 12px', opacity: 0.85 };
+  return { border: '1px solid #f1f5f9', background: '#fff', borderRadius: 6, padding: '10px 12px' };
+}
+
 function StatusChip({ status }: { status: Entry['status'] }) {
   const icon = status === 'visited' ? '✓' : status === 'postponed' ? '⏸' : '○';
   return (
@@ -92,6 +103,7 @@ export default function DailyPlanPage() {
   // doctor/area pickers
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
   const [docSearch, setDocSearch] = useState('');
   const [pharmName, setPharmName] = useState('');
   const [pharmArea, setPharmArea] = useState<number | ''>('');
@@ -107,14 +119,19 @@ export default function DailyPlanPage() {
   const [recordFor, setRecordFor] = useState<Entry | null>(null);
   const [recordFeedback, setRecordFeedback] = useState('writing');
   const [recordNote, setRecordNote] = useState('');
+  const [recordItemId, setRecordItemId] = useState<number | ''>('');
   // postpone modal
   const [postponeFor, setPostponeFor] = useState<Entry | null>(null);
   const [postponeReason, setPostponeReason] = useState('absent');
   const [postponeNote, setPostponeNote] = useState('');
+  const [postponeDate, setPostponeDate] = useState('');
   // comments / settings
   const [commentText, setCommentText] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<Settings | null>(null);
+  // collapsible postpone-reasons analysis panel
+  const [postponeAnalysisOpen, setPostponeAnalysisOpen] = useState(false);
+  const postponeBoxRef = useRef<HTMLDivElement>(null);
 
   const repParam = selectedRep ? `&repUserId=${selectedRep}` : '';
   const repQS = selectedRep ? `repUserId=${selectedRep}` : '';
@@ -130,17 +147,27 @@ export default function DailyPlanPage() {
       .catch(() => {});
   }, [isManager, token, H]);
 
-  // ── Load own doctors + areas (used for the add-entry pickers) ──
+  // ── Load own doctors + areas + items (used for the add-entry pickers) ──
   useEffect(() => {
     if (!token) return;
     Promise.all([
       fetch(`${API}/api/doctors`, { headers: H() }).then(r => r.ok ? r.json() : []),
       fetch(`${API}/api/areas`, { headers: H() }).then(r => r.ok ? r.json() : []),
-    ]).then(([dj, aj]) => {
+      fetch(`${API}/api/items`, { headers: H() }).then(r => r.ok ? r.json() : []),
+    ]).then(([dj, aj, ij]) => {
       setDoctors(Array.isArray(dj) ? dj : (dj.data ?? dj.doctors ?? []));
       setAreas(Array.isArray(aj) ? aj : (aj.data ?? []));
+      setItems(Array.isArray(ij) ? ij : (ij.data ?? ij.items ?? []));
     }).catch(() => {});
   }, [token, H]);
+
+  // ── Close the postpone-reasons analysis panel on outside click ──
+  useEffect(() => {
+    if (!postponeAnalysisOpen) return;
+    const handler = (e: MouseEvent) => { if (postponeBoxRef.current && !postponeBoxRef.current.contains(e.target as Node)) setPostponeAnalysisOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [postponeAnalysisOpen]);
 
   // ── Pharmacy name suggestions (server-side, like the doctor search) ──
   useEffect(() => {
@@ -238,13 +265,13 @@ export default function DailyPlanPage() {
     const loc = await getLocation();
     try {
       const body: any = { repUserId: selectedRep ?? undefined, latitude: loc?.lat, longitude: loc?.lng, notes: recordNote };
-      if (recordFor.entryType === 'doctor') body.feedback = recordFeedback;
+      if (recordFor.entryType === 'doctor') { body.feedback = recordFeedback; body.itemId = recordItemId || undefined; }
       const r = await fetch(`${API}/api/daily-plans/${planId}/entries/${recordFor.id}/record-visit`, {
         method: 'POST', headers: H(), body: JSON.stringify(body),
       });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || j.message || 'تعذّر التسجيل');
-      setRecordFor(null); setRecordNote(''); setRecordFeedback('writing'); flash('تم تسجيل الكول');
+      setRecordFor(null); setRecordNote(''); setRecordFeedback('writing'); setRecordItemId(''); flash('تم تسجيل الكول');
       await load();
     } catch (e: any) { setError(e.message); }
   };
@@ -254,10 +281,23 @@ export default function DailyPlanPage() {
     try {
       const r = await fetch(`${API}/api/daily-plans/entries/${postponeFor.id}`, {
         method: 'PATCH', headers: H(),
-        body: JSON.stringify({ status: 'postponed', postponeReason, postponeNote, repUserId: selectedRep ?? undefined }),
+        body: JSON.stringify({ status: 'postponed', postponeReason, postponeNote, postponeToDate: postponeDate || undefined, repUserId: selectedRep ?? undefined }),
       });
       if (!r.ok) throw new Error('تعذّر التأجيل');
-      setPostponeFor(null); setPostponeNote(''); setPostponeReason('absent'); flash('تم التأجيل');
+      setPostponeFor(null); setPostponeNote(''); setPostponeReason('absent');
+      flash(postponeDate ? `تم التأجيل، وسيُضاف الاسم تلقائياً ليوم ${postponeDate}` : 'تم التأجيل');
+      setPostponeDate('');
+      await load();
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const setEntryItem = async (entryId: number, itemId: number | '') => {
+    try {
+      const r = await fetch(`${API}/api/daily-plans/entries/${entryId}`, {
+        method: 'PATCH', headers: H(),
+        body: JSON.stringify({ itemId: itemId || null, repUserId: selectedRep ?? undefined }),
+      });
+      if (!r.ok) throw new Error('تعذّر تحديد الايتم');
       await load();
     } catch (e: any) { setError(e.message); }
   };
@@ -306,6 +346,13 @@ export default function DailyPlanPage() {
     const inPlan = new Set((view?.entries ?? []).filter(e => e.entryType === 'doctor').map(e => e.doctorId));
     return doctors.filter(d => d.name.toLowerCase().includes(q) && !inPlan.has(d.id)).slice(0, 8);
   }, [docSearch, doctors, view]);
+
+  // Pending (no action yet) entries float to the top; visited/postponed sink to the
+  // bottom as a finished group — keeps the active to-do list scannable at a glance.
+  const sortedEntries = useMemo(() => {
+    const rank = (e: Entry) => (e.status === 'planned' ? 0 : 1);
+    return [...(view?.entries ?? [])].sort((a, b) => rank(a) - rank(b));
+  }, [view]);
 
   const ach = view?.achievement;
   const quota = view?.newDoctorQuota;
@@ -440,40 +487,65 @@ export default function DailyPlanPage() {
             <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>قائمة اليوم ({view.entries.length})</strong>
             {view.entries.length === 0 ? <div style={{ fontSize: 12.5, color: '#94a3b8' }}>لا توجد أسماء في بلان اليوم بعد.</div> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {view.entries.map(e => {
+                {sortedEntries.map((e, idx) => {
                   const rep = e.doctorId ? repeatByDoctor.get(e.doctorId) : null;
                   const name = e.entryType === 'doctor' ? (e.doctor?.name ?? `#${e.doctorId}`) : e.pharmacyName;
+                  const showDivider = e.status !== 'planned' && idx > 0 && sortedEntries[idx - 1].status === 'planned';
                   return (
-                    <div key={e.id} style={{ border: '1px solid #f1f5f9', borderRadius: 6, padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>{name}</strong>
-                          {e.entryType === 'doctor' && e.doctor?.specialty && <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>· {e.doctor.specialty}</span>}
-                          {e.isNewDoctor && <span style={{ fontSize: 11, color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 5, padding: '1px 6px' }}>جديد</span>}
-                          <StatusChip status={e.status} />
-                          {e.currentFeedback && <span style={{ fontSize: 11, color: TEXT_MUTED, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '1px 7px' }}>{FEEDBACK_LABELS[e.currentFeedback] ?? e.currentFeedback}</span>}
-                          {e.addedByManager && (
-                            <span title="أضافه المدير إلى بلانك" style={{ fontSize: 11, color: '#7c2d12', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 5, padding: '1px 7px' }}>
-                              من المدير{e.addedByName ? ` (${e.addedByName})` : ''}
-                            </span>
-                          )}
-                          {rep?.flagged && (
-                            <span title={`أيام التخطيط: ${rep.plannedDays.join('، ')} | أيام الزيارة: ${rep.visitedDays.join('، ') || '—'}`}
-                              style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', border: '1px solid #fecaca', borderRadius: 5, padding: '1px 7px' }}>
-                              مكرر ×{rep.plannedCount}
-                            </span>
-                          )}
+                    <Fragment key={e.id}>
+                      {showDivider && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
+                          <div style={{ flex: 1, height: 1, background: BORDER }} />
+                          <span style={{ fontSize: 11, color: TEXT_MUTED, whiteSpace: 'nowrap' }}>منتهية (تمت / مؤجلة)</span>
+                          <div style={{ flex: 1, height: 1, background: BORDER }} />
                         </div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {e.status !== 'visited' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); }} style={btnPrimary()}>سجّل كول</button>}
-                          {e.status !== 'visited' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); }} style={btnNeutral()}>تأجيل</button>}
-                          <button onClick={() => removeEntry(e.id)} style={btnDanger()}>حذف</button>
-                        </div>
-                      </div>
-                      {e.status === 'postponed' && e.postponeReason && (
-                        <div style={{ marginTop: 6, fontSize: 11.5, color: '#92400e' }}>سبب التأجيل: {POSTPONE_REASONS[e.postponeReason] ?? e.postponeReason}{e.postponeNote ? ` — ${e.postponeNote}` : ''}</div>
                       )}
-                    </div>
+                      <div style={entryCardStyle(e.status)}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>{name}</strong>
+                            {e.entryType === 'doctor' && e.doctor?.specialty && <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>· {e.doctor.specialty}</span>}
+                            {e.isNewDoctor && <span style={{ fontSize: 11, color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 5, padding: '1px 6px' }}>جديد</span>}
+                            <StatusChip status={e.status} />
+                            {e.currentFeedback && <span style={{ fontSize: 11, color: TEXT_MUTED, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '1px 7px' }}>{FEEDBACK_LABELS[e.currentFeedback] ?? e.currentFeedback}</span>}
+                            {e.addedByManager && (
+                              <span title="أضافه المدير إلى بلانك" style={{ fontSize: 11, color: '#7c2d12', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 5, padding: '1px 7px' }}>
+                                من المدير{e.addedByName ? ` (${e.addedByName})` : ''}
+                              </span>
+                            )}
+                            {rep?.flagged && (
+                              <span title={`أيام التخطيط: ${rep.plannedDays.join('، ')} | أيام الزيارة: ${rep.visitedDays.join('، ') || '—'}`}
+                                style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', border: '1px solid #fecaca', borderRadius: 5, padding: '1px 7px' }}>
+                                مكرر ×{rep.plannedCount}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {e.status !== 'visited' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }} style={btnPrimary()}>سجّل كول</button>}
+                            {e.status !== 'visited' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); }} style={btnNeutral()}>تأجيل</button>}
+                            <button onClick={() => removeEntry(e.id)} style={btnDanger()}>حذف</button>
+                          </div>
+                        </div>
+                        {e.entryType === 'doctor' && (
+                          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 11, color: TEXT_MUTED }}>الايتم المستهدف:</span>
+                            <select value={e.itemId ?? ''} onChange={ev => setEntryItem(e.id, ev.target.value ? Number(ev.target.value) : '')}
+                              style={{ ...INPUT, padding: '2px 8px', fontSize: 11.5 }}>
+                              <option value="">— غير محدد —</option>
+                              {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        {e.status === 'postponed' && (
+                          <div style={{ marginTop: 6, fontSize: 11.5, color: '#92400e' }}>
+                            {e.autoPostponed
+                              ? 'تأجيل تلقائي: لم يقم المندوب بأي إجراء خلال 24 ساعة'
+                              : (e.postponeReason && <>سبب التأجيل: {POSTPONE_REASONS[e.postponeReason] ?? e.postponeReason}{e.postponeNote ? ` — ${e.postponeNote}` : ''}</>)}
+                            {e.postponeToDate && <span> · أُضيف تلقائياً ليوم {e.postponeToDate}</span>}
+                          </div>
+                        )}
+                      </div>
+                    </Fragment>
                   );
                 })}
               </div>
@@ -506,18 +578,24 @@ export default function DailyPlanPage() {
             </div>
           )}
 
-          {/* Postpone analytics */}
+          {/* Postpone analytics — collapsed by default, toggled by its own header */}
           {postpone && postpone.total > 0 && (
-            <div style={CARD}>
-              <strong style={{ fontSize: 13.5, color: TEXT_DARK, display: 'block', marginBottom: 10 }}>تحليل أسباب التأجيل (آخر 30 يوم) — {postpone.total}</strong>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
-                  <div key={k} style={{ background: '#f8fafc', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '8px 14px', minWidth: 110 }}>
-                    <div style={{ fontSize: 11, color: TEXT_MUTED }}>{label}</div>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: TEXT_DARK }}>{postpone.counts[k] ?? 0}</div>
-                  </div>
-                ))}
-              </div>
+            <div style={CARD} ref={postponeBoxRef}>
+              <button onClick={() => setPostponeAnalysisOpen(o => !o)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}>
+                <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>تحليل أسباب التأجيل (آخر 30 يوم) — {postpone.total}</strong>
+                <span style={{ fontSize: 12, color: TEXT_MUTED }}>{postponeAnalysisOpen ? '▲ إغلاق' : '▼ عرض'}</span>
+              </button>
+              {postponeAnalysisOpen && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+                  {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
+                    <div key={k} style={{ background: '#f8fafc', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '8px 14px', minWidth: 110 }}>
+                      <div style={{ fontSize: 11, color: TEXT_MUTED }}>{label}</div>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: TEXT_DARK }}>{postpone.counts[k] ?? 0}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -548,12 +626,21 @@ export default function DailyPlanPage() {
         <Modal title="تسجيل كول" onClose={() => setRecordFor(null)}>
           <div style={{ fontSize: 12.5, color: TEXT_MUTED, marginBottom: 10 }}>{recordFor.entryType === 'doctor' ? (recordFor.doctor?.name ?? 'طبيب') : recordFor.pharmacyName}</div>
           {recordFor.entryType === 'doctor' && (
-            <label style={{ display: 'block', marginBottom: 10 }}>
-              <span style={{ fontSize: 12, color: TEXT_MUTED }}>النتيجة (feedback)</span>
-              <select value={recordFeedback} onChange={e => setRecordFeedback(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
-                {FEEDBACK_OPTIONS.map(f => <option key={f} value={f}>{FEEDBACK_LABELS[f]}</option>)}
-              </select>
-            </label>
+            <>
+              <label style={{ display: 'block', marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: TEXT_MUTED }}>النتيجة (feedback)</span>
+                <select value={recordFeedback} onChange={e => setRecordFeedback(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
+                  {FEEDBACK_OPTIONS.map(f => <option key={f} value={f}>{FEEDBACK_LABELS[f]}</option>)}
+                </select>
+              </label>
+              <label style={{ display: 'block', marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: TEXT_MUTED }}>الايتم المستهدف (اختياري)</span>
+                <select value={recordItemId} onChange={e => setRecordItemId(e.target.value ? Number(e.target.value) : '')} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
+                  <option value="">— بدون تحديد —</option>
+                  {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                </select>
+              </label>
+            </>
           )}
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 12, color: TEXT_MUTED }}>ملاحظة (اختياري)</span>
@@ -571,6 +658,10 @@ export default function DailyPlanPage() {
             <select value={postponeReason} onChange={e => setPostponeReason(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
               {Object.entries(POSTPONE_REASONS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </select>
+          </label>
+          <label style={{ display: 'block', marginBottom: 10 }}>
+            <span style={{ fontSize: 12, color: TEXT_MUTED }}>تأجيل إلى تاريخ جديد (اختياري) — سيُضاف الاسم تلقائياً لبلان ذلك اليوم</span>
+            <input type="date" min={todayLocal()} value={postponeDate} onChange={e => setPostponeDate(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }} />
           </label>
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 12, color: TEXT_MUTED }}>ملاحظة (اختياري)</span>
