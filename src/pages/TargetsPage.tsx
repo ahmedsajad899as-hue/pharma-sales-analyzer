@@ -107,7 +107,12 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   }, [selRepId, repType, month, year, isManager, activeFileIds.join(','), token]);
 
   // When rep/period changes: load existing targets + build rows from rep's items
+  // (manager view only — the rep's own view is fully managed by the "load MY
+  // targets" effect above; selRepId is always empty for a rep, so without this
+  // guard, this effect would re-fire and wipe rows to [] every time sciReps/
+  // allItems finish loading after the my-targets fetch already populated them)
   const loadTargets = useCallback(async () => {
+    if (!isManager) return;
     if (!selRepId) { setRows([]); return; }
     setLoading(true);
     try {
@@ -142,7 +147,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selRepId, repType, month, year, sciReps, allItems, token]);
+  }, [isManager, selRepId, repType, month, year, sciReps, allItems, token]);
 
   useEffect(() => { loadTargets(); }, [loadTargets]);
 
