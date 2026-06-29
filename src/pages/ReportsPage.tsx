@@ -2862,8 +2862,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                             })}
                           </tbody>
                           {targetData.length > 0 && (() => {
-                            const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
-                            const totalNet    = targetData.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
+                            // Only items that actually carry a target count toward the overall ratio —
+                            // sales of non-targeted items (target = 0, shown as "—" per-row) must not
+                            // inflate the total achievement %.
+                            const targetedRows = targetData.filter(td => td.target > 0);
+                            const totalTarget = targetedRows.reduce((s, td) => s + td.target, 0);
+                            const totalNet    = targetedRows.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
                             const totalPct  = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
                             const pctColor  = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                             return (
@@ -3011,8 +3015,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         })}
                       </tbody>
                       {targetData.length > 0 && (() => {
-                        const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
-                        const totalNet    = targetData.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
+                        // Only items that actually carry a target count toward the overall ratio —
+                        // sales of non-targeted items (target = 0, shown as "—" per-row) must not
+                        // inflate the total achievement %.
+                        const targetedRows = targetData.filter(td => td.target > 0);
+                        const totalTarget = targetedRows.reduce((s, td) => s + td.target, 0);
+                        const totalNet    = targetedRows.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
                         const totalPct    = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
                         const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                         return (
@@ -3178,8 +3186,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         })}
                       </tbody>
                       {targetData.length > 0 && (() => {
-                        const totalTarget = targetData.reduce((s, td) => s + td.target, 0);
-                        const totalNet    = targetData.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
+                        // Only items that actually carry a target count toward the overall ratio —
+                        // sales of non-targeted items (target = 0, shown as "—" per-row) must not
+                        // inflate the total achievement %.
+                        const targetedRows = targetData.filter(td => td.target > 0);
+                        const totalTarget = targetedRows.reduce((s, td) => s + td.target, 0);
+                        const totalNet    = targetedRows.reduce((s, td) => s + (targetActualNet.get(td.itemId) ?? 0), 0);
                         const totalPct    = totalTarget > 0 ? Math.round((totalNet / totalTarget) * 100) : null;
                         const pctColor    = totalPct === null ? '#6b7280' : totalPct >= 100 ? '#059669' : totalPct >= 80 ? '#d97706' : '#dc2626';
                         return (
