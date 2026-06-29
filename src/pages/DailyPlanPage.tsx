@@ -140,6 +140,9 @@ export default function DailyPlanPage() {
   const [itemPromptEntryId, setItemPromptEntryId] = useState<number | null>(null);
   const [itemPromptName, setItemPromptName] = useState('');
   const [itemPromptValue, setItemPromptValue] = useState<number | ''>('');
+  // when a manager is browsing a rep's plan, the per-entry actions collapse into a "⋮" menu
+  const [actionsMenuFor, setActionsMenuFor] = useState<number | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
 
   const repParam = selectedRep ? `&repUserId=${selectedRep}` : '';
   const repQS = selectedRep ? `repUserId=${selectedRep}` : '';
@@ -176,6 +179,14 @@ export default function DailyPlanPage() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [postponeAnalysisOpen]);
+
+  // ── Close the per-entry "⋮" actions menu on outside click ──
+  useEffect(() => {
+    if (actionsMenuFor == null) return;
+    const handler = (e: MouseEvent) => { if (actionsMenuRef.current && !actionsMenuRef.current.contains(e.target as Node)) setActionsMenuFor(null); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [actionsMenuFor]);
 
   // ── Pharmacy name suggestions (server-side, like the doctor search) ──
   useEffect(() => {
@@ -376,6 +387,10 @@ export default function DailyPlanPage() {
     return [...(view?.entries ?? [])].sort((a, b) => rank(a) - rank(b));
   }, [view]);
 
+  // A manager browsing a rep's plan gets the actions tucked into a menu instead of
+  // three always-visible buttons per row — keeps the oversight view uncluttered.
+  const viewingOthersPlan = isManager && !!selectedRep;
+
   const ach = view?.achievement;
   const quota = view?.newDoctorQuota;
   const lowAch = !!(ach && view && ach.percent < view.settings.lowAchievementThreshold);
@@ -562,9 +577,37 @@ export default function DailyPlanPage() {
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {e.status === 'planned' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }} style={btnPrimary()}>سجّل كول</button>}
-                            {e.status === 'planned' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); }} style={btnNeutral()}>تأجيل</button>}
-                            <button onClick={() => removeEntry(e.id)} style={btnDanger()}>حذف</button>
+                            {viewingOthersPlan ? (
+                              <div ref={actionsMenuFor === e.id ? actionsMenuRef : undefined} style={{ position: 'relative' }}>
+                                <button onClick={() => setActionsMenuFor(actionsMenuFor === e.id ? null : e.id)} style={btnNeutral()}>⋮</button>
+                                {actionsMenuFor === e.id && (
+                                  <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 60, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,.08)', marginTop: 4, minWidth: 130, overflow: 'hidden' }}>
+                                    {e.status === 'planned' && (
+                                      <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); setActionsMenuFor(null); }}
+                                        style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, color: NAVY }}>
+                                        سجّل كول
+                                      </button>
+                                    )}
+                                    {e.status === 'planned' && (
+                                      <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); setActionsMenuFor(null); }}
+                                        style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, color: TEXT_DARK, borderTop: `1px solid ${BORDER}` }}>
+                                        تأجيل
+                                      </button>
+                                    )}
+                                    <button onClick={() => { removeEntry(e.id); setActionsMenuFor(null); }}
+                                      style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, color: '#b91c1c', borderTop: `1px solid ${BORDER}` }}>
+                                      حذف
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                {e.status === 'planned' && <button onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }} style={btnPrimary()}>سجّل كول</button>}
+                                {e.status === 'planned' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); }} style={btnNeutral()}>تأجيل</button>}
+                                <button onClick={() => removeEntry(e.id)} style={btnDanger()}>حذف</button>
+                              </>
+                            )}
                           </div>
                         </div>
                         {e.entryType === 'doctor' && (
