@@ -52,6 +52,24 @@ const todayLocal = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const shiftDateStr = (dateStr: string, days: number) => {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// ←/→ step the date by a full day (instead of the browser's default per-segment jump),
+// so paging through days doesn't require typing or opening the calendar each time.
+function dateArrowKeyHandler(currentValue: string, setValue: (v: string) => void, min?: string) {
+  return (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const next = shiftDateStr(currentValue || todayLocal(), e.key === 'ArrowRight' ? 1 : -1);
+    if (min && next < min) return;
+    setValue(next);
+  };
+}
+
 // ── Pharmacy Net visual language: white cards on light-slate background,
 // navy as the single accent color, red reserved for true alerts only ──
 const PAGE_BG = '#f0f4f8';
@@ -414,7 +432,7 @@ export default function DailyPlanPage() {
               {subReps.map(s => <option key={s.userId} value={s.userId}>{s.name}</option>)}
             </select>
           )}
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INPUT} />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} onKeyDown={dateArrowKeyHandler(date, setDate)} style={INPUT} />
           {isCompanyManager && <button onClick={openSettings} style={btnNeutral()}>⚙ إعدادات</button>}
         </div>
       </div>
@@ -773,6 +791,7 @@ export default function DailyPlanPage() {
             <span style={{ fontSize: 12, color: TEXT_MUTED }}>تأجيل إلى تاريخ جديد (اختياري) — سيُضاف الاسم تلقائياً لبلان ذلك اليوم</span>
             <input type="date" min={todayLocal()} value={postponeDate} onChange={e => setPostponeDate(e.target.value)}
               onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { /* unsupported browser — falls back to native input */ } }}
+              onKeyDown={dateArrowKeyHandler(postponeDate, setPostponeDate, todayLocal())}
               style={{ ...INPUT, width: '100%', marginTop: 4, cursor: 'pointer' }} />
           </label>
           <label style={{ display: 'block', marginBottom: 12 }}>
