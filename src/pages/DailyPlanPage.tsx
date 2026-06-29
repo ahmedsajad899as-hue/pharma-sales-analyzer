@@ -31,6 +31,7 @@ const FEEDBACK_LABELS: Record<string, string> = {
 };
 const FEEDBACK_OPTIONS = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
 const POSTPONE_REASONS: Record<string, string> = { absent: 'الطبيب غير موجود', traveling: 'مسافر', declined: 'اعتذر عن الاستقبال', other: 'سبب آخر' };
+const POSTPONE_REASON_ICONS: Record<string, string> = { absent: '🚪', traveling: '✈️', declined: '🙅', other: '❓' };
 const STATUS_LABEL: Record<string, string> = { planned: 'مخطط', visited: 'تمت الزيارة', postponed: 'مؤجل' };
 
 const getLocation = (): Promise<{ lat: number; lng: number } | null> =>
@@ -690,15 +691,30 @@ export default function DailyPlanPage() {
       {/* Postpone modal */}
       {postponeFor && (
         <Modal title="تأجيل الزيارة" onClose={() => setPostponeFor(null)}>
-          <label style={{ display: 'block', marginBottom: 10 }}>
-            <span style={{ fontSize: 12, color: TEXT_MUTED }}>السبب</span>
-            <select value={postponeReason} onChange={e => setPostponeReason(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }}>
-              {Object.entries(POSTPONE_REASONS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-            </select>
-          </label>
+          <div style={{ marginBottom: 12 }}>
+            <span style={{ fontSize: 12, color: TEXT_MUTED, display: 'block', marginBottom: 6 }}>السبب</span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setPostponeReason(k)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    minWidth: 78, padding: '10px 8px', borderRadius: 8, cursor: 'pointer',
+                    border: `1px solid ${postponeReason === k ? NAVY : BORDER}`,
+                    background: postponeReason === k ? '#eff6ff' : '#fff',
+                    color: postponeReason === k ? NAVY : TEXT_DARK,
+                    fontWeight: postponeReason === k ? 700 : 500,
+                  }}>
+                  <span style={{ fontSize: 20 }}>{POSTPONE_REASON_ICONS[k]}</span>
+                  <span style={{ fontSize: 11 }}>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <label style={{ display: 'block', marginBottom: 10 }}>
             <span style={{ fontSize: 12, color: TEXT_MUTED }}>تأجيل إلى تاريخ جديد (اختياري) — سيُضاف الاسم تلقائياً لبلان ذلك اليوم</span>
-            <input type="date" min={todayLocal()} value={postponeDate} onChange={e => setPostponeDate(e.target.value)} style={{ ...INPUT, width: '100%', marginTop: 4 }} />
+            <input type="date" min={todayLocal()} value={postponeDate} onChange={e => setPostponeDate(e.target.value)}
+              onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { /* unsupported browser — falls back to native input */ } }}
+              style={{ ...INPUT, width: '100%', marginTop: 4, cursor: 'pointer' }} />
           </label>
           <label style={{ display: 'block', marginBottom: 12 }}>
             <span style={{ fontSize: 12, color: TEXT_MUTED }}>ملاحظة (اختياري)</span>
