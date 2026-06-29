@@ -562,7 +562,7 @@ export default function DailyPlanPage() {
                             <strong style={{ fontSize: 13.5, color: TEXT_DARK }}>{name}</strong>
                             {e.entryType === 'doctor' && e.doctor?.specialty && <span style={{ fontSize: 11.5, color: TEXT_MUTED }}>· {e.doctor.specialty}</span>}
                             {e.isNewDoctor && <span style={{ fontSize: 11, color: NAVY, border: `1px solid ${NAVY}`, borderRadius: 5, padding: '1px 6px' }}>جديد</span>}
-                            <StatusChip status={e.status} />
+                            {e.status !== 'planned' && <StatusChip status={e.status} />}
                             {e.currentFeedback && <span style={{ fontSize: 11, color: TEXT_MUTED, border: `1px solid ${BORDER}`, borderRadius: 5, padding: '1px 7px' }}>{FEEDBACK_LABELS[e.currentFeedback] ?? e.currentFeedback}</span>}
                             {e.addedByManager && (
                               <span title="أضافه المدير إلى بلانك" style={{ fontSize: 11, color: '#7c2d12', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 5, padding: '1px 7px' }}>
