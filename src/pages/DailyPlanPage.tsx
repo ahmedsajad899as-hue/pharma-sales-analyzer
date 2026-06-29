@@ -611,10 +611,10 @@ export default function DailyPlanPage() {
                           </div>
                         </div>
                         {e.entryType === 'doctor' && (
-                          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 11, color: TEXT_MUTED }}>الايتم المستهدف:</span>
+                          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                            <span style={{ fontSize: 11, color: TEXT_MUTED, flexShrink: 0 }}>الايتم المستهدف:</span>
                             <select value={e.itemId ?? ''} onChange={ev => setEntryItem(e.id, ev.target.value ? Number(ev.target.value) : '')}
-                              style={{ ...INPUT, padding: '2px 8px', fontSize: 11.5 }}>
+                              style={{ ...INPUT, padding: '2px 8px', fontSize: 11.5, flex: 1, minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                               <option value="">— غير محدد —</option>
                               {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                             </select>
