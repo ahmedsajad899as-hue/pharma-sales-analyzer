@@ -635,7 +635,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
   // whose rows are all date-defaulted); only user-chosen dates filter the result.
   const overallAutoDatesRef = useRef<{ from: string; to: string } | null>(null);
-  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string; detectedCurrency?: string; exchangeRate?: number; currencyMode?: string}[]>([]);
+  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
   // Preview modal state
   const [showPreviewModal, setShowPreviewModal]   = useState(false);
@@ -718,9 +718,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           filename: f.originalName || f.filename || `ملف ${f.id}`,
           rowCount: f._count?.sales ?? f.rowCount,
           uploadedAt: f.uploadedAt,
-          detectedCurrency: f.detectedCurrency || 'IQD',
-          exchangeRate: f.exchangeRate || 1470,
-          currencyMode: f.currencyMode || 'IQD',
         })));
         // Default to selecting ALL active files for overall analysis (user can
         // uncheck files afterwards). Also clear stale dates so the backend
@@ -733,15 +730,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
           setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
-          // When files have mixed source currencies, the backend normalizes all values
-          // to IQD before aggregating. Set fileSourceCurrency='IQD' so the frontend
-          // applies the IQD→USD conversion uniformly to the normalized totals.
-          const hasUsdFile = activeFiles.some((f: any) => f.detectedCurrency === 'USD');
-          const hasIqdFile = activeFiles.some((f: any) => (f.detectedCurrency || 'IQD') === 'IQD');
-          const mixedCurrencies = hasUsdFile && hasIqdFile;
-          setFileSourceCurrency(
-            mixedCurrencies ? 'IQD' : (activeFile.detectedCurrency === 'USD' ? 'USD' : 'IQD')
-          );
+          setFileSourceCurrency(activeFile.detectedCurrency === 'USD' ? 'USD' : 'IQD');
           setFileExchangeRate(activeFile.exchangeRate || 1470);
         } else {
           setFileCurrencyMode('IQD');

@@ -390,7 +390,6 @@ export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}
       totalValue: true,
       area: { select: { id: true, name: true } },
       item: { select: { id: true, name: true } },
-      uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
     },
   });
 
@@ -501,7 +500,6 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
       area:           { select: { id: true, name: true } },
       item:           { select: { id: true, name: true } },
       representative: { select: { id: true, name: true } },
-      uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
     },
   });
 
@@ -550,7 +548,6 @@ export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {},
       area:           { select: { id: true, name: true } },
       item:           { select: { id: true, name: true } },
       representative: { select: { id: true, name: true } },
-      uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
     },
   });
 
@@ -558,21 +555,8 @@ export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {},
 }
 
 /**
- * Normalize a sale's totalValue to IQD.
- * If the file that produced this sale detected its values as USD, multiply by the
- * file's exchange rate to convert to IQD so all multi-file sums are in the same currency.
- */
-function normalizeToIQD(rawValue, uploadedFile) {
-  if (uploadedFile?.detectedCurrency === 'USD') {
-    return rawValue * (uploadedFile.exchangeRate || 1470);
-  }
-  return rawValue;
-}
-
-/**
  * In-memory aggregation of Prisma sale records.
  * Groups by area and item, accumulates quantity + value.
- * Values are normalized to IQD so multi-file totals are currency-consistent.
  */
 function aggregateSales(sales) {
   const areaMap = new Map();
@@ -582,7 +566,7 @@ function aggregateSales(sales) {
 
   for (const sale of sales) {
     const qty = sale.quantity;
-    const val = normalizeToIQD(Number(sale.totalValue), sale.uploadedFile);
+    const val = Number(sale.totalValue);
 
     totalQuantity += qty;
     totalValue    += val;
@@ -625,7 +609,7 @@ export function aggregateSalesWithReps(sales) {
 
   for (const sale of sales) {
     const qty = sale.quantity;
-    const val = normalizeToIQD(Number(sale.totalValue), sale.uploadedFile);
+    const val = Number(sale.totalValue);
     totalQuantity += qty;
     totalValue    += val;
 
