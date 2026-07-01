@@ -757,23 +757,45 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   useEffect(() => { sessionStorage.setItem('rpt_view', reportView); }, [reportView]);
 
   // ── Keyboard shortcuts for the commercial/scientific reports ──
-  // Left/Right arrows cycle the view toggle (مبيعات / ارجاعات / نت); skips ارجاعات
-  // when the rep has no returns. Enter toggles the كمية ↔ قيمة view mode (same as
-  // clicking that button) — matching the overall-analysis shortcuts.
-  // Ignores presses while typing in a field; Enter also yields to a focused button/link.
+  // Up/Down arrows  → navigate between reps (auto-loads each new rep's report).
+  // Left/Right arrows → cycle the view toggle (مبيعات / ارجاعات / نت); skips ارجاعات
+  //   when the rep has no returns.
+  // Enter → toggles the كمية ↔ قيمة view mode.
+  // All shortcuts ignore presses while typing in a field; Enter also yields to a focused button/link.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Enter') return;
-      // Only act while a report with the view toggle is actually on screen
-      const reportShown = (mode === 'commercial' && !!commReport) || (mode === 'scientific' && !!sciReport);
-      if (!reportShown) return;
+      const isNav = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+      const isView = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+      if (!isNav && !isView && e.key !== 'Enter') return;
+      if (mode !== 'commercial' && mode !== 'scientific') return;
+
       // Don't hijack keys while typing / inside an input, select or textarea
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName ?? '';
       if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag) || el?.isContentEditable) return;
 
+      // ── Up/Down: navigate reps ──
+      if (isNav) {
+        const reps = mode === 'commercial' ? commReps : sciReps;
+        if (reps.length === 0) return;
+        e.preventDefault();
+        const currentId = mode === 'commercial' ? commRepId : sciRepId;
+        const currIdx = reps.findIndex(r => String(r.id) === currentId);
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        const nextIdx = currIdx < 0
+          ? (delta > 0 ? 0 : reps.length - 1)
+          : (currIdx + delta + reps.length) % reps.length;
+        const nextId = String(reps[nextIdx].id);
+        if (mode === 'commercial') { setCommRepId(nextId); loadCommReport(nextId); }
+        else                       { setSciRepId(nextId);  loadSciReport(nextId);  }
+        return;
+      }
+
+      // ── Left/Right & Enter: only once a report is on screen ──
+      const reportShown = (mode === 'commercial' && !!commReport) || (mode === 'scientific' && !!sciReport);
+      if (!reportShown) return;
+
       if (e.key === 'Enter') {
-        // Let Enter activate a focused button/link instead of hijacking it
         if (/^(BUTTON|A)$/.test(tag)) return;
         e.preventDefault();
         if (mode === 'commercial') setCommViewMode(v => v === 'qty' ? 'value' : 'qty');
@@ -798,7 +820,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [mode, commReport, sciReport, commReturnsReport, sciReturnsReport]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, commReps, sciReps, commRepId, sciRepId, commReport, sciReport, commReturnsReport, sciReturnsReport]);
 
   // ── Keyboard shortcuts for the OVERALL analysis («تحليل شامل») only ──
   //  • Left/Right arrows cycle the sub-tabs المنطقة → الايتم → الشركة
