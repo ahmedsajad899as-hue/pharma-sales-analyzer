@@ -191,6 +191,7 @@ router.get('/overall', async (req, res) => {
         rawData:    true,
         area: { select: { id: true, name: true } },
         item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
+        uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
       },
     });
 
@@ -206,7 +207,12 @@ router.get('/overall', async (req, res) => {
 
     for (const s of sales) {
       const qty = s.quantity   || 0;
-      const val = s.totalValue || 0;
+      // Normalize value to IQD so multi-file sums are currency-consistent.
+      // When a file was detected as USD, multiply by its exchange rate to convert to IQD.
+      const rawVal = s.totalValue || 0;
+      const val = (s.uploadedFile?.detectedCurrency === 'USD')
+        ? rawVal * (s.uploadedFile.exchangeRate || 1470)
+        : rawVal;
       totalQuantity += qty;
       totalValue    += val;
 
