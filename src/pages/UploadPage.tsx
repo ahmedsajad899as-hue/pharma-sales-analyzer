@@ -858,6 +858,24 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
                       {currIsDollar ? 'USD $' : 'IQD د.ع'}
                     </span>
+                    <button
+                      onClick={() => onFileActivated(f.id)}
+                      title={isActive ? 'إلغاء التفعيل' : 'تفعيل الملف'}
+                      style={{
+                        border: isActive ? '1px solid #86efac' : '1px solid #cbd5e1',
+                        borderRadius: 20,
+                        padding: '2px 10px',
+                        background: isActive ? '#dcfce7' : '#f8fafc',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: isActive ? '#15803d' : '#64748b',
+                        transition: 'background 0.15s, border-color 0.15s',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {isActive ? '✅ نشط' : '⚡ تفعيل'}
+                    </button>
                   </div>
                 </div>
               );
