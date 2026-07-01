@@ -730,7 +730,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
           setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
-          setFileSourceCurrency(activeFile.detectedCurrency === 'USD' ? 'USD' : 'IQD');
+          // Aggregated report endpoints (overall / commercial / scientific) now
+          // normalize every row to USD server-side using each row's OWN file
+          // currency, so mixing files of different currencies sums correctly.
+          // The reported values are therefore ALWAYS in USD — treat the source as
+          // USD here and let currencyMode + exchangeRate drive the display only.
+          setFileSourceCurrency('USD');
           setFileExchangeRate(activeFile.exchangeRate || 1470);
         } else {
           setFileCurrencyMode('IQD');

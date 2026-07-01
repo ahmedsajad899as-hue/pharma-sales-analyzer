@@ -41,6 +41,36 @@ function buildFileIdsFilter(fileIds) {
 }
 
 /**
+ * Prisma select fragment to pull each sale's own file currency so values can be
+ * normalized before aggregation. Add this to any findMany feeding aggregateSales
+ * / aggregateSalesWithReps.
+ */
+export const FILE_CURRENCY_SELECT = {
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
+};
+
+/**
+ * Normalize a sale's stored totalValue to a common base currency (USD) using its
+ * OWN file's detectedCurrency + exchangeRate.
+ *
+ * Why: different uploaded files may store their values in different currencies
+ * (one file in USD, another in IQD). When a report aggregates across several
+ * files, summing the raw values directly is meaningless — a large IQD number and
+ * a small USD number can't be added. Converting every row to USD first makes the
+ * sum correct no matter how many files (or which currencies) are combined. The
+ * frontend then converts the USD total to whatever display currency it wants.
+ *
+ * IQD file → value / exchangeRate.  USD file (or unknown) → value unchanged.
+ */
+export function saleValueUSD(sale) {
+  const raw = Number(sale.totalValue) || 0;
+  const f = sale.uploadedFile;
+  if (!f) return raw;                       // unknown file → don't distort
+  const rate = f.exchangeRate || 1470;
+  return f.detectedCurrency === 'IQD' ? raw / rate : raw;
+}
+
+/**
  * Upsert an Area by name scoped to userId. Returns the area record.
  * @param {string} name
  * @param {number} userId
@@ -390,6 +420,7 @@ export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}
       totalValue: true,
       area: { select: { id: true, name: true } },
       item: { select: { id: true, name: true } },
+      ...FILE_CURRENCY_SELECT,
     },
   });
 
@@ -500,6 +531,7 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
       area:           { select: { id: true, name: true } },
       item:           { select: { id: true, name: true } },
       representative: { select: { id: true, name: true } },
+      ...FILE_CURRENCY_SELECT,
     },
   });
 
@@ -548,6 +580,7 @@ export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {},
       area:           { select: { id: true, name: true } },
       item:           { select: { id: true, name: true } },
       representative: { select: { id: true, name: true } },
+      ...FILE_CURRENCY_SELECT,
     },
   });
 
@@ -566,7 +599,7 @@ function aggregateSales(sales) {
 
   for (const sale of sales) {
     const qty = sale.quantity;
-    const val = Number(sale.totalValue);
+    const val = saleValueUSD(sale);
 
     totalQuantity += qty;
     totalValue    += val;
@@ -609,7 +642,7 @@ export function aggregateSalesWithReps(sales) {
 
   for (const sale of sales) {
     const qty = sale.quantity;
-    const val = Number(sale.totalValue);
+    const val = saleValueUSD(sale);
     totalQuantity += qty;
     totalValue    += val;
 

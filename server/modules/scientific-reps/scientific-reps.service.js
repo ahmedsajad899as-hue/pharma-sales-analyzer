@@ -633,6 +633,9 @@ const REPORT_SALES_SELECT = {
   area: { select: { id: true, name: true } },
   item: { select: { id: true, name: true } },
   representative: { select: { id: true, name: true } },
+  // Per-file currency so aggregateSalesWithReps can normalize each row to USD
+  // before summing (files may mix USD/IQD — raw sums across them are wrong).
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
 };
 
 /**

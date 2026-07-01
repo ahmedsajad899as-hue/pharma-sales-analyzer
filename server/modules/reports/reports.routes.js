@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
 import { COLUMN_ALIASES } from '../sales/sales.service.js';
+import { saleValueUSD } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 
 const router = Router();
@@ -191,6 +192,9 @@ router.get('/overall', async (req, res) => {
         rawData:    true,
         area: { select: { id: true, name: true } },
         item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
+        // Per-file currency → normalize each row to USD before summing, so mixing
+        // files of different currencies (USD + IQD) produces a correct total.
+        uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
       },
     });
 
@@ -206,7 +210,7 @@ router.get('/overall', async (req, res) => {
 
     for (const s of sales) {
       const qty = s.quantity   || 0;
-      const val = s.totalValue || 0;
+      const val = saleValueUSD(s);   // normalized to USD using this row's file currency
       totalQuantity += qty;
       totalValue    += val;
 
