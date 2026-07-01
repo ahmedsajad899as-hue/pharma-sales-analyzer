@@ -474,6 +474,19 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     }
   };
 
+  const toggleCurrency = async (f: UploadedFile) => {
+    const newMode = (f.currencyMode ?? f.detectedCurrency) === 'USD' ? 'IQD' : 'USD';
+    const rate = f.exchangeRate ?? 1470;
+    try {
+      const res = await fetch(`${API}/api/files/${f.id}/currency`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currencyMode: newMode, exchangeRate: rate, sourceCurrency: f.detectedCurrency ?? newMode }),
+      });
+      if (res.ok) await loadFiles();
+    } catch { /* silent */ }
+  };
+
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('ar-IQ-u-nu-latn');
   const activeFiles = files.filter(f => activeFileIds.includes(f.id));
 
@@ -855,9 +868,19 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   {/* ── Row 2: meta (no row count) ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
                     <span>📅 {fmtDate(f.uploadedAt)}</span>
-                    <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
-                      {currIsDollar ? 'USD $' : 'IQD د.ع'}
-                    </span>
+                    {hasFeature('currency_convert') ? (
+                      <button
+                        onClick={() => toggleCurrency(f)}
+                        title={currIsDollar ? 'تحويل إلى دينار عراقي' : 'تحويل إلى دولار'}
+                        style={{ ...BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac'), cursor: 'pointer' }}
+                      >
+                        {currIsDollar ? '$ USD' : 'IQD د.ع'}
+                      </button>
+                    ) : (
+                      <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
+                        {currIsDollar ? '$ USD' : 'IQD د.ع'}
+                      </span>
+                    )}
                     <button
                       onClick={() => onFileActivated(f.id)}
                       title={isActive ? 'إلغاء التفعيل' : 'تفعيل الملف'}
