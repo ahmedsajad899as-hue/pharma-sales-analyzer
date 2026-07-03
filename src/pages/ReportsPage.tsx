@@ -44,6 +44,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   onClose: () => void;
   fileName: string;
 }) {
+  const { t } = useLanguage();
   const [sheets, setSheets]           = useState<PreviewSheet[]>(initSheets);
   const [activeIdx, setActiveIdx]     = useState(0);
   const [editCell, setEditCell]       = useState<{ r: number; c: number } | null>(null);
@@ -149,17 +150,33 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const recalcSummary = (sheetIdx: number, newRows: string[][], prev: PreviewSheet[]): PreviewSheet[] => {
     const updated = prev.map((s, i) => i === sheetIdx ? { ...s, rows: newRows } : s);
 
-    // ── Case A: cross-rep «ملخص عام» summary (sheet 0, first header cell '#') ──
-    // Editing the summary itself (sheet 0) changes nothing else; editing a data sheet
-    // re-sums that sheet's qty/value into its summary row + the grand-total footer.
+    // ── Case A: cross-rep «ملخص عام» export = [ملخص عام, data sheet×N, «ملخص-Name»×N] ──
+    // Editing the summary itself (sheet 0) or a per-rep «ملخص-Name» sheet directly
+    // changes nothing else. Editing a DATA sheet re-sums its qty/value into BOTH the
+    // matching row of «ملخص عام» (matched by rep NAME, not sheet index — a rep owns
+    // one row there but TWO sheets: data + its own «ملخص-Name») and that rep's own
+    // «ملخص-Name» sheet (via the same recalcUserSummary used for single-rep exports).
     const isCrossRep = prev[0]?.rows[0]?.[0] === '#';
     if (isCrossRep) {
       if (sheetIdx === 0) return updated;
-      const header  = newRows[0] ?? [];
-      const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
-      const qtyCol  = header.findIndex(h => /كمية|qty|quantity/i.test(h));
-      const valCol  = header.findIndex(h =>
-        !/سعر.*وحد|unit.?price/i.test(h) && /قيمة|إجمالي|total.*val|val.*total/i.test(h));
+
+      const editedName = prev[sheetIdx]?.name ?? '';
+      const commPrefix = `${t.reports.exportCommPrefix}-`;
+      const sciPrefix  = `${t.reports.exportSciPrefix}-`;
+      const repName = editedName.startsWith(commPrefix) ? editedName.slice(commPrefix.length)
+        : editedName.startsWith(sciPrefix) ? editedName.slice(sciPrefix.length)
+        : null;
+      if (repName === null) return updated; // not a data sheet (e.g. a «ملخص-Name» sheet) — no cascade
+
+      // Same value/quantity column detection recalcUserSummary already uses below —
+      // matches "السعر الكلي"/"المجموع الكلي"/"مبلغ الإجمالي" headers too, not just
+      // ones literally containing «قيمة»/«إجمالي», and excludes the bonus-qty column.
+      const norm = (h: any) => String(h ?? '').trim();
+      const VALUE_HEADERS = new Set(['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي', 'إجمالي القيمة ($)']);
+      const header = (newRows[0] ?? []).map(norm);
+      const rtCol  = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
+      const qtyCol = header.findIndex(h => /كمية|qty|quantity/i.test(h) && !/مجاني|free|بونص|bonus/i.test(h));
+      const valCol = header.findIndex(h => VALUE_HEADERS.has(h) || (!/سعر\s*الوحد|unit\s*price/i.test(h) && /إجمالي\s*القيمة|السعر\s*الكلي|المجموع\s*الكلي/.test(h)));
 
       const dataRows = newRows.slice(1);
       const sum = (col: number) => col < 0 ? null : dataRows.reduce((s, row) => {
@@ -171,8 +188,8 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       const tQty = sum(qtyCol);
       const tVal = sum(valCol);
 
-      const summaryRows = prev[0].rows.map((row, ri) => {
-        if (ri !== sheetIdx) return row;
+      const summaryRows = prev[0].rows.map(row => {
+        if (row[2] !== repName) return row; // match the rep's row by name (col 2), not by sheet index
         return row.map((v, ci) =>
           ci === 3 && tQty !== null ? String(Math.round(tQty)) :
           ci === 4 && tVal !== null ? String(Math.round(tVal)) : v
@@ -190,7 +207,16 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
         );
       }
 
-      return updated.map((s, i) => i === 0 ? { ...s, rows: newSummary } : s);
+      let result = updated.map((s, i) => i === 0 ? { ...s, rows: newSummary } : s);
+
+      // Also recompute this rep's own «ملخص-Name» sheet from the same edited data.
+      const ownSummaryIdx = prev.findIndex(s => s.name === `ملخص-${repName}`.slice(0, 31));
+      if (ownSummaryIdx >= 0) {
+        const recomputed = recalcUserSummary(prev[ownSummaryIdx].rows, newRows);
+        result = result.map((s, i) => i === ownSummaryIdx ? { ...s, rows: recomputed } : s);
+      }
+
+      return result;
     }
 
     // ── Case B: single-rep preview = [data sheet, «الملخص»] ──
