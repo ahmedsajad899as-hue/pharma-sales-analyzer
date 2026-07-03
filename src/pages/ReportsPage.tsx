@@ -1468,8 +1468,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
          'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
         ['الكمية', 'كمية', 'الكميه', 'كميه'],
         ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
-        ['التاريخ', 'تاريخ', 'cv'],
+        // Date — mirrors server COLUMN_ALIASES.date so files that used "أنشات بتاريخ"
+        // (created-at date) for the sale date still merge into one "التاريخ" column
+        // instead of showing up as a separate column next to another file's "تاريخ".
+        ['التاريخ', 'تاريخ', 'cv', 'تاريخ البيع', 'تاريخ الفاتورة', 'تاريخ الطلب',
+         'تاريخ العملية', 'أنشات بتاريخ', 'انشات بتاريخ', 'أنشأت بتاريخ', 'انشأت بتاريخ',
+         'تاريخ الانشاء', 'تاريخ الإنشاء'],
         ['الشركة', 'الشركه'],
+        // Invoice/order number — same logical field, different label per source file
+        // (e.g. "رقم الفاتورة" vs "رقم طلبية المذخر").
+        ['رقم الفاتورة', 'رقم الفاتوره', 'رقم طلبية المذخر', 'رقم طلبيه المذخر',
+         'رقم الطلبية', 'رقم الطلبيه', 'رقم الطلب'],
         TOTAL_VALUE_GROUP,
       ];
       const groupOf = (k: string) => {
@@ -1828,8 +1837,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
          'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
         ['الكمية', 'كمية', 'الكميه', 'كميه'],
         ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
-        ['التاريخ', 'تاريخ', 'cv'],
+        // Date — mirrors server COLUMN_ALIASES.date so files that used "أنشات بتاريخ"
+        // (created-at date) for the sale date still merge into one "التاريخ" column
+        // instead of showing up as a separate column next to another file's "تاريخ".
+        ['التاريخ', 'تاريخ', 'cv', 'تاريخ البيع', 'تاريخ الفاتورة', 'تاريخ الطلب',
+         'تاريخ العملية', 'أنشات بتاريخ', 'انشات بتاريخ', 'أنشأت بتاريخ', 'انشأت بتاريخ',
+         'تاريخ الانشاء', 'تاريخ الإنشاء'],
         ['الشركة', 'الشركه'],
+        // Invoice/order number — same logical field, different label per source file
+        // (e.g. "رقم الفاتورة" vs "رقم طلبية المذخر").
+        ['رقم الفاتورة', 'رقم الفاتوره', 'رقم طلبية المذخر', 'رقم طلبيه المذخر',
+         'رقم الطلبية', 'رقم الطلبيه', 'رقم الطلب'],
         TOTAL_VALUE_GROUP,
       ];
       const groupOf = (k: string) => {
