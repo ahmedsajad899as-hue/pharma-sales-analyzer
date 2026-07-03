@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -21,6 +21,66 @@ const normalizeAr = (s: string): string =>
     .replace(/(^|\s)ال/g, '$1')               // remove ال (definite article)
     .replace(/\s+/g, ' ')
     .trim();
+
+/* Canonical raw-sales column order (matches the reference invoice-export layout):
+   رقم الفاتورة → تاريخ → المندوب → العميل → الموقع → الشركة → المادة → كمية →
+   سعر الوحدة → كمية مجانية → السعر الكلي → ملاحظة. Any header that doesn't match
+   one of these slots (e.g. «نوع السجل»، «المندوب العلمي»، unrecognised raw columns)
+   is pushed after «ملاحظة» instead of interrupting the reference order. */
+const CANONICAL_COLUMN_SLOTS: ((h: string) => boolean)[] = [
+  h => /رقم\s*ال(فاتور|طلبي)/i.test(h),
+  h => /تاريخ/i.test(h),
+  h => /مندوب/i.test(h) && !/علمي/i.test(h),
+  h => /صيدلي|عميل|زبون|مذخر|مخزن|مستودع/i.test(h),
+  h => /منطق|موقع/i.test(h),
+  h => /^الشرك[ةه]$/.test(h),
+  h => /(ماد[ةه]|صنف|منتج|دواء|مستحضر|ايتم|آيتم)/i.test(h) && !/رقم\s*الماد[ةه]/i.test(h),
+  h => /^(ال)?كمي[ةه]$/i.test(h),
+  h => /سعر\s*الوحد/i.test(h),
+  h => /مجاني|بونص/i.test(h),
+  h => /السعر الكلي|المجموع الكلي|مبلغ الإجمالي/i.test(h),
+  h => /ملاحظ/i.test(h),
+];
+const reorderHeaders = (headers: string[]): string[] => {
+  const used = new Set<number>();
+  const ordered: string[] = [];
+  for (const matches of CANONICAL_COLUMN_SLOTS) {
+    const idx = headers.findIndex((h, i) => !used.has(i) && matches(h));
+    if (idx >= 0) { ordered.push(headers[idx]); used.add(idx); }
+  }
+  headers.forEach((h, i) => { if (!used.has(i)) ordered.push(h); });
+  return ordered;
+};
+
+/* Apply the shared export look (teal header, banded rows, borders, column width)
+   to a freshly-built worksheet. `aoa` is the same array-of-arrays used to build `ws`. */
+const HEADER_FILL = 'FF2F8F8F';
+const BAND_FILL   = 'FFE3F3F3';
+const BORDER_RGB  = 'FFB9C6C6';
+const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[]) => {
+  const nRows = aoa.length;
+  const nCols = aoa.reduce((m, r) => Math.max(m, r.length), 0);
+  ws['!cols'] = Array.from({ length: nCols }, (_, i) => ({ wch: colWidths?.[i] ?? 22 }));
+  const thinBorder = { style: 'thin', color: { rgb: BORDER_RGB } };
+  for (let r = 0; r < nRows; r++) {
+    for (let c = 0; c < nCols; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (!ws[addr]) continue;
+      const isHeader = r === 0;
+      ws[addr].s = {
+        font: isHeader
+          ? { bold: true, sz: 11, color: { rgb: 'FFFFFFFF' } }
+          : { sz: 10, color: { rgb: 'FF1F2937' } },
+        fill: {
+          patternType: 'solid',
+          fgColor: { rgb: isHeader ? HEADER_FILL : (r % 2 === 0 ? BAND_FILL : 'FFFFFFFF') },
+        },
+        alignment: { horizontal: isHeader ? 'center' : 'right', vertical: 'center' },
+        border: { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder },
+      };
+    }
+  }
+};
 
 /* ─────────────────────────────────────────────────────────────────────────────
    ExcelPreviewModal — spreadsheet-like editor before export
@@ -289,7 +349,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     sheets.forEach(s => {
       const aoa = s.rows.map((row, ri) => ri === 0 ? row : row.map(toCellValue));
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      if (s.rows[0]) ws['!cols'] = s.rows[0].map(() => ({ wch: 22 }));
+      styleSheet(ws, aoa);
       XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
     });
     XLSX.writeFile(wb, fileName);
@@ -1524,9 +1584,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       const companyKey  = headers.find(isCompanyKey);
       const itemCodeKey = headers.find(isItemCodeKey);
-      const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
+      const sciHeader  = t.reports.exportColSciRep;
+      const typeHeader = t.reports.exportColRecordType;
+      // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; sciHeader/typeHeader don't
+      // match any canonical slot so they naturally fall after «ملاحظة» with the rest.
+      const finalHeaders = reorderHeaders([...(sciRepName ? [sciHeader] : []), typeHeader, ...headers]);
       return [
-        [...sciCol, t.reports.exportColRecordType, ...headers],
+        finalHeaders,
         ...sales.map(s => {
           let raw: any = {};
           try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
@@ -1539,7 +1603,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             }
             return undefined;
           };
-          const dataRow = headers.map(h => {
+          return finalHeaders.map(h => {
+            if (h === sciHeader) return sciRepName;
+            if (h === typeHeader) return typeLabel;
             // total-value group is blank on return rows in some source files — fall back to
             // whichever aliased column actually holds the return amount and show it negative
             if (isTotalPriceKey(h)) {
@@ -1562,17 +1628,26 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
             return Math.round((isPriceCol ? convertSaleVal(s, v) : v) * 100) / 100;
           });
-          return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
         }),
       ];
     }
-    const sciCol = sciRepName ? [t.reports.exportColSciRep] : [];
+    const sciHeader  = t.reports.exportColSciRep;
+    const typeHeader = t.reports.exportColRecordType;
+    const baseHeaders = [t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate];
+    const finalHeaders = reorderHeaders([...(sciRepName ? [sciHeader] : []), typeHeader, ...baseHeaders]);
     return [
-      [...sciCol, t.reports.exportColRecordType, t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate],
+      finalHeaders,
       ...sales.map(s => {
         const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
-        const dataRow = [s.representative?.name ?? '', s.area?.name ?? '', s.item?.name ?? '', Math.round(s.quantity || 0), Math.round(convertSaleVal(s, s.totalValue || 0)), formatDateUnified(s.saleDate)];
-        return sciRepName ? [sciRepName, typeLabel, ...dataRow] : [typeLabel, ...dataRow];
+        const valuesByHeader: Record<string, any> = {
+          [t.reports.exportColRepName]: s.representative?.name ?? '',
+          [t.reports.colArea]: s.area?.name ?? '',
+          [t.reports.colItem]: s.item?.name ?? '',
+          [t.reports.colQty]: Math.round(s.quantity || 0),
+          [t.reports.exportColValTotal]: Math.round(convertSaleVal(s, s.totalValue || 0)),
+          [t.reports.exportColDate]: formatDateUnified(s.saleDate),
+        };
+        return finalHeaders.map(h => h === sciHeader ? sciRepName : h === typeHeader ? typeLabel : (valuesByHeader[h] ?? ''));
       }),
     ];
   };
@@ -1913,6 +1988,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       const companyKey  = headers.find(isCompanyKey);
       const itemCodeKey = headers.find(isItemCodeKey);
+      // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; unrecognised columns fall
+      // after «ملاحظة» instead of appearing in their original raw-file order.
+      const finalHeaders = reorderHeaders(headers);
       const dataRows = parsed.map(({ s, raw }) => {
         const isRet = s.recordType === 'return';
         const rawGet = (h: string) => {
@@ -1922,7 +2000,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           }
           return undefined;
         };
-        return headers.map(k => {
+        return finalHeaders.map(k => {
           // total-value group is blank on return rows in some source files — fall back to
           // whichever aliased column actually holds the return amount and show it negative
           if (isTotalPriceKey(k)) {
@@ -1956,22 +2034,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return v;
         });
       });
-      return [headers, ...dataRows];
+      return [finalHeaders, ...dataRows];
     }
 
     // Fallback: no rawData
-    const header = ['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ'];
+    const header = reorderHeaders(['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ']);
     const dataRows = rows.map(s => {
       const isRet = s.recordType === 'return';
-      return [
-        isRet ? 'إرجاع' : 'مبيع',
-        s.representative?.name ?? '',
-        s.area?.name ?? '',
-        s.item?.name ?? '',
-        isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
-        convertSaleVal(s, s.totalValue ?? 0),
-        formatDateUnified(s.saleDate),
-      ];
+      const valuesByHeader: Record<string, any> = {
+        'نوع السجل': isRet ? 'إرجاع' : 'مبيع',
+        'اسم المندوب': s.representative?.name ?? '',
+        'المنطقة': s.area?.name ?? '',
+        'المادة': s.item?.name ?? '',
+        'الكمية': isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
+        'إجمالي القيمة ($)': convertSaleVal(s, s.totalValue ?? 0),
+        'التاريخ': formatDateUnified(s.saleDate),
+      };
+      return header.map(h => valuesByHeader[h] ?? '');
     });
     return [header, ...dataRows];
   };
@@ -2067,13 +2146,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const rows = buildSheet(sales, sciName);
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    if (rows[0]) ws['!cols'] = rows[0].map(() => ({ wch: 22 }));
+    styleSheet(ws, rows);
     XLSX.utils.book_append_sheet(wb, ws, rep.name.slice(0, 31));
     // «الملخص» sheet — same format as the رفع الملفات export
     const targets    = await fetchRepTargets(kind === 'comm' ? 'commercial' : 'scientific', rep.id);
     const summaryRows = buildSummarySheet(sciName ?? rep.name, sales, { areaCount, targets });
     const wsSummary  = XLSX.utils.aoa_to_sheet(summaryRows);
-    wsSummary['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    styleSheet(wsSummary, summaryRows, [30, 12, 12, 14]);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
     const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const fileName = `${rep.name}_${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -2123,7 +2202,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       const addSheet = (name: string, rows: any[][]) => {
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        if (rows[0]) ws['!cols'] = rows[0].map(() => ({ wch: 22 }));
+        styleSheet(ws, rows);
         XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
       };
 
@@ -2187,7 +2266,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       // ── Add summary sheet FIRST ─────────────────────────
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-      summaryWs['!cols'] = [{ wch: 4 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 24 }];
+      styleSheet(summaryWs, summaryData, [4, 10, 30, 18, 24]);
       XLSX.utils.book_append_sheet(wb, summaryWs, t.reports.exportSummarySheet);
       // Move summary to front
       const si = wb.SheetNames.indexOf(t.reports.exportSummarySheet);
