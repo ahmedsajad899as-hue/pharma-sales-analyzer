@@ -23,15 +23,16 @@ const normalizeAr = (s: string): string =>
     .trim();
 
 /* Canonical raw-sales column order (matches the reference invoice-export layout):
-   رقم الفاتورة → تاريخ → المندوب → العميل → الموقع → الشركة → المادة → كمية →
-   سعر الوحدة → كمية مجانية → السعر الكلي → ملاحظة. Any header that doesn't match
-   one of these slots (e.g. «نوع السجل»، «المندوب العلمي»، unrecognised raw columns)
-   is pushed after «ملاحظة» instead of interrupting the reference order. */
+   رقم الفاتورة → تاريخ → المندوب → العميل → اسم المذخر → الموقع → الشركة → المادة →
+   كمية → سعر الوحدة → كمية مجانية → السعر الكلي → ملاحظة. Any header that doesn't
+   match one of these slots (e.g. «نوع السجل»، «المندوب العلمي»، unrecognised raw
+   columns) is pushed after «ملاحظة» instead of interrupting the reference order. */
 const CANONICAL_COLUMN_SLOTS: ((h: string) => boolean)[] = [
   h => /رقم\s*ال(فاتور|طلبي)/i.test(h),
   h => /تاريخ/i.test(h),
   h => /مندوب/i.test(h) && !/علمي/i.test(h),
-  h => /صيدلي|عميل|زبون|مذخر|مخزن|مستودع/i.test(h),
+  h => /صيدلي|عميل|زبون/i.test(h),
+  h => /مذخر|مخزن|مستودع/i.test(h),
   h => /منطق|موقع/i.test(h),
   h => /^الشرك[ةه]$/.test(h),
   h => /(ماد[ةه]|صنف|منتج|دواء|مستحضر|ايتم|آيتم)/i.test(h) && !/رقم\s*الماد[ةه]/i.test(h),
@@ -1543,8 +1544,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // Same alias merge as buildMergedSheet — different active files can label the
       // same logical column differently (e.g. "الصيدلية" vs "اسم الصيدلية" vs "المذخر").
       const ALIAS_GROUPS: string[][] = [
-        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون',
-         'المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
+        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون'],
+        // Warehouse/depot — a distinct field from the customer/pharmacy above; some
+        // source files carry both on the same row (e.g. delivery routed through a
+        // depot to a pharmacy), so merging them would silently drop one value.
+        ['المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
         ['اسم المندوب', 'المندوب', 'مندوب'],
         ['المنطقة', 'منطقة', 'المنطقه', 'منطقه', 'الموقع', 'موقع'],
         ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
@@ -1927,8 +1931,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // column instead of showing them side by side — columns unique to one file
       // (no match in any group) keep standing on their own via the Set-union below.
       const ALIAS_GROUPS: string[][] = [
-        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون',
-         'المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
+        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون'],
+        // Warehouse/depot — a distinct field from the customer/pharmacy above; some
+        // source files carry both on the same row (e.g. delivery routed through a
+        // depot to a pharmacy), so merging them would silently drop one value.
+        ['المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
         ['اسم المندوب', 'المندوب', 'مندوب'],
         ['المنطقة', 'منطقة', 'المنطقه', 'منطقه', 'الموقع', 'موقع'],
         ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
