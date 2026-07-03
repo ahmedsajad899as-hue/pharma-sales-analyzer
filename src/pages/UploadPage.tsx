@@ -180,6 +180,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [autoDedup, setAutoDedup] = useState<DedupEntry[] | null>(null);
   const [autoDedupSel, setAutoDedupSel] = useState<Set<number>>(new Set());
   const [autoDedupApplying, setAutoDedupApplying] = useState(false);
+  // Auto-merge: remember confirmed merges and re-apply them silently on future uploads.
+  // Toggle is persisted in localStorage (default ON) and gates both remembering & applying.
+  const [autoMergeEnabled, setAutoMergeEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem('autoMergeItems') !== 'off'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('autoMergeItems', autoMergeEnabled ? 'on' : 'off'); } catch { /* ignore */ }
+  }, [autoMergeEnabled]);
+  const [autoMergedMsg, setAutoMergedMsg] = useState('');
 
   // Currency conversion state
   const [redetecting, setRedetecting] = useState<number | null>(null);
@@ -323,6 +332,24 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   // After an upload, look for newly-created items that are near-duplicates of
   // existing ones and pop a confirmation modal so the user can merge them.
   const checkSimilarItems = async () => {
+    // 1. Auto-apply any remembered merge rules silently (no confirmation) when the
+    //    feature is enabled. This handles re-uploaded files whose items were merged
+    //    before, so the user isn't asked to confirm the same merge again.
+    if (autoMergeEnabled) {
+      try {
+        const res  = await fetch(`${API}/api/merge-rules/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (res.ok && json.count > 0) {
+          setAutoMergedMsg(`🔗 تم دمج ${json.count} ايتم تلقائياً حسب قواعد محفوظة سابقاً`);
+          setTimeout(() => setAutoMergedMsg(''), 9000);
+          await loadFiles();
+        }
+      } catch { /* non-fatal — fall through to manual suggestions */ }
+    }
+    // 2. Suggest merging any remaining newly-created near-duplicate items.
     try {
       const res  = await fetch(`${API}/api/dedup-names`, {
         method: 'POST',
@@ -352,6 +379,17 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || t.upload.dedupFailed);
+      // Remember these confirmed merges so identical names in future uploads merge
+      // automatically without asking again (only when the feature is enabled).
+      if (autoMergeEnabled) {
+        try {
+          await fetch(`${API}/api/merge-rules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ rules: merges.map(m => ({ from: m.from, to: m.to })) }),
+          });
+        } catch { /* non-fatal — merge still applied, just not remembered */ }
+      }
       setAutoDedup(null);
       await loadFiles();
     } catch (err: any) {
@@ -537,6 +575,42 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           <span>⚠️</span>
           <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{t.upload.noActiveFile}</span>
           <span style={{ fontSize: 11, color: '#b45309' }}>— {t.upload.noActiveFileDesc}</span>
+        </div>
+      )}
+
+      {/* ── Auto-merge toggle ───────────────────────────────── */}
+      <div style={{ ...CARD, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 16 }}>🔗</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 'auto', marginRight: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>الدمج التلقائي للايتمات المتشابهة</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            {autoMergeEnabled
+              ? 'مُفعّل — أي دمج تؤكّده يُحفظ ويُطبَّق تلقائياً عند رفع نفس الأسماء لاحقاً'
+              : 'مُعطّل — سيُطلب تأكيد الدمج في كل مرة'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAutoMergeEnabled(v => !v)}
+          role="switch"
+          aria-checked={autoMergeEnabled}
+          title={autoMergeEnabled ? 'إيقاف الدمج التلقائي' : 'تفعيل الدمج التلقائي'}
+          style={{
+            position: 'relative', width: 46, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer',
+            background: autoMergeEnabled ? '#16a34a' : '#cbd5e1', transition: 'background 0.15s', flexShrink: 0,
+          }}
+        >
+          <span style={{
+            position: 'absolute', top: 3, left: autoMergeEnabled ? 23 : 3, width: 20, height: 20,
+            borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+          }} />
+        </button>
+      </div>
+
+      {/* Auto-merge applied toast */}
+      {autoMergedMsg && (
+        <div style={{ ...CARD, background: '#ecfdf5', borderColor: '#6ee7b7', padding: '8px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
+          {autoMergedMsg}
         </div>
       )}
 

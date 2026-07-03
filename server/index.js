@@ -14,7 +14,7 @@ import prisma from './lib/prisma.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
 import { activityMiddleware } from './lib/activityLogger.js';
-import { buildNormalizationMap, areSimilar } from './lib/fuzzyMatch.js';
+import { buildNormalizationMap, areSimilar, normalizeStr } from './lib/fuzzyMatch.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
@@ -1695,6 +1695,102 @@ app.post('/api/dedup-names', async (req, res) => {
     }
 
     res.json({ success: true, applied: apply, count: log.length, normalizations: log });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// ITEM MERGE RULES — قواعد دمج الايتمات المحفوظة (تطبيق تلقائي عند الرفع)
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET /api/merge-rules → قائمة القواعد المحفوظة للمستخدم
+app.get('/api/merge-rules', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+    const rules = await prisma.itemMergeRule.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, fromName: true, toName: true, createdAt: true },
+    });
+    res.json({ success: true, rules });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/merge-rules  body: { rules: [{ from, to }] } → حفظ/تحديث القواعد
+// نحفظ اسم "from" (المدموج/المحذوف) → اسم "to" (المُبقى). المفتاح = from بعد التطبيع.
+app.post('/api/merge-rules', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+    const rules = Array.isArray(req.body?.rules) ? req.body.rules : [];
+    let saved = 0;
+    for (const r of rules) {
+      if (!r || !r.from || !r.to) continue;
+      // نحدّد المُبقى = الاسم الأطول (نفس منطق mergeItems) حتى تكون القاعدة متسقة
+      const keep   = r.from.length >= r.to.length ? r.from : r.to;
+      const remove = r.from.length >= r.to.length ? r.to   : r.from;
+      if (keep === remove) continue;
+      const fromKey = normalizeStr(remove);
+      if (!fromKey) continue;
+      await prisma.itemMergeRule.upsert({
+        where:  { userId_fromKey: { userId, fromKey } },
+        update: { fromName: remove, toName: keep },
+        create: { userId, fromKey, fromName: remove, toName: keep },
+      });
+      saved++;
+    }
+    res.json({ success: true, saved });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/merge-rules/:id → حذف قاعدة واحدة
+app.delete('/api/merge-rules/:id', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    await prisma.itemMergeRule.deleteMany({ where: { id, userId } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/merge-rules/apply → طبّق كل القواعد المحفوظة على الايتمات الحالية
+// لكل قاعدة: إن وُجد ايتم اسمه = fromName (بعد التطبيع) وايتم آخر اسمه = toName،
+// نُدمج الأول داخل الثاني تلقائياً بدون مراجعة. يُستدعى بعد كل رفع.
+app.post('/api/merge-rules/apply', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+
+    const [rules, items] = await Promise.all([
+      prisma.itemMergeRule.findMany({ where: { userId }, select: { fromKey: true, fromName: true, toName: true } }),
+      getAllItems(userId),
+    ]);
+    if (rules.length === 0) return res.json({ success: true, applied: [], count: 0 });
+
+    // فهرس الايتمات حسب المفتاح المُطبَّع (قد يتكرر — نأخذ أول تطابق)
+    const byKey = new Map();
+    for (const it of items) {
+      const k = normalizeStr(it.name);
+      if (!byKey.has(k)) byKey.set(k, it);
+    }
+
+    const applied = [];
+    for (const rule of rules) {
+      const fromItem = byKey.get(rule.fromKey);
+      const toItem   = byKey.get(normalizeStr(rule.toName));
+      if (!fromItem || !toItem || fromItem.id === toItem.id) continue;
+      // نُبقي الاسم الأطول (نفس منطق mergeItems في dedup) — عادةً toName هو الأطول
+      const keepId   = fromItem.name.length >= toItem.name.length ? fromItem.id : toItem.id;
+      const deleteId = fromItem.name.length >= toItem.name.length ? toItem.id   : fromItem.id;
+      await mergeItems(deleteId, keepId);
+      applied.push({ from: rule.fromName, to: rule.toName });
+      // بعد الدمج لم يعد الايتم المحذوف موجوداً — أزِله من الفهرس لتفادي دمج مكرّر
+      byKey.delete(rule.fromKey);
+    }
+
+    res.json({ success: true, applied, count: applied.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

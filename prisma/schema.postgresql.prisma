@@ -37,22 +37,22 @@ model User {
   // Legacy links
   linkedRep ScientificRepresentative? @relation("UserLinkedRep", fields: [linkedRepId], references: [id])
 
-  areas          Area[]
-  items          Item[]
-  companies      Company[]
-  customers      Customer[]
-  medicalReps    MedicalRepresentative[]
-  scientificReps ScientificRepresentative[]
-  uploadedFiles  UploadedFile[]
-  sales          Sale[]
-  doctors        Doctor[]
-  monthlyPlans   MonthlyPlan[]
-  assignedPlans  MonthlyPlan[]              @relation("AssignedPlans")
-  doctorVisits   DoctorVisit[]
-  pharmacyVisits PharmacyVisit[]
-  visitLikes           VisitLike[]
-  visitComments        VisitComment[]
-  pharmacyVisitLikes   PharmacyVisitLike[]
+  areas              Area[]
+  items              Item[]
+  companies          Company[]
+  customers          Customer[]
+  medicalReps        MedicalRepresentative[]
+  scientificReps     ScientificRepresentative[]
+  uploadedFiles      UploadedFile[]
+  sales              Sale[]
+  doctors            Doctor[]
+  monthlyPlans       MonthlyPlan[]
+  assignedPlans      MonthlyPlan[]              @relation("AssignedPlans")
+  doctorVisits       DoctorVisit[]
+  pharmacyVisits     PharmacyVisit[]
+  visitLikes         VisitLike[]
+  visitComments      VisitComment[]
+  pharmacyVisitLikes PharmacyVisitLike[]
 
   // Multi-tenant assignments
   companyAssignments  UserCompanyAssignment[]
@@ -66,47 +66,50 @@ model User {
   invoiceSheets       InvoiceSheet[]
   fmsPlans            FmsPlan[]
   fileShares          FileUserShare[]
-  pharmacies          Pharmacy[]              @relation("PharmacyOwner")
-  assignedInvoices    CommercialInvoice[]     @relation("AssignedInvoices")
-  createdInvoices     CommercialInvoice[]     @relation("CreatedInvoices")
-  ownedInvoices       CommercialInvoice[]     @relation("InvoiceOwner")
-  collections         CollectionRecord[]      @relation("CollectionByUser")
-  notifications       AppNotification[]       @relation("NotificationRecipient")
-  sentNotifications   AppNotification[]       @relation("NotificationSender")
+  pharmacies          Pharmacy[]                  @relation("PharmacyOwner")
+  assignedInvoices    CommercialInvoice[]         @relation("AssignedInvoices")
+  createdInvoices     CommercialInvoice[]         @relation("CreatedInvoices")
+  ownedInvoices       CommercialInvoice[]         @relation("InvoiceOwner")
+  collections         CollectionRecord[]          @relation("CollectionByUser")
+  notifications       AppNotification[]           @relation("NotificationRecipient")
+  sentNotifications   AppNotification[]           @relation("NotificationSender")
 
   // Master Survey relations
-  surveyDoctorEdits   MasterSurveyDoctor[]    @relation("SurveyDoctorEditor")
-  surveyPharmacyEdits MasterSurveyPharmacy[]  @relation("SurveyPharmacyEditor")
-  surveyEditLogs      MasterSurveyEditLog[]   @relation("SurveyEditLogUser")
+  surveyDoctorEdits   MasterSurveyDoctor[]     @relation("SurveyDoctorEditor")
+  surveyPharmacyEdits MasterSurveyPharmacy[]   @relation("SurveyPharmacyEditor")
+  surveyEditLogs      MasterSurveyEditLog[]    @relation("SurveyEditLogUser")
   surveyHiddenFor     MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
 
   // Distributor Sales
-  distributorUploads       DistributorSalesUpload[]
-  distributorSaleRecords   DistributorSaleRecord[]
+  distributorUploads     DistributorSalesUpload[]
+  distributorSaleRecords DistributorSaleRecord[]
 
   // Activity Log
-  activityLogs             ActivityLog[]
+  activityLogs         ActivityLog[]
   doctorArchiveEntries DoctorArchiveEntry[]
 
   // Doctor Wishlist
-  doctorWishlists          DoctorWishlist[]
+  doctorWishlists DoctorWishlist[]
 
   // Filter Presets
-  filterPresets            FilterPreset[]
+  filterPresets FilterPreset[]
+
+  // Remembered item-merge rules (auto-apply on future uploads)
+  itemMergeRules ItemMergeRule[]
 
   // Sales Data Files (uploaded Excel sheets — synced across devices)
-  salesDataFiles           SalesDataFile[]
+  salesDataFiles SalesDataFile[]
 
   // Bonus Sales
-  bonusSalesUploads        BonusSalesUpload[]
-  bonusCompUploads         BonusCompUpload[]
-  bonusDeliveries          BonusSalesRow[]     @relation("BonusDeliveryUser")
-  bonusAssignments         BonusRowAssignment[] @relation("BonusAssignedUser")
+  bonusSalesUploads BonusSalesUpload[]
+  bonusCompUploads  BonusCompUpload[]
+  bonusDeliveries   BonusSalesRow[]      @relation("BonusDeliveryUser")
+  bonusAssignments  BonusRowAssignment[] @relation("BonusAssignedUser")
 
   // Daily Plan (البلان اليومي)
-  dailyPlans          DailyPlan[]
-  dailyPlanComments   DailyPlanComment[]
-  dailyPlanSettings   DailyPlanSettings?
+  dailyPlans        DailyPlan[]
+  dailyPlanComments DailyPlanComment[]
+  dailyPlanSettings DailyPlanSettings?
 
   @@index([officeId])
   @@map("users")
@@ -126,11 +129,11 @@ model MedicalRepresentative {
   user   User? @relation(fields: [userId], references: [id])
 
   // Relations
-  areas              RepresentativeArea[]
-  items              RepresentativeItem[]
-  sales              Sale[]
-  scientificReps     ScientificRepCommercial[]
-  exclusionFromReps  ScientificRepCommercialExclusion[]
+  areas             RepresentativeArea[]
+  items             RepresentativeItem[]
+  sales             Sale[]
+  scientificReps    ScientificRepCommercial[]
+  exclusionFromReps ScientificRepCommercialExclusion[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -185,13 +188,13 @@ model Company {
 // ─── Item (Drug / Product) ───────────────────────────────────
 model Item {
   id                Int      @id @default(autoincrement())
-  name              String   // الاسم التجاري
-  scientificName    String?  // الاسم العلمي
-  dosage            String?  // الجرعة الدوائية
-  form              String?  // الشكل الدوائي (أقراص، كبسول، شراب...)
-  price             Float?   // السعر
-  scientificMessage String?  // المسج العلمي
-  imageUrl          String?  // صورة الايتم
+  name              String // الاسم التجاري
+  scientificName    String? // الاسم العلمي
+  dosage            String? // الجرعة الدوائية
+  form              String? // الشكل الدوائي (أقراص، كبسول، شراب...)
+  price             Float? // السعر
+  scientificMessage String? // المسج العلمي
+  imageUrl          String? // صورة الايتم
   isTemp            Boolean  @default(false) // إيتم مؤقت من ملف رفع، غير موجود في كتالوج الشركة
   createdAt         DateTime @default(now())
 
@@ -306,17 +309,17 @@ model Sale {
 
 // ─── Uploaded File ───────────────────────────────────────────
 model UploadedFile {
-  id           Int      @id @default(autoincrement())
-  filename     String
-  originalName String
-  rowCount     Int
-  uploadedAt   DateTime @default(now())
-  uploadedBy   String?
-  fileType     String   @default("sales") // "sales" | "returns"
-  currencyMode String   @default("IQD")   // "IQD" | "USD" — display preference
-  exchangeRate Float    @default(1470)    // دينار لكل دولار
-  detectedCurrency String @default("IQD") // auto-detected from file values on upload
-  fileContent  String? // base64-encoded file bytes (for filter_page files — survives Railway ephemeral disk)
+  id               Int      @id @default(autoincrement())
+  filename         String
+  originalName     String
+  rowCount         Int
+  uploadedAt       DateTime @default(now())
+  uploadedBy       String?
+  fileType         String   @default("sales") // "sales" | "returns"
+  currencyMode     String   @default("IQD") // "IQD" | "USD" — display preference
+  exchangeRate     Float    @default(1470) // دينار لكل دولار
+  detectedCurrency String   @default("IQD") // auto-detected from file values on upload
+  fileContent      String? // base64-encoded file bytes (for filter_page files — survives Railway ephemeral disk)
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
@@ -326,7 +329,7 @@ model UploadedFile {
   sharedWithRep   ScientificRepresentative? @relation("FileSharedWithRep", fields: [sharedWithRepId], references: [id], onDelete: SetNull)
 
   // Share with multiple user accounts (many-to-many via junction table)
-  fileShares       FileUserShare[]
+  fileShares FileUserShare[]
 
   sales Sale[]
 
@@ -351,18 +354,18 @@ model ScientificRepresentative {
   user   User? @relation(fields: [userId], references: [id])
 
   // Assigned areas, items, companies, and commercial reps
-  areas               ScientificRepArea[]
-  items               ScientificRepItem[]
-  companies           ScientificRepCompany[]
-  commercialReps      ScientificRepCommercial[]
+  areas                ScientificRepArea[]
+  items                ScientificRepItem[]
+  companies            ScientificRepCompany[]
+  commercialReps       ScientificRepCommercial[]
   commercialExclusions ScientificRepCommercialExclusion[]
-  monthlyPlans        MonthlyPlan[]
-  doctorVisits        DoctorVisit[]
-  pharmacyVisits      PharmacyVisit[]
-  fmsPlans            FmsPlan[]
-  linkedUsers         User[]                    @relation("UserLinkedRep")
-  locationPoints      RepLocationPoint[]
-  sharedFiles         UploadedFile[]            @relation("FileSharedWithRep")
+  monthlyPlans         MonthlyPlan[]
+  doctorVisits         DoctorVisit[]
+  pharmacyVisits       PharmacyVisit[]
+  fmsPlans             FmsPlan[]
+  linkedUsers          User[]                             @relation("UserLinkedRep")
+  locationPoints       RepLocationPoint[]
+  sharedFiles          UploadedFile[]                     @relation("FileSharedWithRep")
 
   @@unique([name, userId])
   @@index([userId])
@@ -377,7 +380,7 @@ model RepLocationPoint {
   longitude       Float
   accuracy        Float?
   trackedAt       DateTime @default(now())
-  workDate        String   // YYYY-MM-DD
+  workDate        String // YYYY-MM-DD
 
   scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
 
@@ -469,14 +472,14 @@ model Doctor {
   userId               Int?
   masterSurveyDoctorId Int?
 
-  user               User?                @relation(fields: [userId], references: [id])
-  area               Area?                @relation(fields: [areaId], references: [id])
-  targetItem         Item?                @relation(fields: [targetItemId], references: [id])
-  masterSurveyDoctor MasterSurveyDoctor?  @relation(fields: [masterSurveyDoctorId], references: [id], onDelete: SetNull)
+  user               User?               @relation(fields: [userId], references: [id])
+  area               Area?               @relation(fields: [areaId], references: [id])
+  targetItem         Item?               @relation(fields: [targetItemId], references: [id])
+  masterSurveyDoctor MasterSurveyDoctor? @relation(fields: [masterSurveyDoctorId], references: [id], onDelete: SetNull)
 
-  planEntries PlanEntry[]
-  visits      DoctorVisit[]
-  wishlists   DoctorWishlist[]
+  planEntries      PlanEntry[]
+  visits           DoctorVisit[]
+  wishlists        DoctorWishlist[]
   dailyPlanEntries DailyPlanEntry[]
 
   @@index([userId])
@@ -500,9 +503,9 @@ model MonthlyPlan {
   updatedAt        DateTime @updatedAt
 
   userId         Int?
-  user           User?                    @relation(fields: [userId], references: [id])
+  user           User?                     @relation(fields: [userId], references: [id])
   assignedUserId Int? // rep user this plan is transferred/assigned to
-  assignedUser   User?                    @relation("AssignedPlans", fields: [assignedUserId], references: [id])
+  assignedUser   User?                     @relation("AssignedPlans", fields: [assignedUserId], references: [id])
   scientificRep  ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
 
   entries   PlanEntry[]
@@ -530,12 +533,12 @@ model PlanArea {
 
 // ─── Plan Entry: طبيب في البلان ──────────────────────────────
 model PlanEntry {
-  id            Int      @id @default(autoincrement())
-  planId        Int
-  doctorId      Int
-  targetVisits  Int      @default(2) // عادةً زيارتان
-  isExtraVisit  Boolean  @default(false) // true = طبيب خارج البلان، أُضيف عند التسجيل
-  createdAt     DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  planId       Int
+  doctorId     Int
+  targetVisits Int      @default(2) // عادةً زيارتان
+  isExtraVisit Boolean  @default(false) // true = طبيب خارج البلان، أُضيف عند التسجيل
+  createdAt    DateTime @default(now())
 
   plan        MonthlyPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
   doctor      Doctor          @relation(fields: [doctorId], references: [id])
@@ -567,7 +570,7 @@ model PlanEntryItem {
 model DoctorVisit {
   id              Int      @id @default(autoincrement())
   doctorId        Int
-  scientificRepId Int?     // nullable: managers may not have a ScientificRepresentative record
+  scientificRepId Int? // nullable: managers may not have a ScientificRepresentative record
   planEntryId     Int? // ربط بالبلان (اختياري)
   visitDate       DateTime
   itemId          Int?
@@ -597,10 +600,10 @@ model DoctorVisit {
 
 // ─── Visit Like (إعجاب بزيارة من مدير) ──────────────────────
 model VisitLike {
-  id        Int         @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   visitId   Int
   userId    Int
-  createdAt DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   visit DoctorVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
   user  User        @relation(fields: [userId], references: [id])
@@ -612,11 +615,11 @@ model VisitLike {
 
 // ─── Visit Comment (تعليق مدير على زيارة) ───────────────────
 model VisitComment {
-  id        Int         @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   visitId   Int
   userId    Int
   content   String
-  createdAt DateTime    @default(now())
+  createdAt DateTime @default(now())
 
   visit DoctorVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
   user  User        @relation(fields: [userId], references: [id])
@@ -630,7 +633,7 @@ model PharmacyVisit {
   id              Int      @id @default(autoincrement())
   pharmacyName    String
   areaId          Int?
-  areaName        String?  // free-text fallback when areaId is null
+  areaName        String? // free-text fallback when areaId is null
   scientificRepId Int?
   visitDate       DateTime
   notes           String?
@@ -654,10 +657,10 @@ model PharmacyVisit {
 
 // ─── Pharmacy Visit Like (إعجاب بزيارة صيدلية) ───────────────
 model PharmacyVisitLike {
-  id        Int           @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   visitId   Int
   userId    Int
-  createdAt DateTime      @default(now())
+  createdAt DateTime @default(now())
 
   visit PharmacyVisit @relation(fields: [visitId], references: [id], onDelete: Cascade)
   user  User          @relation(fields: [userId], references: [id])
@@ -671,8 +674,8 @@ model PharmacyVisitLike {
 model PharmacyVisitItem {
   id              Int      @id @default(autoincrement())
   pharmacyVisitId Int
-  itemId          Int?     // nullable: matched DB item; null when free-text only
-  itemName        String?  // free-text item name when itemId is null
+  itemId          Int? // nullable: matched DB item; null when free-text only
+  itemName        String? // free-text item name when itemId is null
   notes           String?
   createdAt       DateTime @default(now())
 
@@ -687,12 +690,12 @@ model PharmacyVisitItem {
 // FMS — Free Monthly Samples (عينات مجانية شهرية)
 // ════════════════════════════════════════════════════════════
 model FmsPlan {
-  id              Int      @id @default(autoincrement())
-  month           Int      // 1-12
-  year            Int
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  month     Int // 1-12
+  year      Int
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId          Int?
   user            User?                    @relation(fields: [userId], references: [id])
@@ -708,10 +711,10 @@ model FmsPlan {
 }
 
 model FmsPlanItem {
-  id        Int     @id @default(autoincrement())
+  id        Int    @id @default(autoincrement())
   fmsPlanId Int
   itemId    Int?
-  itemName  String  // stored name (resolved or free-text)
+  itemName  String // stored name (resolved or free-text)
   quantity  Int
 
   fmsPlan FmsPlan @relation(fields: [fmsPlanId], references: [id], onDelete: Cascade)
@@ -756,9 +759,9 @@ model ScientificOffice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  companies ScientificCompany[]
-  users     User[]
-  areas     Area[]              @relation("OfficeAreas")
+  companies           ScientificCompany[]
+  users               User[]
+  areas               Area[]                     @relation("OfficeAreas")
   surveyHiddenOffices MasterSurveyHiddenOffice[] @relation("SurveyHiddenOffice")
 
   @@map("scientific_offices")
@@ -941,19 +944,19 @@ model InvoiceEntry {
 
 // ─── Pharmacy Directory (دليل الصيدليات) ────────────────────
 model Pharmacy {
-  id              Int      @id @default(autoincrement())
-  name            String
-  ownerName       String?
-  phone           String?
-  address         String?
-  areaId          Int?
-  areaName        String?  // fallback free-text
-  notes           String?
-  isActive        Boolean  @default(true)
+  id             Int      @id @default(autoincrement())
+  name           String
+  ownerName      String?
+  phone          String?
+  address        String?
+  areaId         Int?
+  areaName       String? // fallback free-text
+  notes          String?
+  isActive       Boolean  @default(true)
   // Phase 2: link to pharmacy user account
-  pharmacyUserId  Int?     @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  pharmacyUserId Int?     @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   userId Int?
   user   User? @relation("PharmacyOwner", fields: [userId], references: [id])
@@ -969,25 +972,25 @@ model Pharmacy {
 
 // ─── Commercial Invoice (الفاتورة التجارية) ─────────────────
 model CommercialInvoice {
-  id                Int      @id @default(autoincrement())
-  invoiceNumber     String   // رقم الفاتورة
+  id                Int       @id @default(autoincrement())
+  invoiceNumber     String // رقم الفاتورة
   invoiceDate       DateTime
-  dueDate           DateTime?  // تاريخ الاستحقاق
-  maxCollectionDate DateTime?  // أقصى موعد للاستحصال
-  deferredDays      Int?       // عدد أيام التأجيل
-  paymentType       String   @default("cash") // "cash" | "deferred"
+  dueDate           DateTime? // تاريخ الاستحقاق
+  maxCollectionDate DateTime? // أقصى موعد للاستحصال
+  deferredDays      Int? // عدد أيام التأجيل
+  paymentType       String    @default("cash") // "cash" | "deferred"
 
-  pharmacyId    Int?
-  pharmacyName  String   // اسم الصيدلية (fallback إذا pharmacyId = null)
-  areaName      String?  // المنطقة
+  pharmacyId   Int?
+  pharmacyName String // اسم الصيدلية (fallback إذا pharmacyId = null)
+  areaName     String? // المنطقة
 
-  assignedRepId   Int      // المندوب التجاري المكلف
-  createdByUserId Int      // المدير الذي رفع الفاتورة
+  assignedRepId   Int // المندوب التجاري المكلف
+  createdByUserId Int // المدير الذي رفع الفاتورة
 
-  status          String  @default("pending") // "pending" | "partial" | "collected"
-  totalAmount     Float   @default(0)
-  collectedAmount Float   @default(0)
-  returnedAmount  Float   @default(0)  // قيمة البضاعة المسترجعة
+  status          String   @default("pending") // "pending" | "partial" | "collected"
+  totalAmount     Float    @default(0)
+  collectedAmount Float    @default(0)
+  returnedAmount  Float    @default(0) // قيمة البضاعة المسترجعة
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -995,9 +998,9 @@ model CommercialInvoice {
   userId Int?
   user   User? @relation("InvoiceOwner", fields: [userId], references: [id])
 
-  pharmacy    Pharmacy?           @relation(fields: [pharmacyId], references: [id])
-  assignedRep User                @relation("AssignedInvoices", fields: [assignedRepId], references: [id])
-  createdBy   User                @relation("CreatedInvoices", fields: [createdByUserId], references: [id])
+  pharmacy    Pharmacy?               @relation(fields: [pharmacyId], references: [id])
+  assignedRep User                    @relation("AssignedInvoices", fields: [assignedRepId], references: [id])
+  createdBy   User                    @relation("CreatedInvoices", fields: [createdByUserId], references: [id])
   items       CommercialInvoiceItem[]
   collections CollectionRecord[]
 
@@ -1011,9 +1014,9 @@ model CommercialInvoice {
 
 // ─── Commercial Invoice Item (ايتمات الفاتورة) ──────────────
 model CommercialInvoiceItem {
-  id             Int    @id @default(autoincrement())
+  id             Int     @id @default(autoincrement())
   invoiceId      Int
-  itemId         Int?   // nullable — link to Item if exists
+  itemId         Int? // nullable — link to Item if exists
   brandName      String // الاسم التجاري
   scientificName String? // الاسم العلمي
   dosage         String? // الجرعة
@@ -1025,7 +1028,7 @@ model CommercialInvoiceItem {
   notes          String?
 
   invoice CommercialInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  item    Item?              @relation(fields: [itemId], references: [id])
+  item    Item?             @relation(fields: [itemId], references: [id])
 
   @@index([invoiceId])
   @@map("commercial_invoice_items")
@@ -1033,21 +1036,21 @@ model CommercialInvoiceItem {
 
 // ─── Collection Record (سجل الاستحصال) ─────────────────────
 model CollectionRecord {
-  id               Int      @id @default(autoincrement())
-  invoiceId        Int
-  collectedById    Int      // المندوب الذي استحصل
-  amount           Float    // المبلغ المستحصل
-  discount         Float    @default(0)
-  finalAmount      Float    // بعد الخصم
-  returnedAmount   Float    @default(0)   // قيمة البضاعة المسترجعة في هذا السجل
-  returnedItemsJson String?               // JSON: [{itemId, name, returnQty, unitPrice, returnValue}]
-  isFullCollection Boolean  @default(false)
-  notes            String?
-  latitude         Float?
-  longitude        Float?
-  receiptNumber    String?  // رقم الوصل التسلسلي
-  collectedAt      DateTime @default(now())
-  createdAt        DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  invoiceId         Int
+  collectedById     Int // المندوب الذي استحصل
+  amount            Float // المبلغ المستحصل
+  discount          Float    @default(0)
+  finalAmount       Float // بعد الخصم
+  returnedAmount    Float    @default(0) // قيمة البضاعة المسترجعة في هذا السجل
+  returnedItemsJson String? // JSON: [{itemId, name, returnQty, unitPrice, returnValue}]
+  isFullCollection  Boolean  @default(false)
+  notes             String?
+  latitude          Float?
+  longitude         Float?
+  receiptNumber     String? // رقم الوصل التسلسلي
+  collectedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
 
   invoice     CommercialInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   collectedBy User              @relation("CollectionByUser", fields: [collectedById], references: [id])
@@ -1075,21 +1078,21 @@ model MasterSurvey {
   createdById Int?
   createdBy   SuperAdmin? @relation("SurveyCreator", fields: [createdById], references: [id])
 
-  doctors        MasterSurveyDoctor[]
-  pharmacies     MasterSurveyPharmacy[]
-  editLogs       MasterSurveyEditLog[]
-  hiddenUsers    MasterSurveyHiddenUser[]
-  hiddenOffices  MasterSurveyHiddenOffice[]
-  drugEntries    DrugPriceSurveyEntry[]
-  aiAnalysis     SurveyAIAnalysis?
+  doctors       MasterSurveyDoctor[]
+  pharmacies    MasterSurveyPharmacy[]
+  editLogs      MasterSurveyEditLog[]
+  hiddenUsers   MasterSurveyHiddenUser[]
+  hiddenOffices MasterSurveyHiddenOffice[]
+  drugEntries   DrugPriceSurveyEntry[]
+  aiAnalysis    SurveyAIAnalysis?
 
   @@map("master_surveys")
 }
 
 // ─── Drug Price Survey Entry ─────────────────────────────────────
 model DrugPriceSurveyEntry {
-  id          Int      @id @default(autoincrement())
-  surveyId    Int
+  id       Int @id @default(autoincrement())
+  surveyId Int
 
   brandName      String
   scientificName String?
@@ -1101,9 +1104,9 @@ model DrugPriceSurveyEntry {
   priceWholesalerToPharmacy Float?
   pricePharmacyToPatient    Float?
 
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   survey MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
 
@@ -1130,24 +1133,24 @@ model SurveyAIAnalysis {
 
 // ─── Master Survey Doctor (طبيب داخل السيرفي) ───────────────
 model MasterSurveyDoctor {
-  id            Int      @id @default(autoincrement())
-  surveyId      Int
-  name          String
-  specialty     String?
-  areaName      String?
-  pharmacyName  String?
-  className     String?
-  zoneName      String?
-  phone         String?
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  surveyId     Int
+  name         String
+  specialty    String?
+  areaName     String?
+  pharmacyName String?
+  className    String?
+  zoneName     String?
+  phone        String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   lastEditedById Int?
   lastEditedAt   DateTime?
 
-  survey       MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
-  lastEditedBy User?        @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
+  survey          MasterSurvey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  lastEditedBy    User?                @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
   importedDoctors Doctor[]
   archiveEntries  DoctorArchiveEntry[]
 
@@ -1157,17 +1160,17 @@ model MasterSurveyDoctor {
 
 // ─── Master Survey Pharmacy (صيدلية داخل السيرفي) ───────────
 model MasterSurveyPharmacy {
-  id            Int      @id @default(autoincrement())
-  surveyId      Int
-  name          String
-  ownerName     String?
-  pharmacyName  String?
-  phone         String?
-  address       String?
-  areaName      String?
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  surveyId     Int
+  name         String
+  ownerName    String?
+  pharmacyName String?
+  phone        String?
+  address      String?
+  areaName     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   lastEditedById Int?
   lastEditedAt   DateTime?
@@ -1181,14 +1184,14 @@ model MasterSurveyPharmacy {
 
 // ─── Master Survey Edit Log (سجل تعديلات السيرفي) ───────────
 model MasterSurveyEditLog {
-  id         Int      @id @default(autoincrement())
-  surveyId   Int
-  entryType  String   // "doctor" | "pharmacy"
-  entryId    Int
-  action     String   // "create" | "update" | "delete"
-  oldData    String?  // JSON snapshot قبل التعديل
-  newData    String?  // JSON snapshot بعد التعديل
-  editedAt   DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  surveyId  Int
+  entryType String // "doctor" | "pharmacy"
+  entryId   Int
+  action    String // "create" | "update" | "delete"
+  oldData   String? // JSON snapshot قبل التعديل
+  newData   String? // JSON snapshot بعد التعديل
+  editedAt  DateTime @default(now())
 
   editedById Int?
   editedBy   User? @relation("SurveyEditLogUser", fields: [editedById], references: [id])
@@ -1229,15 +1232,15 @@ model MasterSurveyHiddenOffice {
 
 // ─── App Notification (إشعارات داخلية) ─────────────────────
 model AppNotification {
-  id           Int      @id @default(autoincrement())
-  userId       Int      // المستلم
-  fromUserId   Int?     // المرسل (null = نظام)
-  type         String   // "collection_done"|"collection_partial"|"invoice_added"|"invoice_overdue"
-  title        String
-  body         String
-  isRead       Boolean  @default(false)
-  data         String?  // JSON payload (invoiceId, amount, pharmacyName, ...)
-  createdAt    DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  userId     Int // المستلم
+  fromUserId Int? // المرسل (null = نظام)
+  type       String // "collection_done"|"collection_partial"|"invoice_added"|"invoice_overdue"
+  title      String
+  body       String
+  isRead     Boolean  @default(false)
+  data       String? // JSON payload (invoiceId, amount, pharmacyName, ...)
+  createdAt  DateTime @default(now())
 
   user     User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   fromUser User? @relation("NotificationSender", fields: [fromUserId], references: [id])
@@ -1270,13 +1273,13 @@ model ActivityLog {
 // ─── Distributor Sales ─────────────────────────────────
 
 model DistributorSalesUpload {
-  id           Int      @id @default(autoincrement())
+  id           Int                     @id @default(autoincrement())
   originalName String
   filename     String
-  rowCount     Int      @default(0)
-  uploadedAt   DateTime @default(now())
+  rowCount     Int                     @default(0)
+  uploadedAt   DateTime                @default(now())
   userId       Int?
-  user         User?    @relation(fields: [userId], references: [id])
+  user         User?                   @relation(fields: [userId], references: [id])
   records      DistributorSaleRecord[]
 
   @@index([userId])
@@ -1284,20 +1287,20 @@ model DistributorSalesUpload {
 }
 
 model DistributorSaleRecord {
-  id               Int      @id @default(autoincrement())
+  id               Int                    @id @default(autoincrement())
   uploadId         Int
   upload           DistributorSalesUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   teamName         String?
   distributorName  String
   itemName         String
-  month3Qty        Float    @default(0)
-  month4Qty        Float    @default(0)
+  month3Qty        Float                  @default(0)
+  month4Qty        Float                  @default(0)
   saleDate         DateTime?
-  totalQtySold     Float    @default(0)
-  reinvoicingCount Float    @default(0)
+  totalQtySold     Float                  @default(0)
+  reinvoicingCount Float                  @default(0)
   extraMonths      String?
   userId           Int?
-  user             User?    @relation(fields: [userId], references: [id])
+  user             User?                  @relation(fields: [userId], references: [id])
 
   @@index([uploadId])
   @@index([userId])
@@ -1306,11 +1309,11 @@ model DistributorSaleRecord {
 
 // ─── File ↔ User Share (many-to-many) ────────────────────────
 model FileUserShare {
-  id            Int          @id @default(autoincrement())
+  id            Int      @id @default(autoincrement())
   fileId        Int
   userId        Int
-  customAreaIds String?      // JSON array of area IDs, null = use user's assigned areas
-  createdAt     DateTime     @default(now())
+  customAreaIds String? // JSON array of area IDs, null = use user's assigned areas
+  createdAt     DateTime @default(now())
 
   file UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1324,7 +1327,7 @@ model FileUserShare {
 model FilterPreset {
   id        Int      @id @default(autoincrement())
   name      String
-  data      String   // JSON: { companies, items, reps, statuses, bonuses }
+  data      String // JSON: { companies, items, reps, statuses, bonuses }
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())
 
@@ -1336,22 +1339,42 @@ model FilterPreset {
   @@map("filter_presets")
 }
 
+// ------------------------------------------------------------
+// ITEM MERGE RULES — قواعد دمج الايتمات المحفوظة
+// عندما يؤكّد المستخدم دمج ايتم "from" داخل "to"، نحفظ القاعدة هنا
+// ليُطبَّق الدمج تلقائياً في أي رفع لاحق يحتوي نفس الاسم.
+// ------------------------------------------------------------
+model ItemMergeRule {
+  id        Int      @id @default(autoincrement())
+  fromKey   String // الاسم المدموج بعد التطبيع (lowercase/trim) — مفتاح المطابقة
+  fromName  String // الاسم الأصلي كما ظهر (للعرض)
+  toName    String // الاسم المُبقى (القانوني) الذي يُدمج فيه
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromKey])
+  @@index([userId])
+  @@map("item_merge_rules")
+}
 
 // ------------------------------------------------------------
 // SALES DATA FILES � ????? Excel ?????? ??????? ??? ???????
 // ------------------------------------------------------------
 model SalesDataFile {
-  id         Int      @id @default(autoincrement())
-  userId     Int
-  name       String
-  uploadedAt DateTime @default(now())
-  fixedCols  Json     // string[]
-  areaCols   Json     // ColMeta[]
-  rows       Json     // Record<string,string>[]
-  regions    Json     // string[]
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  name          String
+  uploadedAt    DateTime @default(now())
+  fixedCols     Json // string[]
+  areaCols      Json // ColMeta[]
+  rows          Json // Record<string,string>[]
+  regions       Json // string[]
   sourceFileIds Json? // number[] (for merged files)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1382,13 +1405,13 @@ model DoctorArchiveEntry {
 
 // ─── Rep Item Target (التارگت الشهري للمندوب لكل ايتم) ────────
 model RepItemTarget {
-  id      Int    @id @default(autoincrement())
-  repType String // 'scientific' | 'commercial'
-  repId   Int    // ScientificRepresentative.id OR MedicalRepresentative.id
-  itemId  Int
-  month   Int
-  year    Int
-  target  Float  @default(0)
+  id        Int      @id @default(autoincrement())
+  repType   String // 'scientific' | 'commercial'
+  repId     Int // ScientificRepresentative.id OR MedicalRepresentative.id
+  itemId    Int
+  month     Int
+  year      Int
+  target    Float    @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1429,8 +1452,8 @@ model BonusSalesUpload {
   userId       Int?
   user         User?    @relation(fields: [userId], references: [id])
 
-  rows          BonusSalesRow[]
-  compUploads   BonusCompUpload[]
+  rows        BonusSalesRow[]
+  compUploads BonusCompUpload[]
 
   @@index([userId])
   @@map("bonus_sales_uploads")
@@ -1438,9 +1461,9 @@ model BonusSalesUpload {
 
 // ─── Bonus Sales Row (صف من ملف المبيعات) ────────────────────
 model BonusSalesRow {
-  id           Int              @id @default(autoincrement())
-  uploadId     Int
-  upload       BonusSalesUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  id       Int              @id @default(autoincrement())
+  uploadId Int
+  upload   BonusSalesUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   companyName  String?
   itemName     String?
@@ -1458,8 +1481,8 @@ model BonusSalesRow {
   warehouse    String?
   extraData    String?
 
-  isCompensated     Boolean   @default(false)
-  compRowId         Int?
+  isCompensated Boolean @default(false)
+  compRowId     Int?
 
   bonusDelivered    Boolean   @default(false)
   deliveredAt       DateTime?
@@ -1467,7 +1490,7 @@ model BonusSalesRow {
   deliveredByUser   User?     @relation("BonusDeliveryUser", fields: [deliveredByUserId], references: [id])
   deliveryNote      String?
 
-  assignments  BonusRowAssignment[]
+  assignments BonusRowAssignment[]
 
   @@index([uploadId])
   @@index([deliveredByUserId])
@@ -1476,11 +1499,11 @@ model BonusSalesRow {
 
 // ─── Bonus Row Assignment (تعيين صفوف البونص للمندوبين) ─────────────────────
 model BonusRowAssignment {
-  id          Int      @id @default(autoincrement())
-  bonusRowId  Int
-  userId      Int
-  assignedAt  DateTime @default(now())
-  note        String?
+  id         Int      @id @default(autoincrement())
+  bonusRowId Int
+  userId     Int
+  assignedAt DateTime @default(now())
+  note       String?
 
   bonusRow BonusSalesRow @relation(fields: [bonusRowId], references: [id], onDelete: Cascade)
   user     User          @relation("BonusAssignedUser", fields: [userId], references: [id], onDelete: Cascade)
@@ -1512,9 +1535,9 @@ model BonusCompUpload {
 
 // ─── Bonus Comp Row (صف من ملف التعويضات) ────────────────────
 model BonusCompRow {
-  id           Int             @id @default(autoincrement())
-  uploadId     Int
-  upload       BonusCompUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  id       Int             @id @default(autoincrement())
+  uploadId Int
+  upload   BonusCompUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
   companyName  String?
   itemName     String?
@@ -1541,10 +1564,10 @@ model BonusCompRow {
 // ─── Daily Plan (خطة المندوب اليومية) ───────────────────────
 model DailyPlan {
   id              Int      @id @default(autoincrement())
-  userId          Int      // الحساب المالك (يطابق نمط MonthlyPlan.userId)
-  scientificRepId Int?     // المندوب (nullable للمدير)
-  repUserId       Int?     // user.id للمندوب — لمطابقة الزيارات بـ OR[scientificRepId,userId]
-  planDate        String   // "YYYY-MM-DD" (نفس نمط RepLocationPoint.workDate)
+  userId          Int // الحساب المالك (يطابق نمط MonthlyPlan.userId)
+  scientificRepId Int? // المندوب (nullable للمدير)
+  repUserId       Int? // user.id للمندوب — لمطابقة الزيارات بـ OR[scientificRepId,userId]
+  planDate        String // "YYYY-MM-DD" (نفس نمط RepLocationPoint.workDate)
   status          String   @default("active") // active | completed
   notes           String?
   createdAt       DateTime @default(now())
@@ -1565,21 +1588,21 @@ model DailyPlan {
 model DailyPlanEntry {
   id                    Int      @id @default(autoincrement())
   planId                Int
-  entryType             String   // "doctor" | "pharmacy"
-  doctorId              Int?     // لمدخلات الأطباء
-  pharmacyName          String?  // لمدخلات الصيدليات (free-text مثل PharmacyVisit)
+  entryType             String // "doctor" | "pharmacy"
+  doctorId              Int? // لمدخلات الأطباء
+  pharmacyName          String? // لمدخلات الصيدليات (free-text مثل PharmacyVisit)
   areaId                Int?
   status                String   @default("planned") // planned | visited | postponed
-  postponeReason        String?  // absent | traveling | declined | other
+  postponeReason        String? // absent | traveling | declined | other
   postponeNote          String?
-  postponeToDate        String?  // "YYYY-MM-DD" — تاريخ جديد مختار عند التأجيل، يُضاف الاسم لبلان ذلك اليوم تلقائياً
+  postponeToDate        String? // "YYYY-MM-DD" — تاريخ جديد مختار عند التأجيل، يُضاف الاسم لبلان ذلك اليوم تلقائياً
   autoPostponed         Boolean  @default(false) // أُجِّل تلقائياً بعد 24 ساعة بدون أي إجراء من المندوب
-  linkedVisitId         Int?     // DoctorVisit.id بعد المطابقة (scalar، بدون relation)
-  linkedPharmacyVisitId Int?     // PharmacyVisit.id بعد المطابقة
+  linkedVisitId         Int? // DoctorVisit.id بعد المطابقة (scalar، بدون relation)
+  linkedPharmacyVisitId Int? // PharmacyVisit.id بعد المطابقة
   isNewDoctor           Boolean  @default(false) // طبيب بلا زيارة سابقة (لحصة الجدد)
   addedByManager        Boolean  @default(false) // أضافه المدير (لا المندوب) لتنبيه المندوب
-  addedByName           String?  // اسم المدير الذي أضاف هذا المدخل (snapshot)
-  itemId                Int?     // الايتم المستهدف لهذه الزيارة (اختياري)
+  addedByName           String? // اسم المدير الذي أضاف هذا المدخل (snapshot)
+  itemId                Int? // الايتم المستهدف لهذه الزيارة (اختياري)
   createdAt             DateTime @default(now())
 
   plan   DailyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -1615,7 +1638,7 @@ model DailyPlanSettings {
   repeatThreshold            Int      @default(3)
   alertOnRepeatAfterPositive Boolean  @default(true)
   lowAchievementThreshold    Int      @default(50) // %
-  minNewDoctorsPerDay        Int      @default(0)  // 0 = معطّل
+  minNewDoctorsPerDay        Int      @default(0) // 0 = معطّل
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 

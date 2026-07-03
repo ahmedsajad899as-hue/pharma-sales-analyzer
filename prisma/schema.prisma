@@ -47,6 +47,7 @@ model User {
   distributorUploads     DistributorSalesUpload[]
   distributorSaleRecords DistributorSaleRecord[]
   filterPresets          FilterPreset[]
+  itemMergeRules         ItemMergeRule[]
   salesDataFiles         SalesDataFile[]
   sales                  Sale[]
   doctors                Doctor[]
@@ -354,6 +355,27 @@ model FilterPreset {
   @@unique([userId, name])
   @@index([userId])
   @@map("filter_presets")
+}
+
+// ------------------------------------------------------------
+// ITEM MERGE RULES — قواعد دمج الايتمات المحفوظة
+// عندما يؤكّد المستخدم دمج ايتم "from" داخل "to"، نحفظ القاعدة هنا
+// ليُطبَّق الدمج تلقائياً في أي رفع لاحق يحتوي نفس الاسم.
+// ------------------------------------------------------------
+model ItemMergeRule {
+  id        Int      @id @default(autoincrement())
+  fromKey   String // الاسم المدموج بعد التطبيع (lowercase/trim) — مفتاح المطابقة
+  fromName  String // الاسم الأصلي كما ظهر (للعرض)
+  toName    String // الاسم المُبقى (القانوني) الذي يُدمج فيه
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromKey])
+  @@index([userId])
+  @@map("item_merge_rules")
 }
 
 // ─── Distributor Sales Upload ─────────────────────────────────
