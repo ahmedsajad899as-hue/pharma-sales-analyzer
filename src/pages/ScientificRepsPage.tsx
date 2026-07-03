@@ -98,6 +98,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [blockError, setBlockError]         = useState('');
   const [commRepNames, setCommRepNames]     = useState<string[]>([]);
   const [showBlockSuggest, setShowBlockSuggest] = useState(false);
+  const blockSuggestRef                     = useRef<HTMLDivElement>(null);
   // ─── Load ──────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
@@ -160,6 +161,21 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       if (!r.ok) loadBlocked(); // resync on failure
     } catch { loadBlocked(); }
   };
+
+  // Close the block-suggestions dropdown on outside click — without this, it stays
+  // open (nothing else dismisses it) and its absolutely-positioned overlay can sit on
+  // top of the blocked-reps chip list right below, swallowing clicks meant for the
+  // ✕ "remove" button on an already-blocked chip.
+  useEffect(() => {
+    if (!showBlockSuggest) return;
+    const handler = (e: MouseEvent) => {
+      if (blockSuggestRef.current && !blockSuggestRef.current.contains(e.target as Node)) {
+        setShowBlockSuggest(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showBlockSuggest]);
 
   // Close items popup on outside click
   useEffect(() => {
@@ -449,7 +465,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
             <span style={{ fontSize: 18 }}>🚫</span>
             <span style={{ fontWeight: 800, fontSize: 14, color: '#b91c1c' }}>حجب مندوب تجاري عن تقارير المندوبين العلميين</span>
           </div>
-          <div style={{ position: 'relative', display: 'flex', gap: 8 }}>
+          <div ref={blockSuggestRef} style={{ position: 'relative', display: 'flex', gap: 8 }}>
             <input
               className="form-input"
               style={{ flex: 1, fontSize: 13 }}
