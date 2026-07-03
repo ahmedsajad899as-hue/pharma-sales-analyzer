@@ -791,6 +791,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           ? (delta > 0 ? 0 : reps.length - 1)
           : (currIdx + delta + reps.length) % reps.length;
         const nextId = String(reps[nextIdx].id);
+        setReportView('net'); // كل مندوب جديد يفتح على «صافي (نت)» افتراضياً
         if (mode === 'commercial') { setCommRepId(nextId); loadCommReport(nextId); }
         else                       { setSciRepId(nextId);  loadSciReport(nextId);  }
         return;
@@ -2283,13 +2284,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Rep / file selector */}
           {mode === 'commercial' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
-              onChange={e => { setCommRepId(e.target.value); if (e.target.value) loadCommReport(e.target.value); }}>
+              onChange={e => { setCommRepId(e.target.value); if (e.target.value) { setReportView('net'); loadCommReport(e.target.value); } }}>
               <option value="">-- {t.reports.selectCommRep} --</option>
               {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : mode === 'scientific' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={sciRepId}
-              onChange={e => { setSciRepId(e.target.value); if (e.target.value) loadSciReport(e.target.value); }}>
+              onChange={e => { setSciRepId(e.target.value); if (e.target.value) { setReportView('net'); loadSciReport(e.target.value); } }}>
               <option value="">-- {t.reports.selectSciRep} --</option>
               {sciReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
