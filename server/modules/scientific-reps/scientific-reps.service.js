@@ -394,6 +394,35 @@ export async function getAssignedAreaIds(id) {
   return areas.length ? areas.map(a => a.areaId) : null;
 }
 
+// ─── Globally-blocked commercial reps ────────────────────────
+// A manager blocks commercial reps by name; their sales/returns are then hidden
+// from every scientific-rep report (applied in resolveSciRepSales) while staying
+// visible in the overall analysis. Scoped to the manager's own userId.
+
+export async function listBlockedCommercials(userId) {
+  return prisma.blockedCommercialRep.findMany({
+    where: { userId },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, createdAt: true },
+  });
+}
+
+export async function addBlockedCommercial(userId, name) {
+  // Idempotent: @@unique([userId, name]) — return the existing row if already blocked.
+  return prisma.blockedCommercialRep.upsert({
+    where: { userId_name: { userId, name } },
+    update: {},
+    create: { userId, name },
+    select: { id: true, name: true, createdAt: true },
+  });
+}
+
+export async function removeBlockedCommercial(userId, blockId) {
+  // Scope the delete to the owner so one manager can't remove another's block.
+  await prisma.blockedCommercialRep.deleteMany({ where: { id: blockId, userId } });
+  return { ok: true };
+}
+
 // ─── Report ──────────────────────────────────────────────────
 
 /**
@@ -421,7 +450,7 @@ async function resolveSciRepSales(id, query = {}, select) {
     .trim();
 
   // ── 1. Load explicit commercial-rep assignments ───────────────────────────
-  const commercialLinks = await prisma.scientificRepCommercial.findMany({
+  let commercialLinks = await prisma.scientificRepCommercial.findMany({
     where: { scientificRepId: id },
     select: { commercialRepId: true, commercialRep: { select: { id: true, name: true } } },
   });
@@ -465,6 +494,38 @@ async function resolveSciRepSales(id, query = {}, select) {
       distinct: ['representativeId'],
     });
     nameMatchIds = repsInFiles.map(r => r.representativeId);
+  }
+
+  // ── Globally-blocked commercial reps ───────────────────────────────────────
+  // A company manager can globally block commercial reps by name (ScientificRepsPage).
+  // Their sales/returns must be hidden from EVERY scientific-rep report — but NOT
+  // from the overall analysis (which never calls this resolver). The block list is
+  // scoped to the OWNER(s) of the active files, so it applies both to the manager's
+  // own view and to the scientific reps the files are shared with. Matched by
+  // normalized Arabic name so spelling/id variants across uploads all collapse.
+  if (fileIds && fileIds.length > 0) {
+    const fileOwners = await prisma.uploadedFile.findMany({
+      where: { id: { in: fileIds } },
+      select: { userId: true },
+    });
+    const ownerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
+    if (ownerIds.length > 0) {
+      const blockedRows = await prisma.blockedCommercialRep.findMany({
+        where: { userId: { in: ownerIds } },
+        select: { name: true },
+      });
+      const blockedNorms = new Set(blockedRows.map(b => _normalizeAr(b.name)).filter(Boolean));
+      if (blockedNorms.size > 0) {
+        const isBlocked = repId => {
+          const rep = allMedReps.find(r => r.id === repId);
+          return rep ? blockedNorms.has(_normalizeAr(rep.name)) : false;
+        };
+        expandedCommRepIds = expandedCommRepIds.filter(rid => !isBlocked(rid));
+        nameMatchIds       = nameMatchIds.filter(rid => !isBlocked(rid));
+        // Also drop blocked reps from the displayed «assigned commercial reps» list.
+        commercialLinks = commercialLinks.filter(l => !blockedNorms.has(_normalizeAr(l.commercialRep.name)));
+      }
+    }
   }
 
   // ── 3. Load area/item assignments ─────────────────────────────────────────

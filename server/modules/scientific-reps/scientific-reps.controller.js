@@ -121,6 +121,30 @@ export async function assignCommercialReps(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Globally-blocked commercial reps ────────────────────────────────────────
+export async function listBlockedCommercials(req, res, next) {
+  try {
+    const rows = await svc.listBlockedCommercials(req.user.id);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+}
+
+export async function addBlockedCommercial(req, res, next) {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
+    const row = await svc.addBlockedCommercial(req.user.id, name);
+    res.status(201).json({ success: true, data: row });
+  } catch (err) { next(err); }
+}
+
+export async function removeBlockedCommercial(req, res, next) {
+  try {
+    await svc.removeBlockedCommercial(req.user.id, +req.params.blockId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 export async function getRepReport(req, res, next) {
   try {
     const id = +req.params.id;

@@ -88,6 +88,16 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [allCompanies, setAllCompanies]           = useState<Company[]>([]);
   const [selCompanies, setSelCompanies]           = useState<NamedItem[]>([]);
   const [filterCompanyId, setFilterCompanyId]     = useState<number | 'all'>('all');
+
+  // ─── Global commercial-rep block ────────────────────────────
+  // Manager types a commercial rep's name → their sales/returns are hidden from
+  // ALL scientific-rep reports (but stay visible in the overall analysis).
+  const [blockedList, setBlockedList]       = useState<{ id: number; name: string }[]>([]);
+  const [blockInput, setBlockInput]         = useState('');
+  const [blockSaving, setBlockSaving]       = useState(false);
+  const [blockError, setBlockError]         = useState('');
+  const [commRepNames, setCommRepNames]     = useState<string[]>([]);
+  const [showBlockSuggest, setShowBlockSuggest] = useState(false);
   // ─── Load ──────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +118,48 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   }, [token, user?.role]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load the block list + the commercial-rep names (for autocomplete suggestions)
+  const loadBlocked = useCallback(async () => {
+    try {
+      const [bRes, cRes] = await Promise.all([
+        fetch(`${API}/api/scientific-reps/blocked-commercials`, { headers: authH() }),
+        fetch(`${API}/api/representatives`,                      { headers: authH() }),
+      ]);
+      const bJson = await bRes.json().catch(() => ({}));
+      if (bRes.ok) setBlockedList(Array.isArray(bJson.data) ? bJson.data : []);
+      const cJson = await cRes.json().catch(() => ({}));
+      const list = Array.isArray(cJson.data) ? cJson.data : (Array.isArray(cJson) ? cJson : []);
+      setCommRepNames([...new Set(list.map((r: any) => r.name).filter(Boolean))] as string[]);
+    } catch { /* non-fatal */ }
+  }, [token]);
+  useEffect(() => { loadBlocked(); }, [loadBlocked]);
+
+  const addBlock = async (rawName: string) => {
+    const name = rawName.trim();
+    if (!name) return;
+    if (blockedList.some(b => normalizeAr(b.name) === normalizeAr(name))) { setBlockInput(''); setShowBlockSuggest(false); return; }
+    setBlockSaving(true); setBlockError('');
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-commercials`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+        body: JSON.stringify({ name }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'فشل حجب المندوب');
+      setBlockedList(prev => prev.some(b => b.id === j.data.id) ? prev : [...prev, j.data]);
+      setBlockInput(''); setShowBlockSuggest(false);
+    } catch (err: any) { setBlockError(err.message); }
+    finally { setBlockSaving(false); }
+  };
+
+  const removeBlock = async (id: number) => {
+    setBlockedList(prev => prev.filter(b => b.id !== id)); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-commercials/${id}`, { method: 'DELETE', headers: authH() });
+      if (!r.ok) loadBlocked(); // resync on failure
+    } catch { loadBlocked(); }
+  };
 
   // Close items popup on outside click
   useEffect(() => {
@@ -387,6 +439,68 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
           >
             {t.sciReps.retry}
           </button>
+        </div>
+      )}
+
+      {/* ── Global commercial-rep block box ── */}
+      {user?.role !== 'scientific_rep' && (
+        <div style={{ background: '#fff', border: '1.5px solid #fecaca', borderRadius: 12, padding: '14px 16px', margin: '0 0 18px', boxShadow: '0 1px 4px rgba(0,0,0,.05)', maxWidth: 640 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>🚫</span>
+            <span style={{ fontWeight: 800, fontSize: 14, color: '#b91c1c' }}>حجب مندوب تجاري عن تقارير المندوبين العلميين</span>
+          </div>
+          <div style={{ position: 'relative', display: 'flex', gap: 8 }}>
+            <input
+              className="form-input"
+              style={{ flex: 1, fontSize: 13 }}
+              placeholder="اكتب اسم مندوب تجاري…"
+              value={blockInput}
+              onChange={e => { setBlockInput(e.target.value); setShowBlockSuggest(true); }}
+              onFocus={() => setShowBlockSuggest(true)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBlock(blockInput); } }}
+            />
+            <button
+              className="btn btn--primary"
+              disabled={blockSaving || !blockInput.trim()}
+              onClick={() => addBlock(blockInput)}
+              style={{ whiteSpace: 'nowrap', background: '#dc2626', borderColor: '#dc2626' }}
+            >
+              {blockSaving ? '…' : 'حجب'}
+            </button>
+            {showBlockSuggest && blockInput.trim() && (() => {
+              const q = normalizeAr(blockInput);
+              const blockedNorm = new Set(blockedList.map(b => normalizeAr(b.name)));
+              const sugg = commRepNames.filter(n => normalizeAr(n).includes(q) && !blockedNorm.has(normalizeAr(n))).slice(0, 8);
+              if (sugg.length === 0) return null;
+              return (
+                <div style={{ position: 'absolute', top: '108%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 220, overflowY: 'auto' }}>
+                  {sugg.map(n => (
+                    <div key={n}
+                      onMouseDown={e => { e.preventDefault(); addBlock(n); }}
+                      style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                      onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#fef2f2')}
+                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#fff')}>
+                      {n}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+          {blockError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>{blockError}</div>}
+          {blockedList.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {blockedList.map(b => (
+                <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
+                  🚫 {b.name}
+                  <button onClick={() => removeBlock(b.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', padding: 0, lineHeight: 1, fontSize: 13, fontWeight: 800 }}>✕</button>
+                </span>
+              ))}
+            </div>
+          )}
+          <p style={{ fontSize: 11.5, color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.6 }}>
+            مبيعات وارجاعات المندوب المحجوب تُخفى من حساب وعرض <strong>المندوبين العلميين فقط</strong> — وتبقى ظاهرة في <strong>التحليل الشامل</strong>.
+          </p>
         </div>
       )}
 

@@ -111,6 +111,9 @@ model User {
   dailyPlanComments DailyPlanComment[]
   dailyPlanSettings DailyPlanSettings?
 
+  // Globally-blocked commercial reps (hidden from scientific-rep reports only)
+  blockedCommercialReps BlockedCommercialRep[]
+
   @@index([officeId])
   @@map("users")
 }
@@ -454,6 +457,22 @@ model ScientificRepCommercialExclusion {
 
   @@id([scientificRepId, commercialRepId])
   @@map("scientific_rep_commercial_exclusions")
+}
+
+// Globally-blocked commercial reps: their sales/returns are hidden from ALL
+// scientific-rep reports (but NOT from the overall analysis «التحليل الشامل»).
+// Scoped per manager (the user who owns the uploaded files) and matched to the
+// reps found in the files by NORMALIZED Arabic name.
+model BlockedCommercialRep {
+  id        Int      @id @default(autoincrement())
+  name      String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("blocked_commercial_reps")
 }
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────
