@@ -190,6 +190,18 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   }, [autoMergeEnabled]);
   const [autoMergedMsg, setAutoMergedMsg] = useState('');
 
+  // Catalog resolve modal: link unknown (temp) items to the company catalog or add them.
+  type CatalogSuggestion = { id: number; name: string; companyId: number | null };
+  type CatalogItem = { name: string; tempItemId: number | null; suggestions: CatalogSuggestion[] };
+  type CatalogCompany = { id: number; name: string };
+  // action per row: 'skip' | { link: itemId } | { add: companyId }
+  type CatalogAction = { type: 'skip' } | { type: 'link'; targetItemId: number } | { type: 'add'; companyId: number };
+  const [catalogModal, setCatalogModal] = useState<{ items: CatalogItem[]; companies: CatalogCompany[] } | null>(null);
+  const [catalogActions, setCatalogActions] = useState<Record<number, CatalogAction>>({});
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogApplying, setCatalogApplying] = useState(false);
+  const [catalogMsg, setCatalogMsg] = useState('');
+
   // Currency conversion state
   const [redetecting, setRedetecting] = useState<number | null>(null);
   const [currencyModal, setCurrencyModal] = useState<UploadedFile | null>(null);
@@ -301,6 +313,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   // Back button: close open overlays in priority order
   useBackHandler([
+    [catalogModal !== null, () => setCatalogModal(null)],
+    [autoDedup !== null,    () => setAutoDedup(null)],
     [shareModalFile !== null, () => setShareModalFile(null)],
     [currencyModal !== null, () => setCurrencyModal(null)],
     [analyzeFile !== null,   () => setAnalyzeFile(null)],
@@ -402,6 +416,78 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   // Stable ref so the memoised uploadFile callback always calls the latest checker.
   const checkSimilarItemsRef = useRef(checkSimilarItems);
   useEffect(() => { checkSimilarItemsRef.current = checkSimilarItems; });
+
+  // ── Catalog resolve: open the modal for the given unknown-item names ──
+  const openCatalogModal = async (names: string[]) => {
+    if (!names || names.length === 0) return;
+    setCatalogMsg('');
+    setCatalogLoading(true);
+    setCatalogModal({ items: [], companies: [] });
+    try {
+      const res  = await fetch(`${API}/api/catalog/match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ names }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'تعذّر جلب بيانات الكتالوج');
+      const items: CatalogItem[] = json.items ?? [];
+      const companies: CatalogCompany[] = json.companies ?? [];
+      // Default action per row: link to top suggestion, else add to the single company, else skip.
+      const actions: Record<number, CatalogAction> = {};
+      for (const it of items) {
+        if (it.tempItemId == null) continue;
+        if (it.suggestions.length > 0)      actions[it.tempItemId] = { type: 'link', targetItemId: it.suggestions[0].id };
+        else if (companies.length > 0)      actions[it.tempItemId] = { type: 'add', companyId: companies[0].id };
+        else                                actions[it.tempItemId] = { type: 'skip' };
+      }
+      setCatalogActions(actions);
+      setCatalogModal({ items, companies });
+    } catch (err: any) {
+      setCatalogModal(null);
+      setError(err.message || 'خطأ في معالجة الكتالوج');
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const applyCatalogResolve = async () => {
+    if (!catalogModal) return;
+    const actions = Object.entries(catalogActions)
+      .map(([tempItemId, a]) => {
+        if (a.type === 'skip') return null;
+        if (a.type === 'link') return { tempItemId: Number(tempItemId), type: 'link', targetItemId: a.targetItemId };
+        return { tempItemId: Number(tempItemId), type: 'add', companyId: a.companyId };
+      })
+      .filter(Boolean);
+    if (actions.length === 0) { setCatalogModal(null); return; }
+    setCatalogApplying(true);
+    try {
+      const res  = await fetch(`${API}/api/catalog/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ actions }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'فشل تطبيق التغييرات');
+      const parts: string[] = [];
+      if (json.linked) parts.push(`ربط ${json.linked}`);
+      if (json.added)  parts.push(`إضافة ${json.added} للكتالوج`);
+      setCatalogMsg(parts.length ? `✓ تم: ${parts.join(' · ')}` : '✓ تم');
+      // Drop resolved names from the unknown-items panel so it reflects the new state.
+      const resolvedIds = new Set(actions.map((a: any) => a.tempItemId));
+      const resolvedNames = new Set(
+        catalogModal.items.filter(it => it.tempItemId != null && resolvedIds.has(it.tempItemId)).map(it => it.name)
+      );
+      setUploadResult(prev => prev ? { ...prev, unknownItems: (prev.unknownItems ?? []).filter(n => !resolvedNames.has(n)) } : prev);
+      await loadFiles();
+      setTimeout(() => { setCatalogModal(null); setCatalogMsg(''); }, 1300);
+    } catch (err: any) {
+      setCatalogMsg(`⚠ ${err.message}`);
+    } finally {
+      setCatalogApplying(false);
+    }
+  };
 
   const cleanupOrphans = async () => {
     setCleaning(true);
@@ -736,7 +822,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       {/* Unknown items */}
       {uploadResult?.unknownItems && uploadResult.unknownItems.length > 0 && (
         <div style={{ ...CARD, background: '#fff7ed', borderColor: '#fb923c', padding: '8px 14px' }}>
-          <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700, marginBottom: 6 }}>🆕 {uploadResult.unknownItems.length} ايتم غير موجود في الكتالوج</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700 }}>🆕 {uploadResult.unknownItems.length} ايتم غير موجود في الكتالوج</div>
+            <button
+              onClick={() => openCatalogModal(uploadResult.unknownItems ?? [])}
+              disabled={catalogLoading}
+              style={{ marginRight: 'auto', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 7, padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: catalogLoading ? 'wait' : 'pointer' }}
+            >
+              {catalogLoading ? '⏳ جاري التحميل...' : '🗂️ معالجة (ربط / إضافة للكتالوج)'}
+            </button>
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {uploadResult.unknownItems.map((name, i) => (
               <span key={i} style={BADGE('#fed7aa', '#9a3412', '#fdba74')}>{name}</span>
@@ -1183,6 +1278,126 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 تخطّي
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Catalog resolve modal: link/add unknown items */}
+      {catalogModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => !catalogApplying && setCatalogModal(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 16, padding: '20px 22px', width: 'min(680px, 96vw)', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 12 }}>
+              <strong style={{ color: '#9a3412', fontSize: 15 }}>🗂️ معالجة الايتمات غير الموجودة في الكتالوج</strong>
+              <button onClick={() => setCatalogModal(null)} disabled={catalogApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9a3412' }}>✕</button>
+            </div>
+            <p style={{ margin: '0 0 12px', fontSize: 11.5, color: '#78716c' }}>
+              لكل ايتم: اربطه بايتم موجود في الكتالوج (يُدمج ويُتذكَّر للمرات القادمة) أو أضفه للكتالوج المشترك كايتم جديد.
+            </p>
+
+            {catalogLoading ? (
+              <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>⏳ جاري التحميل...</div>
+            ) : (
+              <>
+                {catalogModal.companies.length === 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#b91c1c', marginBottom: 10 }}>
+                    ⚠ حسابك غير مرتبط بأي شركة علمية — لا يمكن الإضافة للكتالوج، يمكنك فقط الربط إن وُجدت اقتراحات.
+                  </div>
+                )}
+                {/* Quick actions */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setCatalogActions(prev => {
+                      const next = { ...prev };
+                      for (const it of catalogModal.items) {
+                        if (it.tempItemId != null && it.suggestions.length > 0) next[it.tempItemId] = { type: 'link', targetItemId: it.suggestions[0].id };
+                      }
+                      return next;
+                    })}
+                    style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 7, padding: '4px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+                  >ربط كل ما له اقتراح</button>
+                  <button
+                    onClick={() => setCatalogActions(prev => {
+                      const next = { ...prev };
+                      for (const it of catalogModal.items) { if (it.tempItemId != null) next[it.tempItemId] = { type: 'skip' }; }
+                      return next;
+                    })}
+                    style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 7, padding: '4px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+                  >تخطّي الكل</button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                  {catalogModal.items.map((it, idx) => {
+                    const tid = it.tempItemId;
+                    if (tid == null) {
+                      return (
+                        <div key={idx} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#94a3b8', background: '#f8fafc' }}>
+                          {it.name} — غير متاح (لم يُعثر على الايتم)
+                        </div>
+                      );
+                    }
+                    const action = catalogActions[tid] ?? { type: 'skip' as const };
+                    const selValue = action.type === 'link' ? `link:${action.targetItemId}` : action.type === 'add' ? 'add' : 'skip';
+                    return (
+                      <div key={idx} style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: '8px 12px', background: '#fffbf7' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#9a3412', marginBottom: 6 }}>{it.name}</div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <select
+                            value={selValue}
+                            onChange={e => {
+                              const v = e.target.value;
+                              setCatalogActions(prev => {
+                                let a: CatalogAction;
+                                if (v === 'skip') a = { type: 'skip' };
+                                else if (v === 'add') a = { type: 'add', companyId: catalogModal.companies[0]?.id ?? 0 };
+                                else a = { type: 'link', targetItemId: Number(v.split(':')[1]) };
+                                return { ...prev, [tid]: a };
+                              });
+                            }}
+                            style={{ flex: '1 1 260px', padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                          >
+                            {it.suggestions.map(s => (
+                              <option key={s.id} value={`link:${s.id}`}>🔗 ربط ← {s.name}</option>
+                            ))}
+                            {catalogModal.companies.length > 0 && <option value="add">➕ إضافة للكتالوج كجديد</option>}
+                            <option value="skip">تخطّي</option>
+                          </select>
+                          {action.type === 'add' && catalogModal.companies.length > 1 && (
+                            <select
+                              value={action.companyId}
+                              onChange={e => setCatalogActions(prev => ({ ...prev, [tid]: { type: 'add', companyId: Number(e.target.value) } }))}
+                              style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                            >
+                              {catalogModal.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {catalogMsg && (
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: catalogMsg.startsWith('⚠') ? '#dc2626' : '#059669', marginBottom: 10 }}>{catalogMsg}</div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={applyCatalogResolve} disabled={catalogApplying}
+                    style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: catalogApplying ? 'wait' : 'pointer', opacity: catalogApplying ? 0.7 : 1 }}>
+                    {catalogApplying ? '⏳ جاري التطبيق...' : '✅ تطبيق'}
+                  </button>
+                  <button onClick={() => setCatalogModal(null)} disabled={catalogApplying}
+                    style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    إلغاء
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

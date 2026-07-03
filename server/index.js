@@ -14,7 +14,7 @@ import prisma from './lib/prisma.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
 import { activityMiddleware } from './lib/activityLogger.js';
-import { buildNormalizationMap, areSimilar, normalizeStr } from './lib/fuzzyMatch.js';
+import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
@@ -1763,15 +1763,27 @@ app.post('/api/merge-rules/apply', async (req, res) => {
     const userId = req.user?.id ?? null;
     if (!userId) return res.status(401).json({ error: 'غير مصرح' });
 
-    const [rules, items] = await Promise.all([
+    // الايتمات المرشحة للمطابقة = ايتمات المستخدم + كتالوج شركاته (لأن هدف الربط
+    // قد يكون ايتم كتالوج مشترك بـ userId=null لا يظهر في getAllItems).
+    const sciCompanyIds = (await prisma.userCompanyAssignment.findMany({
+      where: { userId }, select: { companyId: true },
+    })).map(c => c.companyId);
+
+    const [rules, userItems, catalogItems] = await Promise.all([
       prisma.itemMergeRule.findMany({ where: { userId }, select: { fromKey: true, fromName: true, toName: true } }),
-      getAllItems(userId),
+      prisma.item.findMany({ where: { userId }, select: { id: true, name: true } }),
+      sciCompanyIds.length > 0
+        ? prisma.item.findMany({ where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false }, select: { id: true, name: true } })
+        : Promise.resolve([]),
     ]);
     if (rules.length === 0) return res.json({ success: true, applied: [], count: 0 });
 
-    // فهرس الايتمات حسب المفتاح المُطبَّع (قد يتكرر — نأخذ أول تطابق)
+    // الايتمات القابلة للحذف (المصدر) = ايتمات المستخدم فقط — لا نحذف ايتم كتالوج مشترك أبداً.
+    const deletableIds = new Set(userItems.map(i => i.id));
+
+    // فهرس المطابقة: ايتمات المستخدم أولاً (تحسم جانب "from")، ثم الكتالوج لجانب "to".
     const byKey = new Map();
-    for (const it of items) {
+    for (const it of [...userItems, ...catalogItems]) {
       const k = normalizeStr(it.name);
       if (!byKey.has(k)) byKey.set(k, it);
     }
@@ -1781,16 +1793,123 @@ app.post('/api/merge-rules/apply', async (req, res) => {
       const fromItem = byKey.get(rule.fromKey);
       const toItem   = byKey.get(normalizeStr(rule.toName));
       if (!fromItem || !toItem || fromItem.id === toItem.id) continue;
-      // نُبقي الاسم الأطول (نفس منطق mergeItems في dedup) — عادةً toName هو الأطول
-      const keepId   = fromItem.name.length >= toItem.name.length ? fromItem.id : toItem.id;
-      const deleteId = fromItem.name.length >= toItem.name.length ? toItem.id   : fromItem.id;
-      await mergeItems(deleteId, keepId);
+      // نُبقي دائماً toItem (القانوني/الأطول — مُحدَّد وقت حفظ القاعدة) ونحذف المصدر،
+      // بشرط أن يكون المصدر ايتم خاص بالمستخدم (حماية للكتالوج المشترك).
+      if (!deletableIds.has(fromItem.id)) continue;
+      await mergeItems(fromItem.id, toItem.id);
       applied.push({ from: rule.fromName, to: rule.toName });
       // بعد الدمج لم يعد الايتم المحذوف موجوداً — أزِله من الفهرس لتفادي دمج مكرّر
       byKey.delete(rule.fromKey);
+      deletableIds.delete(fromItem.id);
     }
 
     res.json({ success: true, applied, count: applied.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// CATALOG RESOLVE — معالجة الايتمات «غير الموجودة في الكتالوج»
+// لكل ايتم مؤقت: إما ربطه بايتم كتالوج موجود (باسم مختلف) أو إضافته للكتالوج المشترك.
+// ════════════════════════════════════════════════════════════════════════════
+
+// أدوات مساعدة: الشركات العلمية التي ينتمي إليها المستخدم
+async function getUserSciCompanyIds(userId) {
+  const rows = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+  return rows.map(r => r.companyId);
+}
+
+// POST /api/catalog/match  body: { names: string[] }
+// يعيد لكل اسم: معرّف الايتم المؤقت + اقتراحات كتالوج متشابهة، إضافةً لقائمة شركات المستخدم.
+app.post('/api/catalog/match', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+    const names = Array.isArray(req.body?.names) ? req.body.names.filter(Boolean) : [];
+
+    const sciCompanyIds = await getUserSciCompanyIds(userId);
+    const [companies, catalog, tempItems] = await Promise.all([
+      sciCompanyIds.length > 0
+        ? prisma.scientificCompany.findMany({ where: { id: { in: sciCompanyIds } }, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+        : Promise.resolve([]),
+      sciCompanyIds.length > 0
+        ? prisma.item.findMany({ where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false }, select: { id: true, name: true, scientificCompanyId: true } })
+        : Promise.resolve([]),
+      prisma.item.findMany({ where: { userId, isTemp: true }, select: { id: true, name: true } }),
+    ]);
+
+    const tempByKey = new Map();
+    for (const it of tempItems) { const k = normalizeArabic(it.name); if (!tempByKey.has(k)) tempByKey.set(k, it); }
+
+    const items = names.map(name => {
+      const temp = tempByKey.get(normalizeArabic(name)) || null;
+      const suggestions = catalog
+        .map(c => ({ c, sim: similarity(normalizeStr(name), normalizeStr(c.name)), ok: areSimilar(name, c.name) }))
+        .filter(x => x.ok)
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, 6)
+        .map(x => ({ id: x.c.id, name: x.c.name, companyId: x.c.scientificCompanyId }));
+      return { name, tempItemId: temp?.id ?? null, suggestions };
+    });
+
+    res.json({ success: true, companies, items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/catalog/resolve  body: { actions: [{ tempItemId, type:'link'|'add', targetItemId?, companyId? }] }
+// link → دمج الايتم المؤقت داخل ايتم الكتالوج (نُبقي الكتالوج) + حفظ قاعدة دمج.
+// add  → ترقية الايتم المؤقت لكتالوج الشركة المشترك (isTemp=false + scientificCompanyId).
+app.post('/api/catalog/resolve', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.status(401).json({ error: 'غير مصرح' });
+    const actions = Array.isArray(req.body?.actions) ? req.body.actions : [];
+    const sciCompanyIds = await getUserSciCompanyIds(userId);
+
+    const rememberRule = async (fromName, toName) => {
+      const fromKey = normalizeStr(fromName);
+      if (!fromKey || fromName === toName) return;
+      await prisma.itemMergeRule.upsert({
+        where:  { userId_fromKey: { userId, fromKey } },
+        update: { fromName, toName },
+        create: { userId, fromKey, fromName, toName },
+      });
+    };
+
+    const result = { linked: 0, added: 0, skipped: 0 };
+    for (const a of actions) {
+      if (!a || !a.tempItemId) { result.skipped++; continue; }
+      // الايتم المؤقت يجب أن يخصّ المستخدم وأن يكون isTemp
+      const temp = await prisma.item.findFirst({ where: { id: a.tempItemId, userId, isTemp: true }, select: { id: true, name: true } });
+      if (!temp) { result.skipped++; continue; }
+
+      if (a.type === 'link' && a.targetItemId) {
+        // الهدف يجب أن يكون ايتم كتالوج ضمن شركات المستخدم
+        const target = await prisma.item.findFirst({
+          where: { id: a.targetItemId, scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+          select: { id: true, name: true },
+        });
+        if (!target || target.id === temp.id) { result.skipped++; continue; }
+        await mergeItems(temp.id, target.id);          // نُبقي الكتالوج (target)
+        await rememberRule(temp.name, target.name);    // ليُطبَّق تلقائياً مستقبلاً
+        result.linked++;
+      } else if (a.type === 'add' && a.companyId) {
+        if (!sciCompanyIds.includes(a.companyId)) { result.skipped++; continue; }
+        // منع التكرار: إن وُجد ايتم كتالوج بنفس الاسم المطبّع → ندمج بدل الإنشاء
+        const catalog = await prisma.item.findMany({ where: { scientificCompanyId: a.companyId, isTemp: false }, select: { id: true, name: true } });
+        const dup = catalog.find(c => normalizeArabic(c.name) === normalizeArabic(temp.name));
+        if (dup) {
+          await mergeItems(temp.id, dup.id);
+          await rememberRule(temp.name, dup.name);
+          result.linked++;
+        } else {
+          // ترقية نفس السجل → يحافظ على كل المبيعات المرتبطة به
+          await prisma.item.update({ where: { id: temp.id }, data: { scientificCompanyId: a.companyId, isTemp: false } });
+          result.added++;
+        }
+      } else { result.skipped++; }
+    }
+
+    res.json({ success: true, ...result });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
