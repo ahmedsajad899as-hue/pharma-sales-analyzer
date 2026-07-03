@@ -708,9 +708,20 @@ export async function getReport(id, query = {}) {
   const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT);
   const { rep, commercialLinks, areaLinks, itemLinks, rawSales, fileIds } = resolved;
 
+  // Reports/exports must show the rep's CURRENT name, not the static `name` column
+  // (which is only set once at auto-creation and can drift — e.g. a Super Admin
+  // renaming the linked User's displayName doesn't retroactively touch this row).
+  // ScientificRepsPage already resolves the live name the same way for user-linked
+  // reps; mirror that here so exports can never lag behind a rename.
+  let displayName = rep.name;
+  if (rep.userId) {
+    const linkedUserRow = await prisma.user.findUnique({ where: { id: rep.userId }, select: { displayName: true, username: true } });
+    if (linkedUserRow) displayName = linkedUserRow.displayName || linkedUserRow.username;
+  }
+
   if (!fileIds || fileIds.length === 0) {
     return {
-      scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
+      scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
       assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
       assignedAreas: areaLinks.map(l => l.area),
       assignedItems: itemLinks.map(l => l.item),
@@ -725,7 +736,7 @@ export async function getReport(id, query = {}) {
   const { totals, byArea, byItem, byRep } = aggregated;
 
   return {
-    scientificRep: { id: rep.id, name: rep.name, isActive: rep.isActive },
+    scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
     assignedAreas: areaLinks.map(l => l.area),
     assignedItems: itemLinks.map(l => l.item),
