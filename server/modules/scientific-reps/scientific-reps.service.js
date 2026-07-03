@@ -423,6 +423,43 @@ export async function removeBlockedCommercial(userId, blockId) {
   return { ok: true };
 }
 
+// ─── Globally-blocked areas / items ───────────────────────────
+// Same idea as blocked commercial reps, but for whole areas or items: any sale/
+// return in a blocked area (or of a blocked item) is hidden from every
+// scientific-rep report, regardless of which commercial rep made it.
+const BLOCK_MODELS = {
+  area: prisma.blockedArea,
+  item: prisma.blockedItem,
+};
+
+function blockModel(kind) {
+  const model = BLOCK_MODELS[kind];
+  if (!model) throw new AppError(`Unknown block kind: ${kind}`, 400, 'BAD_REQUEST');
+  return model;
+}
+
+export async function listBlockedEntities(kind, userId) {
+  return blockModel(kind).findMany({
+    where: { userId },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, createdAt: true },
+  });
+}
+
+export async function addBlockedEntity(kind, userId, name) {
+  return blockModel(kind).upsert({
+    where: { userId_name: { userId, name } },
+    update: {},
+    create: { userId, name },
+    select: { id: true, name: true, createdAt: true },
+  });
+}
+
+export async function removeBlockedEntity(kind, userId, blockId) {
+  await blockModel(kind).deleteMany({ where: { id: blockId, userId } });
+  return { ok: true };
+}
+
 // ─── Report ──────────────────────────────────────────────────
 
 /**
@@ -496,13 +533,16 @@ async function resolveSciRepSales(id, query = {}, select) {
     nameMatchIds = repsInFiles.map(r => r.representativeId);
   }
 
-  // ── Globally-blocked commercial reps ───────────────────────────────────────
-  // A company manager can globally block commercial reps by name (ScientificRepsPage).
-  // Their sales/returns must be hidden from EVERY scientific-rep report — but NOT
-  // from the overall analysis (which never calls this resolver). The block list is
-  // scoped to the OWNER(s) of the active files, so it applies both to the manager's
-  // own view and to the scientific reps the files are shared with. Matched by
-  // normalized Arabic name so spelling/id variants across uploads all collapse.
+  // ── Globally-blocked commercial reps / areas / items ────────────────────────
+  // A company manager can globally block commercial reps, areas, or items (from
+  // ScientificRepsPage). The matching sales/returns must be hidden from EVERY
+  // scientific-rep report — but NOT from the overall analysis (which never calls
+  // this resolver). The block lists are scoped to the OWNER(s) of the active
+  // files, so they apply both to the manager's own view and to the scientific
+  // reps the files are shared with. Matched by normalized Arabic name so
+  // spelling/id variants across uploads all collapse.
+  let blockedAreaIds = [];
+  let blockedItemIds = [];
   if (fileIds && fileIds.length > 0) {
     const fileOwners = await prisma.uploadedFile.findMany({
       where: { id: { in: fileIds } },
@@ -510,11 +550,13 @@ async function resolveSciRepSales(id, query = {}, select) {
     });
     const ownerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
     if (ownerIds.length > 0) {
-      const blockedRows = await prisma.blockedCommercialRep.findMany({
-        where: { userId: { in: ownerIds } },
-        select: { name: true },
-      });
-      const blockedNorms = new Set(blockedRows.map(b => _normalizeAr(b.name)).filter(Boolean));
+      const [blockedRepRows, blockedAreaRows, blockedItemRows] = await Promise.all([
+        prisma.blockedCommercialRep.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+        prisma.blockedArea.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+        prisma.blockedItem.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+      ]);
+
+      const blockedNorms = new Set(blockedRepRows.map(b => _normalizeAr(b.name)).filter(Boolean));
       if (blockedNorms.size > 0) {
         const isBlocked = repId => {
           const rep = allMedReps.find(r => r.id === repId);
@@ -524,6 +566,18 @@ async function resolveSciRepSales(id, query = {}, select) {
         nameMatchIds       = nameMatchIds.filter(rid => !isBlocked(rid));
         // Also drop blocked reps from the displayed «assigned commercial reps» list.
         commercialLinks = commercialLinks.filter(l => !blockedNorms.has(_normalizeAr(l.commercialRep.name)));
+      }
+
+      const blockedAreaNorms = new Set(blockedAreaRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+      if (blockedAreaNorms.size > 0) {
+        const allAreasForBlock = await prisma.area.findMany({ select: { id: true, name: true } });
+        blockedAreaIds = allAreasForBlock.filter(a => blockedAreaNorms.has(normalizeArabic(a.name))).map(a => a.id);
+      }
+
+      const blockedItemNorms = new Set(blockedItemRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+      if (blockedItemNorms.size > 0) {
+        const allItemsForBlock = await prisma.item.findMany({ select: { id: true, name: true } });
+        blockedItemIds = allItemsForBlock.filter(i => blockedItemNorms.has(normalizeArabic(i.name))).map(i => i.id);
       }
     }
   }
@@ -584,6 +638,10 @@ async function resolveSciRepSales(id, query = {}, select) {
     const conditions = [repFilter];
     if (hasAreas) conditions.push({ areaId: { in: areaIds } });
     if (hasItems) conditions.push({ itemId: { in: itemIds } });
+    // Globally-blocked areas/items narrow the scope further — excluded regardless
+    // of which commercial rep the sale/return belongs to.
+    if (blockedAreaIds.length) conditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
+    if (blockedItemIds.length) conditions.push({ NOT: { itemId: { in: blockedItemIds } } });
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 

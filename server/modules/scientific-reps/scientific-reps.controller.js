@@ -145,6 +145,38 @@ export async function removeBlockedCommercial(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Globally-blocked areas / items ──────────────────────────────────────────
+const BLOCK_KINDS = new Set(['area', 'item']);
+
+export async function listBlockedEntities(req, res, next) {
+  try {
+    const kind = req.params.kind;
+    if (!BLOCK_KINDS.has(kind)) return res.status(400).json({ error: 'نوع غير معروف' });
+    const rows = await svc.listBlockedEntities(kind, req.user.id);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+}
+
+export async function addBlockedEntity(req, res, next) {
+  try {
+    const kind = req.params.kind;
+    if (!BLOCK_KINDS.has(kind)) return res.status(400).json({ error: 'نوع غير معروف' });
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
+    const row = await svc.addBlockedEntity(kind, req.user.id, name);
+    res.status(201).json({ success: true, data: row });
+  } catch (err) { next(err); }
+}
+
+export async function removeBlockedEntity(req, res, next) {
+  try {
+    const kind = req.params.kind;
+    if (!BLOCK_KINDS.has(kind)) return res.status(400).json({ error: 'نوع غير معروف' });
+    await svc.removeBlockedEntity(kind, req.user.id, +req.params.blockId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 export async function getRepReport(req, res, next) {
   try {
     const id = +req.params.id;

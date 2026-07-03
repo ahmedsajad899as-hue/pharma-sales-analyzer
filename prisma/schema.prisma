@@ -99,8 +99,10 @@ model User {
   dailyPlanComments DailyPlanComment[]
   dailyPlanSettings DailyPlanSettings?
 
-  // Globally-blocked commercial reps (hidden from scientific-rep reports only)
+  // Globally-blocked commercial reps / areas / items (hidden from scientific-rep reports only)
   blockedCommercialReps BlockedCommercialRep[]
+  blockedAreas          BlockedArea[]
+  blockedItems          BlockedItem[]
 
   @@index([officeId])
   @@map("users")
@@ -554,6 +556,34 @@ model BlockedCommercialRep {
 
   @@unique([userId, name])
   @@map("blocked_commercial_reps")
+}
+
+// Globally-blocked areas: their sales/returns are hidden from ALL scientific-rep
+// reports (but NOT from the overall analysis). Same scoping/matching rules as
+// BlockedCommercialRep above.
+model BlockedArea {
+  id        Int      @id @default(autoincrement())
+  name      String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("blocked_areas")
+}
+
+// Globally-blocked items: same as BlockedArea but keyed on item name.
+model BlockedItem {
+  id        Int      @id @default(autoincrement())
+  name      String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("blocked_items")
 }
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────

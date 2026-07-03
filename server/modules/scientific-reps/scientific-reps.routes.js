@@ -11,10 +11,15 @@ router.get('/my-commercial-reps',  ctrl.getMyCommercialReps);    // must be befo
 router.get('/my-shared-items',     ctrl.getMySharedItems);       // must be before /:id
 router.post('/sync-commercials-by-file', ctrl.syncCommercialsByFile); // must be before /:id
 
-// Globally-blocked commercial reps (hidden from sci-rep reports only) — before /:id
+// Globally-blocked commercial reps / areas / items (hidden from sci-rep reports
+// only) — before /:id
 router.get('/blocked-commercials',        ctrl.listBlockedCommercials);
 router.post('/blocked-commercials',       ctrl.addBlockedCommercial);
 router.delete('/blocked-commercials/:blockId', ctrl.removeBlockedCommercial);
+
+router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item
+router.post('/blocked/:kind',       ctrl.addBlockedEntity);
+router.delete('/blocked/:kind/:blockId', ctrl.removeBlockedEntity);
 
 router.get('/:id',        ctrl.getRep);
 router.patch('/:id', ctrl.updateRep);

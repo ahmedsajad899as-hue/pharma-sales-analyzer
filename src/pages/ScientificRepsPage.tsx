@@ -41,6 +41,14 @@ type AssignTab = 'areas' | 'companies' | 'items' | 'commercialReps';
 type AreaViewMode = 'flat' | 'byRep';
 interface CommercialWithAreas { id: number; name: string; areas: NamedItem[]; }
 
+// ─── Global block panel — kinds a manager can hide from scientific-rep reports ──
+type BlockKind = 'commercial' | 'area' | 'item';
+const BLOCK_KIND_CONFIG: Record<BlockKind, { label: string; icon: string; placeholder: string; endpoint: string }> = {
+  commercial: { label: 'مندوب تجاري', icon: '👤', placeholder: 'اكتب اسم مندوب تجاري…', endpoint: 'blocked-commercials' },
+  area:       { label: 'منطقة',       icon: '📍', placeholder: 'اكتب اسم منطقة…',        endpoint: 'blocked/area' },
+  item:       { label: 'آيتم',        icon: '💊', placeholder: 'اكتب اسم آيتم…',          endpoint: 'blocked/item' },
+};
+
 export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
   const { token, user } = useAuth();
   const { t } = useLanguage();
@@ -89,14 +97,17 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [selCompanies, setSelCompanies]           = useState<NamedItem[]>([]);
   const [filterCompanyId, setFilterCompanyId]     = useState<number | 'all'>('all');
 
-  // ─── Global commercial-rep block ────────────────────────────
-  // Manager types a commercial rep's name → their sales/returns are hidden from
-  // ALL scientific-rep reports (but stay visible in the overall analysis).
-  const [blockedList, setBlockedList]       = useState<{ id: number; name: string }[]>([]);
+  // ─── Global block panel (commercial reps / areas / items) ──────────────────
+  // Manager types a commercial rep / area / item name → matching sales/returns
+  // are hidden from ALL scientific-rep reports (but stay visible in the overall
+  // analysis). Collapsed behind a small icon by default.
+  const [blockPanelOpen, setBlockPanelOpen] = useState(false);
+  const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
+  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string }[]>>({ commercial: [], area: [], item: [] });
   const [blockInput, setBlockInput]         = useState('');
   const [blockSaving, setBlockSaving]       = useState(false);
   const [blockError, setBlockError]         = useState('');
-  const [commRepNames, setCommRepNames]     = useState<string[]>([]);
+  const [blockSuggestSources, setBlockSuggestSources] = useState<Record<BlockKind, string[]>>({ commercial: [], area: [], item: [] });
   const [showBlockSuggest, setShowBlockSuggest] = useState(false);
   const blockSuggestRef                     = useRef<HTMLDivElement>(null);
   // ─── Load ──────────────────────────────────────────────────
@@ -120,18 +131,31 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
 
   useEffect(() => { load(); }, [load]);
 
-  // Load the block list + the commercial-rep names (for autocomplete suggestions)
+  // Load the three block lists + their respective name pools (for autocomplete suggestions)
   const loadBlocked = useCallback(async () => {
     try {
-      const [bRes, cRes] = await Promise.all([
+      const parseList = async (r: Response) => {
+        const j = await r.json().catch(() => ({}));
+        return r.ok && Array.isArray(j.data) ? j.data : [];
+      };
+      const [bComm, bArea, bItem, cRes, aRes, iRes] = await Promise.all([
         fetch(`${API}/api/scientific-reps/blocked-commercials`, { headers: authH() }),
-        fetch(`${API}/api/representatives`,                      { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/area`,        { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/item`,        { headers: authH() }),
+        fetch(`${API}/api/representatives`,                     { headers: authH() }),
+        fetch(`${API}/api/areas`,                                { headers: authH() }),
+        fetch(`${API}/api/items`,                                { headers: authH() }),
       ]);
-      const bJson = await bRes.json().catch(() => ({}));
-      if (bRes.ok) setBlockedList(Array.isArray(bJson.data) ? bJson.data : []);
-      const cJson = await cRes.json().catch(() => ({}));
-      const list = Array.isArray(cJson.data) ? cJson.data : (Array.isArray(cJson) ? cJson : []);
-      setCommRepNames([...new Set(list.map((r: any) => r.name).filter(Boolean))] as string[]);
+      const [commList, areaBlockList, itemBlockList] = await Promise.all([parseList(bComm), parseList(bArea), parseList(bItem)]);
+      setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList });
+
+      const namesOf = async (r: Response) => {
+        const j = await r.json().catch(() => ({}));
+        const list = Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
+        return [...new Set(list.map((x: any) => x.name).filter(Boolean))] as string[];
+      };
+      const [commNames, areaNames, itemNames] = await Promise.all([namesOf(cRes), namesOf(aRes), namesOf(iRes)]);
+      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames });
     } catch { /* non-fatal */ }
   }, [token]);
   useEffect(() => { loadBlocked(); }, [loadBlocked]);
@@ -139,25 +163,28 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const addBlock = async (rawName: string) => {
     const name = rawName.trim();
     if (!name) return;
-    if (blockedList.some(b => normalizeAr(b.name) === normalizeAr(name))) { setBlockInput(''); setShowBlockSuggest(false); return; }
+    if (blockedLists[blockKind].some(b => normalizeAr(b.name) === normalizeAr(name))) { setBlockInput(''); setShowBlockSuggest(false); return; }
     setBlockSaving(true); setBlockError('');
     try {
-      const r = await fetch(`${API}/api/scientific-reps/blocked-commercials`, {
+      const r = await fetch(`${API}/api/scientific-reps/${BLOCK_KIND_CONFIG[blockKind].endpoint}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
         body: JSON.stringify({ name }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || 'فشل حجب المندوب');
-      setBlockedList(prev => prev.some(b => b.id === j.data.id) ? prev : [...prev, j.data]);
+      if (!r.ok) throw new Error(j.error || 'فشل الحجب');
+      setBlockedLists(prev => ({
+        ...prev,
+        [blockKind]: prev[blockKind].some(b => b.id === j.data.id) ? prev[blockKind] : [...prev[blockKind], j.data],
+      }));
       setBlockInput(''); setShowBlockSuggest(false);
     } catch (err: any) { setBlockError(err.message); }
     finally { setBlockSaving(false); }
   };
 
-  const removeBlock = async (id: number) => {
-    setBlockedList(prev => prev.filter(b => b.id !== id)); // optimistic
+  const removeBlock = async (kind: BlockKind, id: number) => {
+    setBlockedLists(prev => ({ ...prev, [kind]: prev[kind].filter(b => b.id !== id) })); // optimistic
     try {
-      const r = await fetch(`${API}/api/scientific-reps/blocked-commercials/${id}`, { method: 'DELETE', headers: authH() });
+      const r = await fetch(`${API}/api/scientific-reps/${BLOCK_KIND_CONFIG[kind].endpoint}/${id}`, { method: 'DELETE', headers: authH() });
       if (!r.ok) loadBlocked(); // resync on failure
     } catch { loadBlocked(); }
   };
@@ -458,65 +485,126 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         </div>
       )}
 
-      {/* ── Global commercial-rep block box ── */}
+      {/* ── Global block panel (commercial reps / areas / items) ── */}
       {user?.role !== 'scientific_rep' && (
-        <div style={{ background: '#fff', border: '1.5px solid #fecaca', borderRadius: 12, padding: '14px 16px', margin: '0 0 18px', boxShadow: '0 1px 4px rgba(0,0,0,.05)', maxWidth: 640 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 18 }}>🚫</span>
-            <span style={{ fontWeight: 800, fontSize: 14, color: '#b91c1c' }}>حجب مندوب تجاري عن تقارير المندوبين العلميين</span>
-          </div>
-          <div ref={blockSuggestRef} style={{ position: 'relative', display: 'flex', gap: 8 }}>
-            <input
-              className="form-input"
-              style={{ flex: 1, fontSize: 13 }}
-              placeholder="اكتب اسم مندوب تجاري…"
-              value={blockInput}
-              onChange={e => { setBlockInput(e.target.value); setShowBlockSuggest(true); }}
-              onFocus={() => setShowBlockSuggest(true)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBlock(blockInput); } }}
-            />
-            <button
-              className="btn btn--primary"
-              disabled={blockSaving || !blockInput.trim()}
-              onClick={() => addBlock(blockInput)}
-              style={{ whiteSpace: 'nowrap', background: '#dc2626', borderColor: '#dc2626' }}
-            >
-              {blockSaving ? '…' : 'حجب'}
-            </button>
-            {showBlockSuggest && blockInput.trim() && (() => {
-              const q = normalizeAr(blockInput);
-              const blockedNorm = new Set(blockedList.map(b => normalizeAr(b.name)));
-              const sugg = commRepNames.filter(n => normalizeAr(n).includes(q) && !blockedNorm.has(normalizeAr(n))).slice(0, 8);
-              if (sugg.length === 0) return null;
-              return (
-                <div style={{ position: 'absolute', top: '108%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 220, overflowY: 'auto' }}>
-                  {sugg.map(n => (
-                    <div key={n}
-                      onMouseDown={e => { e.preventDefault(); addBlock(n); }}
-                      style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                      onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#fef2f2')}
-                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#fff')}>
-                      {n}
-                    </div>
-                  ))}
+        <div style={{ margin: '0 0 18px' }}>
+          {(() => {
+            const totalBlocked = blockedLists.commercial.length + blockedLists.area.length + blockedLists.item.length;
+            return !blockPanelOpen ? (
+              <button
+                onClick={() => setBlockPanelOpen(true)}
+                title="حجب مندوب تجاري / منطقة / آيتم عن تقارير المندوبين العلميين"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 7,
+                  background: '#fef2f2', border: '1.5px solid #fecaca', color: '#b91c1c',
+                  borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                🚫 حجب عن تقارير المندوبين العلميين
+                {totalBlocked > 0 && (
+                  <span style={{ background: '#fecaca', color: '#7f1d1d', borderRadius: 999, padding: '1px 8px', fontSize: 11, fontWeight: 800 }}>
+                    {totalBlocked}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <div style={{ background: '#fff', border: '1.5px solid #fecaca', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,.05)', maxWidth: 640 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>🚫</span>
+                    <span style={{ fontWeight: 800, fontSize: 14, color: '#b91c1c' }}>حجب عن تقارير المندوبين العلميين</span>
+                  </div>
+                  <button
+                    onClick={() => setBlockPanelOpen(false)}
+                    title="طي"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, fontWeight: 800, padding: 2, lineHeight: 1 }}
+                  >✕</button>
                 </div>
-              );
-            })()}
-          </div>
-          {blockError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>{blockError}</div>}
-          {blockedList.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-              {blockedList.map(b => (
-                <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
-                  🚫 {b.name}
-                  <button onClick={() => removeBlock(b.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', padding: 0, lineHeight: 1, fontSize: 13, fontWeight: 800 }}>✕</button>
-                </span>
-              ))}
-            </div>
-          )}
-          <p style={{ fontSize: 11.5, color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.6 }}>
-            مبيعات وارجاعات المندوب المحجوب تُخفى من حساب وعرض <strong>المندوبين العلميين فقط</strong> — وتبقى ظاهرة في <strong>التحليل الشامل</strong>.
-          </p>
+
+                {/* Kind tabs */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  {(Object.keys(BLOCK_KIND_CONFIG) as BlockKind[]).map(k => {
+                    const cfg = BLOCK_KIND_CONFIG[k];
+                    const active = blockKind === k;
+                    const count = blockedLists[k].length;
+                    return (
+                      <button
+                        key={k}
+                        onClick={() => { setBlockKind(k); setBlockInput(''); setShowBlockSuggest(false); setBlockError(''); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                          border: active ? '1.5px solid #dc2626' : '1.5px solid #e2e8f0',
+                          background: active ? '#fef2f2' : '#fff',
+                          color: active ? '#b91c1c' : '#64748b',
+                        }}
+                      >
+                        {cfg.icon} {cfg.label}
+                        {count > 0 && (
+                          <span style={{ background: active ? '#fecaca' : '#f1f5f9', color: active ? '#7f1d1d' : '#64748b', borderRadius: 999, padding: '0 6px', fontSize: 10, fontWeight: 800 }}>
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div ref={blockSuggestRef} style={{ position: 'relative', display: 'flex', gap: 8 }}>
+                  <input
+                    className="form-input"
+                    style={{ flex: 1, fontSize: 13 }}
+                    placeholder={BLOCK_KIND_CONFIG[blockKind].placeholder}
+                    value={blockInput}
+                    onChange={e => { setBlockInput(e.target.value); setShowBlockSuggest(true); }}
+                    onFocus={() => setShowBlockSuggest(true)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBlock(blockInput); } }}
+                  />
+                  <button
+                    className="btn btn--primary"
+                    disabled={blockSaving || !blockInput.trim()}
+                    onClick={() => addBlock(blockInput)}
+                    style={{ whiteSpace: 'nowrap', background: '#dc2626', borderColor: '#dc2626' }}
+                  >
+                    {blockSaving ? '…' : 'حجب'}
+                  </button>
+                  {showBlockSuggest && blockInput.trim() && (() => {
+                    const q = normalizeAr(blockInput);
+                    const blockedNorm = new Set(blockedLists[blockKind].map(b => normalizeAr(b.name)));
+                    const sugg = blockSuggestSources[blockKind].filter(n => normalizeAr(n).includes(q) && !blockedNorm.has(normalizeAr(n))).slice(0, 8);
+                    if (sugg.length === 0) return null;
+                    return (
+                      <div style={{ position: 'absolute', top: '108%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 220, overflowY: 'auto' }}>
+                        {sugg.map(n => (
+                          <div key={n}
+                            onMouseDown={e => { e.preventDefault(); addBlock(n); }}
+                            style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#fef2f2')}
+                            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#fff')}>
+                            {n}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+                {blockError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>{blockError}</div>}
+                {blockedLists[blockKind].length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                    {blockedLists[blockKind].map(b => (
+                      <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
+                        {BLOCK_KIND_CONFIG[blockKind].icon} {b.name}
+                        <button onClick={() => removeBlock(blockKind, b.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', padding: 0, lineHeight: 1, fontSize: 13, fontWeight: 800 }}>✕</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p style={{ fontSize: 11.5, color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.6 }}>
+                  مبيعات وارجاعات العنصر المحجوب تُخفى من حساب وعرض <strong>المندوبين العلميين فقط</strong> — وتبقى ظاهرة في <strong>التحليل الشامل</strong>.
+                </p>
+              </div>
+            );
+          })()}
         </div>
       )}
 
