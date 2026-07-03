@@ -100,6 +100,18 @@ export async function updateUser(req, res) {
     if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
 
     const user = await prisma.user.update({ where: { id }, data, select: userSelect });
+
+    // Keep the linked ScientificRepresentative record(s) in sync. That row's `name`
+    // is only set ONCE at auto-creation (from displayName/username) — reports/exports
+    // read it directly and never re-derive it from User.displayName afterwards, so a
+    // rename here would otherwise silently go stale in every report/Excel export.
+    if (displayName !== undefined) {
+      await prisma.scientificRepresentative.updateMany({
+        where: { userId: id },
+        data: { name: displayName || user.username },
+      });
+    }
+
     res.json({ success: true, data: user });
   } catch (err) {
     if (err.code === 'P2002') return res.status(409).json({ error: 'اسم المستخدم مستخدم بالفعل.' });
