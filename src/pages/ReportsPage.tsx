@@ -932,7 +932,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
       setCommReport(parseReport(salesJson.data ?? salesJson));
       setCommReturnsReport(returnsRes.ok ? parseReport(returnsJson.data ?? returnsJson) : null);
-      setReportView('sales');
+      setReportView('net');
       setActiveTab('area');
       setShowTargets(false);
       setTargetData([]);
@@ -998,7 +998,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
       setSciReport(parseSciReport(salesJson.data ?? salesJson));
       setSciReturnsReport(returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null);
-      setReportView('sales');
+      setReportView('net');
       setActiveTab('area');
       setShowTargets(false);
       setTargetData([]);
