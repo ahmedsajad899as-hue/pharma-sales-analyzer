@@ -53,10 +53,13 @@ const reorderHeaders = (headers: string[]): string[] => {
   return ordered;
 };
 
-/* Apply the shared export look (teal header, banded rows, borders, column width)
-   to a freshly-built worksheet. `aoa` is the same array-of-arrays used to build `ws`. */
+// Raw-file columns that should never appear in the export (not useful to reps/managers).
+const isExcludedColumn = (h: string): boolean => /حالة.*مذخر|حالة.*طلبي/i.test(h);
+
+/* Apply the shared export look (teal header, borders, column width) to a freshly-built
+   worksheet. `aoa` is the same array-of-arrays used to build `ws`. Data rows are plain
+   white — no banding. */
 const HEADER_FILL = 'FF2F8F8F';
-const BAND_FILL   = 'FFE3F3F3';
 const BORDER_RGB  = 'FFB9C6C6';
 const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[]) => {
   const nRows = aoa.length;
@@ -74,7 +77,7 @@ const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[]) => {
           : { sz: 10, color: { rgb: 'FF1F2937' } },
         fill: {
           patternType: 'solid',
-          fgColor: { rgb: isHeader ? HEADER_FILL : (r % 2 === 0 ? BAND_FILL : 'FFFFFFFF') },
+          fgColor: { rgb: isHeader ? HEADER_FILL : 'FFFFFFFF' },
         },
         alignment: { horizontal: isHeader ? 'center' : 'right', vertical: 'center' },
         border: { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder },
@@ -1579,6 +1582,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const headers: string[] = [];
       const sourceKeysOf = new Map<string, string[]>();
       for (const k of allKeys) {
+        if (isExcludedColumn(k)) continue;
         const grp = groupOf(k);
         if (!grp) { headers.push(k); sourceKeysOf.set(k, [k]); continue; }
         let label = labelForGroup.get(grp);
@@ -1977,6 +1981,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const headers: string[] = [];
       const sourceKeysOf = new Map<string, string[]>();
       for (const k of allKeys) {
+        if (isExcludedColumn(k)) continue;
         const grp = groupOf(k);
         if (!grp) {
           headers.push(k);
