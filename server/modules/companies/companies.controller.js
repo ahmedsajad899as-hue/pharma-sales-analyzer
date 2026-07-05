@@ -171,7 +171,7 @@ export async function getReviewQueue(req, res) {
     where: { userId: { in: userIds }, isTemp: true },
     select: {
       id: true, name: true, userId: true,
-      user: { select: { name: true } },
+      user: { select: { displayName: true, username: true } },
       _count: { select: { sales: true } },
     },
     orderBy: { name: 'asc' },
@@ -183,7 +183,7 @@ export async function getReviewQueue(req, res) {
     const r = await resolveItemName(t.name, ctx);
     return {
       id: t.id, name: t.name, userId: t.userId,
-      userName: t.user?.name || null,
+      userName: t.user?.displayName || t.user?.username || null,
       salesCount: t._count?.sales ?? 0,
       confidence: r.confidence,
       suggestions: r.suggestions.slice(0, 6),
