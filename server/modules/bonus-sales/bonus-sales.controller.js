@@ -4,6 +4,7 @@
  */
 
 import { parseFile, buildMatchKey } from './bonus-sales.service.js';
+import { buildUserCanonMap } from '../../lib/itemResolver.js';
 import {
   assignUploadToReps,
   assignAreaToRep,
@@ -97,6 +98,9 @@ export async function getSalesRows(req, res) {
       pageSize: Math.min(Number(pageSize), 5000),
       filters,
     });
+    // توحيد اسم الايتم وقت العرض (لا يمسّ التخزين ولا منطق مطابقة التعويضات)
+    const canon = await buildUserCanonMap(req.user?.id, result.rows.map(r => r.itemName).filter(Boolean));
+    result.rows = result.rows.map(r => ({ ...r, itemName: r.itemName ? canon(r.itemName) : r.itemName }));
     return res.json({ success: true, ...result });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -287,6 +291,9 @@ export async function getMyRows(req, res) {
       pageSize: Math.min(Number(pageSize), 5000),
       filters,
     });
+    // توحيد اسم الايتم وقت العرض
+    const canon = await buildUserCanonMap(userId, result.rows.map(r => r.itemName).filter(Boolean));
+    result.rows = result.rows.map(r => ({ ...r, itemName: r.itemName ? canon(r.itemName) : r.itemName }));
     return res.json({ success: true, ...result });
   } catch (err) {
     return res.status(500).json({ error: err.message });

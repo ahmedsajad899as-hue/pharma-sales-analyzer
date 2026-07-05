@@ -4,19 +4,9 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import { canonicalizeNames } from '../../lib/itemResolver.js';
+import { buildUserCanonMap as buildCanonMap } from '../../lib/itemResolver.js';
 
-// ─── توحيد أسماء الايتمات وقت العرض (لا يمسّ التخزين) ─────────────
-// يبني خريطة اسم-حر → اسم قانوني لأسماء الموزّع، اعتماداً على كتالوج شركة المستخدم.
-// دفاعي: عند غياب الكتالوج أو أي خطأ → دالة هوية (تُبقي الأسماء كما هي).
-async function buildCanonMap(userId, names) {
-  try {
-    const sciCompanyIds = (await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } })).map(c => c.companyId);
-    if (sciCompanyIds.length === 0) return (n) => n;
-    const map = await canonicalizeNames(names, { scientificCompanyIds: sciCompanyIds });
-    return (n) => map.get(n) || n;
-  } catch { return (n) => n; }
-}
+// توحيد أسماء الايتمات وقت العرض (لا يمسّ التخزين) — عبر المحرّك المشترك.
 
 // ─── Upload CRUD ──────────────────────────────────────────────
 

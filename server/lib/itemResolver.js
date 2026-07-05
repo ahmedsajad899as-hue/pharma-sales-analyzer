@@ -109,6 +109,27 @@ export async function canonicalizeNames(names, { scientificCompanyIds = [], ctx 
 }
 
 /**
+ * دالة توحيد جاهزة لمستخدم: تشتق شركات المستخدم ثم تبني خريطة توحيد، وتُعيد
+ * دالة (name)=>canonicalName. دفاعية: عند غياب شركة/كتالوج أو أي خطأ → دالة هوية.
+ * مخصّصة للحقول الحرة (البونص/التجاري/الموزّع/تحليل المبيعات) وقت العرض.
+ *
+ * @param {number} userId
+ * @param {Iterable<string>} names
+ * @returns {Promise<(name:string)=>string>}
+ */
+export async function buildUserCanonMap(userId, names) {
+  try {
+    if (!userId) return (n) => n;
+    const sciCompanyIds = (await prisma.userCompanyAssignment.findMany({
+      where: { userId }, select: { companyId: true },
+    })).map(c => c.companyId);
+    if (sciCompanyIds.length === 0) return (n) => n;
+    const map = await canonicalizeNames(names, { scientificCompanyIds: sciCompanyIds });
+    return (n) => map.get(n) || n;
+  } catch { return (n) => n; }
+}
+
+/**
  * سياق التوحيد الكامل لمسار الرفع: كتالوج الشركة + ايتمات المستخدم غير المؤقتة
  * (للتوافق مع السلوك القديم الذي كان يطابق ايتمات المستخدم أيضاً) + aliases الشركة.
  * الكتالوج المشترك له الأولوية؛ تُدمج ايتمات المستخدم غير المكرّرة بعده (حسب المفتاح القانوني).

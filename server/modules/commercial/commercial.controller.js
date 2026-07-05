@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import XLSX   from 'xlsx';
 import fs     from 'fs';
 import crypto from 'crypto';
+import { buildUserCanonMap } from '../../lib/itemResolver.js';
 
 // ── Role helpers ─────────────────────────────────────────────
 const COMM_REP_ROLES  = new Set(['commercial_rep']);
@@ -171,6 +172,12 @@ export async function listInvoices(req, res, next) {
       prisma.commercialInvoice.count({ where }),
     ]);
 
+    // توحيد اسم الصنف (brandName) وقت العرض — لا يمسّ التخزين
+    const canon = await buildUserCanonMap(userId, invoices.flatMap(inv => inv.items.map(it => it.brandName)).filter(Boolean));
+    for (const inv of invoices) {
+      inv.items = inv.items.map(it => ({ ...it, brandName: it.brandName ? canon(it.brandName) : it.brandName }));
+    }
+
     res.json({ data: invoices, total });
   } catch (e) { next(e); }
 }
@@ -198,6 +205,9 @@ export async function getInvoice(req, res, next) {
     });
 
     if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+    // توحيد اسم الصنف وقت العرض — نُفضّل اسم الايتم القانوني المرتبط (item.name) إن وُجد، وإلا نوحّد brandName
+    const canon = await buildUserCanonMap(userId, inv.items.map(it => it.brandName).filter(Boolean));
+    inv.items = inv.items.map(it => ({ ...it, brandName: it.item?.name || (it.brandName ? canon(it.brandName) : it.brandName) }));
     res.json(inv);
   } catch (e) { next(e); }
 }
