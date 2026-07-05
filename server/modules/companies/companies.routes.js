@@ -7,6 +7,8 @@ import {
   createCompanyItem, deleteCompanyItem,
   importCompanyItems, importCompanyItemsJson,
   getCompanyOrg,
+  listCompanyAliases, createCompanyAlias, deleteCompanyAlias,
+  getReviewQueue, resolveReviewItem,
 } from './companies.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -31,6 +33,15 @@ router.post('/:id/items',                  createCompanyItem);
 router.post('/:id/items/bulk',             importCompanyItemsJson);
 router.post('/:id/items/import',           memUpload.single('file'), importCompanyItems);
 router.delete('/:id/items/:itemId',        deleteCompanyItem);
+
+// Aliases (قواعد التوحيد) within a company
+router.get('/:id/aliases',                 listCompanyAliases);
+router.post('/:id/aliases',                createCompanyAlias);
+router.delete('/:id/aliases/:aliasId',     deleteCompanyAlias);
+
+// Review queue (الايتمات المؤقتة غير المطابقة)
+router.get('/:id/review-queue',            getReviewQueue);
+router.post('/:id/review-queue/resolve',   resolveReviewItem);
 
 // Lines within a company
 router.get('/:id/lines',               listLines);

@@ -1,5 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
+import { normalizeItemKey, loadCompanyContext, resolveItemName } from '../../lib/itemResolver.js';
+import { mergeItems } from '../sales/sales.repository.js';
 
 // ── List companies (optionally filtered by officeId) ──────────────────────
 export async function listCompanies(req, res) {
@@ -103,6 +105,150 @@ export async function deleteCompanyItem(req, res) {
     data: { scientificCompanyId: null },
   });
   res.json({ success: true });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ALIASES — قواعد توحيد أسماء الايتمات (نطاق الشركة، مشتركة بين مستخدميها)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── List company aliases ──────────────────────────────────────────────────
+export async function listCompanyAliases(req, res) {
+  const companyId = parseInt(req.params.id);
+  const aliases = await prisma.itemMergeRule.findMany({
+    where: { scientificCompanyId: companyId },
+    include: { toItem: { select: { id: true, name: true } } },
+    orderBy: { updatedAt: 'desc' },
+  });
+  res.json({ success: true, data: aliases });
+}
+
+// ── Create/update an alias manually (fromName → catalog toItemId) ──────────
+export async function createCompanyAlias(req, res) {
+  const companyId = parseInt(req.params.id);
+  const { fromName, toItemId } = req.body;
+  if (!fromName?.trim() || !toItemId) return res.status(400).json({ error: 'الاسم البديل والايتم الهدف مطلوبان' });
+
+  const toItem = await prisma.item.findFirst({
+    where: { id: parseInt(toItemId), scientificCompanyId: companyId, isTemp: false },
+    select: { id: true, name: true },
+  });
+  if (!toItem) return res.status(400).json({ error: 'الايتم الهدف غير موجود في كتالوج الشركة' });
+
+  const fromKey = normalizeItemKey(fromName);
+  if (!fromKey || normalizeItemKey(toItem.name) === fromKey)
+    return res.status(400).json({ error: 'الاسم البديل غير صالح أو مطابق للهدف' });
+
+  const alias = await prisma.itemMergeRule.upsert({
+    where:  { scientificCompanyId_fromKey: { scientificCompanyId: companyId, fromKey } },
+    update: { fromName: fromName.trim(), toName: toItem.name, toItemId: toItem.id },
+    create: { scientificCompanyId: companyId, fromKey, fromName: fromName.trim(), toName: toItem.name, toItemId: toItem.id },
+    include: { toItem: { select: { id: true, name: true } } },
+  });
+  res.status(201).json({ success: true, data: alias });
+}
+
+// ── Delete an alias ────────────────────────────────────────────────────────
+export async function deleteCompanyAlias(req, res) {
+  const companyId = parseInt(req.params.id);
+  const aliasId = parseInt(req.params.aliasId);
+  await prisma.itemMergeRule.deleteMany({ where: { id: aliasId, scientificCompanyId: companyId } });
+  res.json({ success: true });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// REVIEW QUEUE — الايتمات المؤقتة (غير المطابقة) من مستخدمي الشركة
+// السوبر أدمن يقرّر: إضافة للكتالوج / ربط بموجود (alias) / حذف.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── List unmatched temp items for a company (with resolver suggestions) ────
+export async function getReviewQueue(req, res) {
+  const companyId = parseInt(req.params.id);
+  const userRows = await prisma.userCompanyAssignment.findMany({ where: { companyId }, select: { userId: true } });
+  const userIds = userRows.map(r => r.userId);
+  if (userIds.length === 0) return res.json({ success: true, data: [] });
+
+  const temps = await prisma.item.findMany({
+    where: { userId: { in: userIds }, isTemp: true },
+    select: {
+      id: true, name: true, userId: true,
+      user: { select: { name: true } },
+      _count: { select: { sales: true } },
+    },
+    orderBy: { name: 'asc' },
+  });
+  if (temps.length === 0) return res.json({ success: true, data: [] });
+
+  const ctx = await loadCompanyContext([companyId]);
+  const data = await Promise.all(temps.map(async t => {
+    const r = await resolveItemName(t.name, ctx);
+    return {
+      id: t.id, name: t.name, userId: t.userId,
+      userName: t.user?.name || null,
+      salesCount: t._count?.sales ?? 0,
+      confidence: r.confidence,
+      suggestions: r.suggestions.slice(0, 6),
+    };
+  }));
+  res.json({ success: true, data });
+}
+
+// ── Resolve one review item: add | link | delete ──────────────────────────
+export async function resolveReviewItem(req, res) {
+  const companyId = parseInt(req.params.id);
+  const { tempItemId, action, targetItemId } = req.body || {};
+  if (!tempItemId || !action) return res.status(400).json({ error: 'tempItemId و action مطلوبان' });
+
+  const temp = await prisma.item.findFirst({
+    where: { id: parseInt(tempItemId), isTemp: true },
+    select: { id: true, name: true },
+  });
+  if (!temp) return res.status(404).json({ error: 'الايتم المؤقت غير موجود' });
+
+  const rememberAlias = async (toItem) => {
+    const fromKey = normalizeItemKey(temp.name);
+    if (!fromKey || normalizeItemKey(toItem.name) === fromKey) return;
+    await prisma.itemMergeRule.upsert({
+      where:  { scientificCompanyId_fromKey: { scientificCompanyId: companyId, fromKey } },
+      update: { fromName: temp.name, toName: toItem.name, toItemId: toItem.id },
+      create: { scientificCompanyId: companyId, fromKey, fromName: temp.name, toName: toItem.name, toItemId: toItem.id },
+    });
+  };
+
+  if (action === 'link') {
+    if (!targetItemId) return res.status(400).json({ error: 'targetItemId مطلوب للربط' });
+    const target = await prisma.item.findFirst({
+      where: { id: parseInt(targetItemId), scientificCompanyId: companyId, isTemp: false },
+      select: { id: true, name: true },
+    });
+    if (!target || target.id === temp.id) return res.status(400).json({ error: 'الهدف غير صالح' });
+    await mergeItems(temp.id, target.id);   // نُبقي الكتالوج
+    await rememberAlias(target);
+    return res.json({ success: true, action: 'link' });
+  }
+
+  if (action === 'add') {
+    // منع التكرار: إن وُجد ايتم كتالوج بنفس المفتاح → ندمج بدل الإنشاء + alias
+    const catalog = await prisma.item.findMany({ where: { scientificCompanyId: companyId, isTemp: false }, select: { id: true, name: true } });
+    const key = normalizeItemKey(temp.name);
+    const dup = catalog.find(c => normalizeItemKey(c.name) === key);
+    if (dup) {
+      await mergeItems(temp.id, dup.id);
+      await rememberAlias(dup);
+      return res.json({ success: true, action: 'merged-duplicate' });
+    }
+    // ترقية نفس السجل → يحافظ على المبيعات المرتبطة، ويصبح ايتماً قانونياً
+    await prisma.item.update({ where: { id: temp.id }, data: { scientificCompanyId: companyId, isTemp: false } });
+    return res.json({ success: true, action: 'add' });
+  }
+
+  if (action === 'delete') {
+    const count = await prisma.sale.count({ where: { itemId: temp.id } });
+    if (count > 0) return res.status(409).json({ error: `للايتم ${count} مبيعات — لا يمكن حذفه، اربطه أو أضفه بدلاً من ذلك` });
+    await prisma.item.delete({ where: { id: temp.id } });
+    return res.json({ success: true, action: 'delete' });
+  }
+
+  return res.status(400).json({ error: 'action غير معروف' });
 }
 
 // ── Get ALL lines across all companies ──────────────────────────────────

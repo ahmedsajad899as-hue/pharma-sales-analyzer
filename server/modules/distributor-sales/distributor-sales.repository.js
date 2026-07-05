@@ -4,6 +4,19 @@
  */
 
 import prisma from '../../lib/prisma.js';
+import { canonicalizeNames } from '../../lib/itemResolver.js';
+
+// ─── توحيد أسماء الايتمات وقت العرض (لا يمسّ التخزين) ─────────────
+// يبني خريطة اسم-حر → اسم قانوني لأسماء الموزّع، اعتماداً على كتالوج شركة المستخدم.
+// دفاعي: عند غياب الكتالوج أو أي خطأ → دالة هوية (تُبقي الأسماء كما هي).
+async function buildCanonMap(userId, names) {
+  try {
+    const sciCompanyIds = (await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } })).map(c => c.companyId);
+    if (sciCompanyIds.length === 0) return (n) => n;
+    const map = await canonicalizeNames(names, { scientificCompanyIds: sciCompanyIds });
+    return (n) => map.get(n) || n;
+  } catch { return (n) => n; }
+}
 
 // ─── Upload CRUD ──────────────────────────────────────────────
 
@@ -176,27 +189,31 @@ export async function getByItem(userId, uploadId) {
     orderBy: { _sum: { totalQtySold: 'desc' } },
   });
 
-  return rows.map(r => {
-    const m3 = r._sum.month3Qty || 0;
-    const m4 = r._sum.month4Qty || 0;
-    const growth = m3 > 0 ? Math.round(((m4 - m3) / m3) * 1000) / 10 : null;
-    const status =
-      m4 === 0 && m3 > 0 ? 'stopped' :
-      growth === null ? 'new' :
-      growth > 0 ? 'growing' :
-      growth === 0 ? 'stable' : 'declining';
+  // توحيد وقت العرض: ندمج صفوف الأسماء الحرة المتغيّرة تحت الاسم القانوني الواحد.
+  const canon = await buildCanonMap(userId, rows.map(r => r.itemName));
+  const agg = new Map();
+  for (const r of rows) {
+    const key = canon(r.itemName);
+    if (!agg.has(key)) agg.set(key, { itemName: key, month3: 0, month4: 0, totalSold: 0, reinvoicing: 0, distributorCount: 0 });
+    const a = agg.get(key);
+    a.month3           += r._sum.month3Qty       || 0;
+    a.month4           += r._sum.month4Qty       || 0;
+    a.totalSold        += r._sum.totalQtySold    || 0;
+    a.reinvoicing      += r._sum.reinvoicingCount || 0;
+    a.distributorCount += r._count.id            || 0;
+  }
 
-    return {
-      itemName: r.itemName,
-      month3: m3,
-      month4: m4,
-      totalSold: r._sum.totalQtySold || 0,
-      reinvoicing: r._sum.reinvoicingCount || 0,
-      distributorCount: r._count.id,
-      growthPct: growth,
-      status, // growing | stable | declining | stopped | new
-    };
-  });
+  return [...agg.values()]
+    .sort((a, b) => b.totalSold - a.totalSold)
+    .map(a => {
+      const growth = a.month3 > 0 ? Math.round(((a.month4 - a.month3) / a.month3) * 1000) / 10 : null;
+      const status =
+        a.month4 === 0 && a.month3 > 0 ? 'stopped' :
+        growth === null ? 'new' :
+        growth > 0 ? 'growing' :
+        growth === 0 ? 'stable' : 'declining';
+      return { ...a, growthPct: growth, status };
+    });
 }
 
 /** Items needing reinvoicing */

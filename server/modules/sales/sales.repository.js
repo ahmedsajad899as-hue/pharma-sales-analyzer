@@ -5,6 +5,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
+import { resolveItemName, loadResolutionContext } from '../../lib/itemResolver.js';
 
 /**
  * Normalize Arabic text to a canonical form:
@@ -109,32 +110,33 @@ export async function findOrCreateCompany(name, userId) {
  * @param {number} userId
  */
 /**
- * Find or create an Item by name.
- * Priority order:
- *  1. Item in a scientific company catalog (scientificCompanyId set, name match)
- *     — shared across all users of that company.
- *  2. Item scoped to userId (legacy / temp items from previous uploads).
- *  3. Create new item scoped to userId, marked isTemp=true (not in any catalog).
+ * Find or create an Item by name — عبر محرّك التوحيد (itemResolver).
+ *
+ * مسار الشركة (sciCompanyIds مُمرّرة): مطابقة ذكية —
+ *   alias/exact/high → ايتم الكتالوج القانوني (توحيد تلقائي، حارس الجرعة يحمي 100/500).
+ *   medium/none      → ايتم مؤقت (isTemp) يظهر في unknownItems لمعالجته لاحقاً.
+ * مسار "لا شركة" (مثل scientific-reps): السلوك القديم تماماً — تطابق تام لايتمات
+ *   المستخدم غير المؤقتة، وإلا ايتم مؤقت. (لا تغيير على هذا المسار.)
  *
  * @param {string} name
  * @param {number|null} userId
  * @param {number[]|null} sciCompanyIds  - IDs of scientific companies the uploader belongs to
+ * @param {{catalog,catalogById,aliasMap}|null} ctx - سياق مُحمّل مسبقاً (وضع الدُّفعة)
  */
-export async function findOrCreateItem(name, userId, sciCompanyIds = null) {
+export async function findOrCreateItem(name, userId, sciCompanyIds = null, ctx = null) {
   const normalized = normalizeArabic(name);
+  const ids = (sciCompanyIds || []).filter(Boolean);
 
-  // 1. Check company catalog first (if user belongs to a company)
-  if (sciCompanyIds && sciCompanyIds.length > 0) {
-    const catalogItems = await prisma.item.findMany({
-      where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
-      select: { id: true, name: true },
-    });
-    const found = catalogItems.find(i => normalizeArabic(i.name) === normalized);
-    if (found) return found;
-  }
-
-  // 2. Try existing user-scoped item (not temp)
-  if (userId) {
+  if (ids.length > 0) {
+    // مسار الشركة — مطابقة ذكية
+    const resolveCtx = ctx || await loadResolutionContext({ scientificCompanyIds: ids, userId });
+    const r = await resolveItemName(name, resolveCtx);
+    if (r.canonicalItem && (r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high')) {
+      return r.canonicalItem;
+    }
+    // medium/none → يسقط إلى إنشاء ايتم مؤقت أدناه
+  } else if (userId) {
+    // مسار "لا شركة" — تطابق تام لايتمات المستخدم غير المؤقتة (كما في السابق)
     const userItems = await prisma.item.findMany({
       where: { userId, isTemp: false },
       select: { id: true, name: true },
@@ -143,7 +145,7 @@ export async function findOrCreateItem(name, userId, sciCompanyIds = null) {
     if (found) return found;
   }
 
-  // 3. Create new temp item scoped to user — not in any company catalog
+  // إنشاء ايتم مؤقت (غير موجود في الكتالوج) — مطابق للسلوك القديم
   return prisma.item.upsert({
     where:  { name_userId: { name: normalized, userId } },
     update: {},

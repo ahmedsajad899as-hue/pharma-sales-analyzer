@@ -211,6 +211,7 @@ model Item {
   commercialItems     CommercialInvoiceItem[]
   repTargets          RepItemTarget[]
   dailyPlanEntries    DailyPlanEntry[]
+  aliases             ItemMergeRule[]         @relation("ItemAliases")
 
   @@unique([name, userId])
   @@index([userId])
@@ -363,23 +364,36 @@ model FilterPreset {
 }
 
 // ------------------------------------------------------------
-// ITEM MERGE RULES — قواعد دمج الايتمات المحفوظة
-// عندما يؤكّد المستخدم دمج ايتم "from" داخل "to"، نحفظ القاعدة هنا
-// ليُطبَّق الدمج تلقائياً في أي رفع لاحق يحتوي نفس الاسم.
+// ITEM MERGE RULES — قواعد توحيد/دمج أسماء الايتمات المحفوظة
+// عندما يؤكّد المستخدم أن اسماً = ايتم قانوني، نحفظ القاعدة هنا ليُطبَّق
+// التوحيد تلقائياً في أي رفع/عرض لاحق يحتوي نفس الاسم.
+// النطاق = الشركة العلمية (مشترك بين كل مستخدميها). userId يبقى منشئ القاعدة
+// وللتوافق مع القواعد القديمة (per-user) قبل الترحيل.
 // ------------------------------------------------------------
 model ItemMergeRule {
   id        Int      @id @default(autoincrement())
   fromKey   String // الاسم المدموج بعد التطبيع (lowercase/trim) — مفتاح المطابقة
   fromName  String // الاسم الأصلي كما ظهر (للعرض)
-  toName    String // الاسم المُبقى (القانوني) الذي يُدمج فيه
+  toName    String // الاسم القانوني (للعرض/التوافق) — الهوية الفعلية عبر toItemId
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())
 
-  userId Int
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // نطاق الشركة — القاعدة تُشارك بين كل مستخدمي الشركة العلمية (توحيد موحّد)
+  scientificCompanyId Int?
+  scientificCompany   ScientificCompany? @relation("CompanyAliases", fields: [scientificCompanyId], references: [id], onDelete: Cascade)
+  // الايتم القانوني الهدف (أمتن من toName النصّي؛ يصمد أمام إعادة التسمية)
+  toItemId Int?
+  toItem   Item? @relation("ItemAliases", fields: [toItemId], references: [id], onDelete: Cascade)
+
+  // منشئ القاعدة (كان مفتاح النطاق سابقاً؛ nullable الآن لأن قواعد الشركة قد لا ترتبط بمستخدم)
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([userId, fromKey])
+  @@unique([scientificCompanyId, fromKey])
   @@index([userId])
+  @@index([scientificCompanyId])
+  @@index([toItemId])
   @@map("item_merge_rules")
 }
 
@@ -910,6 +924,7 @@ model ScientificCompany {
   items                  Item[]                  @relation("CompanyItems")
   lines                  ProductLine[]
   userCompanyAssignments UserCompanyAssignment[]
+  itemAliases            ItemMergeRule[]         @relation("CompanyAliases")
 
   @@unique([name, officeId])
   @@index([officeId])

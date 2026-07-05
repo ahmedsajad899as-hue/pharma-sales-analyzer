@@ -19,6 +19,7 @@ import {
   getAllCompanies,
 } from './sales.repository.js';
 import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
+import { loadResolutionContext } from '../../lib/itemResolver.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
@@ -373,9 +374,15 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
   const uniqueCustomers = [...new Set(validRows.map(r => r.customer).filter(Boolean))];
   const uniqueCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
 
+  // نحمّل سياق التوحيد (كتالوج الشركة + ايتمات المستخدم + aliases) مرة واحدة ونمرّره
+  // لكل استدعاء findOrCreateItem بدل تحميله لكل اسم (يمنع استعلامات متكرّرة).
+  const itemCtx = sciCompanyIds.length > 0
+    ? await loadResolutionContext({ scientificCompanyIds: sciCompanyIds, userId })
+    : null;
+
   const [areaMap, itemMap, repMap, customerMap, companyMap] = await Promise.all([
     resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId)),
-    resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId, sciCompanyIds)),
+    resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId, sciCompanyIds, itemCtx)),
     resolveEntities(uniqueReps,      name => findOrCreateRep(name, userId)),
     resolveEntities(uniqueCustomers, name => findOrCreateCustomer(name, userId)),
     resolveEntities(uniqueCompanies, name => findOrCreateCompany(name, userId)),
