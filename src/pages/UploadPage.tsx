@@ -471,11 +471,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'فشل تطبيق التغييرات');
       const parts: string[] = [];
-      if (json.linked) parts.push(`ربط ${json.linked}`);
-      if (json.added)  parts.push(`إضافة ${json.added} للكتالوج`);
+      if (json.linked)   parts.push(`ربط ${json.linked}`);
+      if (json.added)    parts.push(`إضافة ${json.added} للكتالوج`);
+      if (json.deferred) parts.push(`${json.deferred} أُرسل للمشرف`);
       setCatalogMsg(parts.length ? `✓ تم: ${parts.join(' · ')}` : '✓ تم');
-      // Drop resolved names from the unknown-items panel so it reflects the new state.
-      const resolvedIds = new Set(actions.map((a: any) => a.tempItemId));
+      // فقط المرتبطة تُعدّ محسومة؛ المُرسَلة للمشرف (add) تبقى في قائمة غير المعروفة حتى يعالجها المشرف.
+      const resolvedIds = new Set(actions.filter((a: any) => a.type === 'link').map((a: any) => a.tempItemId));
       const resolvedNames = new Set(
         catalogModal.items.filter(it => it.tempItemId != null && resolvedIds.has(it.tempItemId)).map(it => it.name)
       );
@@ -1297,7 +1298,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               <button onClick={() => setCatalogModal(null)} disabled={catalogApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9a3412' }}>✕</button>
             </div>
             <p style={{ margin: '0 0 12px', fontSize: 11.5, color: '#78716c' }}>
-              لكل ايتم: اربطه بايتم موجود في الكتالوج (يُدمج ويُتذكَّر للمرات القادمة) أو أضفه للكتالوج المشترك كايتم جديد.
+              لكل ايتم: اربطه بايتم موجود في الكتالوج (يُدمج ويُتذكَّر للمرات القادمة). الأسماء الجديدة كلياً تُرسَل لمشرف الشركة لإضافتها للكتالوج (إضافة الايتمات الجديدة للكتالوج صلاحية المشرف).
             </p>
 
             {catalogLoading ? (
@@ -1364,7 +1365,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                             {it.suggestions.map(s => (
                               <option key={s.id} value={`link:${s.id}`}>🔗 ربط ← {s.name}</option>
                             ))}
-                            {catalogModal.companies.length > 0 && <option value="add">➕ إضافة للكتالوج كجديد</option>}
+                            {catalogModal.companies.length > 0 && <option value="add">📤 إرسال للمشرف للإضافة كايتم جديد</option>}
                             <option value="skip">تخطّي</option>
                           </select>
                           {action.type === 'add' && catalogModal.companies.length > 1 && (
