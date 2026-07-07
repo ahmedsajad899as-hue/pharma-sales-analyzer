@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { ALL_FEATURE_KEYS } from '../config/featureConfig';
 
 export interface AuthUser {
   id: number;
@@ -16,6 +17,7 @@ export interface SavedAccount {
 }
 
 const SAVED_ACCOUNTS_KEY = 'saved_accounts';
+const warnedMissingFeatureKeys = new Set<string>();
 
 function loadSavedAccounts(): SavedAccount[] {
   try { return JSON.parse(localStorage.getItem(SAVED_ACCOUNTS_KEY) || '[]'); }
@@ -166,6 +168,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user?.role === 'commercial_team_leader';
 
   const hasFeature = (key: string): boolean => {
+    if (import.meta.env.DEV && !ALL_FEATURE_KEYS.has(key) && !warnedMissingFeatureKeys.has(key)) {
+      warnedMissingFeatureKeys.add(key);
+      console.warn(`[hasFeature] المفتاح "${key}" غير مسجَّل في src/config/featureConfig.ts — أضِفه إلى PAGE_CHILDREN أو STANDALONE_FEATURES وإلا فلن يظهر تبديله في شاشة المميزات عند الأدمن.`);
+    }
     try {
       const p = JSON.parse(user?.permissions || '{}');
       return !(p.disabledFeatures ?? []).includes(key);

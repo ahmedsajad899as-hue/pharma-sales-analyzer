@@ -3,6 +3,7 @@ import type { PageId } from '../../App';
 import { useAuth } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { NAV_ITEMS, FEATURE_PAGE_MAP, COMM_REP_ORDER } from '../../config/featureConfig';
 
 function OrdineLogo({ size = 28 }: { size?: number }) {
   return (
@@ -91,43 +92,19 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   const REP_ANALYSIS_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor', 'company_manager']);
 
   // roles: [] means "all roles"; roles with entries means restricted to those roles only
-  const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = [
-    { id: 'dashboard', label: role === 'commercial_rep' ? '💹 المبيع والارجاع' : t.nav.dashboard, icon: '📊', roles: [] },
-    // Merged page — shown to ALL roles that deal with rep files (scientific_rep, managers, admin, etc.)
-    { id: 'rep-analysis',    label: 'تحليل ملفات المندوبين', icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    // Individual pages removed from sidebar — accessible only as tabs inside rep-analysis page
-    { id: 'doctors',         label: t.nav.doctors,         icon: '🏥', roles: [] },
-    { id: 'monthly-plans',   label: t.nav.monthlyPlans,    icon: '📅', roles: [] },
-    { id: 'daily-plan',      label: t.nav.dailyPlan,       icon: '📆', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','user'] },
-    { id: 'master-survey',   label: 'سيرفي اوردين',        icon: '🗂️', roles: [] },
-    { id: 'fms',             label: 'FMS — عينات شهرية',  icon: '🧪', roles: ['company_manager','admin','manager'] },
-    { id: 'sales-data',      label: 'Stock',                icon: '📊', roles: [] },
-    { id: 'distributor-sales', label: 'تحليل الموزعين',      icon: '📦', roles: [] },
-    { id: 'file-filter',        label: 'تنقية الملفات',        icon: '🗂️', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'pharmacy-analysis', label: 'Pharmacy Net',          icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
-    { id: 'bonus-sales',       label: 'Bonus',                icon: '🎁', roles: ['admin','manager','company_manager','team_leader','commercial_team_leader','commercial_supervisor','office_manager','scientific_rep','commercial_rep'] },
-    { id: 'reports',         label: t.nav.reports,         icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
-    { id: 'users',           label: t.nav.users,           icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
-    { id: 'commercial',      label: 'التجاري',             icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager'] },
-    { id: 'org-structure',   label: 'الهيكلية',            icon: '🏗️', roles: ['company_manager','admin','manager','office_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
-  ];
+  // Source of truth: src/config/featureConfig.ts (shared with the Super Admin "Features" screen)
+  const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = NAV_ITEMS.map(item => ({
+    id:    item.id as PageId,
+    label: item.id === 'dashboard' && role === 'commercial_rep'
+      ? '💹 المبيع والارجاع'
+      : item.i18nKey ? t.nav[item.i18nKey] : item.labelAr,
+    icon:  item.icon,
+    roles: item.roles,
+  }));
 
   // Feature-to-page mapping — pages hidden when feature is disabled
   // Multiple keys can map to the same page; any disabled key will hide that page
-  const featurePageMap: Record<string, PageId> = {
-    monthly_plans:  'monthly-plans',
-    daily_plans:    'daily-plan',
-    reports:        'reports',
-    rep_analysis:   'rep-analysis',
-    rep_files:      'rep-analysis',
-    users_list:     'users',
-    master_survey:      'master-survey',
-    free_samples:       'fms',
-    distributor_sales:  'distributor-sales',
-    sales_data:         'sales-data',
-    file_filter:        'file-filter',
-    bonus_sales:        'bonus-sales',
-  };
+  const featurePageMap = FEATURE_PAGE_MAP as Record<string, PageId>;
 
   // empty roles array = visible to all; otherwise check role inclusion
   const filteredItems = navItems.filter(item => {
@@ -140,7 +117,6 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   });
 
   // For commercial_rep: show التجاري first, then الرئيسية, then السيرفي
-  const COMM_REP_ORDER: PageId[] = ['commercial', 'dashboard', 'doctors'];
   const visibleItems = role === 'commercial_rep'
     ? [...filteredItems].sort((a, b) => {
         const ai = COMM_REP_ORDER.indexOf(a.id as PageId);

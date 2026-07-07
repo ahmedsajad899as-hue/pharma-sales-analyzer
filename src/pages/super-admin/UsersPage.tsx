@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
+import { getVisiblePageNodes, STANDALONE_FEATURES } from '../../config/featureConfig';
+import type { FeatureNode } from '../../config/featureConfig';
 
 const ROLES = [
   { value: 'office_manager',          label: 'مدير مكتب' },
@@ -18,122 +20,10 @@ const ROLES = [
   { value: 'manager',                 label: 'مدير (manager)' },
 ];
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  MANDATORY RULE — FEATURE_TREE                                          ║
-// ║  أي صفحة أو تبويب أو زر أو حقل أو ميزة جديدة تُضاف للتطبيق            ║
-// ║  يجب إضافتها هنا في FEATURE_TREE فوراً بـ key عربي ووصف وأيقونة        ║
-// ║  ثم تُغلق في المكوّن المناسب عبر:  hasFeature('key')                   ║
-// ║  وإن كانت صفحة كاملة: أضفها أيضاً في featurePageMap بـ Sidebar.tsx     ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
-
-// ── Role groups for feature-tree visibility ──────────────────────────────────
-const COMMERCIAL_ROLES = ['commercial_rep','commercial_team_leader','commercial_supervisor','admin','manager','office_manager','company_manager'];
-const REP_ROLES        = ['scientific_rep','team_leader','supervisor','admin','manager','company_manager','product_manager','office_manager'];
-
-interface FeatureNode {
-  key?:       string;
-  label:      string;
-  icon:       string;
-  desc?:      string;
-  onlyRoles?: string[];
-  children?:  FeatureNode[];
-}
-
-const FEATURE_TREE: FeatureNode[] = [
-  // ── 1. لوحة الرئيسية
-  {
-    label: 'لوحة الرئيسية', icon: '🏠',
-    desc: 'الشاشة الرئيسية — متاحة دائماً لجميع المستخدمين',
-    children: [
-      { key: 'call_log',    label: 'سجل إضافة الزيارات',    icon: '📝', desc: 'نموذج تسجيل الزيارة اليومية وإدخال البيانات' },
-      { key: 'voice_visit', label: 'الزيارة الصوتية',         icon: '🎤', desc: 'زر تسجيل الزيارة عبر الصوت (الميكروفون)'     },
-      { key: 'daily_map',   label: 'خريطة الزيارات اليومية',  icon: '🗺️', desc: 'عرض مواقع الزيارات على الخريطة التفاعلية'   },
-    ],
-  },
-  // ── 2. مساعد الذكاء الاصطناعي
-  { key: 'ai_assistant', label: 'مساعد الذكاء الاصطناعي', icon: '🤖', desc: 'الزر العائم للأوامر الصوتية والنصية الذكية' },
-  // ── 3. قائمة السيرفي
-  {
-    label: 'قائمة السيرفي', icon: '🏥',
-    desc: 'صفحة إدارة الأطباء والزيارات — متاحة لجميع الأدوار',
-    children: [
-      { key: 'visit_analysis_tab', label: 'تحليل الزيارات',           icon: '📍', desc: 'تبويب تحليل أداء الزيارات اليومية'               },
-      { key: 'doctors_list_tab',   label: 'قائمة الأطباء',             icon: '📋', desc: 'تبويب عرض وإدارة قائمة الأطباء'                 },
-      { key: 'archive_tab',        label: 'أرشيف السيرفي',             icon: '📚', desc: 'تبويب أرشيف يدوي مستقل لتتبع أطباء السيرفي'    },
-      { key: 'my_visits_tab',      label: 'زياراتي',                  icon: '📝', desc: 'تبويب زيارات المندوب التجاري', onlyRoles: COMMERCIAL_ROLES },
-      { key: 'pharmacies_tab',     label: 'قائمة الصيدليات',           icon: '🏪', desc: 'تبويب قائمة الصيدليات',        onlyRoles: COMMERCIAL_ROLES },
-      { key: 'doctor_fields',      label: 'الحقول التفصيلية للطبيب',  icon: '🩺', desc: 'التخصص والمنطقة والصيدلية والملاحظات'          },
-    ],
-  },
-  // ── 4. البلانات الشهرية
-  { key: 'monthly_plans', label: 'البلانات الشهرية', icon: '📅', desc: 'صفحة إنشاء وإدارة البلانات الشهرية' },
-  // ── 5. التقارير
-  {
-    key: 'reports', label: 'التقارير', icon: '📊', desc: 'صفحة عرض التقارير والإحصائيات',
-    children: [
-      { key: 'export_report', label: 'تصدير التقارير', icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير' },
-    ],
-  },
-  // ── 6. تحليل ملفات المندوبين
-  {
-    key: 'rep_analysis', label: 'تحليل ملفات المندوبين', icon: '📂',
-    desc: 'صفحة رفع وتحليل ملفات بيانات المندوبين', onlyRoles: REP_ROLES,
-    children: [
-      { key: 'rep_files', label: 'رفع وعرض الملفات', icon: '📤', desc: 'رفع ملفات Excel وعرض نتائج التحليل', onlyRoles: REP_ROLES },
-      { key: 'currency_convert', label: 'تحويل العملة في التحليل', icon: '💱', desc: 'تحويل أسعار الملفات من الدينار إلى الدولار عند التحليل — يُضبط لكل ملف على حدة', onlyRoles: REP_ROLES },
-    ],
-  },
-  // ── 7. سيرفي اوردين
-  { key: 'master_survey', label: 'سيرفي اوردين', icon: '🗂️', desc: 'صفحة سيرفي اوردين — الاطلاع على قوائم الأطباء والصيدليات المركزية' },
-  // ── 7.1 عينات مجانية (FMS)
-  { key: 'free_samples', label: 'عينات مجانية', icon: '🧪', desc: 'صفحة إدارة العينات المجانية الشهرية الموزعة على الأطباء' },
-  // ── 8. تحليل مبيعات الموزعين
-  { key: 'distributor_sales', label: 'تحليل مبيعات الموزعين', icon: '📦', desc: 'رفع وتحليل ملفات Excel بتنسيق امازون / فريق — شهر3 / شهر4 / اعادة الفوترة' },
-  // ── 8.1 تنقية الملفات
-  { key: 'file_filter', label: 'تنقية الملفات', icon: '🗂️', desc: 'صفحة تنقية وتنظيف ملفات Excel وحذف الصفوف المكررة أو غير الصالحة' },
-  // ── 8.2 مبيعات البونص والتعويضات
-  {
-    key: 'bonus_sales', label: 'مبيعات البونص والتعويضات', icon: '🎁',
-    desc: 'رفع ملفات مبيعات البونص ومقارنتها بملفات التعويضات — مع تتبع تسليم البونص للصيدليات',
-    children: [
-      { key: 'bonus_sales_upload',   label: 'رفع ملف المبيعات',       icon: '📤', desc: 'رفع ملف Excel للمبيعات الأساسي' },
-      { key: 'bonus_comp_upload',    label: 'رفع ملف التعويضات',      icon: '📎', desc: 'رفع ملف التعويضات ومطابقته مع المبيعات' },
-      { key: 'bonus_delivery_mark',  label: 'تأشير تسليم البونص',     icon: '✓',  desc: 'تأشير تسليم البونص للصيدلية من قبل المندوب' },
-      { key: 'bonus_assign_auto',    label: 'توزيع بونص تلقائي',      icon: '🤖', desc: 'توزيع صفوف البونص تلقائياً على المندوبين بحسب المناطق' },
-      { key: 'bonus_assign_manual',  label: 'توزيع بونص يدوي',        icon: '🗂', desc: 'تعيين صفوف أو مناطق بونص يدوياً لمندوب محدد' },
-      { key: 'bonus_my_rows',        label: 'بونصاتي (مندوب)',        icon: '🎁', desc: 'عرض قائمة البونصات المعيَّنة للمندوب الحالي' },
-    ],
-  },
-  // ── 9. بيانات المبيعات (Sales Data — ستوك المخازن)
-  {
-    key: 'sales_data', label: 'بيانات المبيعات', icon: '📊',
-    desc: 'صفحة تحليل ستوكات المخازن — رفع ملفات Excel وعرض الجداول والتحليل',
-    children: [
-      { key: 'sales_data_upload',    label: 'رفع ملف / استيراد',           icon: '📥', desc: 'زر استيراد ملف Excel جديد وإضافته للقائمة'            },
-      { key: 'sales_data_delete',    label: 'حذف الملف',                    icon: '🗑️', desc: 'حذف الملف من القائمة والخادم'                          },
-      { key: 'sales_data_merge',     label: 'دمج الملفات',                  icon: '🔗', desc: 'دمج ملفين أو أكثر في ملف موحد'                         },
-      { key: 'sales_data_export',    label: 'تصدير (Excel / Word / صورة)', icon: '⬇️', desc: 'قائمة تصدير الجدول بصيغ Excel وWord والصورة'          },
-      { key: 'sales_data_shortage',  label: 'رادار النقص',                  icon: '🔴', desc: 'عرض الأصناف الناقصة أو المنعدمة في المخازن'            },
-      { key: 'sales_data_classify',  label: 'تصنيف المذاخر (A/B/C)',       icon: '🏷️', desc: 'رفع ملف تصنيف المذاخر وتفعيل ألوان A/B/C على الجدول'  },
-      { key: 'sales_data_value',     label: 'عرض القيمة المالية',           icon: '💰', desc: 'زر تبديل عرض الكميات ↔ القيم المالية'                 },
-      { key: 'sales_data_analysis',  label: 'تبويب التحليل',               icon: '📈', desc: 'تبويب التحليل البياني حسب المنطقة والمخزن'             },
-    ],
-  },
-  // ── 10. قائمة المستخدمين
-  { key: 'users_list', label: 'قائمة المستخدمين',        icon: '👥', desc: 'صفحة عرض وإدارة قائمة المستخدمين'   },
-  // ── 8. قائمة الطلبات (السيرفي)
-  { key: 'wish_list',  label: 'قائمة الطلبات (السيرفي)', icon: '📋', desc: 'خاصية عرض قائمة الأطباء المستهدفين' },
-  // ── 9. تبديل الحساب
-  { key: 'switch_account', label: 'تبديل الحساب (Switch Account)', icon: '⇄', desc: 'زر في الشريط الجانبي لتبديل الحسابات المحفوظة بدون تسجيل خروج' },
-  // ── 11. التارگت الشهري
-  { key: 'targets_tab', label: '🎯 التارگت الشهري', icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين العلميين والتجاريين ومقارنته بالمبيعات' },
-  // ── 12. تحليل الإيتم المعمّق (AI) — تبويب جديد داخل Pharmacy Net
-  {
-    key: 'item_deep_analysis', label: 'تحليل الإيتم المعمّق (AI)', icon: '🔍',
-    desc: 'تبويب داخل صفحة Pharmacy Net — تحليل ذكي شامل لأي إيتم: المبيع، الإرجاعات، المناطق، المندوبين، زيارات الأطباء والصيدليات، الفيدباك + توصيات Gemini',
-    onlyRoles: ['company_manager','admin','manager','product_manager','office_manager','team_leader','supervisor','commercial_supervisor','commercial_team_leader'],
-  },
-];
+// ملاحظة: شجرة الميزات (FEATURE_TREE) أصبحت مبنية تلقائياً من src/config/featureConfig.ts —
+// نفس الملف الذي يبني منه القائمة الجانبية الحقيقية (Sidebar.tsx)، فأي صفحة جديدة تُضاف
+// إلى NAV_ITEMS هناك تظهر هنا تلقائياً بنفس الاسم والأيقونة دون أي تعديل في هذا الملف.
+// الميزات الفرعية (تبويب/زر داخل صفحة) لا تزال تُضاف يدوياً في PAGE_CHILDREN هناك.
 
 interface Office   { id: number; name: string; }
 interface Company  { id: number; name: string; officeId: number; }
@@ -1046,24 +936,24 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               );
             };
 
-            const visibleNodes = FEATURE_TREE.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role));
-            const activeNode   = visibleNodes.find(n => (n.key || n.label) === featSection) ?? null;
+            // صفحات حساب هذا المستخدم — بنفس تسميتها وأيقوناتها وترتيب ظهورها الحقيقي
+            // في القائمة الجانبية الفعلية لدوره (مصدرها src/config/featureConfig.ts، وهو
+            // نفس الملف الذي تُبنى منه Sidebar.tsx الحقيقية).
+            const visiblePages      = getVisiblePageNodes(detail.role);
+            const visibleStandalone = STANDALONE_FEATURES.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role));
+            const activeNode = [...visiblePages.map(p => p.node), ...visibleStandalone]
+              .find(n => (n.key || n.label) === featSection) ?? null;
+
+            const DOT_COLOR: Record<string, string> = { on: '#22c55e', partial: '#f59e0b', off: '#ef4444' };
 
             const SidebarBtn = ({ id, icon, label, dot }: { id: string; icon: string; label: string; dot?: { color: string } | null }) => (
               <button
                 onClick={() => setFeatSection(id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                  padding: '10px 12px', border: 'none', cursor: 'pointer', direction: 'rtl',
-                  borderRadius: 8, marginBottom: 2,
-                  background: featSection === id ? 'rgba(99,102,241,0.18)' : 'transparent',
-                  color: featSection === id ? '#c7d2fe' : '#94a3b8',
-                  borderRight: `3px solid ${featSection === id ? '#6366f1' : 'transparent'}`,
-                  transition: 'all 0.12s',
-                }}
+                className={`sidebar-nav-item${featSection === id ? ' sidebar-nav-item--active' : ''}`}
+                style={{ marginBottom: 2 }}
               >
-                <span style={{ fontSize: 17, flexShrink: 0 }}>{icon}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, flex: 1, textAlign: 'right', lineHeight: 1.3 }}>{label}</span>
+                <span className="sidebar-nav-icon">{icon}</span>
+                <span className="sidebar-nav-label">{label}</span>
                 {dot
                   ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
                   : <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>
@@ -1071,57 +961,98 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </button>
             );
 
-            const DOT_COLOR: Record<string, string> = { on: '#22c55e', partial: '#f59e0b', off: '#ef4444' };
+            const SectionLabel = ({ text }: { text: string }) => (
+              <div style={{ fontSize: 9, fontWeight: 800, color: '#4b5d7c', padding: '4px 8px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>{text}</div>
+            );
 
             return (
-              <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0', minHeight: 520 }}>
-
-                {/* ════ LEFT SIDEBAR ════ */}
-                <div style={{ width: 210, background: '#0f172a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-                  {/* Brand header */}
-                  <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', letterSpacing: 1.2, textTransform: 'uppercase' }}>صلاحيات المستخدم</div>
-                    <div style={{ fontSize: 10, color: '#334155', marginTop: 2 }}>{detail.displayName || detail.username}</div>
-                  </div>
-
-                  {/* Settings section */}
-                  <div style={{ padding: '10px 8px 4px' }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', padding: '0 4px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>الإعدادات</div>
-                    <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
-                    <SidebarBtn id="activity_log"  icon="🕵️" label="سجل الحركات"  dot={{ color: draftDisableActLog ? '#94a3b8' : '#22c55e' }} />
-                    <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
-                  </div>
-
-                  {/* Divider */}
-                  <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 12px' }} />
-
-                  {/* Features section */}
-                  <div style={{ padding: '6px 8px', flex: 1, overflowY: 'auto' }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, color: '#334155', padding: '0 4px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>الميزات</div>
-                    {visibleNodes.map(node => {
-                      const st = getNodeStatus(node);
-                      return (
-                        <SidebarBtn
-                          key={node.key || node.label}
-                          id={node.key || node.label}
-                          icon={node.icon}
-                          label={node.label}
-                          dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
-                        />
-                      );
-                    })}
-                  </div>
-
-                  {/* Save button */}
-                  <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                    <button onClick={saveFeatures} disabled={saving}
-                      style={{ width: '100%', padding: '9px', borderRadius: 8, border: 'none', cursor: saving ? 'wait' : 'pointer', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 12 }}>
-                      {saving ? '...' : '💾 حفظ التغييرات'}
-                    </button>
-                  </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🪟 معاينة حيّة للقائمة الجانبية كما تظهر فعلياً داخل حساب <b>{detail.displayName || detail.username}</b> — بدّل أي خانة مباشرة من هنا
                 </div>
+                <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0', minHeight: 560 }}>
 
-                {/* ════ RIGHT CONTENT ════ */}
+                  {/* ════ LEFT: نسخة طبق الأصل من الشريط الجانبي الحقيقي ════ */}
+                  <div style={{ width: 240, background: 'linear-gradient(180deg, #0f1e35 0%, #0a1628 100%)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                    {/* Brand header — matches the real sidebar-brand */}
+                    <div className="sidebar-brand" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                      <span className="sidebar-brand-icon">🔷</span>
+                      <span className="sidebar-brand-text">Ordine</span>
+                    </div>
+
+                    {/* Whose account this is */}
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#1a56db', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15, flexShrink: 0 }}>
+                        {(detail.displayName || detail.username || '?')[0].toUpperCase()}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e8f4', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail.displayName || detail.username}</div>
+                        <div style={{ fontSize: 10.5, color: '#8fa0be' }}>{ROLES.find(r => r.value === detail.role)?.label || detail.role}</div>
+                      </div>
+                    </div>
+
+                    {/* Settings section */}
+                    <div style={{ padding: '8px 8px 0' }}><SectionLabel text="الإعدادات" /></div>
+                    <div className="sidebar-nav" style={{ flex: 'none', padding: '0 8px' }}>
+                      <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
+                      <SidebarBtn id="activity_log"  icon="🕵️" label="سجل الحركات"  dot={{ color: draftDisableActLog ? '#94a3b8' : '#22c55e' }} />
+                      <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
+                    </div>
+
+                    <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '8px 12px' }} />
+
+                    {/* Real nav pages — same order/labels/icons the user actually sees */}
+                    <div style={{ padding: '0 8px' }}><SectionLabel text="صفحات الحساب" /></div>
+                    <nav className="sidebar-nav" style={{ flex: 1, minHeight: 0, padding: '0 8px' }}>
+                      {visiblePages.map(({ node }) => {
+                        const st = getNodeStatus(node);
+                        return (
+                          <SidebarBtn
+                            key={node.key || node.label}
+                            id={node.key || node.label}
+                            icon={node.icon}
+                            label={node.label}
+                            dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
+                          />
+                        );
+                      })}
+                      {visiblePages.length === 0 && (
+                        <div style={{ color: '#4b5d7c', fontSize: 11.5, padding: '8px' }}>لا توجد صفحات مرئية لهذا الدور</div>
+                      )}
+                    </nav>
+
+                    {/* Standalone / global features */}
+                    {visibleStandalone.length > 0 && (
+                      <>
+                        <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 12px' }} />
+                        <div style={{ padding: '4px 8px 0' }}><SectionLabel text="ميزات عامة" /></div>
+                        <div style={{ padding: '0 8px 6px' }}>
+                          {visibleStandalone.map(node => {
+                            const st = getNodeStatus(node);
+                            return (
+                              <SidebarBtn
+                                key={node.key || node.label}
+                                id={node.key || node.label}
+                                icon={node.icon}
+                                label={node.label}
+                                dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
+                              />
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Save button */}
+                    <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                      <button onClick={saveFeatures} disabled={saving}
+                        style={{ width: '100%', padding: '9px', borderRadius: 8, border: 'none', cursor: saving ? 'wait' : 'pointer', background: '#1a56db', color: '#fff', fontWeight: 700, fontSize: 12 }}>
+                        {saving ? '...' : '💾 حفظ التغييرات'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ════ RIGHT CONTENT ════ */}
                 <div style={{ flex: 1, overflowY: 'auto', background: '#f8fafc', padding: '22px 24px' }}>
 
                   {/* ── GPS ── */}
@@ -1319,6 +1250,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
                 </div>
               </div>
+            </div>
             );
           })()}
         </div>
