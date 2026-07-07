@@ -155,6 +155,26 @@ const POSITIVE_NOTE_RE = new RegExp([
   'اتصل', 'تواصل', 'يتواصل',
 ].join('|'));
 
+// ── Helper: resolve which userId owns the Doctor rows for a rep ──
+// Mirrors resolveDocOwnerUserId in doctors.controller.js. A rep's own login
+// account normally does NOT own Doctor rows (those belong to whoever
+// uploaded/manages them — usually the rep's manager). repLinkedUserId is
+// ScientificRepresentative.userId; when it's missing or equal to the caller
+// (self-service: the rep is calling on their own account), fall back to the
+// rep's UserManagerAssignment.managerId instead of giving up on the caller's
+// own (typically empty) Doctor pool.
+async function resolveRepDoctorOwnerUserId(repLinkedUserId, callerUserId) {
+  let ownerId = repLinkedUserId ?? callerUserId;
+  if (ownerId === callerUserId) {
+    const managerAssign = await prisma.userManagerAssignment.findFirst({
+      where: { userId: ownerId },
+      select: { managerId: true },
+    });
+    if (managerAssign?.managerId) ownerId = managerAssign.managerId;
+  }
+  return ownerId;
+}
+
 // ── Smart suggestion for new plan ────────────────────────────
 // Logic: take prev month visits, keep positive feedback, replace negative with new doctors from survey
 export async function suggest(req, res, next) {
@@ -233,8 +253,11 @@ export async function suggest(req, res, next) {
     if (!noRepMode) {
       prevPlans = await prisma.monthlyPlan.findMany({
         where: {
-          scientificRepId: repId, userId,
-          OR: prevMonthsList.map(p => ({ month: p.month, year: p.year })),
+          scientificRepId: repId,
+          AND: [
+            { OR: [{ userId }, { assignedUserId: userId }] },
+            { OR: prevMonthsList.map(p => ({ month: p.month, year: p.year })) },
+          ],
         },
         include: {
           entries: {
@@ -256,12 +279,12 @@ export async function suggest(req, res, next) {
     let currentPlan;
     if (noRepMode) {
       currentPlan = await prisma.monthlyPlan.findFirst({
-        where: { id: parseInt(qPlanId), userId },
+        where: { id: parseInt(qPlanId), OR: [{ userId }, { assignedUserId: userId }] },
         include: { entries: { select: { doctorId: true } } },
       });
     } else {
       currentPlan = await prisma.monthlyPlan.findFirst({
-        where: { scientificRepId: repId, month: m, year: y, userId },
+        where: { scientificRepId: repId, month: m, year: y, OR: [{ userId }, { assignedUserId: userId }] },
         include: { entries: { select: { doctorId: true } } },
       });
     }
@@ -291,7 +314,7 @@ export async function suggest(req, res, next) {
           select: { userId: true },
         });
         repLinkedUserId = repRecord?.userId ?? null;
-        doctorUserId = repLinkedUserId ?? userId;
+        doctorUserId = await resolveRepDoctorOwnerUserId(repLinkedUserId, userId);
       } else {
         doctorUserId = userId;
       }
@@ -320,7 +343,7 @@ export async function suggest(req, res, next) {
         areaIds = userAreas.map(a => a.areaId);
       }
 
-      doctorUserId = repLinkedUserId ?? userId;
+      doctorUserId = await resolveRepDoctorOwnerUserId(repLinkedUserId, userId);
     }
 
     const areaIdSet = new Set(areaIds);
