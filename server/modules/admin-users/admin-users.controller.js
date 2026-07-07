@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../../lib/prisma.js';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -189,11 +190,7 @@ export async function setUserAreas(req, res) {
     });
     const managerIds = managerRows.map(r => r.managerId);
     if (managerIds.length > 0 && parsedAreaIds.length > 0) {
-      const normA = s => String(s || '').trim()
-        .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-        .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-        .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-        .toLowerCase().trim();
+      const normA = normalizeAreaName;
 
       const chosenAreas = await prisma.area.findMany({
         where: { id: { in: parsedAreaIds } },
@@ -245,11 +242,7 @@ export async function setUserAreas(req, res) {
 
       // 2. Auto-assign commercial reps based on area name matching
       if (finalAreaIds.length > 0) {
-        const normA = s => String(s || '').trim()
-          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-          .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-          .toLowerCase().trim();
+        const normA = normalizeAreaName;
 
         // Get the names of the assigned areas
         const assignedAreas = await prisma.area.findMany({

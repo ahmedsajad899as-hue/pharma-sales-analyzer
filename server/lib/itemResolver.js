@@ -37,6 +37,20 @@ export function normalizeArabic(str) {
 }
 
 /**
+ * تطبيع اسم منطقة للمطابقة: normalizeArabic (يحذف "ال" التعريف) + حذف بادئات
+ * إدارية شائعة (حي/محلة/قضاء/ناحية) لتوحيد "حي القادسية" و"القادسية" ونحوها.
+ * وحّدت هنا نسخاً كانت مكررة بصيغ مختلفة في doctors.controller.js،
+ * doctor-archive.controller.js، admin-users.controller.js — إحدى النسخ لم تكن
+ * تحذف "ال" فسبّبت عدم تطابق "القادسية" (اسم المنطقة القانوني) مع "قادسية"
+ * (تهجئة السيرفي النشط)، فتختفي كل أطباء تلك المنطقة من التحليل والأرشيف.
+ */
+export function normalizeAreaName(str) {
+  return normalizeArabic(str)
+    .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
+    .toLowerCase();
+}
+
+/**
  * المفتاح القانوني لايتم — يُستخدم للمطابقة التامة وكمفتاح alias (fromKey).
  * تطبيع عربي ثم تطبيع لاتيني (lowercase/trim/collapse) — لأن أسماء الأدوية لاتينية غالباً.
  */

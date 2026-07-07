@@ -1,10 +1,9 @@
 import prisma from '../../lib/prisma.js';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
 
 // ── Arabic normalization helper ───────────────────────────────
-// Normalizes Arabic text: hamza variants → ا, ة → ه, ى → ي, strip diacritics
-const normAreaKey = s => String(s ?? '').trim().toLowerCase()
-  .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-  .replace(/[ًٌٍَُِّْ]/g, '');
+// Normalizes Arabic text: hamza variants → ا, ة → ه, ى → ي, strip diacritics + "ال"
+const normAreaKey = normalizeAreaName;
 
 // Field roles restricted to assigned areas in the survey (managers see all)
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep']);
@@ -183,9 +182,7 @@ export async function addDoctor(req, res, next) {
       if (areaName?.trim()) {
         // Find all areas matching this areaName (normalized)
         const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-        const normN = s => String(s ?? '').trim().toLowerCase()
-          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-          .replace(/[ًٌٍَُِّْ]/g, '');
+        const normN = normalizeAreaName;
         const matchingAreaIds = allAreas
           .filter(a => normN(a.name) === normN(areaName))
           .map(a => a.id);

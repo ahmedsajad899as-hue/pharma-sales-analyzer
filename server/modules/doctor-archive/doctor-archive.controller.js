@@ -1,15 +1,10 @@
 import prisma from '../../lib/prisma.js';
+import { normalizeArabic, normalizeAreaName } from '../../lib/itemResolver.js';
 
-const normKey = s => String(s ?? '').trim().toLowerCase()
-  .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-  .replace(/[ًٌٍَُِّْ]/g, '');
+const normKey = s => normalizeArabic(s).toLowerCase();
 
 // Same normalization used in visitsByArea — strips area prefixes like "حي "
-const normArea = s => String(s ?? '').trim()
-  .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-  .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-  .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-  .toLowerCase().trim();
+const normArea = normalizeAreaName;
 
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'commercial_rep']);
 
@@ -188,7 +183,7 @@ export async function getSurveyDoctors(req, res, next) {
     let areaNames = null;
     if (FIELD_ROLES.has(req.user.role)) {
       const assigned = await getUserAreaNames(userId);
-      if (assigned.length > 0) areaNames = new Set(assigned.map(normKey));
+      if (assigned.length > 0) areaNames = new Set(assigned.map(normArea));
     }
 
     // Fetch all doctors from visible surveys
@@ -202,7 +197,7 @@ export async function getSurveyDoctors(req, res, next) {
 
     // Apply area restriction
     if (areaNames) {
-      result = result.filter(d => !d.areaName?.trim() || areaNames.has(normKey(d.areaName)));
+      result = result.filter(d => !d.areaName?.trim() || areaNames.has(normArea(d.areaName)));
     }
 
     // Apply search filter
@@ -387,11 +382,7 @@ export async function importFromVisits(req, res, next) {
     }
 
     // Normalization — MUST match visitsByArea exactly (including prefix stripping)
-    const normArea = s => String(s || '').trim()
-      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-      .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-      .toLowerCase().trim();
+    const normArea = normalizeAreaName;
 
     let surveyDoctorIds = [];
 

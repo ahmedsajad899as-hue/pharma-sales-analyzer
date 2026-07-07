@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
 
 // Field reps never own Doctor rows under their own userId — doctors belong to
 // the rep's manager (via ScientificRepresentative.userId) or, failing that, the
@@ -44,11 +45,7 @@ export async function visitsByArea(req, res, next) {
     const isFieldRep  = FIELD_ROLES.includes(role);
 
     // ── Arabic normalization (used in both branches) ──────────
-    const normArea = s => String(s || '').trim()
-      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-      .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-      .toLowerCase().trim();
+    const normArea = normalizeAreaName;
 
     let doctors;
     let fieldRepAssignedNormSet = null; // used later to filter final areas
@@ -315,11 +312,7 @@ export async function visitsByArea(req, res, next) {
     const areaMap = new Map();   // key = normName(areaName)
     const noAreaDocs = [];
 
-    const normName = s => String(s || '').trim()
-      .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-      .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ')
-      .replace(/^(حي |محله |قضاء |ناحيه |ناحية )/, '')
-      .toLowerCase().trim();
+    const normName = normalizeAreaName;
 
     const canonicalName = new Map();
 
@@ -562,16 +555,12 @@ export async function list(req, res, next) {
         // ── Auto-import: استيراد كل أطباء السيرفي في مناطق المندوب دفعة واحدة ──
         if (repAreaIds.length > 0) {
           try {
-            const normAreaKey = s => String(s ?? '').trim().toLowerCase()
-              .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-              .replace(/[ًٌٍَُِّْ]/g, '');
-
             // أسماء مناطق المندوب
             const repAreaRecords = await prisma.area.findMany({
               where: { id: { in: repAreaIds } },
               select: { id: true, name: true },
             });
-            const repAreaNameToId = new Map(repAreaRecords.map(a => [normAreaKey(a.name), a.id]));
+            const repAreaNameToId = new Map(repAreaRecords.map(a => [normalizeAreaName(a.name), a.id]));
             const repAreaNormNames = [...repAreaNameToId.keys()];
 
             const activeSurvey = await prisma.masterSurvey.findFirst({
@@ -584,7 +573,7 @@ export async function list(req, res, next) {
                 select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
               });
               const surveyDocsInAreas = allSurveyDocs.filter(d =>
-                d.areaName?.trim() && repAreaNormNames.includes(normAreaKey(d.areaName))
+                d.areaName?.trim() && repAreaNormNames.includes(normalizeAreaName(d.areaName))
               );
 
               if (surveyDocsInAreas.length > 0) {
@@ -604,7 +593,7 @@ export async function list(req, res, next) {
                 const toFix = [];
                 for (const sd of surveyDocsInAreas) {
                   const nameKey = sd.name.trim().toLowerCase();
-                  const resolvedAreaId = repAreaNameToId.get(normAreaKey(sd.areaName)) || null;
+                  const resolvedAreaId = repAreaNameToId.get(normalizeAreaName(sd.areaName)) || null;
                   const ex = existingByName.get(nameKey);
                   if (ex) {
                     if (!ex.areaId && resolvedAreaId) toFix.push({ id: ex.id, areaId: resolvedAreaId });
@@ -673,14 +662,11 @@ export async function list(req, res, next) {
         if (surveyMatches.length > 0) {
           // Build area-name → areaId map from ALL areas (not just ownerUserId)
           // Areas may belong to another userId but be assigned via UserAreaAssignment
-          // Uses Arabic normalization: ة→ه, أإآ→ا, ى→ي so "الحارثية" matches "الحارثيه"
-          const normAreaKey = s => String(s ?? '').trim().toLowerCase()
-            .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-            .replace(/[ًٌٍَُِّْ]/g, '');
+          // Uses Arabic normalization: ة→ه, أإآ→ا, ى→ي, "ال" so "الحارثية" matches "الحارثيه"/"حارثية"
           const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
           const areaNameMap = new Map();
           for (const a of allAreas) {
-            const key = normAreaKey(a.name);
+            const key = normalizeAreaName(a.name);
             if (!areaNameMap.has(key)) areaNameMap.set(key, a.id);
           }
 
@@ -694,7 +680,7 @@ export async function list(req, res, next) {
           for (const sd of surveyMatches) {
             const nameKey = sd.name.trim().toLowerCase();
             const resolvedAreaId = sd.areaName?.trim()
-              ? (areaNameMap.get(normAreaKey(sd.areaName)) || null)
+              ? (areaNameMap.get(normalizeAreaName(sd.areaName)) || null)
               : null;
 
             const existing = existingByName.get(nameKey);

@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
 
 // ── Helper: pick best available Gemini API key ──────────────
 function getGeminiApiKey() {
@@ -528,10 +529,8 @@ export async function suggest(req, res, next) {
           }
         }
 
-        // Arabic normalization for area name matching (handles ة/ه, أإآ/ا, ى/ي)
-        const normAreaKey = s => String(s ?? '').trim().toLowerCase()
-          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-          .replace(/[ًٌٍَُِّْ]/g, '');
+        // Arabic normalization for area name matching (handles ة/ه, أإآ/ا, ى/ي, "ال")
+        const normAreaKey = normalizeAreaName;
 
         // 3. Resolve AI-specified include areas (normalized match across all areas)
         if (aiParsed.includeAreaNames?.length) {
