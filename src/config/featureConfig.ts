@@ -57,6 +57,10 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   sales_data:         'sales-data',
   file_filter:        'file-filter',
   bonus_sales:        'bonus-sales',
+  doctors_page:       'doctors',
+  pharmacy_analysis:  'pharmacy-analysis',
+  commercial_page:    'commercial',
+  org_structure:      'org-structure',
 };
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
