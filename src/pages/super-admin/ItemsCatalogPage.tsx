@@ -89,6 +89,26 @@ export default function ItemsCatalogPage() {
     setBusy(false); await reload();
   };
 
+  // ── نقل ايتم لشركة أخرى (أُدخل بالخطأ) ──
+  const [transferFor, setTransferFor] = useState<Item | null>(null);
+  const [transferTarget, setTransferTarget] = useState<string>('');
+  const doTransfer = async () => {
+    if (!companyId || !transferFor || !transferTarget) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/sa/companies/${companyId}/items/${transferFor.id}/transfer`, {
+        method: 'POST', headers: H(), body: JSON.stringify({ targetCompanyId: parseInt(transferTarget) }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشل');
+      setTransferFor(null); setTransferTarget('');
+      await reload();
+      const dest = companies.find(c => c.id === parseInt(transferTarget))?.name || 'الشركة الهدف';
+      alert(d.action === 'merged' ? `تم دمج الايتم مع ايتم مطابق موجود في ${dest}` : `تم نقل الايتم إلى ${dest}`);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'فشل نقل الايتم'); }
+    setBusy(false);
+  };
+
   // ── أفعال قواعد التوحيد (aliases) ──
   const [aliasModal, setAliasModal] = useState(false);
   const [newAlias, setNewAlias] = useState({ fromName: '', toItemId: '' });
@@ -194,7 +214,10 @@ export default function ItemsCatalogPage() {
                       </div>
                     )}
                   </div>
-                  <button onClick={() => delItem(i.id)} title="إزالة" style={{ ...btnStyle('#ef4444', true), flexShrink: 0 }}>🗑</button>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => { setTransferFor(i); setTransferTarget(''); }} title="نقل لشركة أخرى" style={btnStyle('#0891b2', true)}>↔</button>
+                    <button onClick={() => delItem(i.id)} title="إزالة" style={btnStyle('#ef4444', true)}>🗑</button>
+                  </div>
                 </div>
               ))}
               {filteredItems.length === 0 && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد ايتمات في الكتالوج</div>}
@@ -269,6 +292,26 @@ export default function ItemsCatalogPage() {
           <Field label="الجرعة" value={newItem.dosage} onChange={v => setNewItem({ ...newItem, dosage: v })} />
           <Field label="الشكل الدوائي" value={newItem.form} onChange={v => setNewItem({ ...newItem, form: v })} />
           <button onClick={addItem} disabled={busy || !newItem.name.trim()} style={{ ...btnStyle('#6366f1'), width: '100%', marginTop: 8 }}>حفظ</button>
+        </Modal>
+      )}
+
+      {/* مودال نقل ايتم لشركة أخرى */}
+      {transferFor && (
+        <Modal title={`نقل «${transferFor.name}» لشركة أخرى`} onClose={() => setTransferFor(null)}>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 1.7 }}>
+            المبيعات والزيارات والتارگت المرتبطة بالايتم ستنتقل معه تلقائياً. لو وُجد ايتم مطابق بالاسم في الشركة الهدف سيتم الدمج بدل التكرار.
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 5 }}>الشركة الهدف *</label>
+            <select value={transferTarget} onChange={e => setTransferTarget(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14 }}>
+              <option value="">— اختر الشركة الهدف —</option>
+              {companies.filter(c => c.id !== companyId).map(c => (
+                <option key={c.id} value={c.id}>{c.name}{c.office?.name ? ` — ${c.office.name}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <button onClick={doTransfer} disabled={busy || !transferTarget} style={{ ...btnStyle('#0891b2'), width: '100%', marginTop: 4 }}>نقل الايتم</button>
         </Modal>
       )}
 

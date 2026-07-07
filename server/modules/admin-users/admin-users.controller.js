@@ -161,14 +161,20 @@ export async function deleteUser(req, res) {
 }
 
 // ── Set user companies (replace all) ─────────────────────────────────────
+// primaryCompanyId يحدد الشركة الرئيسية (تكوين التيم/الهيكل على أساسها). رئيسية
+// واحدة فقط؛ إن لم تُرسَل أو لم تكن ضمن القائمة → الأولى تصبح رئيسية.
 export async function setUserCompanies(req, res) {
   const userId = parseInt(req.params.id);
-  const { companyIds = [] } = req.body;
+  const { companyIds = [], primaryCompanyId } = req.body;
+
+  const ids = companyIds.map(id => parseInt(id));
+  let primaryId = primaryCompanyId != null ? parseInt(primaryCompanyId) : null;
+  if (!ids.includes(primaryId)) primaryId = ids[0] ?? null; // fallback: الأولى
 
   await prisma.$transaction([
     prisma.userCompanyAssignment.deleteMany({ where: { userId } }),
     prisma.userCompanyAssignment.createMany({
-      data: companyIds.map(id => ({ userId, companyId: parseInt(id) })),
+      data: ids.map(id => ({ userId, companyId: id, isPrimary: id === primaryId })),
     }),
   ]);
   res.json({ success: true });

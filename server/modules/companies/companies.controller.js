@@ -107,6 +107,52 @@ export async function deleteCompanyItem(req, res) {
   res.json({ success: true });
 }
 
+// ── Transfer item to another company (نقل ايتم أُدخل بالخطأ) ───────────────
+// المبيعات/الرجيع/الزيارات/التارگت تتبع الايتم تلقائياً (نفس الـid). ننظّف فقط
+// ما هو مرتبط بالشركة القديمة: قواعد التوحيد (aliases) وارتباط خطوط المنتجات.
+// لو وُجد ايتم مطابق بالاسم في الشركة الهدف → دمج بدل التكرار.
+export async function transferCompanyItem(req, res) {
+  const sourceId = parseInt(req.params.id);
+  const itemId   = parseInt(req.params.itemId);
+  const targetId = parseInt(req.body?.targetCompanyId);
+
+  if (!targetId) return res.status(400).json({ error: 'الشركة الهدف مطلوبة' });
+  if (targetId === sourceId) return res.status(400).json({ error: 'الشركة الهدف مطابقة للشركة الحالية' });
+
+  const item = await prisma.item.findFirst({
+    where: { id: itemId, scientificCompanyId: sourceId },
+    select: { id: true, name: true },
+  });
+  if (!item) return res.status(404).json({ error: 'الايتم غير موجود في كتالوج هذه الشركة' });
+
+  const target = await prisma.scientificCompany.findUnique({ where: { id: targetId }, select: { id: true } });
+  if (!target) return res.status(404).json({ error: 'الشركة الهدف غير موجودة' });
+
+  // دمج عند التكرار: ايتم كتالوج بنفس المفتاح المُطبَّع في الشركة الهدف
+  const key = normalizeItemKey(item.name);
+  const targetCatalog = await prisma.item.findMany({
+    where: { scientificCompanyId: targetId, isTemp: false },
+    select: { id: true, name: true },
+  });
+  const dup = targetCatalog.find(c => c.id !== itemId && normalizeItemKey(c.name) === key);
+  if (dup) {
+    await mergeItems(itemId, dup.id); // يعيد ربط كل المراجع للهدف ويحذف المصدر
+    return res.json({ success: true, action: 'merged', targetItemId: dup.id });
+  }
+
+  // نقل + تنظيف ارتباطات الشركة القديمة
+  await prisma.$transaction([
+    // ألياسات الشركة القديمة التي تشير لهذا الايتم لم تعد صالحة (نطاقها الشركة)
+    prisma.itemMergeRule.deleteMany({ where: { toItemId: itemId, scientificCompanyId: sourceId } }),
+    // ارتباط الايتم بخطوط منتجات الشركة القديمة
+    prisma.productLineItem.deleteMany({ where: { itemId, line: { scientificCompanyId: sourceId } } }),
+    // النقل الفعلي
+    prisma.item.update({ where: { id: itemId }, data: { scientificCompanyId: targetId } }),
+  ]);
+
+  res.json({ success: true, action: 'transferred' });
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // ALIASES — قواعد توحيد أسماء الايتمات (نطاق الشركة، مشتركة بين مستخدميها)
 // ════════════════════════════════════════════════════════════════════════════
@@ -360,9 +406,9 @@ export async function getCompanyOrg(req, res) {
 
     if (!company) return res.status(404).json({ success: false, error: 'Company not found' });
 
-    // Fetch user assignments
+    // Fetch user assignments — التيم يُبنى على أساس الشركة الرئيسية فقط
     const assignments = await prisma.userCompanyAssignment.findMany({
-      where: { companyId: id },
+      where: { companyId: id, isPrimary: true },
       select: { userId: true },
     });
 

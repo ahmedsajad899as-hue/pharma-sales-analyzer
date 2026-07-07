@@ -871,6 +871,7 @@ model ProductLineItem {
 model UserCompanyAssignment {
   userId     Int
   companyId  Int
+  isPrimary  Boolean  @default(false) // الشركة الرئيسية للمستخدم — تكوين التيم/الهيكل على أساسها (رئيسية واحدة فقط)
   assignedAt DateTime @default(now())
 
   user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)

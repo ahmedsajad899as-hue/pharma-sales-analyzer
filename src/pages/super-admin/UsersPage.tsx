@@ -35,13 +35,13 @@ interface UserRow  {
   isActive: boolean; officeId?: number; office?: { id: number; name: string };
   permissions?: string | null;
   _count?: { companyAssignments: number; areas: number; };
-  companyAssignments?: { companyId: number; company: { id: number; name: string } }[];
+  companyAssignments?: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
 }
 interface UserDetail extends UserRow {
   linkedRepId?: number | null;
   linkedRep?:   { id: number; name: string } | null;
-  companyAssignments: { companyId: number; company: { id: number; name: string } }[];
+  companyAssignments: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   lineAssignments:    { lineId: number;    line:    { name?: string; companyId: number } }[];
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
   areaAssignments:    { areaId: number;    area:    { name: string } }[];
@@ -86,6 +86,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   // ── Draft assignment states (must be at top level — Rules of Hooks) ──────
   const [draftCompanyIds,    setDraftCompanyIds]    = useState<number[]>([]);
+  const [draftPrimaryCompanyId, setDraftPrimaryCompanyId] = useState<number | null>(null);
   const [draftLineIds,       setDraftLineIds]       = useState<number[]>([]);
   const [draftItemIds,       setDraftItemIds]       = useState<number[]>([]);
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
@@ -181,6 +182,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   useEffect(() => {
     if (!detail) return;
     setDraftCompanyIds(detail.companyAssignments.map(a => a.companyId));
+    setDraftPrimaryCompanyId(detail.companyAssignments.find(a => a.isPrimary)?.companyId ?? detail.companyAssignments[0]?.companyId ?? null);
     setDraftLineIds(detail.lineAssignments.map(a => a.lineId));
     setDraftItemIds(detail.itemAssignments.map(a => a.itemId));
     setDraftAreaIds(detail.areaAssignments.map(a => a.areaId));
@@ -249,7 +251,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     }
     if (!isEdit && form.companyId && d.data?.id) {
       await fetch(`/api/sa/users/${d.data.id}/companies`, {
-        method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId] }),
+        method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId], primaryCompanyId: form.companyId }),
       });
     }
     setSaving(false); setForm(null); load(true);
@@ -278,8 +280,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       companies: 'companyIds', lines: 'lineIds', items: 'itemIds', areas: 'areaIds', managers: 'managerIds',
     };
     try {
+      const body: Record<string, any> = { [keyMap[type]]: ids };
+      if (type === 'companies') {
+        // ضمان أن الرئيسية ضمن المختارة؛ وإلا أول شركة
+        body.primaryCompanyId = ids.includes(draftPrimaryCompanyId as number) ? draftPrimaryCompanyId : (ids[0] ?? null);
+      }
       const res = await fetch(`/api/sa/users/${detail.id}/${type}`, {
-        method: 'PUT', headers: H(), body: JSON.stringify({ [keyMap[type]]: ids }),
+        method: 'PUT', headers: H(), body: JSON.stringify(body),
       });
       if (!res.ok) {
         if (res.status === 401) {
@@ -554,16 +561,32 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           {tab === 'companies' && (
             <div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftCompanyIds(companies.map(c => c.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftCompanyIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+                <button onClick={() => { setDraftCompanyIds(companies.map(c => c.id)); if (draftPrimaryCompanyId == null) setDraftPrimaryCompanyId(companies[0]?.id ?? null); }} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => { setDraftCompanyIds([]); setDraftPrimaryCompanyId(null); }} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
               </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {companies.map(c => (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftCompanyIds.includes(c.id)} onChange={e => setDraftCompanyIds(e.target.checked ? [...draftCompanyIds, c.id] : draftCompanyIds.filter(x => x !== c.id))} />
-                    {c.name}
-                  </label>
-                ))}
+                {companies.map(c => {
+                  const checked = draftCompanyIds.includes(c.id);
+                  const isPrimary = draftPrimaryCompanyId === c.id;
+                  return (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: isPrimary ? '#fef9c3' : '#f8fafc', borderRadius: 8, fontSize: 14, border: isPrimary ? '1.5px solid #eab308' : '1.5px solid transparent' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}>
+                        <input type="checkbox" checked={checked} onChange={e => {
+                          if (e.target.checked) { setDraftCompanyIds([...draftCompanyIds, c.id]); if (draftPrimaryCompanyId == null) setDraftPrimaryCompanyId(c.id); }
+                          else { setDraftCompanyIds(draftCompanyIds.filter(x => x !== c.id)); if (draftPrimaryCompanyId === c.id) setDraftPrimaryCompanyId(draftCompanyIds.filter(x => x !== c.id)[0] ?? null); }
+                        }} />
+                        {c.name}
+                      </label>
+                      {checked && (
+                        <button type="button" onClick={() => setDraftPrimaryCompanyId(c.id)} title={isPrimary ? 'الشركة الرئيسية' : 'تعيين كرئيسية'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: isPrimary ? 1 : 0.35 }}>
+                          {isPrimary ? '⭐ رئيسية' : '☆'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('companies', draftCompanyIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>

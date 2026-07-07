@@ -1,19 +1,21 @@
 import prisma from '../../lib/prisma.js';
 
-/** Helper: get company IDs that the requesting user (company_manager) is assigned to */
+/** Helper: get the PRIMARY company IDs of the requesting manager.
+ *  التيم يُبنى على أساس الشركة الرئيسية؛ إن لم تُحدَّد رئيسية بعد نرجع كل الشركات (سلوك قديم آمن). */
 async function getManagerCompanyIds(userId) {
   const assignments = await prisma.userCompanyAssignment.findMany({
     where: { userId },
-    select: { companyId: true },
+    select: { companyId: true, isPrimary: true },
   });
-  return assignments.map(a => a.companyId);
+  const primary = assignments.filter(a => a.isPrimary).map(a => a.companyId);
+  return primary.length ? primary : assignments.map(a => a.companyId);
 }
 
-/** Helper: verify a target userId is in the same companies as the manager */
+/** Helper: verify a target user's PRIMARY company is one of the manager's companies */
 async function verifyInSameCompany(managerCompanyIds, targetUserId) {
   if (managerCompanyIds.length === 0) return false;
   const match = await prisma.userCompanyAssignment.findFirst({
-    where: { userId: targetUserId, companyId: { in: managerCompanyIds } },
+    where: { userId: targetUserId, companyId: { in: managerCompanyIds }, isPrimary: true },
   });
   return match !== null;
 }
@@ -28,11 +30,11 @@ export async function listCompanyMembers(req, res, next) {
       return res.json({ success: true, data: [] });
     }
 
-    // Find all users (excluding self) in those companies
+    // Find all users (excluding self) whose PRIMARY company is one of the manager's companies
     const members = await prisma.user.findMany({
       where: {
         id: { not: managerId },
-        companyAssignments: { some: { companyId: { in: companyIds } } },
+        companyAssignments: { some: { companyId: { in: companyIds }, isPrimary: true } },
       },
       select: {
         id: true,

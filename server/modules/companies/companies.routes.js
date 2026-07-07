@@ -4,7 +4,7 @@ import {
   listCompanies, getCompany, createCompany, updateCompany, deleteCompany,
   listLines, createLine, updateLine, deleteLine,
   setLineItems, getAllLines,
-  createCompanyItem, deleteCompanyItem,
+  createCompanyItem, deleteCompanyItem, transferCompanyItem,
   importCompanyItems, importCompanyItemsJson,
   getCompanyOrg,
   listCompanyAliases, createCompanyAlias, deleteCompanyAlias,
@@ -33,6 +33,7 @@ router.post('/:id/items',                  createCompanyItem);
 router.post('/:id/items/bulk',             importCompanyItemsJson);
 router.post('/:id/items/import',           memUpload.single('file'), importCompanyItems);
 router.delete('/:id/items/:itemId',        deleteCompanyItem);
+router.post('/:id/items/:itemId/transfer', transferCompanyItem);
 
 // Aliases (قواعد التوحيد) within a company
 router.get('/:id/aliases',                 listCompanyAliases);

@@ -36,12 +36,13 @@ export async function list(filters, user = null, options = {}) {
 
   if (user && COMPANY_SCOPED_ROLES.has(user.role)) {
     // ── COMPANY-SCOPED MODE: return user-linked reps ──────────────────────
-    // Get this manager's company assignments
+    // Get this manager's company assignments — التيم على أساس الشركة الرئيسية
     const assignments = await prisma.userCompanyAssignment.findMany({
       where: { userId: user.id },
-      select: { companyId: true, company: { select: { id: true, name: true } } },
+      select: { companyId: true, isPrimary: true, company: { select: { id: true, name: true } } },
     });
-    const companyIds = assignments.map(a => a.companyId);
+    const primaryAssignments = assignments.filter(a => a.isPrimary);
+    const companyIds = (primaryAssignments.length ? primaryAssignments : assignments).map(a => a.companyId);
 
     if (companyIds.length === 0) return [];
 
@@ -73,7 +74,7 @@ export async function list(filters, user = null, options = {}) {
       where: {
         role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
         isActive: true,
-        companyAssignments: { some: { companyId: { in: companyIds } } },
+        companyAssignments: { some: { companyId: { in: companyIds }, isPrimary: true } },
         // If allowedUserIds is set, restrict to those users only
         ...(allowedUserIds ? { id: { in: [...allowedUserIds] } } : {}),
       },

@@ -9,6 +9,7 @@ import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from './lib/prisma.js';
+import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -505,14 +506,15 @@ app.get('/api/my-company-org', async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'غير مصرح' });
 
-    // Companies the current user belongs to
-    const mine = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
-    const companyIds = [...new Set(mine.map(c => c.companyId))];
+    // الشركة الرئيسية للمستخدم الحالي — الهيكل يُبنى على أساسها (fallback: كل شركاته لو لم تُحدَّد رئيسية)
+    const mine = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true, isPrimary: true } });
+    const primaryMine = mine.filter(c => c.isPrimary);
+    const companyIds = [...new Set((primaryMine.length ? primaryMine : mine).map(c => c.companyId))];
     if (companyIds.length === 0) return res.json({ success: true, data: { users: [] } });
 
-    // All users assigned to those companies
+    // كل المستخدمين الذين شركتهم الرئيسية ضمن هذه الشركات
     const assignments = await prisma.userCompanyAssignment.findMany({
-      where: { companyId: { in: companyIds } },
+      where: { companyId: { in: companyIds }, isPrimary: true },
       select: { userId: true },
     });
     const userIds = [...new Set(assignments.map(a => a.userId))];
@@ -3542,16 +3544,17 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
           ];
         } else {
           // Fallback for company_manager/supervisor/product_manager with no subordinates:
-          // show all company reps (existing broad behavior)
+          // show reps whose PRIMARY company is the manager's PRIMARY company (التيم على أساس الرئيسية)
           const [assignments, managerRow] = await Promise.all([
-            prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }),
+            prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true, isPrimary: true } }),
             prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
           ]);
-          const companyIds = assignments.map(a => a.companyId);
+          const primaryAssignments = assignments.filter(a => a.isPrimary);
+          const companyIds = (primaryAssignments.length ? primaryAssignments : assignments).map(a => a.companyId);
           const managerOfficeId = managerRow?.officeId ?? null;
           if (companyIds.length > 0) {
             const repUsersWhere = {
-              companyAssignments: { some: { companyId: { in: companyIds } } },
+              companyAssignments: { some: { companyId: { in: companyIds }, isPrimary: true } },
               linkedRepId: { not: null },
               ...(managerOfficeId ? { officeId: managerOfficeId } : { id: -1 }),
             };
@@ -3763,6 +3766,10 @@ if (process.env.VERCEL) {
     console.log(`✓ الخادم يعمل على http://localhost:${PORT}`);
     console.log(`✓ الشبكة المحلية: http://0.0.0.0:${PORT}`);
     await seedAdminIfNeeded();
+    // ضمان شركة رئيسية لكل مستخدم (backfill للبيانات القديمة) — idempotent وغير حابس
+    ensurePrimaryCompanies()
+      .then(n => { if (n) console.log(`✓ تم تعيين شركة رئيسية لـ ${n} مستخدم (backfill)`); })
+      .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
   });
 }
 
