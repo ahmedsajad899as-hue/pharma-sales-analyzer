@@ -850,11 +850,15 @@ export async function create(req, res, next) {
     if (!name) return res.status(400).json({ error: 'name required' });
 
     // Resolve areaId from areaName if only text was provided (create new area if not found)
+    // Uses normalizeAreaName (not raw lowercase) so spelling variants like "مدينة الصدر" /
+    // "مدينه الصدر" resolve to the SAME existing Area instead of spawning a duplicate
+    // owned by this user — duplicates fragment the same real place across accounts and
+    // hide doctors from other users' views (manager vs rep) of that area.
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
-      const nameNorm = areaName.trim().toLowerCase();
+      const nameNorm = normalizeAreaName(areaName);
       const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-      const found = allAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
+      const found = allAreas.find(a => normalizeAreaName(a.name) === nameNorm);
       if (found) {
         resolvedAreaId = found.id;
       } else {
@@ -949,9 +953,9 @@ export async function update(req, res, next) {
     const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes, isActive } = req.body;
     let resolvedAreaId = areaId !== undefined ? (areaId ? parseInt(areaId) : null) : undefined;
     if (resolvedAreaId === undefined && areaName?.trim()) {
-      const nameNorm = areaName.trim().toLowerCase();
+      const nameNorm = normalizeAreaName(areaName);
       const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-      const found = allAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
+      const found = allAreas.find(a => normalizeAreaName(a.name) === nameNorm);
       if (found) {
         resolvedAreaId = found.id;
       } else {
