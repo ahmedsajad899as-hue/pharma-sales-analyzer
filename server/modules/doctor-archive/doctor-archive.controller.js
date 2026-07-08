@@ -1,5 +1,9 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeArabic, normalizeAreaName } from '../../lib/itemResolver.js';
+import {
+  resolveAreaScope, getScopedSurveyDoctors, isFieldRole,
+  createSurveyDoctor, updateSurveyDoctor,
+} from '../../lib/surveyDoctors.js';
 
 const normKey = s => normalizeArabic(s).toLowerCase();
 
@@ -34,125 +38,71 @@ async function getUserAreaNames(userId) {
 export async function getArchive(req, res, next) {
   try {
     const requestingUser = req.user;
-    const isManager = !FIELD_ROLES.has(requestingUser.role);
+    const isManager = !isFieldRole(requestingUser.role);
+    const repUserId = (isManager && req.query.repUserId) ? parseInt(req.query.repUserId, 10) : null;
+    if (repUserId !== null && isNaN(repUserId)) return res.status(400).json({ success: false, error: 'Invalid repUserId' });
 
-    // ── Manager viewing a specific rep ──────────────────────────────────────
-    if (isManager && req.query.repUserId) {
-      const repId = parseInt(req.query.repUserId, 10);
-      if (isNaN(repId)) return res.status(400).json({ success: false, error: 'Invalid repUserId' });
+    // ── المصدر الموحّد: نفس نطاق ومجموعة "تحليل الزيارات" بالضبط ──────────────
+    const scope      = await resolveAreaScope(requestingUser, { repUserId });
+    const scopedDocs = await getScopedSurveyDoctors(scope);
 
-      // Get rep's assigned area names (from UserAreaAssignment)
-      const areaRows = await prisma.userAreaAssignment.findMany({
-        where: { userId: repId },
-        include: { area: { select: { name: true } } },
-      });
-      // Also try scientificRepArea via linkedRepId
-      const repUser = await prisma.user.findUnique({ where: { id: repId }, select: { linkedRepId: true } });
-      const linkedRepId = repUser?.linkedRepId ?? null;
-      let saAreaIds = [];
-      if (linkedRepId) {
-        const saRows = await prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } });
-        const extraAreas = await prisma.area.findMany({ where: { id: { in: saRows.map(r => r.areaId) } }, select: { name: true } });
-        saAreaIds = extraAreas.map(a => a.name.trim());
-      }
-      const repAreaNames = [...new Set([...areaRows.map(r => r.area.name.trim()), ...saAreaIds])];
-      const normAreaNames = new Set(repAreaNames.map(normArea));
+    // طبقة الأرشيف: أعلام الزيارة/الكتابة لأعضاء النطاق (المندوب نفسه، أو كل الفريق للمدير)
+    const overlayUserIds = scope.memberUserIds.length ? scope.memberUserIds : [requestingUser.id];
+    const entries = scopedDocs.length ? await prisma.doctorArchiveEntry.findMany({
+      where: { userId: { in: overlayUserIds }, masterSurveyDoctorId: { in: scopedDocs.map(d => d.id) } },
+      select: { id: true, userId: true, masterSurveyDoctorId: true, isVisited: true, isWriting: true, visitItems: true, writingItems: true, notes: true },
+    }) : [];
 
-      // Get active surveys
-      const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
-      const surveyIds = surveys.map(s => s.id);
-
-      // Get all survey doctors in rep's areas (MasterSurveyDoctor — same source archive entries use)
-      let surveyDoctors = [];
-      if (surveyIds.length > 0) {
-        const allDocs = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: { in: surveyIds } },
-          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true },
-          orderBy: { name: 'asc' },
-        });
-        surveyDoctors = normAreaNames.size > 0
-          ? allDocs.filter(d => d.areaName?.trim() && normAreaNames.has(normArea(d.areaName)))
-          : allDocs;
-      }
-
-      // Get rep's archive entries keyed by masterSurveyDoctorId
-      const entries = await prisma.doctorArchiveEntry.findMany({
-        where: { userId: repId },
-        select: { id: true, masterSurveyDoctorId: true, isVisited: true, isWriting: true, visitItems: true, writingItems: true, notes: true },
-      });
-      const entryMap = new Map(entries.map(e => [e.masterSurveyDoctorId, e]));
-
-      // Group by areaName
-      const areaMap = new Map();
-      for (const doc of surveyDoctors) {
-        const areaKey = doc.areaName?.trim() || 'بدون منطقة';
-        if (!areaMap.has(areaKey)) areaMap.set(areaKey, { name: areaKey, doctors: [] });
-        const entry = entryMap.get(doc.id);
-        areaMap.get(areaKey).doctors.push({
-          entryId:        entry?.id ?? null,
-          surveyDoctorId: doc.id,
-          doctorId:       null,
-          name:           doc.name,
-          specialty:      doc.specialty ?? null,
-          areaName:       doc.areaName ?? null,
-          pharmacyName:   doc.pharmacyName ?? null,
-          className:      doc.className ?? null,
-          isVisited:      entry?.isVisited ?? false,
-          isWriting:      entry?.isWriting ?? false,
-          visitItems:     entry?.visitItems  ? JSON.parse(entry.visitItems)  : [],
-          writingItems:   entry?.writingItems ? JSON.parse(entry.writingItems) : [],
-          notes:          entry?.notes ?? null,
-        });
-      }
-
-      const areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-      const totalVisited = entries.filter(e => e.isVisited).length;
-      const totalWriting = entries.filter(e => e.isWriting).length;
-
-      return res.json({ success: true, areas, total: surveyDoctors.length, totalVisited, totalWriting });
-    }
-
-    // ── Regular user (or manager viewing own archive) ────────────────────────
-    const userId = requestingUser.id;
-    const entries = await prisma.doctorArchiveEntry.findMany({
-      where: { userId },
-      include: {
-        masterSurveyDoctor: {
-          select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true, zoneName: true, phone: true },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    // Group by areaName
-    const areaMap = new Map(); // areaName → { name, doctors[] }
+    // دمج الإدخالات حسب طبيب السيرفي (OR للأعلام عبر الفريق)
+    const merged = new Map(); // surveyDoctorId → { entryId, isVisited, isWriting, visitItems, writingItems, notes }
     for (const e of entries) {
-      const doc = e.masterSurveyDoctor;
-      const areaKey = doc?.areaName?.trim() || 'بدون منطقة';
+      const cur = merged.get(e.masterSurveyDoctorId);
+      if (!cur) {
+        merged.set(e.masterSurveyDoctorId, {
+          entryId: e.id, isVisited: e.isVisited, isWriting: e.isWriting,
+          visitItems:   e.visitItems  ? JSON.parse(e.visitItems)  : [],
+          writingItems: e.writingItems ? JSON.parse(e.writingItems) : [],
+          notes: e.notes ?? null,
+        });
+      } else {
+        cur.isVisited = cur.isVisited || e.isVisited;
+        cur.isWriting = cur.isWriting || e.isWriting;
+        if (!cur.visitItems.length && e.visitItems)   cur.visitItems   = JSON.parse(e.visitItems);
+        if (!cur.writingItems.length && e.writingItems) cur.writingItems = JSON.parse(e.writingItems);
+        if (!cur.notes && e.notes) cur.notes = e.notes;
+        // للمندوب المفرد نفضّل entryId الخاص به؛ في العرض الجماعي أي entryId يكفي للتحديث
+        if (repUserId && e.userId === repUserId) cur.entryId = e.id;
+      }
+    }
+
+    // تجميع حسب المنطقة — كل أطباء السيرفي في النطاق (مؤرشفين أو لا)
+    const areaMap = new Map();
+    for (const doc of scopedDocs) {
+      const areaKey = doc.areaName?.trim() || 'بدون منطقة';
       if (!areaMap.has(areaKey)) areaMap.set(areaKey, { name: areaKey, doctors: [] });
+      const m = merged.get(doc.id);
       areaMap.get(areaKey).doctors.push({
-        entryId:             e.id,
-        surveyDoctorId:      e.masterSurveyDoctorId,
-        name:                doc?.name ?? '—',
-        specialty:           doc?.specialty ?? null,
-        areaName:            doc?.areaName ?? null,
-        pharmacyName:        doc?.pharmacyName ?? null,
-        className:           doc?.className ?? null,
-        isVisited:           e.isVisited,
-        isWriting:           e.isWriting,
-        visitItems:          e.visitItems  ? JSON.parse(e.visitItems)  : [],
-        writingItems:        e.writingItems ? JSON.parse(e.writingItems) : [],
-        notes:               e.notes ?? null,
+        entryId:        m?.entryId ?? null,
+        surveyDoctorId: doc.id,
+        doctorId:       null,
+        name:           doc.name,
+        specialty:      doc.specialty ?? null,
+        areaName:       doc.areaName ?? null,
+        pharmacyName:   doc.pharmacyName ?? null,
+        className:      doc.className ?? null,
+        isVisited:      m?.isVisited ?? false,
+        isWriting:      m?.isWriting ?? false,
+        visitItems:     m?.visitItems ?? [],
+        writingItems:   m?.writingItems ?? [],
+        notes:          m?.notes ?? null,
       });
     }
 
-    // Sort areas alphabetically
     const areas = [...areaMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    const totalVisited = [...merged.values()].filter(m => m.isVisited).length;
+    const totalWriting = [...merged.values()].filter(m => m.isWriting).length;
 
-    const totalVisited = entries.filter(e => e.isVisited).length;
-    const totalWriting = entries.filter(e => e.isWriting).length;
-
-    res.json({ success: true, areas, total: entries.length, totalVisited, totalWriting });
+    res.json({ success: true, areas, total: scopedDocs.length, totalVisited, totalWriting });
   } catch (e) { next(e); }
 }
 
@@ -320,19 +270,14 @@ export async function addCustomDoctor(req, res, next) {
     });
     if (!survey) return res.status(400).json({ success: false, error: 'لا توجد قائمة سيرفي متاحة لإضافة الطبيب' });
 
-    // Create the doctor inside the survey
-    const doctor = await prisma.masterSurveyDoctor.create({
-      data: {
-        surveyId:     survey.id,
-        name:         name.trim(),
-        specialty:    specialty?.trim()    || null,
-        areaName:     areaName?.trim()     || null,
-        pharmacyName: pharmacyName?.trim() || null,
-        className:    className?.trim()    || null,
-        lastEditedById: userId,
-        lastEditedAt:   new Date(),
-      },
-    });
+    // Create the doctor inside the survey (عبر الخدمة الموحّدة: يسجّل الحركة للإشعارات)
+    const doctor = await createSurveyDoctor(survey.id, {
+      name:         name.trim(),
+      specialty:    specialty?.trim()    || null,
+      areaName:     areaName?.trim()     || null,
+      pharmacyName: pharmacyName?.trim() || null,
+      className:    className?.trim()    || null,
+    }, userId);
 
     // Archive the new doctor for this user
     const entry = await prisma.doctorArchiveEntry.create({
@@ -469,21 +414,20 @@ export async function updateDoctorProfile(req, res, next) {
     const { name, specialty, areaName, pharmacyName, className } = req.body;
     if (name !== undefined && !String(name).trim()) return res.status(400).json({ success: false, error: 'الاسم لا يمكن أن يكون فارغاً' });
 
-    const data = {};
-    if (name        !== undefined) data.name         = String(name).trim();
-    if (specialty   !== undefined) data.specialty    = specialty?.trim()    || null;
-    if (areaName    !== undefined) data.areaName     = areaName?.trim()     || null;
-    if (pharmacyName!== undefined) data.pharmacyName = pharmacyName?.trim() || null;
-    if (className   !== undefined) data.className    = className?.trim()    || null;
+    // نجلب surveyId ثم نمرّ عبر الخدمة الموحّدة (cascade + تسجيل الحركة للإشعارات)
+    const existing = await prisma.masterSurveyDoctor.findUnique({ where: { id: surveyDoctorId }, select: { surveyId: true } });
+    if (!existing) return res.status(404).json({ success: false, error: 'الطبيب غير موجود في السيرفي' });
 
-    data.lastEditedById = req.user.id;
-    data.lastEditedAt   = new Date();
+    const fields = {};
+    if (name        !== undefined) fields.name         = String(name).trim();
+    if (specialty   !== undefined) fields.specialty    = specialty?.trim()    || null;
+    if (areaName    !== undefined) fields.areaName     = areaName?.trim()     || null;
+    if (pharmacyName!== undefined) fields.pharmacyName = pharmacyName?.trim() || null;
+    if (className   !== undefined) fields.className    = className?.trim()    || null;
 
-    const updated = await prisma.masterSurveyDoctor.update({
-      where: { id: surveyDoctorId },
-      data,
-    });
+    const result = await updateSurveyDoctor(existing.surveyId, surveyDoctorId, fields, req.user.id);
+    if (result.error) return res.status(404).json({ success: false, error: 'الطبيب غير موجود في السيرفي' });
 
-    res.json({ success: true, doctor: updated });
+    res.json({ success: true, doctor: result.updated });
   } catch (e) { next(e); }
 }

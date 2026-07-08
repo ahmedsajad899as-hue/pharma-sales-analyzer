@@ -52,8 +52,9 @@ import UsersPage from './pages/super-admin/UsersPage';
 import SuperAdminsPage from './pages/super-admin/SuperAdminsPage';
 import VisitsPage from './pages/super-admin/VisitsPage';
 import MasterSurveyPage from './pages/super-admin/MasterSurveyPage';
+import DoctorChangesPage from './pages/super-admin/DoctorChangesPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'users' | 'super-admins' | 'visits' | 'surveys';
+type Page = 'offices' | 'companies' | 'items' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes';
 
 const NAV: { id: Page; label: string; icon: string; color: string; glow: string; masterOnly?: boolean }[] = [
   { id: 'offices',      label: 'المكاتب',    icon: '🏢', color: '#06b6d4', glow: 'rgba(6,182,212,0.35)' },
@@ -63,7 +64,42 @@ const NAV: { id: Page; label: string; icon: string; color: string; glow: string;
   { id: 'super-admins', label: 'المشرفون',   icon: '🛡️', color: '#f59e0b', glow: 'rgba(245,158,11,0.35)', masterOnly: true },
   { id: 'visits',       label: 'الزيارات',    icon: '📋', color: '#e11d48', glow: 'rgba(225,29,72,0.35)',  masterOnly: true },
   { id: 'surveys',      label: 'السيرفيات',   icon: '🗂️', color: '#f97316', glow: 'rgba(249,115,22,0.35)', masterOnly: true },
+  { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', color: '#eab308', glow: 'rgba(234,179,8,0.35)', masterOnly: true },
 ];
+
+// جرس إشعارات تغييرات الأطباء — يظهر للماستر أدمن فقط
+function NotificationBell({ token, refreshKey, onOpen }: { token: string; refreshKey: string; onOpen: () => void }) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const fetchCount = () => {
+      fetch('/api/super-admin/doctor-changes/unread-count', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(d => { if (alive && d.success) setCount(d.count); })
+        .catch(() => {});
+    };
+    fetchCount();
+    const iv = setInterval(fetchCount, 60000); // كل دقيقة
+    return () => { alive = false; clearInterval(iv); };
+  }, [token, refreshKey]);
+
+  return (
+    <button onClick={onOpen} title="سجل تغييرات الأطباء" style={{
+      position: 'relative', width: 40, height: 40, borderRadius: 11,
+      background: '#fffbeb', border: '1.5px solid #fde68a', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
+    }}>
+      🔔
+      {count > 0 && (
+        <span style={{
+          position: 'absolute', top: -6, insetInlineEnd: -6, minWidth: 18, height: 18, padding: '0 4px',
+          borderRadius: 9, background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 800,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+        }}>{count > 99 ? '99+' : count}</span>
+      )}
+    </button>
+  );
+}
 
 interface SAStats { offices: number; companies: number; users: number; }
 
@@ -278,9 +314,14 @@ function SuperAdminShell() {
             <span style={{ fontWeight: 800, fontSize: 16, color: '#1e1b4b' }}>{activeMeta.label}</span>
           </div>
 
-          {/* Right side: date */}
-          <div style={{ marginRight: 'auto', fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>
-            {new Date().toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          {/* Right side: bell + date */}
+          <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+            {admin.isMaster && (
+              <NotificationBell token={token} refreshKey={page} onOpen={() => setPage('doctor-changes')} />
+            )}
+            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>
+              {new Date().toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
           </div>
         </header>
 
@@ -305,6 +346,7 @@ function SuperAdminShell() {
             {page === 'super-admins' && <SuperAdminsPage />}
             {page === 'visits'       && <VisitsPage />}
             {page === 'surveys'      && <MasterSurveyPage />}
+            {page === 'doctor-changes' && <DoctorChangesPage />}
           </div>
         </main>
       </div>

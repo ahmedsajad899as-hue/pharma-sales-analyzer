@@ -440,3 +440,81 @@ export async function bulkDeletePharmacyVisits(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// سجل تغييرات الأطباء — إشعارات السوبر أدمن بتعديلات/إضافات المندوبين والمدراء
+// ────────────────────────────────────────────────────────────────────────────
+// المصدر: MasterSurveyEditLog حيث entryType='doctor' و editedById != null
+// (أي تغييرات المستخدمين الميدانيين، مو السوبر أدمن الذي يُسجَّل بـ editedById=null).
+// ════════════════════════════════════════════════════════════════════════════
+const DOCTOR_CHANGE_WHERE = { entryType: 'doctor', editedById: { not: null } };
+
+export async function listDoctorChanges(req, res) {
+  try {
+    const page   = Math.max(1, parseInt(req.query.page  ?? '1'));
+    const limit  = Math.min(100, parseInt(req.query.limit ?? '50'));
+    const action = req.query.action;
+    const where  = { ...DOCTOR_CHANGE_WHERE };
+    if (action === 'create')      where.action = { in: ['create', 'create_external'] };
+    else if (action === 'update') where.action = 'update';
+
+    const [rows, total, admin] = await Promise.all([
+      prisma.masterSurveyEditLog.findMany({
+        where,
+        orderBy: { editedAt: 'desc' },
+        skip: (page - 1) * limit, take: limit,
+        include: {
+          editedBy: { select: { id: true, username: true, displayName: true } },
+          survey:   { select: { id: true, name: true } },
+        },
+      }),
+      prisma.masterSurveyEditLog.count({ where }),
+      prisma.superAdmin.findUnique({ where: { id: req.superAdmin.id }, select: { lastSeenDoctorChangesAt: true } }),
+    ]);
+
+    const lastSeen = admin?.lastSeenDoctorChangesAt ? new Date(admin.lastSeenDoctorChangesAt) : null;
+    const data = rows.map(r => {
+      let oldD = null, newD = null;
+      try { oldD = r.oldData ? JSON.parse(r.oldData) : null; } catch {}
+      try { newD = r.newData ? JSON.parse(r.newData) : null; } catch {}
+      const isCreate = r.action === 'create' || r.action === 'create_external';
+      return {
+        id:           r.id,
+        action:       isCreate ? 'create' : r.action, // توحيد create_external → create للعرض
+        editedAt:     r.editedAt,
+        isUnread:     lastSeen ? new Date(r.editedAt) > lastSeen : true,
+        editor:       r.editedBy ? (r.editedBy.displayName || r.editedBy.username) : 'غير معروف',
+        surveyName:   r.survey?.name ?? null,
+        oldName:      oldD?.name ?? null,
+        newName:      newD?.name ?? null,
+        specialty:    newD?.specialty    ?? oldD?.specialty    ?? null,
+        areaName:     newD?.areaName      ?? oldD?.areaName      ?? null,
+        pharmacyName: newD?.pharmacyName ?? oldD?.pharmacyName ?? null,
+      };
+    });
+
+    res.json({ success: true, data, total, page, limit });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+export async function doctorChangesUnreadCount(req, res) {
+  try {
+    const admin = await prisma.superAdmin.findUnique({
+      where: { id: req.superAdmin.id }, select: { lastSeenDoctorChangesAt: true },
+    });
+    const where = { ...DOCTOR_CHANGE_WHERE };
+    if (admin?.lastSeenDoctorChangesAt) where.editedAt = { gt: admin.lastSeenDoctorChangesAt };
+    const count = await prisma.masterSurveyEditLog.count({ where });
+    res.json({ success: true, count });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+export async function markDoctorChangesSeen(req, res) {
+  try {
+    await prisma.superAdmin.update({
+      where: { id: req.superAdmin.id },
+      data:  { lastSeenDoctorChangesAt: new Date() },
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}

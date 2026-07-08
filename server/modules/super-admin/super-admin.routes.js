@@ -20,6 +20,9 @@ import {
   listActivityLogs,
   getActivityLoggingStatus,
   setActivityLoggingStatus,
+  listDoctorChanges,
+  doctorChangesUnreadCount,
+  markDoctorChangesSeen,
 } from './super-admin.controller.js';
 import { requireSuperAdmin, requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -57,6 +60,11 @@ router.get('/companies-for-filter', requireMasterAdmin, listCompaniesForFilter);
 router.get('/activity-logs',          requireMasterAdmin, listActivityLogs);
 router.get('/activity-logging',       requireMasterAdmin, getActivityLoggingStatus);
 router.post('/activity-logging',      requireMasterAdmin, setActivityLoggingStatus);
+
+// Doctor changes feed (سجل تغييرات الأطباء من المندوبين) — master only
+router.get('/doctor-changes',              requireMasterAdmin, listDoctorChanges);
+router.get('/doctor-changes/unread-count', requireMasterAdmin, doctorChangesUnreadCount);
+router.post('/doctor-changes/mark-seen',   requireMasterAdmin, markDoctorChangesSeen);
 
 // Any super admin can impersonate a user
 router.post('/impersonate/:userId', requireSuperAdmin, impersonateUser);

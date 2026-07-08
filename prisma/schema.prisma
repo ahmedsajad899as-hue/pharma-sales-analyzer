@@ -882,6 +882,9 @@ model SuperAdmin {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // آخر مرة شاهد فيها هذا السوبر أدمن سجل تغييرات الأطباء (لعدّاد الإشعارات غير المقروءة)
+  lastSeenDoctorChangesAt DateTime?
+
   createdById   Int?
   createdBy     SuperAdmin?  @relation("AdminCreator", fields: [createdById], references: [id])
   createdAdmins SuperAdmin[] @relation("AdminCreator")
