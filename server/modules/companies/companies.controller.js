@@ -145,7 +145,7 @@ export async function transferCompanyItem(req, res) {
     // ألياسات الشركة القديمة التي تشير لهذا الايتم لم تعد صالحة (نطاقها الشركة)
     prisma.itemMergeRule.deleteMany({ where: { toItemId: itemId, scientificCompanyId: sourceId } }),
     // ارتباط الايتم بخطوط منتجات الشركة القديمة
-    prisma.productLineItem.deleteMany({ where: { itemId, line: { scientificCompanyId: sourceId } } }),
+    prisma.productLineItem.deleteMany({ where: { itemId, line: { is: { scientificCompanyId: sourceId } } } }),
     // النقل الفعلي
     prisma.item.update({ where: { id: itemId }, data: { scientificCompanyId: targetId } }),
   ]);
