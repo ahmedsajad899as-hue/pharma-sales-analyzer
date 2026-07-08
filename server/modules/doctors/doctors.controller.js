@@ -224,6 +224,9 @@ export async function list(req, res, next) {
       const ownerUserId = isFieldRep ? await resolveDocOwnerUserId(userId) : userId;
       await ensureDoctorRowsForScope(ownerUserId, scopedDocs, scope);
       const scopedIds = scopedDocs.map(d => d.id);
+      // distinct(masterSurveyDoctorId): صفوف Doctor مكرّرة قديمة (من الاستيراد النصي
+      // قبل التوحيد) قد تشترك بنفس masterSurveyDoctorId — نُبقي أقدم صف فقط حتى
+      // يتطابق العدد تماماً مع الزيارات/الأرشيف (اللذين يُحسبان من scopedDocs مباشرة).
       const rows = await prisma.doctor.findMany({
         where: {
           userId: ownerUserId,
@@ -235,8 +238,10 @@ export async function list(req, res, next) {
           area:       { select: { id: true, name: true } },
           targetItem: { select: { id: true, name: true } },
         },
-        orderBy: { name: 'asc' },
+        distinct: ['masterSurveyDoctorId'],
+        orderBy: [{ masterSurveyDoctorId: 'asc' }, { id: 'asc' }],
       });
+      rows.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
       return res.json(rows);
     }
 

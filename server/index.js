@@ -18,6 +18,7 @@ import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
 import { normalizeItemKey, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
+import { resolveAreaScope } from './lib/surveyDoctors.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeItemInto, mergeReps, mergeCompanies,
@@ -635,22 +636,12 @@ app.get('/api/areas', async (req, res) => {
     const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
 
     if (user && FIELD_ROLES.includes(user.role)) {
-      // Field reps: include owned areas + assigned areas + linked rep areas
-      const [assignedRows, repAreaRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-        user.linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: user.linkedRepId }, select: { areaId: true } })
-          : Promise.resolve([]),
-      ]);
-      const extraIds = [...new Set([
-        ...assignedRows.map(r => r.areaId),
-        ...repAreaRows.map(r => r.areaId),
-      ])];
-      const areas = await prisma.area.findMany({
-        where: { OR: [{ userId }, ...(extraIds.length ? [{ id: { in: extraIds } }] : [])] },
-        orderBy: { name: 'asc' },
-        select: { id: true, name: true },
-      });
+      // مناطق المندوب المُعيّنة فقط (UserAreaAssignment + ScientificRepArea) — نفس نطاق
+      // resolveAreaScope المستخدم في توحيد قوائم الأطباء. لا نُدرج مناطق "يملكها" المندوب
+      // (Area.userId) لأنها غالباً بقايا مناطق مكرّرة من ثغرة قديمة (راجع
+      // project_pharma_duplicate_area_bug) وتُظهر مناطق غير معيّنة له في قوائم الفلترة.
+      const scope = await resolveAreaScope({ id: userId, role: user.role });
+      const areas = [...scope.areaRecords].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
       return res.json({ success: true, data: areas });
     }
 
