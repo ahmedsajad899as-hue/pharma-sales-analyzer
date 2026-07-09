@@ -757,21 +757,44 @@ app.get('/api/items', async (req, res) => {
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
     const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } }, scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } } };
-    // scientific_rep/team_leader/supervisor: items via ScientificRepItem junction
+    // scientific_rep/team_leader/supervisor: the items assigned to this rep — the
+    // UNION of two sources, so the daily-plan target-item dropdown matches what the
+    // rep actually has no matter how the manager set them up:
+    //   (1) explicit ScientificRepItem assignments (منهج «تحليل ملفات المندوبين»), and
+    //   (2) items appearing in files shared with the rep — the SAME source as the
+    //       rep's read-only «الايتمات» page (getMySharedItems). Before this, only (1)
+    //       was returned, so the dropdown came up empty whenever the rep's items were
+    //       set via file-sharing instead of the explicit assign modal.
     if (['scientific_rep', 'team_leader', 'supervisor'].includes(userRole) && userId) {
-      const rep = await prisma.scientificRepresentative.findFirst({
-        where: { userId },
-        select: { id: true },
-      });
-      if (rep) {
-        const repItems = await prisma.scientificRepItem.findMany({
-          where: { scientificRepId: rep.id },
-          include: { item: { select: itemSelect } },
-        });
-        items = repItems.map(ri => ri.item).sort((a, b) => a.name.localeCompare(b.name));
-      } else {
-        items = [];
+      // Resolve via linkedRepId first (consistent with resolveMyRepId); a bare
+      // findFirst-by-userId could pick a stale duplicate ScientificRepresentative.
+      const userRec = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+      let repId = userRec?.linkedRepId ?? null;
+      if (!repId) {
+        const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+        repId = rep?.id ?? null;
       }
+      // (1) explicit item assignments
+      const repItems = repId ? await prisma.scientificRepItem.findMany({
+        where: { scientificRepId: repId },
+        include: { item: { select: itemSelect } },
+      }) : [];
+      // (2) items from files shared with this rep (legacy per-rep share + FileUserShare)
+      const [byRep, byUser] = await Promise.all([
+        repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
+        prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
+      ]);
+      const sharedFileIds = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
+      const sharedRows = sharedFileIds.length ? await prisma.sale.findMany({
+        where: { uploadedFileId: { in: sharedFileIds } },
+        select: { item: { select: itemSelect } },
+        distinct: ['itemId'],
+      }) : [];
+      // Union + dedup by id + sort by name
+      const seen = new Set();
+      items = [...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
+        .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
+        .sort((a, b) => a.name.localeCompare(b.name));
     } else {
       // 1. Items owned directly by this user
       const ownedItems = await prisma.item.findMany({
