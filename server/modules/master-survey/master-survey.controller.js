@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { resolveAreaScope } from '../../lib/surveyDoctors.js';
 
 // ── Arabic normalization helper ───────────────────────────────
 // Normalizes Arabic text: hamza variants → ا, ة → ه, ى → ي, strip diacritics + "ال"
@@ -57,21 +58,20 @@ export async function listSurveys(req, res, next) {
       },
     });
 
-    // Area filter only for field roles; managers see full survey
-    const isFieldRole   = FIELD_ROLES.has(req.user.role);
-    const userAreaNames = isFieldRole ? await getUserAssignedAreaNames(req.user.id) : [];
-    if (userAreaNames.length > 0) {
-      const normAreaSet = new Set(userAreaNames.map(normAreaKey));
-      await Promise.all(surveys.map(async survey => {
-        const [allDocs, allPharmas] = await Promise.all([
-          prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
-          prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
-        ]);
-        // Include docs with no areaName (they're not area-specific, show to all)
-        survey._count.doctors    = allDocs.filter(d => !d.areaName?.trim() || normAreaSet.has(normAreaKey(d.areaName))).length;
-        survey._count.pharmacies = allPharmas.filter(p => !p.areaName?.trim() || normAreaSet.has(normAreaKey(p.areaName))).length;
-      }));
-    }
+    // ── نطاق المناطق الموحّد (نفس resolveAreaScope المستخدم في تحليل الكولات) ──
+    // مندوب ميداني → مناطقه · مدير (شركة/أدمن) → اتحاد مناطقه + كل مندوبي فريقه.
+    // يضمن تطابق هذا العدد مع "إجمالي الأطباء" في تحليل الكولات تماماً.
+    const scope = await resolveAreaScope(req.user, {});
+    const normAreaSet = new Set(scope.normAreaNames);
+    await Promise.all(surveys.map(async survey => {
+      const [allDocs, allPharmas] = await Promise.all([
+        prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
+        prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
+      ]);
+      // نفس شرط getScopedSurveyDoctors: يستبعد الأطباء بلا اسم منطقة أيضاً
+      survey._count.doctors    = allDocs.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName))).length;
+      survey._count.pharmacies = allPharmas.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName))).length;
+    }));
 
     res.json({ success: true, data: surveys });
   } catch (e) { next(e); }
@@ -82,18 +82,13 @@ export async function getSurvey(req, res, next) {
   try {
     const id = parseInt(req.params.id);
 
-    // If repId provided (company_manager viewing for a rep), filter by rep's areas
-    let userAreaNames = [];
-    if (req.query.repId) {
-      // manager viewing as a specific rep: filter by rep's areas
-      const repUserId = await getRepLinkedUserId(req.query.repId);
-      if (repUserId) userAreaNames = await getUserAssignedAreaNames(repUserId);
-    } else if (FIELD_ROLES.has(req.user.role)) {
-      // field role: restrict to own assigned areas
-      userAreaNames = await getUserAssignedAreaNames(req.user.id);
-    }
-    // else: manager viewing own survey -> no area filter (sees all doctors)
-    const normAreaSet = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
+    // ── نطاق المناطق الموحّد (نفس resolveAreaScope المستخدم في تحليل الكولات) ──
+    // repId (مدير شركة يستعرض باسم مندوب محدد) → مناطق ذاك المندوب فقط.
+    // غير ذلك → resolveAreaScope الاعتيادي (مندوب: مناطقه · مدير: اتحاد مناطق فريقه).
+    const repUserId = req.query.repId ? await getRepLinkedUserId(req.query.repId) : null;
+    const scope = await resolveAreaScope(req.user, { repUserId });
+    const normAreaSet   = new Set(scope.normAreaNames);
+    const userAreaNames = scope.areaRecords.map(a => a.name);
 
     const survey = await prisma.masterSurvey.findFirst({
       where: { id, ...visibleWhere(req.user) },
@@ -110,12 +105,10 @@ export async function getSurvey(req, res, next) {
     });
     if (!survey) return res.status(404).json({ success: false, error: 'لم يُعثر على السيرفي أو غير مسموح' });
 
-    // Post-filter by assigned areas using normalized Arabic comparison
-    // Docs/pharmacies with no areaName are not area-specific → show to all
-    if (normAreaSet) {
-      survey.doctors    = survey.doctors.filter(d => !d.areaName?.trim() || normAreaSet.has(normAreaKey(d.areaName)));
-      survey.pharmacies = survey.pharmacies.filter(p => !p.areaName?.trim() || normAreaSet.has(normAreaKey(p.areaName)));
-    }
+    // Post-filter by assigned areas — نفس شرط getScopedSurveyDoctors: يستبعد
+    // الأطباء/الصيدليات بلا اسم منطقة أيضاً حتى يتطابق العدد مع تحليل الكولات تماماً
+    survey.doctors    = survey.doctors.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName)));
+    survey.pharmacies = survey.pharmacies.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName)));
 
     res.json({ success: true, data: { ...survey, userAreaNames } });
   } catch (e) { next(e); }
