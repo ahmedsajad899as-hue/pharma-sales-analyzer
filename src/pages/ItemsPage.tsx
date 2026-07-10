@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -28,7 +28,6 @@ export default function ItemsPage() {
   const isRep       = user?.role === 'scientific_rep';
 
   const [items, setItems]       = useState<Item[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
   const [search, setSearch]     = useState('');
@@ -129,18 +128,33 @@ export default function ItemsPage() {
       // A scientific rep sees the catalog of the company assigned to them plus any
       // items found in files shared with them — not the full multi-company catalog.
       const itemsUrl = isRep ? `${API}/api/scientific-reps/my-shared-items` : `${API}/api/items`;
-      const [ir, cr] = await Promise.all([
-        fetch(itemsUrl, { headers: authH() }).then(r => r.json()),
-        fetch(`${API}/api/companies`, { headers: authH() }).then(r => r.json()),
-      ]);
+      const ir = await fetch(itemsUrl, { headers: authH() }).then(r => r.json());
       if (ir.success) setItems(ir.data ?? []);
-      if (cr.success) setCompanies(cr.data ?? []);
     } catch {
       setError('فشل تحميل البيانات');
     } finally { setLoading(false); }
   }, [token, isRep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
+
+  // خيارات فلتر الشركة تُشتق من الايتمات المعروضة فعلاً (المقيّدة أصلاً بشركات
+  // المستخدم المعيّنة)، لا من /api/companies التي كانت تُرجع أيضاً كل صفوف جدول
+  // Company القديمة المملوكة لـ userId والمُنشأة تلقائياً من ملفات المبيعات — لذلك
+  // كانت تظهر «كل الشركات» رغم تعيين شركتين فقط للمدير. الأولوية للشركة العلمية ثم
+  // شركة المستخدم، مطابقةً لتجميع الايتمات المعروض.
+  const companyOptions = useMemo(() => {
+    const map = new Map<string, string>(); // value -> name
+    for (const it of items) {
+      if (it.scientificCompanyId != null && it.scientificCompany) {
+        map.set(`sci-${it.scientificCompanyId}`, it.scientificCompany.name);
+      } else if (it.companyId != null && it.company) {
+        map.set(`usr-${it.companyId}`, it.company.name);
+      }
+    }
+    return [...map.entries()]
+      .map(([value, name]) => ({ value, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
 
   const openAdd = () => {
     setForm({ ...EMPTY_FORM });
@@ -410,8 +424,8 @@ export default function ItemsPage() {
         >
           <option value="all">🏢 كل الشركات</option>
           <option value="null">بدون شركة</option>
-          {companies.map(c => (
-            <option key={`${c.isSci ? 'sci' : 'usr'}-${c.id}`} value={`${c.isSci ? 'sci' : 'usr'}-${c.id}`}>
+          {companyOptions.map(c => (
+            <option key={c.value} value={c.value}>
               {c.name}
             </option>
           ))}
