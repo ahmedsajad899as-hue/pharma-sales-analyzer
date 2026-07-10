@@ -243,14 +243,18 @@ const REP_ITEM_SELECT = {
 
 export async function getMySharedItems(userId) {
   const repId = await resolveMyRepId(userId);
-  const [byRep, byUser, userCompanies] = await Promise.all([
+  const [byRep, byUser, userCompanies, whitelistRows] = await Promise.all([
     repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
     prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
     // الشركة/الشركات العلمية المعيّنة للمندوب (UserCompanyAssignment) — نعرض كتالوجها
     userId ? prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }) : [],
+    // القائمة البيضاء التي حدّدها المشرف من تبويب «الايتمات» (UserItemAssignment):
+    // إن وُجدت، يُقيَّد كتالوج الشركة بها؛ إن كانت فارغة يظهر كامل الكتالوج.
+    userId ? prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } }) : [],
   ]);
   const fileIds       = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
   const sciCompanyIds = userCompanies.map(c => c.companyId);
+  const itemWhitelist = new Set(whitelistRows.map(r => r.itemId));
 
   const [sharedRows, catalogItems] = await Promise.all([
     // (1) ايتمات ملفات المبيعات المشتركة معه
@@ -266,9 +270,12 @@ export async function getMySharedItems(userId) {
     }) : [],
   ]);
 
+  // قصْر كتالوج الشركة على القائمة البيضاء إن وُجدت (وإلا الكتالوج كامل)
+  const scopedCatalog = itemWhitelist.size ? catalogItems.filter(i => itemWhitelist.has(i.id)) : catalogItems;
+
   // اتحاد المصدرين + إزالة التكرار بالـid + ترتيب بالاسم
   const seen = new Set();
-  return [...catalogItems, ...sharedRows.map(r => r.item)]
+  return [...scopedCatalog, ...sharedRows.map(r => r.item)]
     .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

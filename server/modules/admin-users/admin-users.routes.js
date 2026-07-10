@@ -3,7 +3,7 @@ import {
   listAllUsers, getUser, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserItems, setUserLines,
   setUserManagers, setUserInteractions, setUserFeatures,
-  getUserRepInfo,
+  getUserRepInfo, getUserCompanyItems,
   deleteUser,
 } from './admin-users.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
@@ -13,7 +13,8 @@ const router = express.Router();
 router.use(requireSuperAdmin);
 
 router.get('/',            listAllUsers);
-router.get('/:id/rep-info', getUserRepInfo);
+router.get('/:id/rep-info',      getUserRepInfo);
+router.get('/:id/company-items', getUserCompanyItems);
 router.get('/:id',         getUser);
 router.post('/',           createUser);
 router.put('/:id',         updateUser);

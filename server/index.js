@@ -757,6 +757,14 @@ app.get('/api/items', async (req, res) => {
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
     const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } }, scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } } };
+    // القائمة البيضاء لايتمات المستخدم (UserItemAssignment، تُضبَط من تبويب «الايتمات» في
+    // صفحة المستخدم): إن اختار المشرف ايتمات محددة فالمستخدم يعمل على تلك فقط من كتالوج
+    // شركاته؛ إن لم يختر شيئاً (قائمة فارغة) يعمل على كل ايتمات شركاته — بما فيها أي ايتم
+    // يُضاف للشركة لاحقاً. الفلتر يُطبَّق على مساهمة الكتالوج فقط، لا على المصادر الصريحة
+    // الأخرى (ملفات مشتركة/ربط مندوب/بلان) كي لا تتأثر تلك التعيينات المستقلة.
+    const itemWhitelistRows = userId ? await prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } }) : [];
+    const itemWhitelist = new Set(itemWhitelistRows.map(r => r.itemId));
+    const scopeCatalog = (list) => itemWhitelist.size ? list.filter(i => i && itemWhitelist.has(i.id)) : list;
     // scientific_rep/team_leader/supervisor: the items assigned to this rep — the
     // UNION of two sources, so the daily-plan target-item dropdown matches what the
     // rep actually has no matter how the manager set them up:
@@ -802,9 +810,9 @@ app.get('/api/items', async (req, res) => {
         where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
         select: itemSelect,
       }) : [];
-      // Union + dedup by id + sort by name
+      // Union + dedup by id + sort by name (catalog scoped by the item whitelist)
       const seen = new Set();
-      items = [...catalogItems, ...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
+      items = [...scopeCatalog(catalogItems), ...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
         .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
         .sort((a, b) => a.name.localeCompare(b.name));
     } else {
@@ -856,9 +864,10 @@ app.get('/api/items', async (req, res) => {
           });
         }
       }
-      // Deduplicate and sort
+      // Deduplicate and sort (catalog scoped by the item whitelist; assignedItems are
+      // the whitelist itself so selected items always appear even if not in the catalog)
       const seen = new Set();
-      items = [...catalogItems, ...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
+      items = [...scopeCatalog(catalogItems), ...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
         if (seen.has(i.id)) return false;
         seen.add(i.id); return true;
       }).sort((a, b) => a.name.localeCompare(b.name));

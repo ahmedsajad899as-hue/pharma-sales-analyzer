@@ -153,6 +153,37 @@ export async function getUserRepInfo(req, res) {
   res.json({ success: true, data: { user, linkedRep, repsByUserId } });
 }
 
+// ── Items of the user's assigned scientific companies ──────────────────────
+// يغذّي تبويب «الايتمات» في صفحة المستخدم: كل ايتمات كتالوج الشركات المعيّنة له
+// (Item.scientificCompanyId ∈ شركات المستخدم، isTemp=false)، مجمّعة بمعلومة الشركة.
+// المشرف يختار منها القائمة البيضاء (UserItemAssignment)؛ إن لم يختر شيئاً يعمل
+// المستخدم على كل هذه الايتمات (السلوك الافتراضي — يُطبَّق في /api/items و getMySharedItems).
+export async function getUserCompanyItems(req, res) {
+  const userId = parseInt(req.params.id);
+  const companies = await prisma.userCompanyAssignment.findMany({
+    where: { userId },
+    select: { companyId: true },
+  });
+  const companyIds = companies.map(c => c.companyId);
+  if (companyIds.length === 0) return res.json({ success: true, data: [] });
+
+  const items = await prisma.item.findMany({
+    where: { scientificCompanyId: { in: companyIds }, isTemp: false },
+    select: {
+      id: true, name: true, scientificCompanyId: true,
+      scientificCompany: { select: { id: true, name: true } },
+    },
+    orderBy: [{ scientificCompanyId: 'asc' }, { name: 'asc' }],
+  });
+  const data = items.map(i => ({
+    id: i.id,
+    name: i.name,
+    companyId: i.scientificCompanyId,
+    companyName: i.scientificCompany?.name ?? '—',
+  }));
+  res.json({ success: true, data });
+}
+
 // ── Delete user ───────────────────────────────────────────────────────────
 export async function deleteUser(req, res) {
   const id = parseInt(req.params.id);

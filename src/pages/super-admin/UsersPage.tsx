@@ -28,7 +28,7 @@ const ROLES = [
 interface Office   { id: number; name: string; }
 interface Company  { id: number; name: string; officeId: number; }
 interface Line     { id: number; name?: string; companyId: number; }
-interface Item     { id: number; name: string; }
+interface Item     { id: number; name: string; companyId?: number | null; companyName?: string; }
 interface Area     { id: number; name: string; }
 interface UserRow  {
   id: number; username: string; displayName?: string; role: string; phone?: string;
@@ -134,13 +134,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const loadRefs = async () => {
     setRefsLoading(true);
     try {
-      const [li, it, ar] = await Promise.all([
+      // ملاحظة: قائمة الايتمات لم تعد تُحمَّل هنا عمومياً — صارت مقيّدة بشركات المستخدم
+      // وتُحمَّل لكل مستخدم على حدة عبر /api/sa/users/:id/company-items (تأثير detail?.id).
+      const [li, ar] = await Promise.all([
         fetch('/api/sa/companies/all-lines', { headers: H() }).then(r => r.json()),
-        fetch('/api/sa/items',  { headers: H() }).then(r => r.json()),
         fetch('/api/sa/areas',  { headers: H() }).then(r => r.json()),
       ]);
       if (li.success) setLines(li.data);
-      if (it.success) setItems(it.data);
       if (ar.success) setAreas(ar.data);
     } finally {
       setRefsLoading(false);
@@ -178,9 +178,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     onJumpClear?.();
   }, [jumpUserId]);
 
+  // ايتمات كتالوج الشركات المعيّنة للمستخدم (تُغذّي تبويب «الايتمات»)
+  const loadCompanyItems = (userId: number) => {
+    fetch(`/api/sa/users/${userId}/company-items`, { headers: H() })
+      .then(r => r.json())
+      .then(d => { if (d.success) setItems(d.data); })
+      .catch(() => {});
+  };
+
   // Reset drafts whenever detail changes
   useEffect(() => {
-    if (!detail) return;
+    if (!detail) { setItems([]); return; }
+    loadCompanyItems(detail.id);
     setDraftCompanyIds(detail.companyAssignments.map(a => a.companyId));
     setDraftPrimaryCompanyId(detail.companyAssignments.find(a => a.isPrimary)?.companyId ?? detail.companyAssignments[0]?.companyId ?? null);
     setDraftLineIds(detail.lineAssignments.map(a => a.lineId));
@@ -301,6 +310,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       }
       // Reload detail but keep the user on the same tab (don't snap back to 'info')
       loadDetail(detail.id, { keepTab: true });
+      // تغيير الشركات يغيّر مجموعة الايتمات المتاحة → أعد جلبها (نفس الـid لا يُشغّل الـeffect)
+      if (type === 'companies') loadCompanyItems(detail.id);
       if (type === 'areas') window.dispatchEvent(new Event('areas-changed'));
       showToast('✅ تم الحفظ');
     } catch (e) {
@@ -436,6 +447,16 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       .filter(aa => !areas.some(a => a.id === aa.areaId))
       .map(aa => ({ id: aa.areaId, name: aa.area?.name ?? `#${aa.areaId}`, _extra: true as const }));
     const displayAreas = [...areas, ...assignedExtraAreas];
+
+    // ايتمات كتالوج شركات المستخدم، مفلترة بالبحث ومجمّعة حسب الشركة (لتبويب «الايتمات»).
+    const filteredItems = items.filter(i => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()));
+    const itemGroups = Object.entries(
+      filteredItems.reduce<Record<string, Item[]>>((acc, i) => {
+        const key = i.companyName || '—';
+        (acc[key] ||= []).push(i);
+        return acc;
+      }, {})
+    );
 
     const TabBtn = ({ id, label }: { id: typeof tab; label: string }) => (
       <button onClick={() => setTab(id)} style={{
@@ -614,6 +635,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'items' && (
             <div>
+              <div style={{ fontSize: 12.5, color: '#0369a1', marginBottom: 12, lineHeight: 1.9, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px' }}>
+                💊 هذه ايتمات الشركات المعيّنة لهذا المستخدم. اختر عدداً منها ليعمل عليها المستخدم فقط.
+                <br />
+                ℹ️ إذا لم تختر أي ايتم، يعمل المستخدم على <b>كل</b> ايتمات شركاته — وأي ايتم يُضاف للشركة لاحقاً يظهر له تلقائياً.
+              </div>
               <input
                 type="text"
                 placeholder="🔍 بحث عن ايتم..."
@@ -623,17 +649,51 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               />
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => setDraftItemIds(items.map(i => i.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+                <button onClick={() => setDraftItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل (= كل الايتمات)</button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {items.filter(i => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase())).map(i => (
-                  <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftItemIds.includes(i.id)} onChange={e => setDraftItemIds(e.target.checked ? [...draftItemIds, i.id] : draftItemIds.filter(x => x !== i.id))} />
-                    {i.name}
-                  </label>
-                ))}
-              </div>
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+              {items.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: 13, padding: 20, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>
+                  لا توجد ايتمات — عيّن شركة لهذا المستخدم من تبويب «الشركات» أولاً، وستظهر ايتمات كتالوجها هنا.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 360, overflowY: 'auto' }}>
+                  {itemGroups.map(([companyName, groupItems]) => {
+                    const groupIds = groupItems.map(i => i.id);
+                    const allSel = groupIds.every(id => draftItemIds.includes(id));
+                    return (
+                      <div key={companyName}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>🏭 {companyName} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({groupItems.length})</span></div>
+                          <button
+                            onClick={() => allSel
+                              ? setDraftItemIds(draftItemIds.filter(x => !groupIds.includes(x)))
+                              : setDraftItemIds([...new Set([...draftItemIds, ...groupIds])])}
+                            style={{ ...btnStyle(allSel ? '#64748b' : '#2563eb', true), fontSize: 11, padding: '2px 10px' }}>
+                            {allSel ? 'إلغاء الشركة' : 'تحديد الشركة'}
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {groupItems.map(i => {
+                            const on = draftItemIds.includes(i.id);
+                            return (
+                              <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: on ? '#eff6ff' : '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14, border: on ? '1px solid #bfdbfe' : '1px solid transparent' }}>
+                                <input type="checkbox" checked={on} onChange={e => setDraftItemIds(e.target.checked ? [...draftItemIds, i.id] : draftItemIds.filter(x => x !== i.id))} />
+                                {i.name}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: draftItemIds.length === 0 ? '#16a34a' : '#64748b', fontWeight: 600 }}>
+                  {draftItemIds.length === 0
+                    ? '✓ لم تُختر ايتمات → المستخدم يعمل على كل ايتمات شركاته'
+                    : `مُختار ${draftItemIds.length} ايتم — المستخدم يعمل عليها فقط`}
+                </span>
                 <button onClick={() => saveAssignment('items', draftItemIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
             </div>
