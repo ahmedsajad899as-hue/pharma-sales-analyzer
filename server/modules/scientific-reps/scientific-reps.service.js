@@ -231,20 +231,46 @@ export async function getMyCommercialReps(userId) {
 // per-rep share) or via the file-sharing UI used today (FileUserShare junction,
 // keyed by the user's own account id) — what the rep should see in their
 // read-only "الايتمات" tab, as opposed to the full company-wide item catalog.
+// Full item projection so the rep's «الايتمات» cards can show catalog details
+// (scientific name, dosage, price, message, image) and group by company — not
+// just a bare id/name like the old shared-file-only listing did.
+const REP_ITEM_SELECT = {
+  id: true, name: true, scientificName: true, dosage: true, form: true,
+  price: true, scientificMessage: true, imageUrl: true,
+  companyId: true, company: { select: { id: true, name: true } },
+  scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } },
+};
+
 export async function getMySharedItems(userId) {
   const repId = await resolveMyRepId(userId);
-  const [byRep, byUser] = await Promise.all([
+  const [byRep, byUser, userCompanies] = await Promise.all([
     repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
     prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
+    // الشركة/الشركات العلمية المعيّنة للمندوب (UserCompanyAssignment) — نعرض كتالوجها
+    userId ? prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }) : [],
   ]);
-  const fileIds = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
-  if (fileIds.length === 0) return [];
-  const rows = await prisma.sale.findMany({
-    where: { uploadedFileId: { in: fileIds } },
-    select: { item: { select: { id: true, name: true } } },
-    distinct: ['itemId'],
-  });
-  return rows.map(r => r.item).sort((a, b) => a.name.localeCompare(b.name));
+  const fileIds       = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
+  const sciCompanyIds = userCompanies.map(c => c.companyId);
+
+  const [sharedRows, catalogItems] = await Promise.all([
+    // (1) ايتمات ملفات المبيعات المشتركة معه
+    fileIds.length ? prisma.sale.findMany({
+      where: { uploadedFileId: { in: fileIds } },
+      select: { item: { select: REP_ITEM_SELECT } },
+      distinct: ['itemId'],
+    }) : [],
+    // (2) كتالوج الشركة المعيّنة له (isTemp=false) — يظهر حتى لو لم تُشارَك ملفات
+    sciCompanyIds.length ? prisma.item.findMany({
+      where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+      select: REP_ITEM_SELECT,
+    }) : [],
+  ]);
+
+  // اتحاد المصدرين + إزالة التكرار بالـid + ترتيب بالاسم
+  const seen = new Set();
+  return [...catalogItems, ...sharedRows.map(r => r.item)]
+    .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ─── Assignments ─────────────────────────────────────────────

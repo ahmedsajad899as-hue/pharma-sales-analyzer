@@ -126,8 +126,8 @@ export default function ItemsPage() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      // A scientific rep only sees items found in files that were shared with
-      // them — never the full company-wide catalog.
+      // A scientific rep sees the catalog of the company assigned to them plus any
+      // items found in files shared with them — not the full multi-company catalog.
       const itemsUrl = isRep ? `${API}/api/scientific-reps/my-shared-items` : `${API}/api/items`;
       const [ir, cr] = await Promise.all([
         fetch(itemsUrl, { headers: authH() }).then(r => r.json()),
@@ -343,7 +343,7 @@ export default function ItemsPage() {
           </h2>
           <p style={{ margin:0, fontSize:12, color:'#94a3b8', marginTop:3 }}>
             {isRep
-              ? <>ايتمات الملفات المشتركة معك: <strong style={{ color:'#6366f1' }}>{items.length}</strong></>
+              ? <>ايتمات شركتك المتاحة لك: <strong style={{ color:'#6366f1' }}>{items.length}</strong></>
               : <>إجمالي: <strong style={{ color:'#6366f1' }}>{items.length}</strong> ايتم · معروض: <strong>{filtered.length}</strong></>
             }
           </p>
@@ -503,7 +503,7 @@ export default function ItemsPage() {
           <div style={{ fontSize:48, marginBottom:12 }}>💊</div>
           <p style={{ fontSize:14, fontWeight:600 }}>لا توجد ايتمات</p>
           <p style={{ fontSize:12, marginTop:4 }}>
-            {isRep ? 'لم يتم مشاركة أي ملف مبيعات معك بعد' : 'اضغط "إضافة ايتم جديد" لبدء الإضافة'}
+            {isRep ? 'لم يتم تعيين شركة لك أو لا توجد ايتمات في كتالوج شركتك بعد' : 'اضغط "إضافة ايتم جديد" لبدء الإضافة'}
           </p>
         </div>
       )}

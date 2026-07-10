@@ -790,9 +790,21 @@ app.get('/api/items', async (req, res) => {
         select: { item: { select: itemSelect } },
         distinct: ['itemId'],
       }) : [];
+      // (3) catalog of the rep's assigned scientific company (UserCompanyAssignment) —
+      //     same source the read-only «الايتمات» page shows, so the dropdown matches
+      //     even when the rep has an assigned company but no shared files.
+      const userCompanies = await prisma.userCompanyAssignment.findMany({
+        where: { userId },
+        select: { companyId: true },
+      });
+      const sciCompanyIds = userCompanies.map(c => c.companyId);
+      const catalogItems = sciCompanyIds.length ? await prisma.item.findMany({
+        where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+        select: itemSelect,
+      }) : [];
       // Union + dedup by id + sort by name
       const seen = new Set();
-      items = [...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
+      items = [...catalogItems, ...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
         .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
         .sort((a, b) => a.name.localeCompare(b.name));
     } else {
