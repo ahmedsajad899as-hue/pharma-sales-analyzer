@@ -2305,10 +2305,12 @@ function getNextApiKey() {
   return key;
 }
 // Models tried in order; each has its own quota pool, so falling back gives more headroom.
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash'];
+// NOTE: gemini-1.5-flash was RETIRED by Google (returns 404 Not Found) → replaced with gemini-2.0-flash.
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
-// Per-call timeout: if Gemini doesn't respond within this many ms, abort and try next model/key.
-const GEMINI_CALL_TIMEOUT_MS = 55_000; // 55 s — safely within Railway's 5-min limit
+// Default per-call timeout. Heavy callers (e.g. the item-analysis report, whose prompt is huge)
+// pass a larger `timeoutMs` via callGeminiSmart options — Nginx allows 300s so there is headroom.
+const GEMINI_CALL_TIMEOUT_MS = 55_000; // 55 s default (kept short for the chat assistant)
 
 function geminiWithTimeout(promise, ms) {
   let timer;
@@ -2318,17 +2320,31 @@ function geminiWithTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// Try every (key × model) combination once before failing. Returns text on success.
-export async function callGeminiSmart(parts) {
+// Try (model × key) combinations until one succeeds. Returns text on success.
+// Options:
+//   timeoutMs  — per-attempt timeout (default 55s; heavy calls pass more).
+//   models     — model ladder to try (default GEMINI_MODELS).
+//   maxTotalMs — overall budget: stop starting new attempts past this so the whole
+//                call finishes before Nginx's 300s proxy timeout (avoids a 504 HTML page).
+export async function callGeminiSmart(parts, opts = {}) {
+  const {
+    timeoutMs = GEMINI_CALL_TIMEOUT_MS,
+    models = GEMINI_MODELS,
+    maxTotalMs = null,
+  } = opts;
   const keys = getAllApiKeys();
   if (!keys.length) throw new Error('No Gemini API key configured');
+  const started = Date.now();
   let lastErr;
-  for (const modelName of GEMINI_MODELS) {
+  for (const modelName of models) {
     for (let i = 0; i < keys.length; i++) {
+      if (maxTotalMs && Date.now() - started >= maxTotalMs) {
+        throw lastErr || new Error(`Gemini total budget ${maxTotalMs}ms exceeded`);
+      }
       const key = keys[(_keyIndex + i) % keys.length];
       try {
         const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: modelName });
-        const result = await geminiWithTimeout(model.generateContent(parts), GEMINI_CALL_TIMEOUT_MS);
+        const result = await geminiWithTimeout(model.generateContent(parts), timeoutMs);
         _keyIndex = (_keyIndex + i + 1) % keys.length; // advance for next call
         return result.response.text();
       } catch (err) {

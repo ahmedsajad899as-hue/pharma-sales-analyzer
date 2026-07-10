@@ -743,13 +743,26 @@ export async function getAIInsight(req, res, next) {
     req.query.days = days;
     if (repName) req.query.repName = repName;
 
-    // Capture aggregator output without sending response
+    // Capture aggregator output without sending response.
+    // IMPORTANT: pass a *capturing* next (not the real one). If aggregation
+    // fails and we forward to the global errorHandler, it replies with a
+    // `{ message }` body — but the frontend only reads `error`, so the user
+    // sees a useless generic "فشل التحليل الذكي". Capturing the error here lets
+    // us always reply with an `{ error }` body carrying the real reason.
     let aggregated = null;
+    let aggError = null;
     const fakeRes = {
       status() { return this; },
       json(d) { aggregated = d; return this; },
     };
-    await getItemAnalytics({ user: { id: userId }, params: req.params, query: req.query }, fakeRes, next);
+    const captureNext = (e) => { aggError = e; };
+    try {
+      await getItemAnalytics({ user: { id: userId }, params: req.params, query: req.query }, fakeRes, captureNext);
+    } catch (e) { aggError = e; }
+    if (aggError) {
+      console.error('[item-analysis] aggregation failed:', aggError?.message);
+      return res.status(500).json({ error: `فشل تجميع بيانات الإيتم: ${aggError?.message || 'خطأ غير معروف'}` });
+    }
     if (!aggregated || aggregated.error) {
       return res.status(404).json({ error: aggregated?.error || 'فشل تجميع البيانات' });
     }
@@ -1069,7 +1082,10 @@ ${hasRep ? `
 
     let insight;
     try {
-      insight = await callGeminiSmart([{ text: prompt }]);
+      // This prompt is very large (full medical report), so a single generation can
+      // exceed the 55s default. Nginx allows 300s → give each attempt 95s and cap the
+      // whole retry ladder at 190s so we still return before the proxy times out.
+      insight = await callGeminiSmart([{ text: prompt }], { timeoutMs: 95_000, maxTotalMs: 190_000 });
     } catch (err) {
       console.error('[item-analysis] Gemini failed:', err?.message);
       return res.status(503).json({ error: 'خدمة الذكاء الاصطناعي غير متوفرة حالياً. الرجاء المحاولة لاحقاً.' });

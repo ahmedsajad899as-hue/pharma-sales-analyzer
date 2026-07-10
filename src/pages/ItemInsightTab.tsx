@@ -365,9 +365,10 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
     const timer = setInterval(() => {
       setAIElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
-    // AbortController — cancel fetch if it takes too long (3 min max client-side)
+    // AbortController — cancel fetch if it takes too long. Must exceed the server's
+    // 190s Gemini budget yet stay under Nginx's 300s proxy timeout → 240s.
     const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), 3 * 60 * 1000);
+    const abortTimer = setTimeout(() => controller.abort(), 240 * 1000);
     try {
       const r = await fetch(`${API}/api/item-analysis/${selectedId}/ai-insight`, {
         method: 'POST',
@@ -375,7 +376,13 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
         body: JSON.stringify({ fileIds: fileIdsParam || null, days, repName: selectedRep || null }),
         signal: controller.signal,
       });
-      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل التحليل الذكي'); }
+      if (!r.ok) {
+        // Surface the real reason: backend error handlers use `message`, our own
+        // handler uses `error`, and a proxy timeout (504) returns non-JSON → {}.
+        // Including the HTTP status makes a gateway timeout (504/502) diagnosable.
+        const j = await r.json().catch(() => ({} as any));
+        throw new Error(j.error || j.message || `فشل التحليل الذكي (HTTP ${r.status})`);
+      }
       const j = await r.json();
       setAIInsight(j.insight);
       setAICachedAt(j.generatedAt);
@@ -1048,7 +1055,7 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
               {aiLoading && (
                 <div style={{ padding: 24, textAlign: 'center', color: '#6366f1' }}>
                   <div style={{ fontSize: 22 }}>⏳</div>
-                  <div style={{ fontSize: 14, marginTop: 6 }}>جاري إنشاء التحليل... قد يستغرق 10-20 ثانية</div>
+                  <div style={{ fontSize: 14, marginTop: 6 }}>جاري إنشاء التحليل... قد يستغرق حتى دقيقتين للتقارير الكبيرة</div>
                 </div>
               )}
 
