@@ -774,103 +774,121 @@ app.get('/api/items', async (req, res) => {
     //       was returned, so the dropdown came up empty whenever the rep's items were
     //       set via file-sharing instead of the explicit assign modal.
     if (['scientific_rep', 'team_leader', 'supervisor'].includes(userRole) && userId) {
-      // Resolve via linkedRepId first (consistent with resolveMyRepId); a bare
-      // findFirst-by-userId could pick a stale duplicate ScientificRepresentative.
-      const userRec = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-      let repId = userRec?.linkedRepId ?? null;
-      if (!repId) {
-        const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-        repId = rep?.id ?? null;
-      }
-      // (1) explicit item assignments
-      const repItems = repId ? await prisma.scientificRepItem.findMany({
-        where: { scientificRepId: repId },
-        include: { item: { select: itemSelect } },
-      }) : [];
-      // (2) items from files shared with this rep (legacy per-rep share + FileUserShare)
-      const [byRep, byUser] = await Promise.all([
-        repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
-        prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
-      ]);
-      const sharedFileIds = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
-      const sharedRows = sharedFileIds.length ? await prisma.sale.findMany({
-        where: { uploadedFileId: { in: sharedFileIds } },
-        select: { item: { select: itemSelect } },
-        distinct: ['itemId'],
-      }) : [];
-      // (3) catalog of the rep's assigned scientific company (UserCompanyAssignment) —
-      //     same source the read-only «الايتمات» page shows, so the dropdown matches
-      //     even when the rep has an assigned company but no shared files.
+      // تقييد صارم على أساس الشركة: إن كان للمندوب شركة/شركات معيّنة
+      // (UserCompanyAssignment) فقائمة الايتمات = كتالوج تلك الشركات فقط
+      // (isTemp=false)، مقيّدة بالقائمة البيضاء إن وُجدت. لا تُضاف ايتمات الملفات
+      // المشتركة ولا تعيينات ScientificRepItem كي تبقى كل حقول الاختيار موحّدة على
+      // «ايتمات الشركة». إن لم تكن له شركة بعد → يُرجَع السلوك القديم (اتحاد
+      // التعيينات + الملفات المشتركة) كي لا تُفرَّغ القائمة قبل تعيين الشركة.
       const userCompanies = await prisma.userCompanyAssignment.findMany({
         where: { userId },
         select: { companyId: true },
       });
       const sciCompanyIds = userCompanies.map(c => c.companyId);
-      const catalogItems = sciCompanyIds.length ? await prisma.item.findMany({
-        where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
-        select: itemSelect,
-      }) : [];
-      // Union + dedup by id + sort by name (catalog scoped by the item whitelist)
-      const seen = new Set();
-      items = [...scopeCatalog(catalogItems), ...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
-        .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
-        .sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      // 1. Items owned directly by this user
-      const ownedItems = await prisma.item.findMany({
-        where: { ...(userId ? { userId } : {}), ...(companyId ? { companyId } : {}) },
-        select: itemSelect,
-      });
-      // 2. Items assigned via UserItemAssignment
-      const assignedRows = userId ? await prisma.userItemAssignment.findMany({
-        where: { userId },
-        select: { item: { select: itemSelect } },
-      }) : [];
-      const assignedItems = assignedRows.map(r => r.item);
-      // 3. Items assigned via RepresentativeItem (linked medical rep)
-      let linkedRepItems = [];
-      if (userId) {
-        const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-        if (userRecord?.linkedRepId) {
-          const riRows = await prisma.representativeItem.findMany({
-            where: { representativeId: userRecord.linkedRepId },
-            select: { item: { select: itemSelect } },
-          });
-          linkedRepItems = riRows.map(r => r.item);
-        }
-      }
-      // 4. Items from user's monthly plan entries (PlanEntryItem)
-      let planEntryItems = [];
-      if (userId) {
-        const plans = await prisma.monthlyPlan.findMany({
-          where: { OR: [{ userId }, { assignedUserId: userId }] },
-          select: { entries: { select: { targetItems: { select: { item: { select: itemSelect } } } } } },
+      if (sciCompanyIds.length > 0) {
+        const catalogItems = await prisma.item.findMany({
+          where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+          select: itemSelect,
         });
-        planEntryItems = plans.flatMap(p => p.entries.flatMap(e => e.targetItems.map(i => i.item)));
+        const seen = new Set();
+        items = scopeCatalog(catalogItems)
+          .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } else {
+        // fallback (بلا شركة): اتحاد المصادر القديمة
+        // Resolve via linkedRepId first (consistent with resolveMyRepId); a bare
+        // findFirst-by-userId could pick a stale duplicate ScientificRepresentative.
+        const userRec = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+        let repId = userRec?.linkedRepId ?? null;
+        if (!repId) {
+          const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+          repId = rep?.id ?? null;
+        }
+        // (1) explicit item assignments
+        const repItems = repId ? await prisma.scientificRepItem.findMany({
+          where: { scientificRepId: repId },
+          include: { item: { select: itemSelect } },
+        }) : [];
+        // (2) items from files shared with this rep (legacy per-rep share + FileUserShare)
+        const [byRep, byUser] = await Promise.all([
+          repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
+          prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
+        ]);
+        const sharedFileIds = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
+        const sharedRows = sharedFileIds.length ? await prisma.sale.findMany({
+          where: { uploadedFileId: { in: sharedFileIds } },
+          select: { item: { select: itemSelect } },
+          distinct: ['itemId'],
+        }) : [];
+        const seen = new Set();
+        items = [...repItems.map(ri => ri.item), ...sharedRows.map(r => r.item)]
+          .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
+          .sort((a, b) => a.name.localeCompare(b.name));
       }
-      // 5. Catalog items from the user's scientific companies
-      let catalogItems = [];
+    } else {
+      // تقييد صارم على أساس الشركة (نفس قاعدة فرع المندوب): إن كان للمستخدم شركة/شركات
+      // معيّنة فقائمة الايتمات = كتالوج تلك الشركات فقط (مقيّدة بالقائمة البيضاء إن وُجدت)
+      // كي تبقى كل الحقول موحّدة على «ايتمات الشركة». إن لم تكن له شركة → السلوك القديم
+      // (اتحاد الايتمات المملوكة/المعيّنة/المرتبطة/بلان) كي لا تُفرَّغ القائمة.
+      let sciCompanyIds = [];
       if (userId) {
         const userCompanies = await prisma.userCompanyAssignment.findMany({
           where: { userId },
           select: { companyId: true },
         });
-        const sciCompanyIds = userCompanies.map(c => c.companyId);
-        if (sciCompanyIds.length > 0) {
-          catalogItems = await prisma.item.findMany({
-            where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
-            select: itemSelect,
-            orderBy: { name: 'asc' },
-          });
-        }
+        sciCompanyIds = userCompanies.map(c => c.companyId);
       }
-      // Deduplicate and sort (catalog scoped by the item whitelist; assignedItems are
-      // the whitelist itself so selected items always appear even if not in the catalog)
-      const seen = new Set();
-      items = [...scopeCatalog(catalogItems), ...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
-        if (seen.has(i.id)) return false;
-        seen.add(i.id); return true;
-      }).sort((a, b) => a.name.localeCompare(b.name));
+      if (sciCompanyIds.length > 0) {
+        const catalogItems = await prisma.item.findMany({
+          where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+          select: itemSelect,
+          orderBy: { name: 'asc' },
+        });
+        const seen = new Set();
+        items = scopeCatalog(catalogItems)
+          .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } else {
+        // fallback (بلا شركة): اتحاد المصادر القديمة
+        // 1. Items owned directly by this user
+        const ownedItems = await prisma.item.findMany({
+          where: { ...(userId ? { userId } : {}), ...(companyId ? { companyId } : {}) },
+          select: itemSelect,
+        });
+        // 2. Items assigned via UserItemAssignment
+        const assignedRows = userId ? await prisma.userItemAssignment.findMany({
+          where: { userId },
+          select: { item: { select: itemSelect } },
+        }) : [];
+        const assignedItems = assignedRows.map(r => r.item);
+        // 3. Items assigned via RepresentativeItem (linked medical rep)
+        let linkedRepItems = [];
+        if (userId) {
+          const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+          if (userRecord?.linkedRepId) {
+            const riRows = await prisma.representativeItem.findMany({
+              where: { representativeId: userRecord.linkedRepId },
+              select: { item: { select: itemSelect } },
+            });
+            linkedRepItems = riRows.map(r => r.item);
+          }
+        }
+        // 4. Items from user's monthly plan entries (PlanEntryItem)
+        let planEntryItems = [];
+        if (userId) {
+          const plans = await prisma.monthlyPlan.findMany({
+            where: { OR: [{ userId }, { assignedUserId: userId }] },
+            select: { entries: { select: { targetItems: { select: { item: { select: itemSelect } } } } } },
+          });
+          planEntryItems = plans.flatMap(p => p.entries.flatMap(e => e.targetItems.map(i => i.item)));
+        }
+        // Deduplicate and sort
+        const seen = new Set();
+        items = [...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
+          if (seen.has(i.id)) return false;
+          seen.add(i.id); return true;
+        }).sort((a, b) => a.name.localeCompare(b.name));
+      }
     }
     res.json({ success: true, data: items });
   } catch (err) { res.status(500).json({ error: err.message }); }

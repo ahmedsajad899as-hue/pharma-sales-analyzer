@@ -273,9 +273,14 @@ export async function getMySharedItems(userId) {
   // قصْر كتالوج الشركة على القائمة البيضاء إن وُجدت (وإلا الكتالوج كامل)
   const scopedCatalog = itemWhitelist.size ? catalogItems.filter(i => itemWhitelist.has(i.id)) : catalogItems;
 
-  // اتحاد المصدرين + إزالة التكرار بالـid + ترتيب بالاسم
+  // تقييد صارم على أساس الشركة (موحَّد مع /api/items): إن كانت للمندوب شركة معيّنة
+  // فالقائمة = كتالوج الشركة فقط (مقيّد بالقائمة البيضاء)، بلا ايتمات الملفات المشتركة.
+  // إن لم تكن له شركة → السلوك القديم (ايتمات الملفات المشتركة) كي لا تُفرَّغ القائمة.
+  const source = sciCompanyIds.length ? scopedCatalog : sharedRows.map(r => r.item);
+
+  // إزالة التكرار بالـid + ترتيب بالاسم
   const seen = new Set();
-  return [...scopedCatalog, ...sharedRows.map(r => r.item)]
+  return source
     .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
