@@ -195,13 +195,19 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     let ok = 0; let fail = 0;
     for (const repId of broadcastSel) {
       try {
-        // For scientific reps: get the target rep's items and only apply matching rows
+        // For scientific reps: only apply rows for items the target rep carries.
+        // BUT a rep with NO explicitly-assigned items is treated everywhere in
+        // this page as carrying ALL items (see loadTargets). Mirror that here:
+        // an empty items list must mean "apply every row", not "apply nothing" —
+        // otherwise broadcasting to such reps silently saves an empty target set.
         let targets: { itemId: number; target: number }[];
         if (repType === 'scientific') {
           const targetRep = sciReps.find(r => r.id === repId);
-          const targetItemIds = new Set((targetRep?.items ?? []).map(i => i.id));
+          const targetItemIds = targetRep?.items && targetRep.items.length > 0
+            ? new Set(targetRep.items.map(i => i.id))
+            : null; // null = rep carries all items
           targets = rows
-            .filter(r => targetItemIds.has(r.itemId))
+            .filter(r => targetItemIds === null || targetItemIds.has(r.itemId))
             .map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 }));
         } else {
           targets = rows.map(r => ({ itemId: r.itemId, target: parseFloat(r.target) || 0 }));
