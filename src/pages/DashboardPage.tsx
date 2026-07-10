@@ -625,19 +625,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     tick(); clTimerRef.current = setInterval(tick, 1000);
     startGpsCapture();
     setShowCallLog(true);
-    // Load areas + items for autocomplete (same as openCallLog)
-    if (clAreas.length === 0) {
-      fetch('/api/areas', { headers: authH() })
-        .then(r => r.json())
-        .then(json => setClAreas(Array.isArray(json.data) ? json.data : []))
-        .catch(() => {});
-    }
-    if (clAllItems.length === 0) {
-      fetch('/api/items', { headers: authH() })
-        .then(r => r.json())
-        .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
-        .catch(() => {});
-    }
+    // Load areas + items for autocomplete (same as openCallLog) — always fresh,
+    // not gated on current state, so company/catalog changes show up on every open.
+    fetch('/api/areas', { headers: authH() })
+      .then(r => r.json())
+      .then(json => setClAreas(Array.isArray(json.data) ? json.data : []))
+      .catch(() => {});
+    fetch('/api/items', { headers: authH() })
+      .then(r => r.json())
+      .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
+      .catch(() => {});
   };
   const openCallLog = () => {
     setVoiceError('');
@@ -664,19 +661,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     // GPS
     startGpsCapture();
     setShowCallLog(true);
-    // Load areas + items for autocomplete
-    if (clAreas.length === 0) {
-      fetch('/api/areas', { headers: authH() })
-        .then(r => r.json())
-        .then(json => setClAreas(Array.isArray(json.data) ? json.data : []))
-        .catch(() => {});
-    }
-    if (clAllItems.length === 0) {
-      fetch('/api/items', { headers: authH() })
-        .then(r => r.json())
-        .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
-        .catch(() => {});
-    }
+    // Load areas + items for autocomplete — always fresh, not gated on current
+    // state, so company/catalog changes show up on every open (not just the first).
+    fetch('/api/areas', { headers: authH() })
+      .then(r => r.json())
+      .then(json => setClAreas(Array.isArray(json.data) ? json.data : []))
+      .catch(() => {});
+    fetch('/api/items', { headers: authH() })
+      .then(r => r.json())
+      .then(json => setClAllItems(Array.isArray(json.data) ? json.data : []))
+      .catch(() => {});
   };
 
   const handleClDoctorChange = (val: string) => {
@@ -2694,18 +2688,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 const filtered = lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20);
                                 setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, sugg: filtered, showSugg: true } : p));
                               };
-                              if (clAllItems.length > 0) {
-                                showAll(clAllItems);
-                              } else {
-                                fetch('/api/items', { headers: authH() })
-                                  .then(r => r.json())
-                                  .then(json => {
-                                    const items = Array.isArray(json.data) ? json.data : [];
-                                    setClAllItems(items);
-                                    showAll(items);
-                                  })
-                                  .catch(() => {});
-                              }
+                              // Always fetch fresh — a cached clAllItems from earlier in the
+                              // session can be stale (company/catalog assignment changes).
+                              fetch('/api/items', { headers: authH() })
+                                .then(r => r.json())
+                                .then(json => {
+                                  const items = Array.isArray(json.data) ? json.data : [];
+                                  setClAllItems(items);
+                                  showAll(items);
+                                })
+                                .catch(() => {});
                             }}
                             style={{
                               position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
@@ -3178,21 +3170,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     onPointerDown={e => e.stopPropagation()}
                     onClick={() => {
                       if (clItemShowSugg) { setClItemShowSugg(false); return; }
-                      if (clAllItems.length === 0) {
-                        fetch('/api/items', { headers: authH() })
-                          .then(r => r.json())
-                          .then(json => {
-                            const items = Array.isArray(json.data) ? json.data : [];
-                            setClAllItems(items);
-                            const lv = clItemName.toLowerCase();
-                            setClItemSugg(lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20));
-                            setClItemShowSugg(true);
-                          });
-                      } else {
-                        const lv = clItemName.toLowerCase();
-                        setClItemSugg(lv ? clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : clAllItems.slice(0, 20));
-                        setClItemShowSugg(true);
-                      }
+                      // Always fetch fresh — a cached clAllItems from earlier in the
+                      // session can be stale (company/catalog assignment changes).
+                      fetch('/api/items', { headers: authH() })
+                        .then(r => r.json())
+                        .then(json => {
+                          const items = Array.isArray(json.data) ? json.data : [];
+                          setClAllItems(items);
+                          const lv = clItemName.toLowerCase();
+                          setClItemSugg(lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20));
+                          setClItemShowSugg(true);
+                        });
                     }}
                     style={{
                       position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
