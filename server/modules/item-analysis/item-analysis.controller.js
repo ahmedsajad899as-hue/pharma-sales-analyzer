@@ -1103,34 +1103,24 @@ ${hasRep ? `
 
 // ─── POST /api/item-analysis/survey/ai-analyze-all ──────────────────────────
 // Find ALL active drug_price surveys and analyze each with Gemini
-export async function analyzeAllSurveysWithAI(req, res, next) {
-  try {
-    const surveys = await prisma.masterSurvey.findMany({
-      where: { surveyType: 'drug_prices', isActive: true },
-      select: { id: true, name: true },
-    });
+// ─── Shared AI survey-analysis helper (batched + deadline-bounded) ───────
+// Drug-price surveys can hold hundreds of entries. Sending them ALL in one
+// Gemini prompt made a single generation exceed the 55s per-call timeout, and
+// callGeminiSmart's (model × key) retry ladder then ran ~5–6 minutes — past
+// Nginx's 300s proxy_read_timeout, so the browser got a 504 HTML page and the
+// JSON parse blew up ("Unexpected token '<'"). We instead analyze in small
+// batches (each finishes well under the timeout) and stop before a hard deadline
+// so the endpoint ALWAYS returns JSON in time.
+const AI_BATCH_SIZE = 40;
+// Faster models first — this is bulk structured extraction, not chat; flash-lite
+// answers a 40-item batch in seconds, so we rarely fall through to 2.5-flash.
+const AI_SURVEY_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash'];
 
-    if (!surveys.length) {
-      return res.json({ ok: true, surveyCount: 0, results: [], message: 'لا توجد سيرفيات أسعار نشطة' });
-    }
-
-    const results = [];
-    for (const survey of surveys) {
-      const entries = await prisma.drugPriceSurveyEntry.findMany({
-        where: { surveyId: survey.id },
-        select: { id: true, brandName: true, scientificName: true, dosageForm: true, packaging: true },
-      });
-
-      if (!entries.length) {
-        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'لا توجد مدخلات أدوية في هذا السيرفي' });
-        continue;
-      }
-
-      const entryList = entries.map(e => ({
-        id: e.id, brand: e.brandName, sci: e.scientificName || '', form: e.dosageForm || '', pkg: e.packaging || '',
-      }));
-
-      const prompt = `أنت خبير صيدلاني. لديك قائمة أدوية من سيرفي أسعار.
+function buildSurveyAnalysisPrompt(entries) {
+  const entryList = entries.map(e => ({
+    id: e.id, brand: e.brandName, sci: e.scientificName || '', form: e.dosageForm || '', pkg: e.packaging || '',
+  }));
+  return `أنت خبير صيدلاني. لديك قائمة أدوية من سيرفي أسعار.
 مهمتك: لكل دواء، استخرج المعلومات التالية بدقة:
 - entryId: نفس id المعطى
 - activeIngredient: المادة الفعالة الرئيسية (بالإنجليزية، موحدة ومعيارية، مثال: "tiotropium bromide")
@@ -1149,10 +1139,67 @@ ${JSON.stringify(entryList)}
 
 أعد JSON فقط — مصفوفة بدون أي نص إضافي:
 [{"entryId":1,"activeIngredient":"...","drugClass":"...","dosageAmount":"...","dosageUnit":"...","dosageForm":"...","competitorGroup":"..."}]`;
+}
 
-      let rawResult;
-      try { rawResult = await callGeminiSmart([{ text: prompt }]); }
-      catch (err) {
+// Analyze one survey's entries in batches, honouring an absolute deadline (epoch ms).
+// Returns { analysis, processed, total, timedOut }. Throws only on a genuine Gemini
+// failure of a batch (so callers can surface the real reason); a hit deadline is a
+// soft stop that returns whatever was analyzed so far with timedOut=true.
+async function analyzeSurveyEntriesBatched(entries, deadline) {
+  const analysis = [];
+  let processed = 0;
+  for (let i = 0; i < entries.length; i += AI_BATCH_SIZE) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 15_000) return { analysis, processed, total: entries.length, timedOut: true };
+    const batch = entries.slice(i, i + AI_BATCH_SIZE);
+    const raw = await callGeminiSmart([{ text: buildSurveyAnalysisPrompt(batch) }], {
+      models: AI_SURVEY_MODELS,
+      timeoutMs: 45_000,
+      maxTotalMs: remaining,
+    });
+    const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const arr = JSON.parse(cleaned);
+    if (!Array.isArray(arr)) throw new Error('رد Gemini ليس مصفوفة JSON صالحة');
+    analysis.push(...arr);
+    processed += batch.length;
+  }
+  return { analysis, processed, total: entries.length, timedOut: false };
+}
+
+export async function analyzeAllSurveysWithAI(req, res, next) {
+  try {
+    const surveys = await prisma.masterSurvey.findMany({
+      where: { surveyType: 'drug_prices', isActive: true },
+      select: { id: true, name: true },
+    });
+
+    if (!surveys.length) {
+      return res.json({ ok: true, surveyCount: 0, results: [], message: 'لا توجد سيرفيات أسعار نشطة' });
+    }
+
+    // Absolute deadline so the whole request returns JSON before Nginx's 300s proxy
+    // timeout (a 504 there sends an HTML page the frontend can't parse as JSON).
+    const deadline = Date.now() + 240_000;
+    const results = [];
+    for (const survey of surveys) {
+      if (Date.now() >= deadline) {
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'تجاوز الوقت المتاح — أعد التشغيل لإكمال الباقي' });
+        continue;
+      }
+      const entries = await prisma.drugPriceSurveyEntry.findMany({
+        where: { surveyId: survey.id },
+        select: { id: true, brandName: true, scientificName: true, dosageForm: true, packaging: true },
+      });
+
+      if (!entries.length) {
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'لا توجد مدخلات أدوية في هذا السيرفي' });
+        continue;
+      }
+
+      let batchResult;
+      try {
+        batchResult = await analyzeSurveyEntriesBatched(entries, deadline);
+      } catch (err) {
         await prisma.surveyAIAnalysis.upsert({
           where: { surveyId: survey.id },
           create: { surveyId: survey.id, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: err?.message, updatedAt: new Date() },
@@ -1170,26 +1217,31 @@ ${JSON.stringify(entryList)}
         continue;
       }
 
-      let analysisArray;
-      try {
-        const cleaned = rawResult.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-        analysisArray = JSON.parse(cleaned);
-        if (!Array.isArray(analysisArray)) throw new Error('not array');
-      } catch {
-        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason: 'تعذّر تحليل رد Gemini (JSON غير صالح)' });
+      const { analysis, processed, total, timedOut } = batchResult;
+      if (analysis.length === 0) {
+        results.push({ surveyId: survey.id, surveyName: survey.name, status: 'skipped', reason: 'تجاوز الوقت المتاح — أعد التشغيل لإكمال الباقي' });
         continue;
       }
 
+      // Save even a partial analysis with status 'done' so getMarketPrices (which only
+      // reads status='done') can immediately use whatever competitors were resolved;
+      // a re-run completes the rest.
       await prisma.surveyAIAnalysis.upsert({
         where: { surveyId: survey.id },
-        create: { surveyId: survey.id, analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
-        update: { analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+        create: { surveyId: survey.id, analysisJson: JSON.stringify(analysis), entryCount: analysis.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+        update: { analysisJson: JSON.stringify(analysis), entryCount: analysis.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
       });
 
-      results.push({ surveyId: survey.id, surveyName: survey.name, status: 'done', entryCount: analysisArray.length });
+      results.push({
+        surveyId: survey.id, surveyName: survey.name,
+        status: timedOut ? 'partial' : 'done',
+        entryCount: analysis.length,
+        ...(timedOut ? { reason: `حُلّل ${processed} من ${total} — أعد التشغيل لإكمال الباقي` } : {}),
+      });
     }
 
     const done    = results.filter(r => r.status === 'done').length;
+    const partial = results.filter(r => r.status === 'partial');
     const errored = results.filter(r => r.status === 'error');
     const skipped = results.filter(r => r.status === 'skipped');
 
@@ -1199,12 +1251,13 @@ ${JSON.stringify(entryList)}
       message = `✅ تم تحليل ${done} من ${surveys.length} سيرفي بنجاح`;
     } else {
       const parts = [`تم تحليل ${done} من ${surveys.length} سيرفي`];
-      if (errored.length)  parts.push(`فشل ${errored.length}: ${errored[0].reason}`);
-      if (skipped.length)  parts.push(`تخطّي ${skipped.length}: ${skipped[0].reason}`);
+      if (partial.length) parts.push(`جزئي ${partial.length}: ${partial[0].reason}`);
+      if (errored.length) parts.push(`فشل ${errored.length}: ${errored[0].reason}`);
+      if (skipped.length) parts.push(`تخطّي ${skipped.length}: ${skipped[0].reason}`);
       message = `⚠️ ${parts.join(' — ')}`;
     }
 
-    res.json({ ok: true, surveyCount: surveys.length, done, ok_all: done === surveys.length, results, message });
+    res.json({ ok: true, surveyCount: surveys.length, done, partial: partial.length, ok_all: done === surveys.length, results, message });
   } catch (e) { next(e); }
 }
 
@@ -1226,80 +1279,47 @@ export async function analyzeSurveyWithAI(req, res, next) {
 
     const entries = await prisma.drugPriceSurveyEntry.findMany({
       where: { surveyId },
-      select: {
-        id: true, brandName: true, scientificName: true, company: true,
-        dosageForm: true, packaging: true,
-        priceOfficeToWholesaler: true, priceWholesalerToPharmacy: true, pricePharmacyToPatient: true,
-      },
+      select: { id: true, brandName: true, scientificName: true, dosageForm: true, packaging: true },
     });
 
     if (!entries.length) {
       return res.status(400).json({ error: 'لا توجد مدخلات في هذا السيرفي' });
     }
 
-    // Build compact representation for Gemini (limit to essential fields)
-    const entryList = entries.map(e => ({
-      id: e.id,
-      brand: e.brandName,
-      sci: e.scientificName || '',
-      form: e.dosageForm || '',
-      pkg: e.packaging || '',
-    }));
-
-    const prompt = `أنت خبير صيدلاني. لديك قائمة أدوية من سيرفي أسعار.
-مهمتك: لكل دواء، استخرج المعلومات التالية بدقة:
-- entryId: نفس id المعطى
-- activeIngredient: المادة الفعالة الرئيسية (بالإنجليزية، موحدة ومعيارية، مثال: "tiotropium bromide")
-- drugClass: الصنف الدوائي (مثال: "anticholinergic bronchodilator")
-- dosageAmount: كمية الجرعة فقط (مثال: "18")
-- dosageUnit: الوحدة فقط (مثال: "mcg" أو "mg" أو "ml") — إذا غير موجود اترك فارغاً
-- dosageForm: الشكل الدوائي الموحد بالإنجليزية الصغيرة (مثال: "spray" أو "tablet" أو "capsule" أو "injection" أو "syrup" أو "cream" أو "drops")
-- competitorGroup: مفتاح فريد يجمع الأدوية المتنافسة (نفس المادة الفعالة + نفس الجرعة + نفس الشكل)
-  مثال: "tiotropium-18mcg-spray" أو "amoxicillin-500mg-capsule"
-  إذا لم تستطع تحديد الجرعة، استخدم المادة الفعالة فقط: مثال "tiotropium-spray"
-
-قاعدة مهمة: أدوية بنفس المادة الفعالة + نفس الجرعة + نفس الشكل يجب أن تحمل نفس competitorGroup بغض النظر عن الاسم التجاري أو الشركة.
-
-القائمة (${entries.length} دواء):
-${JSON.stringify(entryList)}
-
-أعد JSON فقط — مصفوفة بدون أي نص إضافي:
-[{"entryId":1,"activeIngredient":"...","drugClass":"...","dosageAmount":"...","dosageUnit":"...","dosageForm":"...","competitorGroup":"..."}]`;
-
-    let rawResult;
+    // Batched + deadline-bounded so a large survey returns JSON before Nginx's 300s.
+    const deadline = Date.now() + 240_000;
+    let batchResult;
     try {
-      rawResult = await callGeminiSmart([{ text: prompt }]);
+      batchResult = await analyzeSurveyEntriesBatched(entries, deadline);
     } catch (err) {
       await prisma.surveyAIAnalysis.upsert({
         where: { surveyId },
         create: { surveyId, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: err?.message },
         update: { status: 'error', errorMsg: err?.message, updatedAt: new Date() },
       });
-      return res.status(503).json({ error: 'Gemini غير متاح حالياً. حاول لاحقاً.' });
+      const m = String(err?.message || '');
+      const error = /429|quota/i.test(m) ? 'تم استنفاد حصة Gemini — حاول لاحقاً'
+        : /timeout/i.test(m) ? 'انتهت مهلة Gemini — حاول مرة أخرى'
+        : /JSON/i.test(m) ? 'لم يتمكن الذكاء الاصطناعي من معالجة البيانات. حاول مرة أخرى.'
+        : 'Gemini غير متاح حالياً. حاول لاحقاً.';
+      return res.status(503).json({ error });
     }
 
-    // Parse JSON from Gemini response (strip markdown fences if present)
-    let analysisArray;
-    try {
-      const cleaned = rawResult.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-      analysisArray = JSON.parse(cleaned);
-      if (!Array.isArray(analysisArray)) throw new Error('not array');
-    } catch {
-      await prisma.surveyAIAnalysis.upsert({
-        where: { surveyId },
-        create: { surveyId, analysisJson: '[]', entryCount: 0, status: 'error', errorMsg: 'Invalid JSON from Gemini' },
-        update: { status: 'error', errorMsg: 'Invalid JSON from Gemini', updatedAt: new Date() },
-      });
-      return res.status(502).json({ error: 'لم يتمكن الذكاء الاصطناعي من معالجة البيانات. حاول مرة أخرى.' });
+    const { analysis, processed, total, timedOut } = batchResult;
+    if (analysis.length === 0) {
+      return res.status(504).json({ error: 'انتهى الوقت قبل تحليل أي دفعة — حاول مرة أخرى' });
     }
 
     await prisma.surveyAIAnalysis.upsert({
       where: { surveyId },
-      create: { surveyId, analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
-      update: { analysisJson: JSON.stringify(analysisArray), entryCount: analysisArray.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+      create: { surveyId, analysisJson: JSON.stringify(analysis), entryCount: analysis.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
+      update: { analysisJson: JSON.stringify(analysis), entryCount: analysis.length, status: 'done', generatedAt: new Date(), updatedAt: new Date() },
     });
 
-    res.json({ ok: true, surveyId, entryCount: analysisArray.length, surveyName: survey.name });
+    res.json({
+      ok: true, surveyId, entryCount: analysis.length, surveyName: survey.name,
+      ...(timedOut ? { partial: true, message: `حُلّل ${processed} من ${total} — أعد التشغيل لإكمال الباقي` } : {}),
+    });
   } catch (e) { next(e); }
 }
 

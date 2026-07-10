@@ -1104,10 +1104,19 @@ export default function ItemInsightTab({ fileIdsParam }: Props) {
                     onClick={async () => {
                       setSurveyAnalyzing(true); setSurveyAnalyzeMsg(null);
                       try {
-                        setSurveyAnalyzeMsg('⏳ جاري تحليل السيرفيات...');
+                        setSurveyAnalyzeMsg('⏳ جاري تحليل السيرفيات... قد يستغرق حتى دقيقتين');
                         const res = await fetch(`${API}/api/item-analysis/survey/ai-analyze-all`, { method: 'POST', headers });
-                        const j = await res.json();
-                        if (!res.ok) throw new Error(j.error || 'خطأ');
+                        // Read as text first: a proxy timeout/error returns an HTML page,
+                        // and res.json() on that throws a cryptic "Unexpected token '<'".
+                        const txt = await res.text();
+                        let j: any = {};
+                        try { j = txt ? JSON.parse(txt) : {}; }
+                        catch {
+                          throw new Error(res.status === 504 || res.status === 502
+                            ? 'انتهت مهلة الخادم أثناء التحليل — أعد المحاولة (سيُكمل ما تبقّى)'
+                            : 'تعذّر قراءة رد الخادم — حاول مرة أخرى');
+                        }
+                        if (!res.ok) throw new Error(j.error || 'خطأ أثناء التحليل');
                         if (j.surveyCount === 0) {
                           setSurveyAnalyzeMsg('⚠️ لا توجد سيرفيات أسعار نشطة في النظام');
                           return;
