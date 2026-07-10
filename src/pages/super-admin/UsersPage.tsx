@@ -850,9 +850,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {(() => {
+                  // الترتيب يعتمد على المناطق المحفوظة فعلياً (detail.areaAssignments) لا
+                  // draftAreaIds، حتى تبقى المنطقة المُحدَّدة حديثاً في مكانها بالصف (مع
+                  // تظليلها) ولا تقفز لأعلى إلا بعد الضغط على «حفظ التغييرات» (يُحدّث detail).
+                  const committedAreaIds = new Set(detail.areaAssignments.map(a => a.areaId));
                   const filtered = displayAreas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()));
-                  const selected = filtered.filter(a => draftAreaIds.includes(a.id));
-                  const unselected = filtered.filter(a => !draftAreaIds.includes(a.id));
+                  const selected = filtered.filter(a => committedAreaIds.has(a.id));
+                  const unselected = filtered.filter(a => !committedAreaIds.has(a.id));
                   const sorted = [...selected, ...unselected];
                   return sorted.map((a, idx) => (
                     <>
