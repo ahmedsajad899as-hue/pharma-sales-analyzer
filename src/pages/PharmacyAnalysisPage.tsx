@@ -1,12 +1,10 @@
-﻿import { useState, useEffect, useCallback, useRef, DragEvent } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import ItemInsightTab from './ItemInsightTab';
+import { usePharmacyNetFiles } from '../hooks/usePharmacyNetFiles';
 
 const API = import.meta.env.VITE_API_URL || '';
 
 // ── Types ─────────────────────────────────────────────────────
-interface UpFile { id: number; originalName: string; uploadedAt: string; rowCount: number; }
-
 interface PharmacySummary {
   name: string; areaName: string; repName: string;
   totalOrders: number; totalQty: number; totalValue: number;
@@ -53,7 +51,6 @@ function dayColor(d: number): { bg: string; color: string } {
 const TABS = [
   { id: 'pharmacies',   label: 'الصيدليات',  icon: '🏪' },
   { id: 'items',        label: 'الايتمات',   icon: '💊' },
-  { id: 'item-insight', label: 'تحليل الإيتم', icon: '🔍' },
   { id: 'alerts',       label: 'التنبيهات',  icon: '🔔' },
 ] as const;
 type Tab = typeof TABS[number]['id'];
@@ -61,15 +58,22 @@ type GroupBy = 'none' | 'area' | 'rep' | 'item' | 'date';
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function PharmacyAnalysisPage() {
-  const { token, hasFeature } = useAuth();
+  const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
 
-  const [files, setFiles]           = useState<UpFile[]>([]);
-  const [selFiles, setSelFiles]     = useState<Set<number>>(new Set());
-  const [filesLoading, setFilesLoading] = useState(false);
+  const {
+    files, selFiles, filesLoading, fileIdsParam, fileQuery,
+    toggleFile, selectAll, selectNone,
+    uploading, uploadMsg, dragOver, setDragOver, showUpload, setShowUpload,
+    requestUpload, uploadFile, handleDrop, uploadInputRef,
+    pendingFile, setPendingFile, preCurrency, setPreCurrency, preRate, setPreRate,
+    clearing, showClearConfirm, setShowClearConfirm, clearAllData: pnClearAllData,
+    confirmDeleteFileId, setConfirmDeleteFileId, deletingFileId, deleteOneFile: pnDeleteOneFile,
+  } = usePharmacyNetFiles(token);
+
   const [tab, setTab]               = useState<Tab>(() => {
     const s = sessionStorage.getItem('pharma_page_tab');
-    return (s as Tab) || 'pharmacies';
+    return TABS.some(t => t.id === s) ? (s as Tab) : 'pharmacies';
   });
   useEffect(() => { sessionStorage.setItem('pharma_page_tab', tab); }, [tab]);
 
@@ -119,100 +123,23 @@ export default function PharmacyAnalysisPage() {
     : fmt(Math.round(v));
   const currLabel = dispCurrency === 'IQD' ? 'د.ع' : '$';
 
-  const [uploading, setUploading]       = useState(false);
-  const [uploadMsg, setUploadMsg]       = useState<{ ok: boolean; text: string } | null>(null);
-  const [dragOver, setDragOver]         = useState(false);
-  const [showUpload, setShowUpload]     = useState(false);
-  const [clearing, setClearing]         = useState(false);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [confirmDeleteFileId, setConfirmDeleteFileId] = useState<number | null>(null);
-  const [deletingFileId, setDeletingFileId] = useState<number | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
-  const searchTimer    = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  // Pre-upload currency selection
-  const [pendingFile, setPendingFile]   = useState<File | null>(null);
-  const [preCurrency, setPreCurrency]   = useState<'IQD' | 'USD'>('USD');
-  const [preRate, setPreRate]           = useState<string>('1470');
-
-  const requestUpload = (file: File) => {
-    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { setUploadMsg({ ok: false, text: 'يُسمح فقط بـ Excel أو CSV' }); return; }
-    setPreCurrency('USD');
-    setPreRate('1470');
-    setPendingFile(file);
-  };
-
-  const uploadFile = useCallback(async (file: File, sourceCurrency: 'IQD' | 'USD', exchangeRate: number) => {
-    setUploading(true); setUploadMsg(null);
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('fileType', 'pharmacy_net');
-    fd.append('sourceCurrency', sourceCurrency);
-    try {
-      const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || 'فشل الرفع');
-      const newId = data.data?.uploadedFile?.id ?? data.uploadedFile?.id;
-      // Save exchange rate on the uploaded file
-      if (newId) {
-        await fetch(`${API}/api/files/${newId}/currency`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ currencyMode: sourceCurrency, exchangeRate, sourceCurrency }),
-        });
-      }
-      setUploadMsg({ ok: true, text: `تم رفع ${file.name} — ${data.data?.rowCount ?? ''} سجل` });
-      const r2 = await fetch(`${API}/api/files?context=pharmacy_net`, { headers: { Authorization: `Bearer ${token}` } });
-      const d2 = await r2.json();
-      const all: UpFile[] = Array.isArray(d2.data) ? d2.data : [];
-      setFiles(all);
-      setSelFiles(prev => { const s = new Set(prev); if (newId) s.add(newId); return s; });
-      setTimeout(() => setUploadMsg(null), 7000);
-    } catch (e: any) { setUploadMsg({ ok: false, text: e.message || 'حدث خطأ' }); }
-    finally { setUploading(false); }
-  }, [token]);
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) requestUpload(file); };
-
+  // ── Wrap the shared hook's file mutators so this page's own tab state resets too ──
   const clearAllData = async () => {
-    setClearing(true);
-    try {
-      for (const f of files) {
-        await fetch(`${API}/api/files/${f.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-      }
-      setFiles([]);
-      setSelFiles(new Set());
-      setPharmacies([]);
-      setItems([]);
-      setAlerts([]);
-      setSelectedPharma(null);
-      setSelectedItem(null);
-    } finally { setClearing(false); setShowClearConfirm(false); }
+    await pnClearAllData();
+    setPharmacies([]);
+    setItems([]);
+    setAlerts([]);
+    setSelectedPharma(null);
+    setSelectedItem(null);
   };
 
   const deleteOneFile = async (id: number) => {
-    setDeletingFileId(id);
-    try {
-      await fetch(`${API}/api/files/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-      setFiles(prev => prev.filter(f => f.id !== id));
-      setSelFiles(prev => { const s = new Set(prev); s.delete(id); return s; });
-      if (selectedPharma) setSelectedPharma(null);
-      if (selectedItem)   setSelectedItem(null);
-    } finally { setDeletingFileId(null); setConfirmDeleteFileId(null); }
+    await pnDeleteOneFile(id);
+    if (selectedPharma) setSelectedPharma(null);
+    if (selectedItem)   setSelectedItem(null);
   };
-
-  const fileIdsParam = [...selFiles].join(',');
-  const fileQuery    = fileIdsParam ? `?fileIds=${fileIdsParam}` : '?';
-
-  useEffect(() => {
-    setFilesLoading(true);
-    fetch(`${API}/api/files?context=pharmacy_net`, { headers }).then(r => r.json()).then(d => {
-      const all: UpFile[] = Array.isArray(d.data) ? d.data : [];
-      setFiles(all);
-      if (all.length > 0) setSelFiles(new Set(all.map(f => f.id)));
-    }).catch(() => {}).finally(() => setFilesLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
 
   // ── Expose pharmacy-net context for AI Assistant ──────────
   useEffect(() => {
@@ -285,7 +212,6 @@ export default function PharmacyAnalysisPage() {
 
   const toggleGroup = (key: string) => setCollapsedGroups(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
   const toggleRow   = (key: string) => setExpandedRows(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
-  const toggleFile  = (id: number)  => setSelFiles(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const filteredAlerts = alerts.filter(a => {
     if (!alertSearch) return true;
@@ -468,8 +394,8 @@ export default function PharmacyAnalysisPage() {
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>الملفات:</span>
-          <button onClick={() => setSelFiles(new Set(files.map(f => f.id)))} style={PILL_BTN('#eff6ff','#1d4ed8')}>تحديد الكل</button>
-          <button onClick={() => setSelFiles(new Set())}                     style={PILL_BTN('#f1f5f9','#64748b')}>إلغاء الكل</button>
+          <button onClick={selectAll}  style={PILL_BTN('#eff6ff','#1d4ed8')}>تحديد الكل</button>
+          <button onClick={selectNone} style={PILL_BTN('#f1f5f9','#64748b')}>إلغاء الكل</button>
           {files.length > 0 && (
             <button onClick={() => setShowClearConfirm(true)} style={{ ...PILL_BTN('#fef2f2','#dc2626'), border: '1px solid #fecaca' }}>🗑 مسح كل البيانات</button>
           )}
@@ -555,7 +481,7 @@ export default function PharmacyAnalysisPage() {
 
       {/* ── Tabs ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-        {TABS.filter(t => t.id !== 'item-insight' || hasFeature('item_deep_analysis')).map(t => (
+        {TABS.map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setSelectedPharma(null); setSelectedItem(null); }} style={{
             padding: '8px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
             background: tab === t.id ? '#fff' : 'transparent',
@@ -997,10 +923,6 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* ════════ ITEM INSIGHT TAB ════════ */}
-      {tab === 'item-insight' && hasFeature('item_deep_analysis') && (
-        <ItemInsightTab fileIdsParam={fileIdsParam} />
-      )}
     </div>
   );
 }

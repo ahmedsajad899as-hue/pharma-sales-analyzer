@@ -36,6 +36,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'distributor-sales', labelAr: 'تحليل الموزعين',             icon: '📦', roles: [] },
   { id: 'file-filter',       labelAr: 'تنقية الملفات',              icon: '🗂️', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
   { id: 'pharmacy-analysis', labelAr: 'Pharmacy Net',                icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
+  { id: 'item-analysis',     labelAr: 'تحليل الإيتم',                icon: '🔍', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
   { id: 'bonus-sales',       labelAr: 'Bonus',                      icon: '🎁', roles: ['admin','manager','company_manager','team_leader','commercial_team_leader','commercial_supervisor','office_manager','scientific_rep','commercial_rep'] },
   { id: 'reports',           labelAr: 'التقارير',                   i18nKey: 'reports',      icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
   { id: 'users',             labelAr: 'المستخدمين',                 i18nKey: 'users',        icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
@@ -59,6 +60,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   bonus_sales:        'bonus-sales',
   doctors_page:       'doctors',
   pharmacy_analysis:  'pharmacy-analysis',
+  item_deep_analysis: 'item-analysis',
   commercial_page:    'commercial',
   org_structure:      'org-structure',
 };
@@ -76,6 +78,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'distributor-sales': 'رفع وتحليل ملفات Excel بتنسيق امازون / فريق — شهر3 / شهر4 / اعادة الفوترة',
   'file-filter':       'صفحة تنقية وتنظيف ملفات Excel وحذف الصفوف المكررة أو غير الصالحة',
   'pharmacy-analysis': 'صفحة Pharmacy Net — تحليل شامل لشبكة الصيدليات والإيتمات مقارنة بمبيعات المندوبين',
+  'item-analysis':     'صفحة تحليل الإيتم — تحليل ذكي شامل لأي إيتم: المبيع، الإرجاعات، المناطق، المندوبين، زيارات الأطباء والصيدليات، الفيدباك + توصيات Gemini',
   'bonus-sales':       'رفع ملفات مبيعات البونص ومقارنتها بملفات التعويضات — مع تتبع تسليم البونص للصيدليات',
   'reports':           'صفحة عرض التقارير والإحصائيات',
   'users':             'صفحة عرض وإدارة قائمة المستخدمين',
@@ -86,7 +89,6 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
 // ── مجموعات أدوار يُعاد استخدامها في تقييد ميزات فرعية معيّنة ──────────────
 export const COMMERCIAL_ROLES = ['commercial_rep','commercial_team_leader','commercial_supervisor','admin','manager','office_manager','company_manager'];
 export const REP_ROLES        = ['scientific_rep','team_leader','supervisor','admin','manager','company_manager','product_manager','office_manager'];
-const ITEM_DEEP_ANALYSIS_ROLES = ['company_manager','admin','manager','product_manager','office_manager','team_leader','supervisor','commercial_supervisor','commercial_team_leader'];
 
 export interface FeatureNode {
   key?:       string;
@@ -146,13 +148,6 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'sales_data_classify',  label: 'تصنيف المذاخر (A/B/C)',       icon: '🏷️', desc: 'رفع ملف تصنيف المذاخر وتفعيل ألوان A/B/C على الجدول'  },
     { key: 'sales_data_value',     label: 'عرض القيمة المالية',           icon: '💰', desc: 'زر تبديل عرض الكميات ↔ القيم المالية'                 },
     { key: 'sales_data_analysis',  label: 'تبويب التحليل',               icon: '📈', desc: 'تبويب التحليل البياني حسب المنطقة والمخزن'             },
-  ],
-  'pharmacy-analysis': [
-    {
-      key: 'item_deep_analysis', label: 'تحليل الإيتم المعمّق (AI)', icon: '🔍',
-      desc: 'تبويب داخل Pharmacy Net — تحليل ذكي شامل لأي إيتم: المبيع، الإرجاعات، المناطق، المندوبين، زيارات الأطباء والصيدليات، الفيدباك + توصيات Gemini',
-      onlyRoles: ITEM_DEEP_ANALYSIS_ROLES,
-    },
   ],
 };
 
