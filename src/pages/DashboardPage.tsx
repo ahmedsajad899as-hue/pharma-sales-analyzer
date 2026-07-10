@@ -2667,7 +2667,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                                 return;
                               }
                               const lv = v.toLowerCase();
-                              const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20);
+                              const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv));
                               setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, sugg: matches, showSugg: true } : p));
                             }}
                             onClick={() => { if (pit.showSugg) setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, showSugg: false } : p)); }}
@@ -2685,7 +2685,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               }
                               const showAll = (items: any[]) => {
                                 const lv = pit.itemName.toLowerCase();
-                                const filtered = lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20);
+                                const filtered = lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)) : items;
                                 setClPharmacyItems(prev => prev.map(p => p.tempId === pit.tempId ? { ...p, sugg: filtered, showSugg: true } : p));
                               };
                               // Always fetch fresh — a cached clAllItems from earlier in the
@@ -3155,7 +3155,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       setClItemId('');
                       if (!v.trim()) { setClItemSugg([]); setClItemShowSugg(false); return; }
                       const lv = v.toLowerCase();
-                      const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 12);
+                      const matches = clAllItems.filter((i: any) => i.name.toLowerCase().includes(lv));
                       setClItemSugg(matches);
                       setClItemShowSugg(true);
                     }}
@@ -3178,7 +3178,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           const items = Array.isArray(json.data) ? json.data : [];
                           setClAllItems(items);
                           const lv = clItemName.toLowerCase();
-                          setClItemSugg(lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)).slice(0, 20) : items.slice(0, 20));
+                          setClItemSugg(lv ? items.filter((i: any) => i.name.toLowerCase().includes(lv)) : items);
                           setClItemShowSugg(true);
                         });
                     }}
