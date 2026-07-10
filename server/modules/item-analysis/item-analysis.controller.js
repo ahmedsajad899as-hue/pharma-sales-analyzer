@@ -1082,10 +1082,13 @@ ${hasRep ? `
 
     let insight;
     try {
-      // This prompt is very large (full medical report), so a single generation can
-      // exceed the 55s default. Nginx allows 300s → give each attempt 95s and cap the
-      // whole retry ladder at 190s so we still return before the proxy times out.
-      insight = await callGeminiSmart([{ text: prompt }], { timeoutMs: 95_000, maxTotalMs: 190_000 });
+      // This prompt is very large (full medical report). thinkingBudget:0 turns OFF the
+      // gemini-2.5 "thinking" phase — previously the dominant latency source (a single
+      // call ran 60-90s+ and often timed out, forcing a fall-through to weaker models →
+      // slower AND worse output). With thinking off, gemini-2.5-flash (the best model)
+      // answers in ~15-30s, so we keep the top model AND return fast. 70s per-attempt
+      // cap fails a genuinely-stuck key over quickly; 190s total stays under Nginx's 300s.
+      insight = await callGeminiSmart([{ text: prompt }], { thinkingBudget: 0, timeoutMs: 70_000, maxTotalMs: 190_000 });
     } catch (err) {
       console.error('[item-analysis] Gemini failed:', err?.message);
       return res.status(503).json({ error: 'خدمة الذكاء الاصطناعي غير متوفرة حالياً. الرجاء المحاولة لاحقاً.' });
@@ -1154,6 +1157,7 @@ async function analyzeSurveyEntriesBatched(entries, deadline) {
     const batch = entries.slice(i, i + AI_BATCH_SIZE);
     const raw = await callGeminiSmart([{ text: buildSurveyAnalysisPrompt(batch) }], {
       models: AI_SURVEY_MODELS,
+      thinkingBudget: 0, // keep the 2.5-flash fallback fast too (flash-lite is already non-thinking)
       timeoutMs: 45_000,
       maxTotalMs: remaining,
     });

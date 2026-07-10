@@ -2331,6 +2331,11 @@ export async function callGeminiSmart(parts, opts = {}) {
     timeoutMs = GEMINI_CALL_TIMEOUT_MS,
     models = GEMINI_MODELS,
     maxTotalMs = null,
+    // thinkingBudget: 0 disables the gemini-2.5 "thinking" phase, which otherwise
+    // burns many seconds before any output — the main latency source on large
+    // prompts (the item-analysis report). Null = leave the model default. Only
+    // applied to gemini-2.5* models; 2.0-flash rejects the field, so we omit it there.
+    thinkingBudget = null,
   } = opts;
   const keys = getAllApiKeys();
   if (!keys.length) throw new Error('No Gemini API key configured');
@@ -2343,7 +2348,14 @@ export async function callGeminiSmart(parts, opts = {}) {
       }
       const key = keys[(_keyIndex + i) % keys.length];
       try {
-        const model = new GoogleGenerativeAI(key).getGenerativeModel({ model: modelName });
+        const modelParams = { model: modelName };
+        if (thinkingBudget != null && modelName.startsWith('gemini-2.5')) {
+          // Passed straight through to the REST API as generationConfig.thinkingConfig
+          // (the SDK JSON-stringifies generationConfig verbatim, so unknown-to-the-typings
+          // fields still reach the API).
+          modelParams.generationConfig = { thinkingConfig: { thinkingBudget } };
+        }
+        const model = new GoogleGenerativeAI(key).getGenerativeModel(modelParams);
         const result = await geminiWithTimeout(model.generateContent(parts), timeoutMs);
         _keyIndex = (_keyIndex + i + 1) % keys.length; // advance for next call
         return result.response.text();
