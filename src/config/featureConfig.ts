@@ -37,6 +37,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'file-filter',       labelAr: 'تنقية الملفات',              icon: '🗂️', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
   { id: 'pharmacy-analysis', labelAr: 'Pharmacy Net',                icon: '🔬', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
   { id: 'item-analysis',     labelAr: 'تحليل الإيتم',                icon: '🔍', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
+  { id: 'account-builder',   labelAr: 'الحساب',                     icon: '🧮', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','supervisor','team_leader'] },
   { id: 'bonus-sales',       labelAr: 'Bonus',                      icon: '🎁', roles: ['admin','manager','company_manager','team_leader','commercial_team_leader','commercial_supervisor','office_manager','scientific_rep','commercial_rep'] },
   { id: 'reports',           labelAr: 'التقارير',                   i18nKey: 'reports',      icon: '📋', roles: ['admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
   { id: 'users',             labelAr: 'المستخدمين',                 i18nKey: 'users',        icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
@@ -61,6 +62,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   doctors_page:       'doctors',
   pharmacy_analysis:  'pharmacy-analysis',
   item_deep_analysis: 'item-analysis',
+  account_builder:    'account-builder',
   commercial_page:    'commercial',
   org_structure:      'org-structure',
 };
@@ -79,6 +81,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'file-filter':       'صفحة تنقية وتنظيف ملفات Excel وحذف الصفوف المكررة أو غير الصالحة',
   'pharmacy-analysis': 'صفحة Pharmacy Net — تحليل شامل لشبكة الصيدليات والإيتمات مقارنة بمبيعات المندوبين',
   'item-analysis':     'صفحة تحليل الإيتم — تحليل ذكي شامل لأي إيتم: المبيع، الإرجاعات، المناطق، المندوبين، زيارات الأطباء والصيدليات، الفيدباك + توصيات Gemini',
+  'account-builder':   'صفحة الحساب — إنشاء حسابات ومعادلات خاصة بالإيتمات وتطبيقها بإدخال الأرقام والتفاصيل',
   'bonus-sales':       'رفع ملفات مبيعات البونص ومقارنتها بملفات التعويضات — مع تتبع تسليم البونص للصيدليات',
   'reports':           'صفحة عرض التقارير والإحصائيات',
   'users':             'صفحة عرض وإدارة قائمة المستخدمين',

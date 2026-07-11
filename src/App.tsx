@@ -42,6 +42,7 @@ const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
 const _importItemAnalysis        = () => import('./pages/ItemAnalysisPage');
 const _importBonusSales          = () => import('./pages/BonusSalesPage');
 const _importOrgStructure        = () => import('./pages/OrgStructurePage');
+const _importAccountBuilder      = () => import('./pages/AccountBuilderPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -64,6 +65,7 @@ const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
 const ItemAnalysisPage        = lazyWithRetry(_importItemAnalysis);
 const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
+const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -74,7 +76,7 @@ function preloadAllChunks() {
     _importMonthlyPlans(); _importDailyPlan(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
     _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis(); _importItemAnalysis();
-    _importBonusSales(); _importOrgStructure();
+    _importBonusSales(); _importOrgStructure(); _importAccountBuilder();
   });
 }
 
@@ -116,7 +118,8 @@ export type PageId =
   | 'file-filter'
   | 'pharmacy-analysis'
   | 'item-analysis'
-  | 'bonus-sales';
+  | 'bonus-sales'
+  | 'account-builder';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -382,6 +385,7 @@ function AppInner() {
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
     'monthly-plans', 'daily-plan', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
     'distributor-sales', 'file-filter', 'pharmacy-analysis', 'item-analysis', 'bonus-sales', 'org-structure',
+    'account-builder',
   ];
   useEffect(() => {
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
@@ -444,6 +448,7 @@ function AppInner() {
     { id: 'item-analysis',      node: <ItemAnalysisPage /> },
     { id: 'bonus-sales',        node: <BonusSalesPage /> },
     { id: 'org-structure',      node: <OrgStructurePage /> },
+    { id: 'account-builder',    node: <AccountBuilderPage /> },
   ];
 
   return (

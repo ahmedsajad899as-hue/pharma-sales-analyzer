@@ -1382,6 +1382,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const mgrLabel = mgrs.length > 0
       ? mgrs.map(m => m.manager.displayName || m.manager.username).join('، ')
       : null;
+    const companies = u.companyAssignments ?? [];
+    const primaryCa = companies.find(ca => ca.isPrimary) ?? companies[0];
+    const extraCompanies = companies.filter(ca => ca.companyId !== primaryCa?.companyId);
     return (
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1396,7 +1399,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             {u.isActive ? '👤' : '🚫'}
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{u.displayName || u.username}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{u.displayName || u.username}</span>
+              {extraCompanies.length > 0 && (
+                <span
+                  title={`شركات إضافية: ${extraCompanies.map(ca => ca.company.name).join('، ')}`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 2,
+                    background: '#ede9fe', color: '#5b21b6', borderRadius: 20,
+                    padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0,
+                  }}
+                >🏭 +{extraCompanies.length}</span>
+              )}
+            </div>
             <div style={{ fontSize: 11, color: '#94a3b8' }}>@{u.username}{u.phone ? ` · ${u.phone}` : ''}</div>
             {mgrLabel && <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 1 }}>↑ {mgrLabel}</div>}
           </div>
@@ -1443,11 +1458,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       if (!nullGroup) { nullGroup = { company: null, users: [] }; og.companyGroups.push(nullGroup); }
       nullGroup.users.push(u);
     } else {
-      for (const ca of userCompanies) {
-        let cg = og.companyGroups.find(g => g.company?.id === ca.company.id);
-        if (!cg) { cg = { company: ca.company, users: [] }; og.companyGroups.push(cg); }
-        if (!cg.users.find(x => x.id === u.id)) cg.users.push(u);
-      }
+      // Only place the user under their primary company's chart — secondary
+      // companies are indicated with a small badge on the card, not a duplicate node.
+      const primaryCa = userCompanies.find(ca => ca.isPrimary) ?? userCompanies[0];
+      let cg = og.companyGroups.find(g => g.company?.id === primaryCa.company.id);
+      if (!cg) { cg = { company: primaryCa.company, users: [] }; og.companyGroups.push(cg); }
+      if (!cg.users.find(x => x.id === u.id)) cg.users.push(u);
     }
   }
   // Sort company groups: named companies first, null last
