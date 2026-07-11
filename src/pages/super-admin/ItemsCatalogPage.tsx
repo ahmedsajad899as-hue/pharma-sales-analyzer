@@ -66,6 +66,7 @@ export default function ItemsCatalogPage() {
   }, [companyId, tab, H]);
 
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { setSelectMode(false); setSelectedIds([]); }, [companyId, tab]);
 
   // ── أفعال الكتالوج ──
   const [itemModal, setItemModal] = useState(false);
@@ -107,6 +108,41 @@ export default function ItemsCatalogPage() {
       alert(d.action === 'merged' ? `تم دمج الايتم مع ايتم مطابق موجود في ${dest}` : `تم نقل الايتم إلى ${dest}`);
     } catch (e) { setErr(e instanceof Error ? e.message : 'فشل نقل الايتم'); }
     setBusy(false);
+  };
+
+  // ── تحديد متعدد + نقل جماعي لشركة أخرى ──
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
+  const [bulkTarget, setBulkTarget] = useState('');
+  const toggleSelected = (id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds([]); };
+  const doBulkTransfer = async () => {
+    if (!companyId || !bulkTarget || selectedIds.length === 0) return;
+    setBusy(true); setErr('');
+    let transferred = 0, merged = 0, failed = 0;
+    for (const id of selectedIds) {
+      try {
+        const r = await fetch(`/api/sa/companies/${companyId}/items/${id}/transfer`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ targetCompanyId: parseInt(bulkTarget) }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'فشل');
+        if (d.action === 'merged') merged++; else transferred++;
+      } catch { failed++; }
+    }
+    setBulkTransferOpen(false); setBulkTarget('');
+    exitSelectMode();
+    await reload();
+    setBusy(false);
+    const dest = companies.find(c => c.id === parseInt(bulkTarget))?.name || 'الشركة الهدف';
+    alert(
+      `تم نقل ${transferred + merged} ايتم إلى ${dest}` +
+      (merged ? ` (منهم ${merged} تم دمجها مع ايتمات مطابقة)` : '') +
+      (failed ? ` — تعذّر نقل ${failed}` : '')
+    );
   };
 
   // ── أفعال قواعد التوحيد (aliases) ──
@@ -194,6 +230,11 @@ export default function ItemsCatalogPage() {
         <div style={{ marginRight: 'auto', display: 'flex', gap: 8 }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث..."
             style={{ padding: '8px 14px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, minWidth: 200 }} />
+          {tab === 'catalog' && (
+            <button onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)} style={btnStyle(selectMode ? '#64748b' : '#0891b2')}>
+              {selectMode ? '✕ إلغاء التحديد' : '☑ تحديد متعدد'}
+            </button>
+          )}
           {tab === 'catalog' && <button onClick={() => setItemModal(true)} style={btnStyle('#6366f1')}>+ إضافة ايتم</button>}
           {tab === 'aliases' && <button onClick={() => setAliasModal(true)} style={btnStyle('#0891b2')} disabled={items.length === 0}>+ قاعدة توحيد</button>}
         </div>
@@ -203,25 +244,64 @@ export default function ItemsCatalogPage() {
         <>
           {/* ── الكتالوج ── */}
           {tab === 'catalog' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-              {filteredItems.map(i => (
-                <div key={i.id} style={{ border: '1px solid #e8edf5', borderRadius: 12, padding: 14, background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{i.name}</div>
-                    {(i.scientificName || i.dosage || i.form) && (
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>
-                        {[i.scientificName, i.dosage, i.form].filter(Boolean).join(' · ')}
+            <>
+              {selectMode && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                  background: '#eef2ff', border: '1.5px solid #c7d2fe', borderRadius: 12,
+                  padding: '10px 14px', marginBottom: 12,
+                }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>{selectedIds.length} محدد</span>
+                  <button
+                    onClick={() => setSelectedIds(
+                      filteredItems.every(i => selectedIds.includes(i.id)) ? [] : filteredItems.map(i => i.id)
+                    )}
+                    style={{ ...btnStyle('#6366f1', true), fontSize: 12, padding: '4px 12px' }}
+                  >
+                    {filteredItems.length > 0 && filteredItems.every(i => selectedIds.includes(i.id)) ? 'إلغاء تحديد الكل' : '✓ تحديد الكل'}
+                  </button>
+                  <button
+                    onClick={() => setBulkTransferOpen(true)}
+                    disabled={selectedIds.length === 0}
+                    style={{ ...btnStyle('#0891b2', true), fontSize: 12, padding: '4px 12px', marginRight: 'auto' }}
+                  >
+                    ↔ نقل المحدد لشركة أخرى
+                  </button>
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                {filteredItems.map(i => (
+                  <div key={i.id} style={{
+                    border: selectMode && selectedIds.includes(i.id) ? '1.5px solid #6366f1' : '1px solid #e8edf5',
+                    background: selectMode && selectedIds.includes(i.id) ? '#eef2ff' : '#fff',
+                    borderRadius: 12, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
+                    cursor: selectMode ? 'pointer' : 'default',
+                  }} onClick={() => selectMode && toggleSelected(i.id)}>
+                    <div style={{ display: 'flex', gap: 10, minWidth: 0 }}>
+                      {selectMode && (
+                        <input type="checkbox" checked={selectedIds.includes(i.id)} onChange={() => toggleSelected(i.id)}
+                          onClick={e => e.stopPropagation()} style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0, cursor: 'pointer' }} />
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{i.name}</div>
+                        {(i.scientificName || i.dosage || i.form) && (
+                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>
+                            {[i.scientificName, i.dosage, i.form].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {!selectMode && (
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => { setTransferFor(i); setTransferTarget(''); }} title="نقل لشركة أخرى" style={btnStyle('#0891b2', true)}>↔</button>
+                        <button onClick={() => delItem(i.id)} title="إزالة" style={btnStyle('#ef4444', true)}>🗑</button>
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => { setTransferFor(i); setTransferTarget(''); }} title="نقل لشركة أخرى" style={btnStyle('#0891b2', true)}>↔</button>
-                    <button onClick={() => delItem(i.id)} title="إزالة" style={btnStyle('#ef4444', true)}>🗑</button>
-                  </div>
-                </div>
-              ))}
-              {filteredItems.length === 0 && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد ايتمات في الكتالوج</div>}
-            </div>
+                ))}
+                {filteredItems.length === 0 && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد ايتمات في الكتالوج</div>}
+              </div>
+            </>
           )}
 
           {/* ── قواعد التوحيد ── */}
@@ -312,6 +392,28 @@ export default function ItemsCatalogPage() {
             </select>
           </div>
           <button onClick={doTransfer} disabled={busy || !transferTarget} style={{ ...btnStyle('#0891b2'), width: '100%', marginTop: 4 }}>نقل الايتم</button>
+        </Modal>
+      )}
+
+      {/* مودال نقل جماعي لعدة ايتمات */}
+      {bulkTransferOpen && (
+        <Modal title={`نقل ${selectedIds.length} ايتم لشركة أخرى`} onClose={() => setBulkTransferOpen(false)}>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 1.7 }}>
+            المبيعات والزيارات والتارگت المرتبطة بكل ايتم ستنتقل معه تلقائياً. لو وُجد ايتم مطابق بالاسم في الشركة الهدف سيتم الدمج بدل التكرار.
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 5 }}>الشركة الهدف *</label>
+            <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14 }}>
+              <option value="">— اختر الشركة الهدف —</option>
+              {companies.filter(c => c.id !== companyId).map(c => (
+                <option key={c.id} value={c.id}>{c.name}{c.office?.name ? ` — ${c.office.name}` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <button onClick={doBulkTransfer} disabled={busy || !bulkTarget} style={{ ...btnStyle('#0891b2'), width: '100%', marginTop: 4 }}>
+            {busy ? 'جارٍ النقل...' : `نقل ${selectedIds.length} ايتم`}
+          </button>
         </Modal>
       )}
 
