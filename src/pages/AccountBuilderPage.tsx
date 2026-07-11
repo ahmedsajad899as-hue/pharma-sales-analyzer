@@ -10,8 +10,6 @@ interface AccountItemRow {
   companyName: string;
   price: number;
   quantity: number;
-  discount: number;
-  bonus: string;
   /** إجمالي نسبة البونص للايتم (%) — تُستخدم لحساب النت برايس */
   totalBonusPercent: number;
   /** الجزء من البونص الكلي الذي يبقى بونص فعلي (%) — الباقي يتحول إلى دعم مالي */
@@ -69,7 +67,7 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 function emptyRow(): AccountItemRow {
-  return { id: uid(), itemName: '', companyName: '', price: 0, quantity: 0, discount: 0, bonus: '', totalBonusPercent: 0, keptBonusPercent: 0 };
+  return { id: uid(), itemName: '', companyName: '', price: 0, quantity: 0, totalBonusPercent: 0, keptBonusPercent: 0 };
 }
 
 export default function AccountBuilderPage() {
@@ -138,10 +136,8 @@ export default function AccountBuilderPage() {
       : a));
   };
 
-  // إجماليات السعر/الخصم — رياضيات مباشرة (سعر × كمية) وليست معادلة البونص
+  // إجمالي السعر — رياضيات مباشرة (سعر × كمية)
   const totalPrice    = activeAccount ? activeAccount.items.reduce((s, r) => s + r.price * r.quantity, 0) : 0;
-  const totalDiscount = activeAccount ? activeAccount.items.reduce((s, r) => s + r.discount * r.quantity, 0) : 0;
-  const netTotal       = totalPrice - totalDiscount;
   const totalSupport   = activeAccount
     ? activeAccount.items.reduce((s, r) => s + financialSupportPerUnit(r.price, r.totalBonusPercent, r.keptBonusPercent, activeAccount.bonusMethod) * r.quantity, 0)
     : 0;
@@ -274,10 +270,7 @@ export default function AccountBuilderPage() {
                   <th style={{ ...TH, minWidth: 130 }}>اسم الشركة</th>
                   <th style={TH}>السعر</th>
                   <th style={TH}>الكمية</th>
-                  <th style={TH}>الخصم</th>
                   <th style={TH}>المجموع الكلي للسعر</th>
-                  <th style={TH}>المجموع الكلي للخصم</th>
-                  <th style={{ ...TH, minWidth: 110 }}>البونص للايتم</th>
                   <th style={TH}>البونص الكلي %</th>
                   <th style={TH}>بونص محتفظ به %</th>
                   <th style={TH}>النت برايس</th>
@@ -297,10 +290,7 @@ export default function AccountBuilderPage() {
                     <td style={TD}><input value={r.companyName} onChange={e => updateRow(r.id, { companyName: e.target.value })} style={CELL_INPUT} placeholder="اسم الشركة" /></td>
                     <td style={TD}><input type="number" value={r.price || ''} onChange={e => updateRow(r.id, { price: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
                     <td style={TD}><input type="number" value={r.quantity || ''} onChange={e => updateRow(r.id, { quantity: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
-                    <td style={TD}><input type="number" value={r.discount || ''} onChange={e => updateRow(r.id, { discount: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
                     <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: '#047857' }}>{fmt(r.price * r.quantity)}</td>
-                    <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: '#dc2626' }}>{fmt(r.discount * r.quantity)}</td>
-                    <td style={TD}><input value={r.bonus} onChange={e => updateRow(r.id, { bonus: e.target.value })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="مثال: 1+10" /></td>
                     <td style={TD}><input type="number" value={r.totalBonusPercent || ''} onChange={e => updateRow(r.id, { totalBonusPercent: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
                     <td style={TD}><input type="number" value={r.keptBonusPercent || ''} onChange={e => updateRow(r.id, { keptBonusPercent: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" title="اتركه 0 لتحويل كامل البونص إلى دعم مالي" /></td>
                     <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: '#1e40af' }}>{fmt(netPrice)}</td>
@@ -313,16 +303,15 @@ export default function AccountBuilderPage() {
                   );
                 })}
                 {activeAccount.items.length === 0 && (
-                  <tr><td colSpan={15} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد إيتمات. اضغط «+ إضافة إيتم» للبدء.</td></tr>
+                  <tr><td colSpan={12} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد إيتمات. اضغط «+ إضافة إيتم» للبدء.</td></tr>
                 )}
               </tbody>
               {activeAccount.items.length > 0 && (
                 <tfoot>
                   <tr style={{ background: '#fef9c3', borderTop: '2px solid #eab308' }}>
-                    <td colSpan={6} style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#854d0e' }}>الإجمالي</td>
+                    <td colSpan={5} style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12, color: '#854d0e' }}>الإجمالي</td>
                     <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 800, color: '#047857' }}>{fmt(totalPrice)}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 800, color: '#dc2626' }}>{fmt(totalDiscount)}</td>
-                    <td colSpan={5} style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 800, color: '#1e293b' }}>الصافي: {fmt(netTotal)}</td>
+                    <td colSpan={4} />
                     <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 800, color: '#7c3aed' }}>{fmt(totalSupport)}</td>
                     <td />
                   </tr>
