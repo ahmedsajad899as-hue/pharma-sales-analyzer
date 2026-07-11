@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+
+const API = import.meta.env.VITE_API_URL || '';
 
 // ── Types ─────────────────────────────────────────────────────
 type BonusMethod = 'proportional' | 'independent' | 'netDiff';
@@ -17,7 +19,7 @@ interface AccountItemRow {
 }
 
 interface Account {
-  id: string;
+  id: number;
   name: string;
   items: AccountItemRow[];
   /** طريقة احتساب قيمة الدعم المالي المطبّقة على كل صفوف هذا الحساب */
@@ -71,69 +73,134 @@ function emptyRow(): AccountItemRow {
 }
 
 export default function AccountBuilderPage() {
-  const { user } = useAuth();
-  const storageKey = `accountBuilder_${user?.id ?? 'guest'}`;
+  const { user, token } = useAuth();
+  const headers = { Authorization: `Bearer ${token}` };
+  const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+  const legacyStorageKey = `accountBuilder_${user?.id ?? 'guest'}`;
 
-  const [accounts, setAccounts] = useState<Account[]>(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      // ترقية بيانات محفوظة قديمة لا تحتوي حقول البونص الجديدة
-      return parsed.map((a: any) => ({
-        bonusMethod: 'proportional',
-        ...a,
-        items: (a.items || []).map((r: any) => ({ totalBonusPercent: 0, keptBonusPercent: 0, ...r })),
-      }));
-    } catch { return []; }
-  });
-  const [activeId, setActiveId] = useState<string | null>(accounts[0]?.id ?? null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
+  // مؤقتات حفظ مستقلة لكل حساب — بهذا لا يُلغى الحفظ المعلَّق عند التبديل بين الحسابات
+  const saveTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const scheduleSave = (accountId: number, items: AccountItemRow[], bonusMethod: BonusMethod) => {
+    const timers = saveTimers.current;
+    clearTimeout(timers.get(accountId));
+    timers.set(accountId, setTimeout(() => {
+      fetch(`${API}/api/account-builder/${accountId}`, {
+        method: 'PATCH', headers: jsonHeaders,
+        body: JSON.stringify({ items, bonusMethod }),
+      }).catch(() => {});
+      timers.delete(accountId);
+    }, 600));
+  };
+
+  // ── تحميل الحسابات من السيرفر (متزامنة عبر الأجهزة) + ترحيل لمرة واحدة لأي بيانات محفوظة محلياً فقط على هذا الجهاز ──
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify(accounts)); } catch {}
-  }, [accounts, storageKey]);
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${API}/api/account-builder`, { headers });
+        const json = await res.json();
+        const serverAccounts: Account[] = (json.data || []).map((a: any) => ({
+          id: a.id, name: a.name, bonusMethod: a.bonusMethod, items: a.items || [],
+        }));
+
+        const migKey = `${legacyStorageKey}_migrated_v1`;
+        if (!localStorage.getItem(migKey)) {
+          try {
+            const raw = localStorage.getItem(legacyStorageKey);
+            if (raw) {
+              const localAccounts = JSON.parse(raw);
+              for (const la of localAccounts) {
+                if (!la?.items?.length) continue;
+                const createRes = await fetch(`${API}/api/account-builder`, {
+                  method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: la.name || 'حساب مستورد' }),
+                });
+                const createJson = await createRes.json();
+                const newId = createJson.data.id;
+                const items = la.items.map((r: any) => ({ totalBonusPercent: 0, keptBonusPercent: 0, ...r }));
+                const bonusMethod = la.bonusMethod || 'proportional';
+                await fetch(`${API}/api/account-builder/${newId}`, {
+                  method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ items, bonusMethod }),
+                });
+                serverAccounts.push({ id: newId, name: la.name || 'حساب مستورد', bonusMethod, items });
+              }
+            }
+          } catch {}
+          localStorage.setItem(migKey, '1');
+          localStorage.removeItem(legacyStorageKey);
+        }
+
+        if (!cancelled) {
+          setAccounts(serverAccounts);
+          setActiveId(prev => prev ?? serverAccounts[0]?.id ?? null);
+        }
+      } catch {} finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const activeAccount = accounts.find(a => a.id === activeId) || null;
 
-  const addAccount = () => {
-    const acc: Account = { id: uid(), name: `حساب ${accounts.length + 1}`, items: [emptyRow()], bonusMethod: 'proportional' };
-    setAccounts(prev => [...prev, acc]);
-    setActiveId(acc.id);
+  const addAccount = async () => {
+    const name = `حساب ${accounts.length + 1}`;
+    try {
+      const res = await fetch(`${API}/api/account-builder`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name }) });
+      const json = await res.json();
+      const acc: Account = { id: json.data.id, name: json.data.name, bonusMethod: json.data.bonusMethod, items: [] };
+      setAccounts(prev => [...prev, acc]);
+      setActiveId(acc.id);
+    } catch {}
   };
 
-  const deleteAccount = (id: string) => {
+  const deleteAccount = (id: number) => {
     setAccounts(prev => prev.filter(a => a.id !== id));
     if (activeId === id) setActiveId(null);
     setConfirmDeleteId(null);
+    fetch(`${API}/api/account-builder/${id}`, { method: 'DELETE', headers }).catch(() => {});
   };
 
-  const renameAccount = (id: string, name: string) => {
-    setAccounts(prev => prev.map(a => a.id === id ? { ...a, name: name.trim() || a.name } : a));
+  const renameAccount = (id: number, name: string) => {
+    const trimmed = name.trim();
+    setAccounts(prev => prev.map(a => a.id === id ? { ...a, name: trimmed || a.name } : a));
     setRenamingId(null);
+    if (!trimmed) return;
+    fetch(`${API}/api/account-builder/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ name: trimmed }) }).catch(() => {});
   };
 
   const setBonusMethod = (method: BonusMethod) => {
     if (!activeAccount) return;
     setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, bonusMethod: method } : a));
+    scheduleSave(activeAccount.id, activeAccount.items, method);
   };
 
   const addRow = () => {
     if (!activeAccount) return;
-    setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, items: [...a.items, emptyRow()] } : a));
+    const newItems = [...activeAccount.items, emptyRow()];
+    setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, items: newItems } : a));
+    scheduleSave(activeAccount.id, newItems, activeAccount.bonusMethod);
   };
 
   const deleteRow = (rowId: string) => {
     if (!activeAccount) return;
-    setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, items: a.items.filter(r => r.id !== rowId) } : a));
+    const newItems = activeAccount.items.filter(r => r.id !== rowId);
+    setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, items: newItems } : a));
+    scheduleSave(activeAccount.id, newItems, activeAccount.bonusMethod);
   };
 
   const updateRow = (rowId: string, patch: Partial<AccountItemRow>) => {
     if (!activeAccount) return;
-    setAccounts(prev => prev.map(a => a.id === activeAccount.id
-      ? { ...a, items: a.items.map(r => r.id === rowId ? { ...r, ...patch } : r) }
-      : a));
+    const newItems = activeAccount.items.map(r => r.id === rowId ? { ...r, ...patch } : r);
+    setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, items: newItems } : a));
+    scheduleSave(activeAccount.id, newItems, activeAccount.bonusMethod);
   };
 
   // إجمالي السعر — رياضيات مباشرة (سعر × كمية)
@@ -150,7 +217,7 @@ export default function AccountBuilderPage() {
         <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🧮</div>
         <div>
           <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>الحساب</h1>
-          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>إنشاء حسابات ومعادلات خاصة بالإيتمات</p>
+          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>إنشاء حسابات ومعادلات خاصة بالإيتمات — محفوظة على حسابك وتظهر على كل أجهزتك</p>
         </div>
       </div>
 
@@ -177,7 +244,7 @@ export default function AccountBuilderPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>الحسابات:</span>
           <button onClick={addAccount} style={{ ...PILL_BTN('#f5f3ff', '#6d28d9'), border: '1.5px dashed #a5b4fc' }}>+ حساب جديد</button>
-          <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{accounts.length} حساب</span>
+          <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{loading ? 'جاري التحميل...' : `${accounts.length} حساب`}</span>
         </div>
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -223,7 +290,7 @@ export default function AccountBuilderPage() {
               >×</button>
             </div>
           ))}
-          {accounts.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد حسابات بعد</span>}
+          {!loading && accounts.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد حسابات بعد</span>}
         </div>
       </div>
 
@@ -262,7 +329,7 @@ export default function AccountBuilderPage() {
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1400 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1200 }}>
               <thead>
                 <tr style={{ background: '#1e40af', color: '#fff' }}>
                   <th style={TH}>#</th>

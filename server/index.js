@@ -2408,6 +2408,65 @@ app.delete('/api/sales-data-files/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── الحساب (Account Builder) — synced across devices ──────────
+// GET   /api/account-builder       — list all accounts for current user
+// POST  /api/account-builder       — create new account { name }
+// PATCH /api/account-builder/:id   — update { name?, bonusMethod?, items? }
+// DELETE /api/account-builder/:id  — delete one account
+app.get('/api/account-builder', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const accounts = await prisma.accountBuilderAccount.findMany({
+      where: { userId },
+      orderBy: { id: 'asc' },
+    });
+    const data = accounts.map(a => ({
+      id: a.id, name: a.name, bonusMethod: a.bonusMethod,
+      items: JSON.parse(a.itemsJson || '[]'),
+      updatedAt: a.updatedAt,
+    }));
+    res.json({ success: true, data });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/account-builder', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const account = await prisma.accountBuilderAccount.create({
+      data: { userId, name, bonusMethod: 'proportional', itemsJson: '[]' },
+    });
+    res.json({ success: true, data: { id: account.id, name: account.name, bonusMethod: account.bonusMethod, items: [], updatedAt: account.updatedAt } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/account-builder/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const userId = req.user?.id;
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const { name, bonusMethod, items } = req.body;
+    const updateData = {};
+    if (typeof name === 'string' && name.trim()) updateData.name = name.trim();
+    if (typeof bonusMethod === 'string') updateData.bonusMethod = bonusMethod;
+    if (Array.isArray(items)) updateData.itemsJson = JSON.stringify(items);
+    const result = await prisma.accountBuilderAccount.updateMany({ where: { id, userId }, data: updateData });
+    if (result.count === 0) return res.status(404).json({ error: 'الحساب غير موجود' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/account-builder/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const userId = req.user?.id;
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    await prisma.accountBuilderAccount.deleteMany({ where: { id, userId } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Currency settings per file ───────────────────────────────
 // PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate, sourceCurrency? }
 app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {  const id = parseInt(req.params.id);

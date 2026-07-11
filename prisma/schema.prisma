@@ -49,6 +49,7 @@ model User {
   filterPresets          FilterPreset[]
   itemMergeRules         ItemMergeRule[]
   salesDataFiles         SalesDataFile[]
+  accountBuilderAccounts AccountBuilderAccount[]
   sales                  Sale[]
   doctors                Doctor[]
   monthlyPlans           MonthlyPlan[]
@@ -361,6 +362,22 @@ model FilterPreset {
   @@unique([userId, name])
   @@index([userId])
   @@map("filter_presets")
+}
+
+// ─── الحساب (Account Builder) — حسابات/معادلات إيتمات مخصصة، متزامنة عبر الأجهزة ───
+model AccountBuilderAccount {
+  id          Int      @id @default(autoincrement())
+  name        String
+  bonusMethod String   @default("proportional")
+  itemsJson   String   @default("[]") // JSON: AccountItemRow[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("account_builder_accounts")
 }
 
 // ------------------------------------------------------------
