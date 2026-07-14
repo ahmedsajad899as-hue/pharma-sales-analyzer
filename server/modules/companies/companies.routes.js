@@ -4,7 +4,7 @@ import {
   listCompanies, getCompany, createCompany, updateCompany, deleteCompany,
   listLines, createLine, updateLine, deleteLine,
   setLineItems, getAllLines,
-  createCompanyItem, deleteCompanyItem, transferCompanyItem,
+  createCompanyItem, updateCompanyItem, deleteCompanyItem, transferCompanyItem,
   importCompanyItems, importCompanyItemsJson,
   getCompanyOrg,
   listCompanyAliases, createCompanyAlias, deleteCompanyAlias,
@@ -30,6 +30,7 @@ router.delete('/:id',     deleteCompany);
 
 // Items within a company
 router.post('/:id/items',                  createCompanyItem);
+router.patch('/:id/items/:itemId',         updateCompanyItem);
 router.post('/:id/items/bulk',             importCompanyItemsJson);
 router.post('/:id/items/import',           memUpload.single('file'), importCompanyItems);
 router.delete('/:id/items/:itemId',        deleteCompanyItem);

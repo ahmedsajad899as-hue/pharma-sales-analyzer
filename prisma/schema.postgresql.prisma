@@ -200,7 +200,8 @@ model Item {
   scientificName    String? // الاسم العلمي
   dosage            String? // الجرعة الدوائية
   form              String? // الشكل الدوائي (أقراص، كبسول، شراب...)
-  price             Float? // السعر
+  price             Float? // سعر المكتب
+  warehousePrice    Float? // سعر المذخر
   scientificMessage String? // المسج العلمي
   imageUrl          String? // صورة الايتم
   isTemp            Boolean  @default(false) // إيتم مؤقت من ملف رفع، غير موجود في كتالوج الشركة

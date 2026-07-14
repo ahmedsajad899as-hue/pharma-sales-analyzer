@@ -24,7 +24,7 @@ export async function getCompany(req, res) {
     where: { id },
     include: {
       office: { select: { id: true, name: true } },
-      items: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
+      items: { select: { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, warehousePrice: true }, orderBy: { name: 'asc' } },
       lines: {
         include: {
           lineItems: { include: { item: { select: { id: true, name: true } } } },
@@ -74,7 +74,7 @@ export async function deleteCompany(req, res) {
 // ── Add item to company ───────────────────────────────────────────────────
 export async function createCompanyItem(req, res) {
   const companyId = parseInt(req.params.id);
-  const { name, scientificName, dosage, form, price, scientificMessage } = req.body;
+  const { name, scientificName, dosage, form, price, warehousePrice, scientificMessage } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'اسم الايتم مطلوب' });
 
   // Check if item with same name already exists for this company
@@ -89,12 +89,35 @@ export async function createCompanyItem(req, res) {
       scientificName:    scientificName?.trim()    || null,
       dosage:            dosage?.trim()            || null,
       form:              form?.trim()              || null,
-      price:             price != null ? parseFloat(price) : null,
+      price:             price          != null && price          !== '' ? parseFloat(price)          : null,
+      warehousePrice:    warehousePrice != null && warehousePrice !== '' ? parseFloat(warehousePrice) : null,
       scientificMessage: scientificMessage?.trim() || null,
       scientificCompanyId: companyId,
     },
   });
   res.status(201).json({ success: true, data: item });
+}
+
+// ── Update item fields (سعر مكتب / سعر مذخر وغيرها) ────────────────────────
+export async function updateCompanyItem(req, res) {
+  const companyId = parseInt(req.params.id);
+  const itemId    = parseInt(req.params.itemId);
+  const { name, scientificName, dosage, form, price, warehousePrice, scientificMessage } = req.body;
+
+  const existing = await prisma.item.findFirst({ where: { id: itemId, scientificCompanyId: companyId } });
+  if (!existing) return res.status(404).json({ error: 'الايتم غير موجود في كتالوج هذه الشركة' });
+
+  const data = {};
+  if (name               !== undefined) data.name               = name.trim();
+  if (scientificName     !== undefined) data.scientificName      = scientificName?.trim()    || null;
+  if (dosage              !== undefined) data.dosage              = dosage?.trim()            || null;
+  if (form                !== undefined) data.form                = form?.trim()              || null;
+  if (scientificMessage   !== undefined) data.scientificMessage   = scientificMessage?.trim() || null;
+  if (price               !== undefined) data.price               = price          != null && price          !== '' ? parseFloat(price)          : null;
+  if (warehousePrice      !== undefined) data.warehousePrice      = warehousePrice != null && warehousePrice !== '' ? parseFloat(warehousePrice) : null;
+
+  const item = await prisma.item.update({ where: { id: itemId }, data });
+  res.json({ success: true, data: item });
 }
 
 // ── Remove item from company (unlink) ────────────────────────────────────

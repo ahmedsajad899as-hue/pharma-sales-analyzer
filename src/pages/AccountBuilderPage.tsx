@@ -29,6 +29,7 @@ interface Account {
 interface CatalogItem {
   id: number;
   name: string;
+  price?: number | null; // سعر مكتب — يُعبَّأ تلقائياً في خانة السعر عند اختيار الايتم
   company?: { id: number; name: string } | null;
   scientificCompany?: { id: number; name: string } | null;
 }
@@ -412,7 +413,9 @@ export default function AccountBuilderPage() {
                               key={ci.id}
                               onMouseDown={() => {
                                 const companyName = ci.scientificCompany?.name || ci.company?.name || '';
-                                updateRow(r.id, { itemName: ci.name, companyName });
+                                const patch: Partial<AccountItemRow> = { itemName: ci.name, companyName };
+                                if (ci.price != null) patch.price = ci.price;
+                                updateRow(r.id, patch);
                                 setItemSuggestRowId(null);
                               }}
                               style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}

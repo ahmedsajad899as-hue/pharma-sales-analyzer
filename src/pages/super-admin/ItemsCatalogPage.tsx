@@ -4,7 +4,7 @@ import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
 // ─── أنواع ──────────────────────────────────────────────────────────────────
 interface Company { id: number; name: string; office?: { name: string }; _count?: { items: number } }
-interface Item    { id: number; name: string; scientificName?: string; dosage?: string; form?: string }
+interface Item    { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; warehousePrice?: number | null }
 interface Alias   { id: number; fromName: string; toName: string; toItemId: number | null; toItem?: { id: number; name: string } | null; updatedAt: string }
 interface ReviewItem { id: number; name: string; userName: string | null; salesCount: number; confidence: string; suggestions: { id: number; name: string; sim: number }[] }
 
@@ -70,7 +70,7 @@ export default function ItemsCatalogPage() {
 
   // ── أفعال الكتالوج ──
   const [itemModal, setItemModal] = useState(false);
-  const [newItem, setNewItem] = useState({ name: '', scientificName: '', dosage: '', form: '' });
+  const [newItem, setNewItem] = useState({ name: '', scientificName: '', dosage: '', form: '', price: '', warehousePrice: '' });
   const addItem = async () => {
     if (!newItem.name.trim() || !companyId) return;
     setBusy(true); setErr('');
@@ -78,7 +78,7 @@ export default function ItemsCatalogPage() {
       const r = await fetch(`/api/sa/companies/${companyId}/items`, { method: 'POST', headers: H(), body: JSON.stringify(newItem) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'فشل');
-      setItemModal(false); setNewItem({ name: '', scientificName: '', dosage: '', form: '' });
+      setItemModal(false); setNewItem({ name: '', scientificName: '', dosage: '', form: '', price: '', warehousePrice: '' });
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : 'فشل إضافة الايتم'); }
     setBusy(false);
@@ -88,6 +88,28 @@ export default function ItemsCatalogPage() {
     setBusy(true);
     await fetch(`/api/sa/companies/${companyId}/items/${id}`, { method: 'DELETE', headers: H() });
     setBusy(false); await reload();
+  };
+
+  // ── تعديل أسعار ايتم (مكتب / مذخر) ──
+  const [priceFor, setPriceFor] = useState<Item | null>(null);
+  const [priceForm, setPriceForm] = useState({ price: '', warehousePrice: '' });
+  const openPriceEdit = (i: Item) => {
+    setPriceFor(i);
+    setPriceForm({ price: i.price != null ? String(i.price) : '', warehousePrice: i.warehousePrice != null ? String(i.warehousePrice) : '' });
+  };
+  const savePrice = async () => {
+    if (!companyId || !priceFor) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/sa/companies/${companyId}/items/${priceFor.id}`, {
+        method: 'PATCH', headers: H(), body: JSON.stringify(priceForm),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشل');
+      setPriceFor(null);
+      await reload();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'فشل حفظ السعر'); }
+    setBusy(false);
   };
 
   // ── نقل ايتم لشركة أخرى (أُدخل بالخطأ) ──
@@ -289,10 +311,17 @@ export default function ItemsCatalogPage() {
                             {[i.scientificName, i.dosage, i.form].filter(Boolean).join(' · ')}
                           </div>
                         )}
+                        {(i.price != null || i.warehousePrice != null) && (
+                          <div style={{ fontSize: 11, color: '#0891b2', marginTop: 4, display: 'flex', gap: 10 }}>
+                            {i.price != null && <span>🏢 مكتب: {i.price.toLocaleString('ar-IQ')}</span>}
+                            {i.warehousePrice != null && <span>📦 مذخر: {i.warehousePrice.toLocaleString('ar-IQ')}</span>}
+                          </div>
+                        )}
                       </div>
                     </div>
                     {!selectMode && (
                       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => openPriceEdit(i)} title="تعديل السعر" style={btnStyle('#059669', true)}>💲</button>
                         <button onClick={() => { setTransferFor(i); setTransferTarget(''); }} title="نقل لشركة أخرى" style={btnStyle('#0891b2', true)}>↔</button>
                         <button onClick={() => delItem(i.id)} title="إزالة" style={btnStyle('#ef4444', true)}>🗑</button>
                       </div>
@@ -371,7 +400,31 @@ export default function ItemsCatalogPage() {
           <Field label="الاسم العلمي" value={newItem.scientificName} onChange={v => setNewItem({ ...newItem, scientificName: v })} />
           <Field label="الجرعة" value={newItem.dosage} onChange={v => setNewItem({ ...newItem, dosage: v })} />
           <Field label="الشكل الدوائي" value={newItem.form} onChange={v => setNewItem({ ...newItem, form: v })} />
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <Field label="🏢 سعر مكتب" type="number" value={newItem.price} onChange={v => setNewItem({ ...newItem, price: v })} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field label="📦 سعر مذخر" type="number" value={newItem.warehousePrice} onChange={v => setNewItem({ ...newItem, warehousePrice: v })} />
+            </div>
+          </div>
           <button onClick={addItem} disabled={busy || !newItem.name.trim()} style={{ ...btnStyle('#6366f1'), width: '100%', marginTop: 8 }}>حفظ</button>
+        </Modal>
+      )}
+
+      {/* مودال تعديل سعر ايتم */}
+      {priceFor && (
+        <Modal title={`تعديل سعر «${priceFor.name}»`} onClose={() => setPriceFor(null)}>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <Field label="🏢 سعر مكتب" type="number" value={priceForm.price} onChange={v => setPriceForm({ ...priceForm, price: v })} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field label="📦 سعر مذخر" type="number" value={priceForm.warehousePrice} onChange={v => setPriceForm({ ...priceForm, warehousePrice: v })} />
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>سعر المكتب هو الذي يُعبَّأ تلقائياً في خانة «الحساب» عند اختيار الايتم.</div>
+          <button onClick={savePrice} disabled={busy} style={{ ...btnStyle('#059669'), width: '100%', marginTop: 8 }}>حفظ السعر</button>
         </Modal>
       )}
 
