@@ -405,9 +405,9 @@ export default function AccountBuilderPage() {
                       )
                     : [];
                   return (
-                  <tr key={r.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                  <tr key={r.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', position: 'relative' }}>
                     <td style={TD}>{i + 1}</td>
-                    <td style={{ ...TD, position: 'relative' }}>
+                    <td style={TD}>
                       <input
                         value={r.itemName}
                         autoComplete="off"
@@ -418,7 +418,7 @@ export default function AccountBuilderPage() {
                         placeholder="اختر أو اكتب اسم الايتم"
                       />
                       {suggMatches.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 2, maxHeight: 190, overflowY: 'auto', minWidth: 220 }}>
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', marginTop: 2, maxHeight: 240, overflowY: 'auto' }}>
                           {suggMatches.map(ci => (
                             <div
                               key={ci.id}
