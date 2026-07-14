@@ -104,23 +104,31 @@ export default function NumberWheelPicker({
           <div style={{ position: 'absolute', top: '50%', left: '50%', width: 14, height: 14, borderRadius: '50%', background: '#1e40af', transform: 'translate(-50%,-50%)', boxShadow: '0 0 0 4px #fff' }} />
 
           {ticks.map(t => {
-            const v = clamp(val + t.offset * step);
+            const raw = val + t.offset * step;
+            const inRange = raw >= min && raw <= max;
             const rad = (t.angleDeg - 90) * Math.PI / 180; // -90 لتبدأ من الأعلى
             const cx = DIAL_SIZE / 2 + RADIUS * Math.cos(rad);
             const cy = DIAL_SIZE / 2 + RADIUS * Math.sin(rad);
             const isTop = t.k === 0;
+            if (!inRange) return null;
             return (
-              <div key={t.k} style={{
-                position: 'absolute', left: cx, top: cy, transform: 'translate(-50%,-50%)',
-                fontSize: isTop ? 16 : 12.5, fontWeight: isTop ? 800 : 600,
-                color: isTop ? '#1e40af' : '#64748b',
-                background: isTop ? '#fff' : 'transparent',
-                borderRadius: isTop ? 8 : 0,
-                padding: isTop ? '2px 7px' : 0,
-                boxShadow: isTop ? '0 2px 8px rgba(30,64,175,.2)' : 'none',
-                pointerEvents: 'none', transition: 'color .1s ease',
-              }}>
-                {v < min || v > max ? '' : v}
+              <div
+                key={t.k}
+                onClick={e => { e.stopPropagation(); commit(raw); }}
+                style={{
+                  position: 'absolute', left: cx, top: cy, transform: 'translate(-50%,-50%)',
+                  fontSize: isTop ? 16 : 12.5, fontWeight: isTop ? 800 : 600,
+                  color: isTop ? '#1e40af' : '#64748b',
+                  background: isTop ? '#fff' : 'transparent',
+                  borderRadius: isTop ? 8 : 6,
+                  padding: isTop ? '2px 7px' : '3px 6px',
+                  boxShadow: isTop ? '0 2px 8px rgba(30,64,175,.2)' : 'none',
+                  cursor: 'pointer', transition: 'color .1s ease, background .1s ease',
+                }}
+                onMouseEnter={e => { if (!isTop) e.currentTarget.style.background = 'rgba(30,64,175,.12)'; }}
+                onMouseLeave={e => { if (!isTop) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {raw}
               </div>
             );
           })}
