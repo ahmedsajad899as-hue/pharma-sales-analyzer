@@ -823,6 +823,16 @@ app.get('/api/items', async (req, res) => {
         const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
         repId = rep?.id ?? null;
       }
+      // شركات مرتبطة بالمندوب عبر مودال «🔗 ربط» القديم في صفحة تحليل المندوبين
+      // (ScientificRepCompany → Company) — هذا هو المسار الذي يستخدمه قادة الفريق فعلياً
+      // (وليس UserCompanyAssignment المتاح فقط من لوحة السوبر-أدمن)؛ نفس المصدر الذي
+      // يعتمده تحليل الصوت في البلان الشهري (monthly-plans.controller.js). نجمعه مع
+      // كتالوج ScientificCompany كي لا تختفي ايتمات أي مندوب رُبط بشركاته من أي الصفحتين.
+      const legacyCompanyRows = repId ? await prisma.scientificRepCompany.findMany({
+        where: { scientificRepId: repId },
+        select: { companyId: true },
+      }) : [];
+      const legacyCompanyIds = legacyCompanyRows.map(r => r.companyId);
       // ايتمات ملفات المبيعات المشتركة معه (legacy per-rep share + FileUserShare)
       const [byRep, byUser] = await Promise.all([
         repId ? prisma.uploadedFile.findMany({ where: { sharedWithRepId: repId }, select: { id: true } }) : [],
@@ -835,17 +845,24 @@ app.get('/api/items', async (req, res) => {
         distinct: ['itemId'],
       }) : [];
       const seen = new Set();
-      if (sciCompanyIds.length > 0) {
-        // له شركة → كتالوج الشركة (مقيّد بالقائمة البيضاء) ∪ ايتمات ملفاته المشتركة
-        const catalogItems = await prisma.item.findMany({
-          where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
-          select: itemSelect,
-        });
-        items = [...scopeCatalog(catalogItems), ...sharedRows.map(r => r.item)]
+      if (sciCompanyIds.length > 0 || legacyCompanyIds.length > 0) {
+        // له شركة (جديدة و/أو قديمة) → كتالوج شركاته من كلا المصدرين (مقيّد بالقائمة
+        // البيضاء) ∪ ايتمات ملفاته المشتركة
+        const [newCatalogItems, legacyCatalogItems] = await Promise.all([
+          sciCompanyIds.length ? prisma.item.findMany({
+            where: { scientificCompanyId: { in: sciCompanyIds }, isTemp: false },
+            select: itemSelect,
+          }) : [],
+          legacyCompanyIds.length ? prisma.item.findMany({
+            where: { companyId: { in: legacyCompanyIds }, isTemp: false },
+            select: itemSelect,
+          }) : [],
+        ]);
+        items = [...scopeCatalog([...newCatalogItems, ...legacyCatalogItems]), ...sharedRows.map(r => r.item)]
           .filter(i => i && !seen.has(i.id) && (seen.add(i.id), true))
           .sort((a, b) => a.name.localeCompare(b.name));
       } else {
-        // بلا شركة → السلوك القديم: تعيينات ScientificRepItem ∪ الملفات المشتركة
+        // بلا شركة (بأي من النظامين) → السلوك القديم: تعيينات ScientificRepItem ∪ الملفات المشتركة
         const repItems = repId ? await prisma.scientificRepItem.findMany({
           where: { scientificRepId: repId },
           include: { item: { select: itemSelect } },
