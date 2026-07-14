@@ -528,8 +528,28 @@ app.get('/api/my-company-org', async (req, res) => {
         subordinatesOfUser: { select: { userId: true } },
       },
     });
-    const idSet = new Set(userIds);
-    const result = users.map(u => ({
+    // قادة الفرق يرون هيكلهم الفرعي فقط (حسابهم + مندوبيهم)، وليس هيكل الشركة كاملاً
+    const TEAM_LEADER_ROLES = new Set(['team_leader', 'commercial_team_leader']);
+    let scopedUsers = users;
+    const requester = users.find(u => u.id === userId);
+    if (requester && TEAM_LEADER_ROLES.has(requester.role)) {
+      const byId = new Map(users.map(u => [u.id, u]));
+      const visible = new Set([userId]);
+      let frontier = [userId];
+      while (frontier.length > 0) {
+        const next = [];
+        for (const uid of frontier) {
+          for (const s of byId.get(uid)?.subordinatesOfUser ?? []) {
+            if (!visible.has(s.userId)) { visible.add(s.userId); next.push(s.userId); }
+          }
+        }
+        frontier = next;
+      }
+      scopedUsers = users.filter(u => visible.has(u.id));
+    }
+
+    const idSet = new Set(scopedUsers.map(u => u.id));
+    const result = scopedUsers.map(u => ({
       id: u.id, username: u.username, displayName: u.displayName, role: u.role, isActive: u.isActive, phone: u.phone,
       managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => idSet.has(mid)),
       subordinateIds: u.subordinatesOfUser.map(s => s.userId).filter(sid => idSet.has(sid)),
