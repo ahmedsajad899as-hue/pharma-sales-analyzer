@@ -66,9 +66,9 @@ function financialSupportPerUnit(price: number, totalBonusPercent: number, keptB
 
 type WheelField = 'quantity' | 'totalBonusPercent' | 'keptBonusPercent';
 const WHEEL_CONFIG: Record<WheelField, { title: string; min: number; max: number; step: number; bigStep: number; suffix: string }> = {
-  quantity:           { title: 'الكمية',            min: 0, max: 100000, step: 1, bigStep: 10, suffix: '' },
-  totalBonusPercent:  { title: 'البونص الكلي %',    min: 0, max: 100,    step: 1, bigStep: 5,  suffix: '%' },
-  keptBonusPercent:   { title: 'بونص الصيدليه %',   min: 0, max: 100,    step: 1, bigStep: 5,  suffix: '%' },
+  quantity:           { title: 'الكمية',            min: 0, max: 100000, step: 5, bigStep: 25, suffix: '' },
+  totalBonusPercent:  { title: 'البونص الكلي %',    min: 0, max: 100,    step: 5, bigStep: 25, suffix: '%' },
+  keptBonusPercent:   { title: 'بونص الصيدليه %',   min: 0, max: 100,    step: 5, bigStep: 25, suffix: '%' },
 };
 
 const BONUS_METHODS: { id: BonusMethod; label: string; desc: string }[] = [
