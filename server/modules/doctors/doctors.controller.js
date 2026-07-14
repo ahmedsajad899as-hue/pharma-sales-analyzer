@@ -13,7 +13,7 @@ import {
 // list() (browseManagerId) so any endpoint reading a rep's doctors/pharmacies
 // resolves the same owner. Non-field roles own their own data (returns userId).
 export async function resolveDocOwnerUserId(userId) {
-  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
   const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, linkedRepId: true } });
   if (!userRecord || !FIELD_ROLES.includes(userRecord.role)) return userId;
   let ownerId = userId;
@@ -212,7 +212,7 @@ export async function list(req, res, next) {
     const filterPlanMode   = perms.doctorFilterPlanMode || 'plan_and_all';
     const filterSurveyOnly = perms.doctorFilterSurveyOnly === true;
 
-    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
     // ── تبويب "الأطباء" (تصفّح بلا بحث): المصدر الموحّد نفسه المستخدم في الزيارات/الأرشيف ──
@@ -752,7 +752,7 @@ export async function update(req, res, next) {
     const existing = await prisma.doctor.findUnique({ where: { id }, select: { id: true, userId: true } });
     if (!existing) return res.status(404).json({ error: 'Not found' });
 
-    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep'];
+    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
     const isFieldRep  = FIELD_ROLES.includes(role);
 
     // المندوب يمكنه تعديل أي طبيب زاره؛ المدير يعدّل أطباءه فقط

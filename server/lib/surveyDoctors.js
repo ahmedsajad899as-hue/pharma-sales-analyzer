@@ -16,7 +16,7 @@ import prisma from './prisma.js';
 import { normalizeAreaName } from './itemResolver.js';
 
 // الأدوار الميدانية (مُقيّدة بمناطقها). المدراء يرون كامل الفريق.
-const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'team_leader', 'commercial_rep']);
+const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'commercial_rep']);
 export const isFieldRole = (role) => FIELD_ROLES.has(role);
 
 // ── مناطق مستخدم واحد من كِلا المصدرين (UserAreaAssignment + ScientificRepArea) ──
