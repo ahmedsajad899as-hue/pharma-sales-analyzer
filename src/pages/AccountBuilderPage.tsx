@@ -26,6 +26,13 @@ interface Account {
   bonusMethod: BonusMethod;
 }
 
+interface CatalogItem {
+  id: number;
+  name: string;
+  company?: { id: number; name: string } | null;
+  scientificCompany?: { id: number; name: string } | null;
+}
+
 // ── Bonus / net-price math ──────────────────────────────────────
 // نت برايس = السعر مقسوماً على (1 + نسبة البونص) — بونص 40% على سعر 8000 يعطي نت برايس 5714
 function netPriceFor(price: number, bonusPercent: number): number {
@@ -84,6 +91,21 @@ export default function AccountBuilderPage() {
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  // قادة الفرق (تيم ليدر) يُثبَّت لهم طريقة "فرق النت برايس" فقط
+  const isTeamLeader = user?.role === 'team_leader' || user?.role === 'commercial_team_leader';
+
+  // كتالوج الايتمات (مرتبط بالشركات المعيّنة للمستخدم) — لاختيار اسم الايتم وتعبئة الشركة تلقائياً
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [itemSuggestRowId, setItemSuggestRowId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API}/api/items`, { headers })
+      .then(r => r.json())
+      .then(j => setCatalogItems(Array.isArray(j.data) ? j.data : []))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   // مؤقتات حفظ مستقلة لكل حساب — بهذا لا يُلغى الحفظ المعلَّق عند التبديل بين الحسابات
   const saveTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -181,6 +203,14 @@ export default function AccountBuilderPage() {
     setAccounts(prev => prev.map(a => a.id === activeAccount.id ? { ...a, bonusMethod: method } : a));
     scheduleSave(activeAccount.id, activeAccount.items, method);
   };
+
+  // تثبيت طريقة "فرق النت برايس" (طريقة 3) لقادة الفرق على أي حساب نشط بطريقة مختلفة
+  useEffect(() => {
+    if (isTeamLeader && activeAccount && activeAccount.bonusMethod !== 'netDiff') {
+      setBonusMethod('netDiff');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTeamLeader, activeAccount?.id, activeAccount?.bonusMethod]);
 
   const addRow = () => {
     if (!activeAccount) return;
@@ -307,21 +337,27 @@ export default function AccountBuilderPage() {
             <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{activeAccount.name}</span>
             <button onClick={addRow} style={PILL_BTN('#eff6ff', '#1d4ed8')}>+ إضافة إيتم</button>
 
-            {/* طريقة احتساب الدعم المالي */}
+            {/* طريقة احتساب الدعم المالي — مثبّتة على طريقة 3 لقادة الفرق */}
             <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 4px' }}>
               <span style={{ fontSize: 11, color: '#6b7280', padding: '0 6px' }}>طريقة الدعم المالي:</span>
-              {BONUS_METHODS.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => setBonusMethod(m.id)}
-                  title={m.desc}
-                  style={{
-                    padding: '4px 10px', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                    background: activeAccount.bonusMethod === m.id ? '#1e40af' : 'transparent',
-                    color: activeAccount.bonusMethod === m.id ? '#fff' : '#374151',
-                  }}
-                >{m.label}</button>
-              ))}
+              {isTeamLeader ? (
+                <span style={{ padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: '#1e40af', color: '#fff' }}>
+                  {BONUS_METHODS.find(m => m.id === 'netDiff')?.label}
+                </span>
+              ) : (
+                BONUS_METHODS.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setBonusMethod(m.id)}
+                    title={m.desc}
+                    style={{
+                      padding: '4px 10px', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                      background: activeAccount.bonusMethod === m.id ? '#1e40af' : 'transparent',
+                      color: activeAccount.bonusMethod === m.id ? '#fff' : '#374151',
+                    }}
+                  >{m.label}</button>
+                ))
+              )}
             </div>
           </div>
           <div style={{ padding: '6px 14px', fontSize: 11, color: '#6b7280', borderBottom: '1px solid #f1f5f9', background: '#fafbff' }}>
@@ -329,31 +365,69 @@ export default function AccountBuilderPage() {
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1200 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
                 <tr style={{ background: '#1e40af', color: '#fff' }}>
-                  <th style={TH}>#</th>
-                  <th style={{ ...TH, minWidth: 160 }}>اسم الايتم</th>
-                  <th style={{ ...TH, minWidth: 130 }}>اسم الشركة</th>
-                  <th style={TH}>السعر</th>
-                  <th style={TH}>الكمية</th>
-                  <th style={TH}>المجموع الكلي للسعر</th>
-                  <th style={TH}>البونص الكلي %</th>
-                  <th style={TH}>بونص محتفظ به %</th>
-                  <th style={TH}>النت برايس</th>
-                  <th style={TH}>دعم مالي / وحدة</th>
-                  <th style={TH}>إجمالي الدعم المالي</th>
-                  <th style={{ ...TH, width: 32 }}></th>
+                  <th style={{ ...TH, width: 26 }}>#</th>
+                  <th style={{ ...TH, width: 130 }}>اسم الايتم</th>
+                  <th style={{ ...TH, width: 105 }}>اسم الشركة</th>
+                  <th style={{ ...TH, width: 62 }}>السعر</th>
+                  <th style={{ ...TH, width: 55 }}>الكمية</th>
+                  <th style={{ ...TH, width: 85 }}>المجموع الكلي</th>
+                  <th style={{ ...TH, width: 65 }}>البونص الكلي %</th>
+                  <th style={{ ...TH, width: 70 }}>محتفظ به %</th>
+                  <th style={{ ...TH, width: 72 }}>النت برايس</th>
+                  <th style={{ ...TH, width: 78 }}>دعم / وحدة</th>
+                  <th style={{ ...TH, width: 85 }}>إجمالي الدعم</th>
+                  <th style={{ ...TH, width: 24 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {activeAccount.items.map((r, i) => {
                   const netPrice = netPriceFor(r.price, r.totalBonusPercent);
                   const supportPerUnit = financialSupportPerUnit(r.price, r.totalBonusPercent, r.keptBonusPercent, activeAccount.bonusMethod);
+                  const suggMatches = itemSuggestRowId === r.id
+                    ? (r.itemName.trim()
+                        ? catalogItems.filter(ci => ci.name.toLowerCase().includes(r.itemName.trim().toLowerCase()))
+                        : catalogItems
+                      ).slice(0, 30)
+                    : [];
                   return (
                   <tr key={r.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
                     <td style={TD}>{i + 1}</td>
-                    <td style={TD}><input value={r.itemName} onChange={e => updateRow(r.id, { itemName: e.target.value })} style={CELL_INPUT} placeholder="اسم الايتم" /></td>
+                    <td style={{ ...TD, position: 'relative' }}>
+                      <input
+                        value={r.itemName}
+                        autoComplete="off"
+                        onChange={e => { updateRow(r.id, { itemName: e.target.value }); setItemSuggestRowId(r.id); }}
+                        onFocus={() => setItemSuggestRowId(r.id)}
+                        onBlur={() => setTimeout(() => setItemSuggestRowId(prev => prev === r.id ? null : prev), 150)}
+                        style={CELL_INPUT}
+                        placeholder="اختر أو اكتب اسم الايتم"
+                      />
+                      {suggMatches.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 2, maxHeight: 190, overflowY: 'auto', minWidth: 220 }}>
+                          {suggMatches.map(ci => (
+                            <div
+                              key={ci.id}
+                              onMouseDown={() => {
+                                const companyName = ci.scientificCompany?.name || ci.company?.name || '';
+                                updateRow(r.id, { itemName: ci.name, companyName });
+                                setItemSuggestRowId(null);
+                              }}
+                              style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '')}
+                            >
+                              <div style={{ fontWeight: 600, fontSize: 12, color: '#111827' }}>{ci.name}</div>
+                              {(ci.scientificCompany?.name || ci.company?.name) && (
+                                <div style={{ fontSize: 10, color: '#94a3b8' }}>{ci.scientificCompany?.name || ci.company?.name}</div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                     <td style={TD}><input value={r.companyName} onChange={e => updateRow(r.id, { companyName: e.target.value })} style={CELL_INPUT} placeholder="اسم الشركة" /></td>
                     <td style={TD}><input type="number" value={r.price || ''} onChange={e => updateRow(r.id, { price: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
                     <td style={TD}><input type="number" value={r.quantity || ''} onChange={e => updateRow(r.id, { quantity: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
@@ -398,15 +472,15 @@ const CARD: React.CSSProperties = {
   padding: '12px 16px', marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,.04)',
 };
 const TH: React.CSSProperties = {
-  padding: '9px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12,
+  padding: '6px 6px', textAlign: 'right', fontWeight: 600, fontSize: 10.5,
   whiteSpace: 'nowrap', borderLeft: '1px solid rgba(255,255,255,.15)',
 };
 const TD: React.CSSProperties = {
-  padding: '5px 8px', borderBottom: '1px solid #f1f5f9', fontSize: 12, color: '#374151',
+  padding: '3px 4px', borderBottom: '1px solid #f1f5f9', fontSize: 11, color: '#374151',
 };
 const CELL_INPUT: React.CSSProperties = {
-  width: '100%', border: '1px solid #e5e7eb', borderRadius: 5, padding: '5px 7px',
-  fontSize: 12, background: '#fff', outline: 'none', color: '#1e293b',
+  width: '100%', border: '1px solid #e5e7eb', borderRadius: 5, padding: '4px 5px',
+  fontSize: 11, background: '#fff', outline: 'none', color: '#1e293b', boxSizing: 'border-box',
 };
 function PILL_BTN(bg: string, color: string): React.CSSProperties {
   return { padding: '3px 10px', borderRadius: 6, border: 'none', background: bg, color, fontWeight: 600, fontSize: 11, cursor: 'pointer' };
