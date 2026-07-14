@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import NumberWheelPicker from '../components/NumberWheelPicker';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -63,6 +64,13 @@ function financialSupportPerUnit(price: number, totalBonusPercent: number, keptB
   }
 }
 
+type WheelField = 'quantity' | 'totalBonusPercent' | 'keptBonusPercent';
+const WHEEL_CONFIG: Record<WheelField, { title: string; min: number; max: number; step: number; bigStep: number; suffix: string }> = {
+  quantity:           { title: 'الكمية',            min: 0, max: 100000, step: 1, bigStep: 10, suffix: '' },
+  totalBonusPercent:  { title: 'البونص الكلي %',    min: 0, max: 100,    step: 1, bigStep: 5,  suffix: '%' },
+  keptBonusPercent:   { title: 'بونص الصيدليه %',   min: 0, max: 100,    step: 1, bigStep: 5,  suffix: '%' },
+};
+
 const BONUS_METHODS: { id: BonusMethod; label: string; desc: string }[] = [
   { id: 'proportional', label: 'طريقة 1: نسبي',        desc: 'قيمة البونص الكلي × (النسبة المحوّلة ÷ النسبة الكلية)' },
   { id: 'independent',  label: 'طريقة 2: بونص مستقل',  desc: 'الجزء المحوّل يُحسب كبونص مستقل بنفس معادلة النت برايس' },
@@ -99,6 +107,9 @@ export default function AccountBuilderPage() {
   // كتالوج الايتمات (مرتبط بالشركات المعيّنة للمستخدم) — لاختيار اسم الايتم وتعبئة الشركة تلقائياً
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [itemSuggestRowId, setItemSuggestRowId] = useState<string | null>(null);
+
+  // عجلة اختيار الرقم (بدل الكتابة) لحقول الكمية ونسب البونص
+  const [wheelFor, setWheelFor] = useState<{ rowId: string; field: WheelField } | null>(null);
   useEffect(() => {
     if (!token) return;
     fetch(`${API}/api/items`, { headers })
@@ -376,7 +387,7 @@ export default function AccountBuilderPage() {
                   <th style={{ ...TH, width: 55 }}>الكمية</th>
                   <th style={{ ...TH, width: 85 }}>المجموع الكلي</th>
                   <th style={{ ...TH, width: 65 }}>البونص الكلي %</th>
-                  <th style={{ ...TH, width: 70 }}>محتفظ به %</th>
+                  <th style={{ ...TH, width: 70 }}>بونص الصيدليه %</th>
                   <th style={{ ...TH, width: 72 }}>النت برايس</th>
                   <th style={{ ...TH, width: 78 }}>دعم / وحدة</th>
                   <th style={{ ...TH, width: 85 }}>إجمالي الدعم</th>
@@ -391,7 +402,7 @@ export default function AccountBuilderPage() {
                     ? (r.itemName.trim()
                         ? catalogItems.filter(ci => ci.name.toLowerCase().includes(r.itemName.trim().toLowerCase()))
                         : catalogItems
-                      ).slice(0, 30)
+                      )
                     : [];
                   return (
                   <tr key={r.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
@@ -433,10 +444,16 @@ export default function AccountBuilderPage() {
                     </td>
                     <td style={TD}><input value={r.companyName} onChange={e => updateRow(r.id, { companyName: e.target.value })} style={CELL_INPUT} placeholder="اسم الشركة" /></td>
                     <td style={TD}><input type="number" value={r.price || ''} onChange={e => updateRow(r.id, { price: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
-                    <td style={TD}><input type="number" value={r.quantity || ''} onChange={e => updateRow(r.id, { quantity: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
+                    <td style={TD}>
+                      <button type="button" onClick={() => setWheelFor({ rowId: r.id, field: 'quantity' })} style={WHEEL_CELL}>{r.quantity || 0}</button>
+                    </td>
                     <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: '#047857' }}>{fmt(r.price * r.quantity)}</td>
-                    <td style={TD}><input type="number" value={r.totalBonusPercent || ''} onChange={e => updateRow(r.id, { totalBonusPercent: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
-                    <td style={TD}><input type="number" value={r.keptBonusPercent || ''} onChange={e => updateRow(r.id, { keptBonusPercent: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" title="اتركه 0 لتحويل كامل البونص إلى دعم مالي" /></td>
+                    <td style={TD}>
+                      <button type="button" onClick={() => setWheelFor({ rowId: r.id, field: 'totalBonusPercent' })} style={WHEEL_CELL}>{r.totalBonusPercent || 0}%</button>
+                    </td>
+                    <td style={TD}>
+                      <button type="button" onClick={() => setWheelFor({ rowId: r.id, field: 'keptBonusPercent' })} style={WHEEL_CELL} title="اتركه 0 لتحويل كامل البونص إلى دعم مالي">{r.keptBonusPercent || 0}%</button>
+                    </td>
                     <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: '#1e40af' }}>{fmt(netPrice)}</td>
                     <td style={{ ...TD, textAlign: 'center', fontWeight: 700, color: '#7c3aed' }}>{fmt(supportPerUnit)}</td>
                     <td style={{ ...TD, textAlign: 'center', fontWeight: 800, color: '#7c3aed' }}>{fmt(supportPerUnit * r.quantity)}</td>
@@ -465,6 +482,26 @@ export default function AccountBuilderPage() {
           </div>
         </div>
       )}
+
+      {/* عجلة اختيار الرقم (كمية / نسب بونص) */}
+      {wheelFor && activeAccount && (() => {
+        const row = activeAccount.items.find(r => r.id === wheelFor.rowId);
+        if (!row) return null;
+        const cfg = WHEEL_CONFIG[wheelFor.field];
+        return (
+          <NumberWheelPicker
+            title={cfg.title}
+            value={row[wheelFor.field]}
+            min={cfg.min}
+            max={cfg.max}
+            step={cfg.step}
+            bigStep={cfg.bigStep}
+            suffix={cfg.suffix}
+            onChange={v => updateRow(row.id, { [wheelFor.field]: v } as Partial<AccountItemRow>)}
+            onClose={() => setWheelFor(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -484,6 +521,11 @@ const TD: React.CSSProperties = {
 const CELL_INPUT: React.CSSProperties = {
   width: '100%', border: '1px solid #e5e7eb', borderRadius: 5, padding: '4px 5px',
   fontSize: 11, background: '#fff', outline: 'none', color: '#1e293b', boxSizing: 'border-box',
+};
+const WHEEL_CELL: React.CSSProperties = {
+  width: '100%', border: '1px solid #e5e7eb', borderRadius: 5, padding: '4px 5px',
+  fontSize: 11, fontWeight: 700, background: '#f8fafc', color: '#1e40af', textAlign: 'center',
+  boxSizing: 'border-box', cursor: 'pointer',
 };
 function PILL_BTN(bg: string, color: string): React.CSSProperties {
   return { padding: '3px 10px', borderRadius: 6, border: 'none', background: bg, color, fontWeight: 600, fontSize: 11, cursor: 'pointer' };
