@@ -54,24 +54,30 @@ export async function getArchive(req, res, next) {
     }) : [];
 
     // دمج الإدخالات حسب طبيب السيرفي (OR للأعلام عبر الفريق)
-    const merged = new Map(); // surveyDoctorId → { entryId, isVisited, isWriting, visitItems, writingItems, notes }
+    const merged = new Map(); // surveyDoctorId → { entryId, ownerUserId, isVisited, isWriting, visitItems, writingItems, notes }
     for (const e of entries) {
       const cur = merged.get(e.masterSurveyDoctorId);
       if (!cur) {
         merged.set(e.masterSurveyDoctorId, {
-          entryId: e.id, isVisited: e.isVisited, isWriting: e.isWriting,
+          entryId: e.id, ownerUserId: e.userId, isVisited: e.isVisited, isWriting: e.isWriting,
           visitItems:   e.visitItems  ? JSON.parse(e.visitItems)  : [],
           writingItems: e.writingItems ? JSON.parse(e.writingItems) : [],
           notes: e.notes ?? null,
         });
       } else {
+        // مَن كان صاحب أول علم صحيح (زيارة/كتابة) قبل الدمج، كي لا يُستبدل لاحقاً
+        const hadFlagBefore = cur.isVisited || cur.isWriting;
         cur.isVisited = cur.isVisited || e.isVisited;
         cur.isWriting = cur.isWriting || e.isWriting;
         if (!cur.visitItems.length && e.visitItems)   cur.visitItems   = JSON.parse(e.visitItems);
         if (!cur.writingItems.length && e.writingItems) cur.writingItems = JSON.parse(e.writingItems);
         if (!cur.notes && e.notes) cur.notes = e.notes;
-        // للمندوب المفرد نفضّل entryId الخاص به؛ في العرض الجماعي أي entryId يكفي للتحديث
-        if (repUserId && e.userId === repUserId) cur.entryId = e.id;
+        // ownerUserId = صاحب البيانات الفعلية (أول من سجّل زيارة/كتابة)، كي تستهدف
+        // تعديلات العرض الجماعي (بدون repUserId) إدخال المندوب الحقيقي بدل إنشاء
+        // إدخال منفصل باسم المشاهد (كان يسبب عدم تأثير إلغاء التأشير في تبويب "الكل").
+        if (!hadFlagBefore && (e.isVisited || e.isWriting)) cur.ownerUserId = e.userId;
+        // للمندوب المفرد نفضّل entryId/ownerUserId الخاص به دائماً
+        if (repUserId && e.userId === repUserId) { cur.entryId = e.id; cur.ownerUserId = e.userId; }
       }
     }
 
@@ -83,6 +89,7 @@ export async function getArchive(req, res, next) {
       const m = merged.get(doc.id);
       areaMap.get(areaKey).doctors.push({
         entryId:        m?.entryId ?? null,
+        ownerUserId:    m?.ownerUserId ?? null,
         surveyDoctorId: doc.id,
         doctorId:       null,
         name:           doc.name,

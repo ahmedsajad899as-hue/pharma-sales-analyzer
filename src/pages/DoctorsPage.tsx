@@ -445,7 +445,7 @@ export default function DoctorsPage() {
 
   // ── Archive tab state ────────────────────────────────────────
   interface ArchiveDoctor {
-    entryId: number | null; surveyDoctorId: number | null; doctorId?: number | null;
+    entryId: number | null; ownerUserId?: number | null; surveyDoctorId: number | null; doctorId?: number | null;
     name: string; specialty: string | null; areaName: string | null; pharmacyName: string | null; className: string | null;
     isVisited: boolean; isWriting: boolean; visitItems: string[]; writingItems: string[]; notes: string | null;
   }
@@ -1131,7 +1131,11 @@ export default function DoctorsPage() {
     });
     try {
       const params = new URLSearchParams();
-      if (archiveRepFilter !== null) params.set('forUserId', String(archiveRepFilter));
+      // في عرض "الكل" (بدون فلتر مندوب) نستهدف صاحب الإدخال الفعلي (ownerUserId) بدل
+      // إنشاء إدخال منفصل باسم المشاهد نفسه — وإلا يبقى إدخال المندوب الأصلي (isVisited)
+      // كما هو ويظل يظهر مؤشَّراً رغم إلغاء التأشير من هذا العرض.
+      const targetUserId = archiveRepFilter !== null ? archiveRepFilter : (doc.ownerUserId ?? null);
+      if (targetUserId !== null) params.set('forUserId', String(targetUserId));
       if (!surveyDoctorId && doctorId) params.set('doctorId', String(doctorId));
       const qs = params.toString() ? `?${params}` : '';
       const sid = surveyDoctorId ?? 0;
