@@ -466,6 +466,8 @@ export default function DoctorsPage() {
   const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
   const [archiveSubPopup, setArchiveSubPopup]     = useState<null | 'visited' | 'writing' | 'items'>(null);
   const [archiveRepFilter, setArchiveRepFilter]   = useState<number | null>(null);
+  // ايتمات مقيّدة بشركات المندوب المعروض أرشيفه (null = استخدم items العامة)
+  const [archiveRepItems, setArchiveRepItems]     = useState<Item[] | null>(null);
   const [importingFromVisits, setImportingFromVisits] = useState(false);
   const [importFromVisitsResult, setImportFromVisitsResult] = useState<{ imported: number; alreadyExists: number; total: number } | null>(null);
   // Add from survey modal
@@ -982,6 +984,18 @@ export default function DoctorsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, archiveRepFilter]);
 
+  // ايتمات مقيّدة بشركات المندوب المعروض أرشيفه (لاقتراحات حقل الإيتم بالزيارة/الكتابة)
+  const loadArchiveRepItems = useCallback(async () => {
+    if (archiveRepFilter === null) { setArchiveRepItems(null); return; }
+    try {
+      const r = await fetch(`${API}/api/items?repUserId=${archiveRepFilter}`, { headers: H() });
+      const j = await r.json();
+      const arr = Array.isArray(j) ? j : (Array.isArray(j?.data) ? j.data : []);
+      setArchiveRepItems(arr);
+    } catch (e) { console.error(e); setArchiveRepItems(null); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, archiveRepFilter]);
+
   const importFromVisitsHandler = useCallback(async () => {
     setImportingFromVisits(true);
     setImportFromVisitsResult(null);
@@ -1235,8 +1249,8 @@ export default function DoctorsPage() {
 
   // Load archive when tab opens
   useEffect(() => {
-    if (activeTab === 'archive') { loadArchive(); loadManagerReps(); }
-  }, [activeTab, loadArchive, loadManagerReps]);
+    if (activeTab === 'archive') { loadArchive(); loadManagerReps(); loadArchiveRepItems(); }
+  }, [activeTab, loadArchive, loadManagerReps, loadArchiveRepItems]);
 
   // Load survey doctors when add modal opens
   useEffect(() => {
@@ -1399,16 +1413,18 @@ export default function DoctorsPage() {
     return m;
   }, [archiveAreas, netPharmNormMap, canSeePharmNet]);
 
-  // Suggestions for archive item inputs = system items + all previously entered archive items
+  // Suggestions for archive item inputs = items linked to the viewed rep's companies
+  // (archiveRepItems, scoped via ?repUserId= when viewing another rep's archive; falls
+  // back to the viewer's own items) + all previously entered archive items
   const archiveItemSuggestions = useMemo(() => {
     const names = new Set<string>();
-    items.forEach(it => names.add(it.name));
+    (archiveRepItems ?? items).forEach(it => names.add(it.name));
     archiveAreas.forEach(area => area.doctors.forEach(doc => {
       doc.visitItems?.forEach(n => { if (n) names.add(n); });
       doc.writingItems?.forEach(n => { if (n) names.add(n); });
     }));
     return [...names].sort((a, b) => a.localeCompare(b));
-  }, [items, archiveAreas]);
+  }, [items, archiveRepItems, archiveAreas]);
 
   const toggleArea = (key: string) => setExpandedAreas(prev => {
     const next = new Set(prev);

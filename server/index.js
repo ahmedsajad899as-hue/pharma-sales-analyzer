@@ -18,7 +18,7 @@ import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
 import { normalizeItemKey, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
-import { resolveAreaScope } from './lib/surveyDoctors.js';
+import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeItemInto, mergeReps, mergeCompanies,
@@ -772,8 +772,18 @@ app.get('/api/export/raw-sales', async (req, res) => {
 
 app.get('/api/items', async (req, res) => {
   try {
-    const userId    = req.user?.id ?? null;
-    const userRole  = req.user?.role ?? 'user';
+    let userId    = req.user?.id ?? null;
+    let userRole  = req.user?.role ?? 'user';
+    // المدراء يمررون ?repUserId= ليحصلوا على ايتمات ذلك المندوب (كتالوج شركاته
+    // المرتبطة عبر UserCompanyAssignment) بدل ايتماتهم هم — تُستخدم في اقتراحات
+    // حقل الإيتم بتبويب الأرشيف عند عرض أرشيف مندوب معيّن.
+    if (req.query.repUserId && !isFieldRole(userRole)) {
+      const targetId = parseInt(req.query.repUserId, 10);
+      if (!isNaN(targetId)) {
+        const targetUser = await prisma.user.findUnique({ where: { id: targetId }, select: { role: true } });
+        if (targetUser) { userId = targetId; userRole = targetUser.role; }
+      }
+    }
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
     const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } }, scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } } };
