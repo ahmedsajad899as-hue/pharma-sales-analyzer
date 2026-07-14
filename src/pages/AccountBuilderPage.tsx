@@ -377,7 +377,7 @@ export default function AccountBuilderPage() {
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontSize: 11 }}>
               <thead>
                 <tr style={{ background: '#1e40af', color: '#fff' }}>
                   <th style={{ ...TH, width: 26 }}>#</th>
