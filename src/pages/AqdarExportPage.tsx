@@ -28,11 +28,14 @@ const COL_HINTS: Record<keyof PlanRow, string[]> = {
   item:       ['item', 'الايتم', 'ايتم', 'items'],
 };
 
-function findKey(headers: string[], hints: string[]): string | undefined {
-  const norm = (s: string) => s.trim().toLowerCase();
-  for (const h of hints) { const f = headers.find(k => norm(k) === norm(h)); if (f) return f; }
-  for (const h of hints) { const f = headers.find(k => norm(k).includes(norm(h))); if (f) return f; }
-  return undefined;
+// يزيل المسافات غير القياسية (NBSP، أحرف عرض صفري) ويُوحّد المسافات/الأسطر المتعددة إلى مسافة واحدة
+const INVISIBLE_CHARS_RE = new RegExp('[' + [160, 8203, 8204, 8205, 65279].map(c => String.fromCharCode(c)).join('') + ']', 'g');
+const norm = (s: string) => String(s ?? '').replace(INVISIBLE_CHARS_RE, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+function findColIdx(headers: string[], hints: string[]): number {
+  for (const h of hints) { const i = headers.findIndex(k => norm(k) === norm(h)); if (i !== -1) return i; }
+  for (const h of hints) { const i = headers.findIndex(k => norm(k).includes(norm(h))); if (i !== -1) return i; }
+  return -1;
 }
 
 function buildNote(r: PlanRow): string {
@@ -55,23 +58,38 @@ export default function AqdarExportPage() {
       try {
         const wb = XLSX.read(e.target!.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        if (!json.length) { setError('الملف فارغ'); setRows([]); return; }
-        const headers = Object.keys(json[0]);
-        const keys: Partial<Record<keyof PlanRow, string>> = {};
+        // نقرأ الشيت كمصفوفة صفوف خام (بدون افتراض أن الصف الأول هو رأس الجدول)
+        // لأن بعض الملفات تحتوي عنوان/صف فارغ فوق رأس الجدول الفعلي
+        const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+        if (!raw.length) { setError('الملف فارغ'); setRows([]); return; }
+
+        // نبحث عن أول صف من أول 10 صفوف يحتوي عموداً يطابق «اسم الطبيب» لاعتباره صف الرأس
+        let headerRowIdx = -1;
+        let doctorColIdx = -1;
+        for (let i = 0; i < Math.min(10, raw.length); i++) {
+          const rowStrings = raw[i].map(c => String(c ?? ''));
+          const idx = findColIdx(rowStrings, COL_HINTS.doctor);
+          if (idx !== -1) { headerRowIdx = i; doctorColIdx = idx; break; }
+        }
+        if (headerRowIdx === -1) { setError('لم يتم العثور على عمود «اسم الطبيب» في الملف'); setRows([]); return; }
+
+        const headers = raw[headerRowIdx].map(c => String(c ?? ''));
+        const colIdx: Partial<Record<keyof PlanRow, number>> = { doctor: doctorColIdx };
         (Object.keys(COL_HINTS) as (keyof PlanRow)[]).forEach(k => {
-          const f = findKey(headers, COL_HINTS[k]);
-          if (f) keys[k] = f;
+          if (k === 'doctor') return;
+          const i = findColIdx(headers, COL_HINTS[k]);
+          if (i !== -1) colIdx[k] = i;
         });
-        if (!keys.doctor) { setError('لم يتم العثور على عمود «اسم الطبيب» في الملف'); setRows([]); return; }
-        const parsed: PlanRow[] = json
+
+        const dataRows = raw.slice(headerRowIdx + 1);
+        const parsed: PlanRow[] = dataRows
           .map(r => ({
-            doctor:     String(r[keys.doctor!] ?? '').trim(),
-            speciality: keys.speciality ? String(r[keys.speciality] ?? '').trim() : '',
-            class:      keys.class      ? String(r[keys.class] ?? '').trim()      : '',
-            pharmacy:   keys.pharmacy   ? String(r[keys.pharmacy] ?? '').trim()   : '',
-            area:       keys.area       ? String(r[keys.area] ?? '').trim()       : '',
-            item:       keys.item       ? String(r[keys.item] ?? '').trim()       : '',
+            doctor:     String(r[colIdx.doctor!] ?? '').trim(),
+            speciality: colIdx.speciality !== undefined ? String(r[colIdx.speciality] ?? '').trim() : '',
+            class:      colIdx.class      !== undefined ? String(r[colIdx.class] ?? '').trim()      : '',
+            pharmacy:   colIdx.pharmacy   !== undefined ? String(r[colIdx.pharmacy] ?? '').trim()   : '',
+            area:       colIdx.area       !== undefined ? String(r[colIdx.area] ?? '').trim()       : '',
+            item:       colIdx.item       !== undefined ? String(r[colIdx.item] ?? '').trim()       : '',
           }))
           .filter(r => r.doctor);
         if (!parsed.length) { setError('لم يتم العثور على أي صف يحتوي اسم طبيب'); setRows([]); return; }
