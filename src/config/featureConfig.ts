@@ -43,6 +43,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'users',             labelAr: 'المستخدمين',                 i18nKey: 'users',        icon: '👥', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','scientific_rep','team_leader','supervisor'] },
   { id: 'commercial',        labelAr: 'التجاري',                    icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager'] },
   { id: 'org-structure',     labelAr: 'الهيكلية',                   icon: '🏗️', roles: ['company_manager','admin','manager','office_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
+  { id: 'aqdar-export',      labelAr: 'أقدر',                       icon: '📤', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
 ];
 
 // مفتاح ميزة ← يخفي هذا المفتاح صفحة كاملة عند تعطيله (يمكن لعدة مفاتيح أن تشير لنفس الصفحة)
@@ -87,6 +88,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'users':             'صفحة عرض وإدارة قائمة المستخدمين',
   'commercial':        'صفحة التجاري — متابعة مبيعات وزيارات المندوبين التجاريين',
   'org-structure':     'صفحة الهيكلية — عرض الهيكل التنظيمي للمكتب/الشركة',
+  'aqdar-export':      'صفحة أقدر — تحويل ملف البلان الشهري (طبيب/تخصص/كلاس/صيدلية/منطقة/ايتم) إلى ملف Excel بصيغة أقدر (task-type, rep-name, rep-id, client-id, schedule, note)',
 };
 
 // ── مجموعات أدوار يُعاد استخدامها في تقييد ميزات فرعية معيّنة ──────────────

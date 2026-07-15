@@ -43,6 +43,7 @@ const _importItemAnalysis        = () => import('./pages/ItemAnalysisPage');
 const _importBonusSales          = () => import('./pages/BonusSalesPage');
 const _importOrgStructure        = () => import('./pages/OrgStructurePage');
 const _importAccountBuilder      = () => import('./pages/AccountBuilderPage');
+const _importAqdarExport         = () => import('./pages/AqdarExportPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -66,6 +67,7 @@ const ItemAnalysisPage        = lazyWithRetry(_importItemAnalysis);
 const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
+const AqdarExportPage         = lazyWithRetry(_importAqdarExport);
 
 // Preload all page chunks immediately in background after app mounts
 function preloadAllChunks() {
@@ -76,7 +78,7 @@ function preloadAllChunks() {
     _importMonthlyPlans(); _importDailyPlan(); _importReports(); _importUsers();
     _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
     _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis(); _importItemAnalysis();
-    _importBonusSales(); _importOrgStructure(); _importAccountBuilder();
+    _importBonusSales(); _importOrgStructure(); _importAccountBuilder(); _importAqdarExport();
   });
 }
 
@@ -119,7 +121,8 @@ export type PageId =
   | 'pharmacy-analysis'
   | 'item-analysis'
   | 'bonus-sales'
-  | 'account-builder';
+  | 'account-builder'
+  | 'aqdar-export';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -385,7 +388,7 @@ function AppInner() {
     'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
     'monthly-plans', 'daily-plan', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
     'distributor-sales', 'file-filter', 'pharmacy-analysis', 'item-analysis', 'bonus-sales', 'org-structure',
-    'account-builder',
+    'account-builder', 'aqdar-export',
   ];
   useEffect(() => {
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
@@ -449,6 +452,7 @@ function AppInner() {
     { id: 'bonus-sales',        node: <BonusSalesPage /> },
     { id: 'org-structure',      node: <OrgStructurePage /> },
     { id: 'account-builder',    node: <AccountBuilderPage /> },
+    { id: 'aqdar-export',       node: <AqdarExportPage /> },
   ];
 
   return (
