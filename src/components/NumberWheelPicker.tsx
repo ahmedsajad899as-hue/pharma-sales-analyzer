@@ -114,7 +114,7 @@ export default function NumberWheelPicker({
             return (
               <div
                 key={t.k}
-                onClick={e => { e.stopPropagation(); commit(raw); }}
+                onClick={e => { e.stopPropagation(); commit(raw); onClose(); }}
                 style={{
                   position: 'absolute', left: cx, top: cy, transform: 'translate(-50%,-50%)',
                   fontSize: isTop ? 16 : 12.5, fontWeight: isTop ? 800 : 600,
