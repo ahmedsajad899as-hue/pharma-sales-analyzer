@@ -8,6 +8,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
+import type { ClipboardEvent } from 'react';
 import * as XLSX from 'xlsx';
 
 interface PlanRow {
@@ -43,12 +44,51 @@ function buildNote(r: PlanRow): string {
   return [r.doctor, r.speciality, r.class, r.pharmacy, r.area, r.item].filter(Boolean).join(' \\ ');
 }
 
+// يحوّل مصفوفة صفوف خام (من ملف Excel أو من نص ملصوق بفواصل Tab) إلى صفوف PlanRow —
+// يبحث عن صف الرأس تلقائياً بدل افتراض أنه الصف الأول، لأن بعض الملفات/اللصقات
+// تحتوي عنوان أو صفاً فارغاً فوق رأس الجدول الفعلي
+function parseRawRows(raw: any[][]): { rows: PlanRow[]; error?: string } {
+  if (!raw.length) return { rows: [], error: 'لا توجد بيانات' };
+
+  let headerRowIdx = -1;
+  let doctorColIdx = -1;
+  for (let i = 0; i < Math.min(10, raw.length); i++) {
+    const rowStrings = raw[i].map(c => String(c ?? ''));
+    const idx = findColIdx(rowStrings, COL_HINTS.doctor);
+    if (idx !== -1) { headerRowIdx = i; doctorColIdx = idx; break; }
+  }
+  if (headerRowIdx === -1) return { rows: [], error: 'لم يتم العثور على عمود «اسم الطبيب»' };
+
+  const headers = raw[headerRowIdx].map(c => String(c ?? ''));
+  const colIdx: Partial<Record<keyof PlanRow, number>> = { doctor: doctorColIdx };
+  (Object.keys(COL_HINTS) as (keyof PlanRow)[]).forEach(k => {
+    if (k === 'doctor') return;
+    const i = findColIdx(headers, COL_HINTS[k]);
+    if (i !== -1) colIdx[k] = i;
+  });
+
+  const dataRows = raw.slice(headerRowIdx + 1);
+  const parsed: PlanRow[] = dataRows
+    .map(r => ({
+      doctor:     String(r[colIdx.doctor!] ?? '').trim(),
+      speciality: colIdx.speciality !== undefined ? String(r[colIdx.speciality] ?? '').trim() : '',
+      class:      colIdx.class      !== undefined ? String(r[colIdx.class] ?? '').trim()      : '',
+      pharmacy:   colIdx.pharmacy   !== undefined ? String(r[colIdx.pharmacy] ?? '').trim()   : '',
+      area:       colIdx.area       !== undefined ? String(r[colIdx.area] ?? '').trim()       : '',
+      item:       colIdx.item       !== undefined ? String(r[colIdx.item] ?? '').trim()       : '',
+    }))
+    .filter(r => r.doctor);
+  if (!parsed.length) return { rows: [], error: 'لم يتم العثور على أي صف يحتوي اسم طبيب' };
+  return { rows: parsed };
+}
+
 export default function AqdarExportPage() {
   const [repId, setRepId]       = useState('');
   const [fileName, setFileName] = useState('');
   const [rows, setRows]         = useState<PlanRow[]>([]);
   const [error, setError]       = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [pasteText, setPasteText]   = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parseFile = useCallback((file: File) => {
@@ -60,40 +100,9 @@ export default function AqdarExportPage() {
         const wb = XLSX.read(e.target!.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         // نقرأ الشيت كمصفوفة صفوف خام (بدون افتراض أن الصف الأول هو رأس الجدول)
-        // لأن بعض الملفات تحتوي عنوان/صف فارغ فوق رأس الجدول الفعلي
         const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
-        if (!raw.length) { setError('الملف فارغ'); setRows([]); return; }
-
-        // نبحث عن أول صف من أول 10 صفوف يحتوي عموداً يطابق «اسم الطبيب» لاعتباره صف الرأس
-        let headerRowIdx = -1;
-        let doctorColIdx = -1;
-        for (let i = 0; i < Math.min(10, raw.length); i++) {
-          const rowStrings = raw[i].map(c => String(c ?? ''));
-          const idx = findColIdx(rowStrings, COL_HINTS.doctor);
-          if (idx !== -1) { headerRowIdx = i; doctorColIdx = idx; break; }
-        }
-        if (headerRowIdx === -1) { setError('لم يتم العثور على عمود «اسم الطبيب» في الملف'); setRows([]); return; }
-
-        const headers = raw[headerRowIdx].map(c => String(c ?? ''));
-        const colIdx: Partial<Record<keyof PlanRow, number>> = { doctor: doctorColIdx };
-        (Object.keys(COL_HINTS) as (keyof PlanRow)[]).forEach(k => {
-          if (k === 'doctor') return;
-          const i = findColIdx(headers, COL_HINTS[k]);
-          if (i !== -1) colIdx[k] = i;
-        });
-
-        const dataRows = raw.slice(headerRowIdx + 1);
-        const parsed: PlanRow[] = dataRows
-          .map(r => ({
-            doctor:     String(r[colIdx.doctor!] ?? '').trim(),
-            speciality: colIdx.speciality !== undefined ? String(r[colIdx.speciality] ?? '').trim() : '',
-            class:      colIdx.class      !== undefined ? String(r[colIdx.class] ?? '').trim()      : '',
-            pharmacy:   colIdx.pharmacy   !== undefined ? String(r[colIdx.pharmacy] ?? '').trim()   : '',
-            area:       colIdx.area       !== undefined ? String(r[colIdx.area] ?? '').trim()       : '',
-            item:       colIdx.item       !== undefined ? String(r[colIdx.item] ?? '').trim()       : '',
-          }))
-          .filter(r => r.doctor);
-        if (!parsed.length) { setError('لم يتم العثور على أي صف يحتوي اسم طبيب'); setRows([]); return; }
+        const { rows: parsed, error: err } = parseRawRows(raw);
+        if (err) { setError(err); setRows([]); return; }
         setRows(parsed);
         setFileName(file.name);
       } catch {
@@ -104,6 +113,27 @@ export default function AqdarExportPage() {
     reader.onerror = () => setError('فشل قراءة الملف');
     reader.readAsArrayBuffer(file);
   }, []);
+
+  // لصق خلايا منسوخة مباشرة من Excel (نص بفواصل Tab بين الأعمدة وسطر جديد بين الصفوف)
+  const parsePastedText = useCallback((text: string) => {
+    setError('');
+    const raw: any[][] = text
+      .split(/\r\n|\r|\n/)
+      .filter(line => line.trim().length > 0)
+      .map(line => line.split('\t'));
+    const { rows: parsed, error: err } = parseRawRows(raw);
+    if (err) { setError(err); setRows([]); return; }
+    setRows(parsed);
+    setFileName('📋 بيانات ملصوقة من الحافظة');
+  }, []);
+
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData('text/plain');
+    if (!text.trim()) return;
+    e.preventDefault();
+    parsePastedText(text);
+    setPasteText('');
+  };
 
   const exportFile = () => {
     if (!rows.length || !repId.trim()) return;
@@ -122,7 +152,7 @@ export default function AqdarExportPage() {
   };
 
   const clear = () => {
-    setRows([]); setFileName(''); setError('');
+    setRows([]); setFileName(''); setError(''); setPasteText('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -160,6 +190,23 @@ export default function AqdarExportPage() {
           <div style={{ fontSize: 12, color: '#94a3b8' }}>رقم، اسم الطبيب، التخصص، الكلاس، الصيدلية، المنطقة (زون)، الايتم — xlsx • xls • csv</div>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
             onChange={e => { if (e.target.files?.[0]) parseFile(e.target.files[0]); e.target.value = ''; }} />
+        </div>
+
+        {/* أو: نسخ ولصق مباشر من Excel */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 12px' }}>
+          <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+          <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>أو</span>
+          <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <textarea
+            value={pasteText}
+            onChange={e => setPasteText(e.target.value)}
+            onPaste={handlePaste}
+            placeholder="حدد وانسخ الأعمدة من ملف Excel (بما فيها صف العناوين) ثم اضغط هنا والصق (Ctrl+V)"
+            rows={3}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 12, outline: 'none', resize: 'vertical', boxSizing: 'border-box' as const, fontFamily: 'inherit', direction: 'rtl', background: '#fff' }}
+          />
         </div>
 
         {error && <div style={{ marginBottom: 16, padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: 13 }}>{error}</div>}
