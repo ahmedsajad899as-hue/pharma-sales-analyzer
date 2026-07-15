@@ -28,9 +28,10 @@ const COL_HINTS: Record<keyof PlanRow, string[]> = {
   item:       ['item', 'الايتم', 'ايتم', 'items'],
 };
 
-// يزيل المسافات غير القياسية (NBSP، أحرف عرض صفري) ويُوحّد المسافات/الأسطر المتعددة إلى مسافة واحدة
-const INVISIBLE_CHARS_RE = new RegExp('[' + [160, 8203, 8204, 8205, 65279].map(c => String.fromCharCode(c)).join('') + ']', 'g');
-const norm = (s: string) => String(s ?? '').replace(INVISIBLE_CHARS_RE, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+// يزيل كل أحرف التنسيق غير المرئية (علامات اتجاه عربي/لاتيني كـ ALM وLRM وRLM، والمسافات
+// غير القياسية كـ NBSP) التي يُدرجها Excel أحياناً داخل خلايا تخلط عربي/إنكليزي، ويُوحّد
+// المسافات/الأسطر المتعددة إلى مسافة واحدة قبل مقارنة أسماء الأعمدة
+const norm = (s: string) => String(s ?? '').replace(/[\p{Cf}\p{Zs}]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 
 function findColIdx(headers: string[], hints: string[]): number {
   for (const h of hints) { const i = headers.findIndex(k => norm(k) === norm(h)); if (i !== -1) return i; }
