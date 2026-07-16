@@ -194,9 +194,12 @@ export default function AqdarExportPage() {
     // BOM لضمان ظهور الأحرف العربية بشكل صحيح عند فتح الملف في Excel
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
+    // اسم الملف = اسم المندوب المحفوظ إن وُجد، وإلا رقم/آيدي المندوب — مع تنظيف الأحرف غير المسموحة في أسماء الملفات
+    const repName = savedReps.find(r => r.id === repId.trim())?.name;
+    const fileLabel = (repName || repId.trim()).replace(/[/\\:*?"<>|]/g, '_');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aqdar_${repId.trim()}.csv`;
+    a.download = `aqdar_${fileLabel}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
