@@ -181,20 +181,24 @@ export default function AqdarExportPage() {
     return () => window.removeEventListener('paste', onWindowPaste);
   }, [parseFile]);
 
+  const csvCell = (v: string | number) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
   const exportFile = () => {
     if (!rows.length || !repId.trim()) return;
-    const out = rows.map(r => ({
-      'task-type': 8,
-      'rep-name':  '',
-      'rep-id':    repId.trim(),
-      'client-id': '',
-      'schedule':  '',
-      'note':      buildNote(r),
-    }));
-    const ws = XLSX.utils.json_to_sheet(out);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'اقدر');
-    XLSX.writeFile(wb, `aqdar_${repId.trim()}.xlsx`);
+    const header = ['task-type', 'rep-name', 'rep-id', 'client-id', 'schedule', 'note'];
+    const lines = [header, ...rows.map(r => [8, '', repId.trim(), '', '', buildNote(r)])]
+      .map(row => row.map(csvCell).join(','));
+    // BOM لضمان ظهور الأحرف العربية بشكل صحيح عند فتح الملف في Excel
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aqdar_${repId.trim()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const clear = () => {
