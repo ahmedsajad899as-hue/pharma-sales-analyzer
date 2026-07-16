@@ -10,6 +10,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent } from 'react';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../context/AuthContext';
+
+interface SavedRep { id: string; name: string; }
 
 interface PlanRow {
   doctor: string;
@@ -83,6 +86,9 @@ function parseRawRows(raw: any[][]): { rows: PlanRow[]; error?: string } {
 }
 
 export default function AqdarExportPage() {
+  const { user } = useAuth();
+  const savedRepsKey = `aqdar_saved_reps_${user?.id ?? 'guest'}`;
+
   const [repId, setRepId]       = useState('');
   const [fileName, setFileName] = useState('');
   const [rows, setRows]         = useState<PlanRow[]>([]);
@@ -90,6 +96,33 @@ export default function AqdarExportPage() {
   const [dragActive, setDragActive] = useState(false);
   const [pasteText, setPasteText]   = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // دفتر أسماء/آيديات المندوبين — محفوظ محلياً لكل مستخدم لتسهيل اختيار المندوب
+  // بدل كتابة رقم الآيدي يدوياً في كل مرة
+  const [savedReps, setSavedReps] = useState<SavedRep[]>(() => {
+    try { return JSON.parse(localStorage.getItem(savedRepsKey) || '[]'); }
+    catch { return []; }
+  });
+  const [showAddRep, setShowAddRep] = useState(false);
+  const [newRepName, setNewRepName] = useState('');
+  const [newRepId, setNewRepId]     = useState('');
+
+  useEffect(() => {
+    localStorage.setItem(savedRepsKey, JSON.stringify(savedReps));
+  }, [savedReps, savedRepsKey]);
+
+  const addSavedRep = () => {
+    const name = newRepName.trim();
+    const id   = newRepId.trim();
+    if (!name || !id) return;
+    setSavedReps(prev => [...prev.filter(r => r.id !== id), { id, name }]);
+    setRepId(id);
+    setNewRepName(''); setNewRepId(''); setShowAddRep(false);
+  };
+
+  const removeSavedRep = (id: string) => {
+    setSavedReps(prev => prev.filter(r => r.id !== id));
+  };
 
   const parseFile = useCallback((file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { setError('يرجى رفع ملف Excel أو CSV فقط'); return; }
@@ -180,7 +213,60 @@ export default function AqdarExportPage() {
       <div style={{ padding: 20, maxWidth: 900, margin: '0 auto' }}>
         {/* رقم المندوب */}
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 18, marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>رقم/آيدي المندوب (Rep ID)</label>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>اختر المندوب</label>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <select
+              value={savedReps.some(r => r.id === repId) ? repId : ''}
+              onChange={e => setRepId(e.target.value)}
+              style={{ flex: '1 1 260px', maxWidth: 320, padding: '9px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', background: '#fff', color: '#0f172a' }}
+            >
+              <option value="">— اختر من القائمة —</option>
+              {savedReps.map(r => (
+                <option key={r.id} value={r.id}>{r.name} — {r.id}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setShowAddRep(v => !v)}
+              style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 14px', fontSize: 12, cursor: 'pointer', color: '#1a56db', fontWeight: 700 }}
+            >{showAddRep ? '× إلغاء' : '+ إضافة مندوب'}</button>
+          </div>
+
+          {showAddRep && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+              <input
+                type="text"
+                value={newRepName}
+                onChange={e => setNewRepName(e.target.value)}
+                placeholder="اسم المندوب"
+                style={{ flex: '1 1 160px', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
+              />
+              <input
+                type="text"
+                value={newRepId}
+                onChange={e => setNewRepId(e.target.value)}
+                placeholder="رقم/آيدي المندوب"
+                style={{ flex: '1 1 140px', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }}
+              />
+              <button
+                onClick={addSavedRep}
+                disabled={!newRepName.trim() || !newRepId.trim()}
+                style={{ background: newRepName.trim() && newRepId.trim() ? '#1a56db' : '#e2e8f0', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, cursor: newRepName.trim() && newRepId.trim() ? 'pointer' : 'not-allowed', color: '#fff', fontWeight: 700 }}
+              >حفظ</button>
+            </div>
+          )}
+
+          {savedReps.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+              {savedReps.map(r => (
+                <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: r.id === repId ? '#eff6ff' : '#f1f5f9', border: `1px solid ${r.id === repId ? '#93c5fd' : '#e2e8f0'}`, borderRadius: 999, padding: '4px 10px', fontSize: 12, color: '#334155' }}>
+                  {r.name} ({r.id})
+                  <button onClick={() => removeSavedRep(r.id)} title="حذف" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', margin: '14px 0 6px' }}>رقم/آيدي المندوب (Rep ID)</label>
           <input
             type="text"
             value={repId}
