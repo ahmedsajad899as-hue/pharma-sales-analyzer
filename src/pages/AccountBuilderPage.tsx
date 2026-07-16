@@ -65,10 +65,10 @@ function financialSupportPerUnit(price: number, totalBonusPercent: number, keptB
 }
 
 type WheelField = 'quantity' | 'totalBonusPercent' | 'keptBonusPercent';
-const WHEEL_CONFIG: Record<WheelField, { title: string; min: number; max: number; step: number; bigStep: number; suffix: string }> = {
-  quantity:           { title: 'الكمية',            min: 0, max: 100000, step: 5, bigStep: 25, suffix: '' },
-  totalBonusPercent:  { title: 'البونص الكلي %',    min: 0, max: 100,    step: 5, bigStep: 25, suffix: '%' },
-  keptBonusPercent:   { title: 'بونص الصيدليه %',   min: 0, max: 100,    step: 5, bigStep: 25, suffix: '%' },
+const WHEEL_CONFIG: Record<WheelField, { title: string; min: number; max: number; step: number; gridMax: number; suffix: string }> = {
+  quantity:           { title: 'الكمية',            min: 0, max: 100000, step: 5, gridMax: 200, suffix: '' },
+  totalBonusPercent:  { title: 'البونص الكلي %',    min: 0, max: 100,    step: 5, gridMax: 100, suffix: '%' },
+  keptBonusPercent:   { title: 'بونص الصيدليه %',   min: 0, max: 100,    step: 5, gridMax: 100, suffix: '%' },
 };
 
 const BONUS_METHODS: { id: BonusMethod; label: string; desc: string }[] = [
@@ -495,7 +495,7 @@ export default function AccountBuilderPage() {
             min={cfg.min}
             max={cfg.max}
             step={cfg.step}
-            bigStep={cfg.bigStep}
+            gridMax={cfg.gridMax}
             suffix={cfg.suffix}
             onChange={v => updateRow(row.id, { [wheelFor.field]: v } as Partial<AccountItemRow>)}
             onClose={() => setWheelFor(null)}
