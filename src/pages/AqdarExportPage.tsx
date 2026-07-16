@@ -7,8 +7,8 @@
  * client-id (فارغ) / schedule (فارغ) / note (تجميع بقية الحقول بفاصل \).
  */
 
-import { useState, useRef, useCallback } from 'react';
-import type { ClipboardEvent } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent } from 'react';
 import * as XLSX from 'xlsx';
 
 interface PlanRow {
@@ -127,13 +127,26 @@ export default function AqdarExportPage() {
     setFileName('📋 بيانات ملصوقة من الحافظة');
   }, []);
 
-  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const text = e.clipboardData.getData('text/plain');
     if (!text.trim()) return;
     e.preventDefault();
     parsePastedText(text);
     setPasteText('');
   };
+
+  // لصق ملف Excel كامل (منسوخ من واتساب، مستكشف الملفات، إلخ) بـ Ctrl+V في أي مكان
+  // بالصفحة — يعمل بنفس منطق رفع/سحب الملف طالما الحافظة تحتوي ملفاً فعلياً وليس نصاً فقط
+  useEffect(() => {
+    const onWindowPaste = (e: ClipboardEvent) => {
+      const file = e.clipboardData?.files?.[0];
+      if (!file) return;
+      e.preventDefault();
+      parseFile(file);
+    };
+    window.addEventListener('paste', onWindowPaste);
+    return () => window.removeEventListener('paste', onWindowPaste);
+  }, [parseFile]);
 
   const exportFile = () => {
     if (!rows.length || !repId.trim()) return;
@@ -186,8 +199,9 @@ export default function AqdarExportPage() {
           style={{ border: `2px dashed ${dragActive ? '#1a56db' : '#cbd5e1'}`, borderRadius: 14, padding: '28px 24px', textAlign: 'center', cursor: 'pointer', background: dragActive ? '#eff6ff' : '#fff', marginBottom: 16, transition: 'all .2s' }}
         >
           <div style={{ fontSize: 32, marginBottom: 6 }}>📥</div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>ارفع ملف البلان الشهري (اسحب أو اضغط)</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>ارفع ملف البلان الشهري (اسحب أو اضغط أو الصق Ctrl+V)</div>
           <div style={{ fontSize: 12, color: '#94a3b8' }}>رقم، اسم الطبيب، التخصص، الكلاس، الصيدلية، المنطقة (زون)، الايتم — xlsx • xls • csv</div>
+          <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 2 }}>يمكنك نسخ الملف من واتساب أو أي مكان ولصقه هنا مباشرة (Ctrl+V)</div>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
             onChange={e => { if (e.target.files?.[0]) parseFile(e.target.files[0]); e.target.value = ''; }} />
         </div>
