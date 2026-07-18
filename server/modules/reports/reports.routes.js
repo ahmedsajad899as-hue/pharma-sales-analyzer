@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
 import { COLUMN_ALIASES } from '../sales/sales.service.js';
-import { saleValueUSD } from '../sales/sales.repository.js';
+import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 
 const router = Router();
@@ -36,11 +36,16 @@ router.get('/overall', async (req, res) => {
     // ── Area filter: when the current user is viewing a file shared WITH them
     //    (not owned by them), restrict results to their assigned areas only ──
     let areaFilter = {};
+    // ── Block filter: names the file owner (manager) has globally blocked
+    //    (BlockedArea/BlockedItem/BlockedCommercialRep) must stay hidden from
+    //    anyone the file is transferred to — same lists used by the
+    //    scientific-rep report, now also enforced here for shared-file viewers.
+    let blockFilterConditions = [];
     if (userId && parsedFileIds.length > 0) {
       // Check if any of the requested files are shared with this user (not owned by them)
       const sharedFiles = await prisma.uploadedFile.findMany({
         where: { id: { in: parsedFileIds }, NOT: { userId }, fileShares: { some: { userId } } },
-        select: { id: true },
+        select: { id: true, userId: true },
       });
       if (sharedFiles.length > 0) {
         // Try userAreaAssignment first, then fall back to scientificRepArea
@@ -70,6 +75,36 @@ router.get('/overall', async (req, res) => {
         }
         if (areaIds.length > 0) {
           areaFilter = { areaId: { in: areaIds } };
+        }
+
+        const ownerIds = [...new Set(sharedFiles.map(f => f.userId).filter(Boolean))];
+        if (ownerIds.length > 0) {
+          const [blockedRepRows, blockedAreaRows, blockedItemRows] = await Promise.all([
+            prisma.blockedCommercialRep.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+            prisma.blockedArea.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+            prisma.blockedItem.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+          ]);
+
+          const blockedRepNorms = new Set(blockedRepRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+          if (blockedRepNorms.size > 0) {
+            const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
+            const blockedRepIds = allMedReps.filter(r => blockedRepNorms.has(normalizeArabic(r.name))).map(r => r.id);
+            if (blockedRepIds.length > 0) blockFilterConditions.push({ NOT: { representativeId: { in: blockedRepIds } } });
+          }
+
+          const blockedAreaNorms = new Set(blockedAreaRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+          if (blockedAreaNorms.size > 0) {
+            const allAreasForBlock = await prisma.area.findMany({ select: { id: true, name: true } });
+            const blockedAreaIds = allAreasForBlock.filter(a => blockedAreaNorms.has(normalizeArabic(a.name))).map(a => a.id);
+            if (blockedAreaIds.length > 0) blockFilterConditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
+          }
+
+          const blockedItemNorms = new Set(blockedItemRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+          if (blockedItemNorms.size > 0) {
+            const allItemsForBlock = await prisma.item.findMany({ select: { id: true, name: true } });
+            const blockedItemIds = allItemsForBlock.filter(i => blockedItemNorms.has(normalizeArabic(i.name))).map(i => i.id);
+            if (blockedItemIds.length > 0) blockFilterConditions.push({ NOT: { itemId: { in: blockedItemIds } } });
+          }
         }
       }
     }
@@ -129,6 +164,7 @@ router.get('/overall', async (req, res) => {
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
+      ...(blockFilterConditions.length > 0 ? { AND: blockFilterConditions } : {}),
       // No explicit dates → per-file garbage exclusion; otherwise the explicit range.
       ...(noDateFileFilter
         ? noDateFileFilter

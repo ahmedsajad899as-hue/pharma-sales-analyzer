@@ -100,7 +100,8 @@ model User {
   dailyPlanComments DailyPlanComment[]
   dailyPlanSettings DailyPlanSettings?
 
-  // Globally-blocked commercial reps / areas / items (hidden from scientific-rep reports only)
+  // Globally-blocked commercial reps / areas / items (hidden from scientific-rep
+  // reports always, and from the overall analysis for transferred-file recipients)
   blockedCommercialReps BlockedCommercialRep[]
   blockedAreas          BlockedArea[]
   blockedItems          BlockedItem[]
@@ -575,7 +576,9 @@ model ScientificRepCommercialExclusion {
 }
 
 // Globally-blocked commercial reps: their sales/returns are hidden from ALL
-// scientific-rep reports (but NOT from the overall analysis «التحليل الشامل»).
+// scientific-rep reports. Also hidden from the overall analysis «التحليل الشامل»
+// when viewed by a user a file was transferred to (see reports.routes.js
+// /overall) — but NOT from the owning manager's own overall-analysis view.
 // Scoped per manager (the user who owns the uploaded files) and matched to the
 // reps found in the files by NORMALIZED Arabic name.
 model BlockedCommercialRep {
@@ -591,8 +594,9 @@ model BlockedCommercialRep {
 }
 
 // Globally-blocked areas: their sales/returns are hidden from ALL scientific-rep
-// reports (but NOT from the overall analysis). Same scoping/matching rules as
-// BlockedCommercialRep above.
+// reports, and from the overall analysis for users a file was transferred to
+// (but not from the owning manager's own overall-analysis view). Same
+// scoping/matching rules as BlockedCommercialRep above.
 model BlockedArea {
   id        Int      @id @default(autoincrement())
   name      String

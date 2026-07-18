@@ -493,7 +493,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
             return !blockPanelOpen ? (
               <button
                 onClick={() => setBlockPanelOpen(true)}
-                title="حجب مندوب تجاري / منطقة / آيتم عن تقارير المندوبين العلميين"
+                title="حجب مندوب تجاري / منطقة / آيتم عن تقارير المندوبين العلميين، وعن التحليل الشامل للملفات المحوّلة لهم"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 7,
                   background: '#fef2f2', border: '1.5px solid #fecaca', color: '#b91c1c',
@@ -600,7 +600,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   </div>
                 )}
                 <p style={{ fontSize: 11.5, color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.6 }}>
-                  مبيعات وارجاعات العنصر المحجوب تُخفى من حساب وعرض <strong>المندوبين العلميين فقط</strong> — وتبقى ظاهرة في <strong>التحليل الشامل</strong>.
+                  مبيعات وارجاعات العنصر المحجوب تُخفى من <strong>تقارير المندوبين العلميين</strong> دائماً، ومن <strong>التحليل الشامل</strong> أيضاً عند عرضه من قبل مندوب أو تيم ليدر تم تحويل الملف له — وتبقى ظاهرة فقط في تحليلك الشامل الخاص كمدير.
                 </p>
               </div>
             );

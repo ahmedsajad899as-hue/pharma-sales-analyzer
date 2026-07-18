@@ -572,11 +572,14 @@ async function resolveSciRepSales(id, query = {}, select) {
   // ── Globally-blocked commercial reps / areas / items ────────────────────────
   // A company manager can globally block commercial reps, areas, or items (from
   // ScientificRepsPage). The matching sales/returns must be hidden from EVERY
-  // scientific-rep report — but NOT from the overall analysis (which never calls
-  // this resolver). The block lists are scoped to the OWNER(s) of the active
-  // files, so they apply both to the manager's own view and to the scientific
-  // reps the files are shared with. Matched by normalized Arabic name so
-  // spelling/id variants across uploads all collapse.
+  // scientific-rep report. NOT applied to the manager's own comprehensive-analysis
+  // view of their own files — but IS applied to the comprehensive analysis when
+  // viewed by a user a file was transferred to (see the mirrored block-resolution
+  // logic in reports.routes.js's /overall handler, which reuses the same lists
+  // for shared-file viewers). The block lists here are scoped to the OWNER(s) of
+  // the active files, so they apply both to the manager's own sci-rep-report view
+  // and to the scientific reps the files are shared with. Matched by normalized
+  // Arabic name so spelling/id variants across uploads all collapse.
   let blockedAreaIds = [];
   let blockedItemIds = [];
   if (fileIds && fileIds.length > 0) {
