@@ -2514,6 +2514,20 @@ app.delete('/api/account-builder/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Builds a Prisma `where` fragment matching any file the given user can see:
+// owns it, it's shared with their linked rep, or shared with them directly.
+// Mirrors the visibility rules in GET /api/files — team leaders/managers who
+// only have shared (not owned) access to a file must still pass this check.
+async function fileAccessWhere(userId) {
+  if (!userId) return {};
+  const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+  const linkedRepId = userRow?.linkedRepId ?? null;
+  const orClauses = [{ userId }];
+  if (linkedRepId) orClauses.push({ sharedWithRepId: linkedRepId });
+  orClauses.push({ fileShares: { some: { userId } } });
+  return { OR: orClauses };
+}
+
 // ── Currency settings per file ───────────────────────────────
 // PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate, sourceCurrency? }
 app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {  const id = parseInt(req.params.id);
@@ -2528,7 +2542,7 @@ app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {  const i
   }
   try {
     const file = await prisma.uploadedFile.findFirst({
-      where: { id, ...(req.user?.id ? { userId: req.user.id } : {}) },
+      where: { id, ...(await fileAccessWhere(req.user?.id)) },
     });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
     const updateData = { currencyMode, exchangeRate: rate };
@@ -2546,7 +2560,7 @@ app.post('/api/files/:id/redetect-currency', requireAuth, async (req, res) => {
   if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
   try {
     const file = await prisma.uploadedFile.findFirst({
-      where: { id, ...(req.user?.id ? { userId: req.user.id } : {}) },
+      where: { id, ...(await fileAccessWhere(req.user?.id)) },
     });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
 
