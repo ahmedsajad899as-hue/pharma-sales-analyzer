@@ -420,9 +420,24 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   };
 
   const delUser = async (u: UserRow) => {
-    if (!confirm(`حذف مستخدم "${u.username}"؟`)) return;
-    await fetch(`/api/sa/users/${u.id}`, { method: 'DELETE', headers: H() });
-    load(); if (detail?.id === u.id) setDetail(null);
+    if (!confirm(
+      `حذف مستخدم "${u.username}"؟\n\n` +
+      `سيُحذف حساب الدخول فقط. المبيعات والملفات المرفوعة وسجل الزيارات والمناديب المرتبطة بهذا الحساب لا تُحذف — تبقى محفوظة بدون ربط بحساب. إن أردت إيقاف الحساب مؤقتاً مع الاحتفاظ بكل شيء كما هو، استخدم "تعطيل" بدلاً من الحذف.\n\n` +
+      `لن يمكن التراجع عن هذا الإجراء.`
+    )) return;
+    try {
+      const res = await fetch(`/api/sa/users/${u.id}`, { method: 'DELETE', headers: H() });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(`❌ ${json.error || 'تعذّر حذف المستخدم'}`, '#dc2626');
+        return;
+      }
+      load(); if (detail?.id === u.id) setDetail(null);
+      showToast('✅ تم حذف المستخدم');
+    } catch (e) {
+      console.error('delUser error:', e);
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
+    }
   };
 
   const filtered = users.filter(u =>

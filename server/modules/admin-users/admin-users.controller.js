@@ -187,8 +187,25 @@ export async function getUserCompanyItems(req, res) {
 // ── Delete user ───────────────────────────────────────────────────────────
 export async function deleteUser(req, res) {
   const id = parseInt(req.params.id);
-  await prisma.user.delete({ where: { id } });
-  res.json({ success: true });
+  try {
+    await prisma.user.delete({ where: { id } });
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'P2025') {
+      return res.status(404).json({ error: 'المستخدم غير موجود أو تم حذفه بالفعل.' });
+    }
+    // Postgres FK RESTRICT violation (bubbles up from onDelete-default relations
+    // like DailyPlan, InvoiceSheet, CommercialInvoice, CollectionRecord, VisitLike/
+    // VisitComment): the user has activity data that blocks deletion at the DB level.
+    if (err.code === 'P2003' || err.code === 'P2014' || /foreign key constraint/i.test(err.message || '')) {
+      return res.status(409).json({
+        error: 'لا يمكن حذف هذا المستخدم لأن لديه بيانات مرتبطة (بلان يومي، فواتير تجارية، كشوفات استحصال، أو إعجابات/تعليقات على زيارات). عطّل الحساب بدلاً من حذفه إذا أردت إيقافه دون فقدان هذه البيانات.',
+        code: 'HAS_DEPENDENCIES',
+      });
+    }
+    console.error('[deleteUser] failed:', err);
+    res.status(500).json({ error: 'حدث خطأ أثناء حذف المستخدم.' });
+  }
 }
 
 // ── Set user companies (replace all) ─────────────────────────────────────
