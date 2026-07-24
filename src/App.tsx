@@ -221,6 +221,20 @@ function ImpersonationBanner() {
   );
 }
 
+// Max number of pages kept mounted (alive in the DOM) at once. Older visited
+// pages get unmounted (LRU) so we don't accumulate 22 heavy pages worth of
+// DOM + data + timers, which is what made everything sluggish on the small VPS.
+const MAX_ALIVE = 5;
+
+// Add `page` to the mounted set as most-recently-used, dropping the oldest past
+// the LRU cap. A Set preserves insertion order, so we rebuild it in recency order.
+function keepMounted(prev: Set<PageId>, page: PageId): Set<PageId> {
+  const order = [...prev].filter(p => p !== page);
+  order.push(page);
+  while (order.length > MAX_ALIVE) order.shift();
+  return new Set(order);
+}
+
 function AppInner() {
   const { user, hasFeature, token } = useAuth();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
@@ -348,6 +362,9 @@ function AppInner() {
       const targetPage = e.state?.page as PageId | undefined;
       if (targetPage && targetPage !== activePageRef.current) {
         localStorage.setItem('lastPage', targetPage);
+        // Ensure the target is mounted before showing it — with LRU keep-alive it
+        // may have been unmounted, and a bare setActivePage would show a blank page.
+        setMountedPages(prev => keepMounted(prev, targetPage));
         setActivePage(targetPage);
         clearExitState();
         return;
@@ -381,18 +398,26 @@ function AppInner() {
   const [mountedPages, setMountedPages] = useState<Set<PageId>>(() => new Set([activePage]));
   const prevActivePage = activePage;
 
-  // Pre-mount ALL pages in background after initial render so navigation is instant.
-  // Pages render hidden (display:none) and fetch their data silently.
-  // By the time the user taps a page icon, data is already loaded.
-  const allPageIds: PageId[] = [
-    'dashboard', 'upload', 'representatives', 'scientific-reps', 'doctors',
-    'monthly-plans', 'daily-plan', 'reports', 'users', 'rep-analysis', 'commercial', 'master-survey', 'fms', 'sales-data',
-    'distributor-sales', 'file-filter', 'pharmacy-analysis', 'item-analysis', 'bonus-sales', 'org-structure',
-    'account-builder', 'aqdar-export',
-  ];
+  // Prefetch page CODE (JS chunks) in the background, one at a time during idle,
+  // so the FIRST navigation to any page is instant (no chunk download wait).
+  // Crucially this does NOT mount the pages — no data fetch, no DOM, no timers.
+  // That cost stays on-demand: a page only mounts (and fetches) when actually visited.
   useEffect(() => {
-    const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
-    idle(() => setMountedPages(new Set(allPageIds)));
+    const importers = [
+      _importDashboard, _importUpload, _importRepresentatives, _importScientificReps,
+      _importDoctors, _importMonthlyPlans, _importDailyPlan, _importReports, _importUsers,
+      _importRepAnalysis, _importCommercial, _importSurvey, _importFMS, _importSalesData,
+      _importDistributorSales, _importFileFilter, _importPharmacyAnalysis, _importItemAnalysis,
+      _importBonusSales, _importOrgStructure, _importAccountBuilder, _importAqdarExport,
+    ];
+    let i = 0;
+    const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 400));
+    const pump = () => {
+      if (i >= importers.length) return;
+      importers[i++]().catch(() => {}); // load next chunk, ignore failures
+      idle(pump);                        // schedule the one after it
+    };
+    idle(pump);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -404,7 +429,9 @@ function AppInner() {
       history.pushState({ page, navEntry: true }, '');
     }
     setActivePage(page);
-    setMountedPages(prev => { const s = new Set(prev); s.add(page); return s; });
+    // Keep-alive with an LRU cap so recently-used pages stay instant to return to
+    // while stale ones are freed (see keepMounted / MAX_ALIVE).
+    setMountedPages(prev => keepMounted(prev, page));
   }, []);
 
   // Also mount the initial page
