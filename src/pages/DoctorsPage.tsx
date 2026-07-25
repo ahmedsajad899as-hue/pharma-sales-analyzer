@@ -204,6 +204,9 @@ export default function DoctorsPage() {
 
   // ── Tab ──────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'>(() => {
+    // Always open on the Archive tab when it's available (user preference) —
+    // ignore the previously-saved tab so entering the page always lands on الأرشيف.
+    if (showArchiveTab) return 'archive';
     const saved = localStorage.getItem('doctors_active_tab');
     return (saved && ['list','visits','pharmacies','myvisits','archive'].includes(saved)) ? saved as any : 'visits';
   });
@@ -3360,7 +3363,12 @@ export default function DoctorsPage() {
                       {/* Doctor list */}
                       {isExpanded && (
                         <div style={{ borderTop: '1px solid #f1f5f9', padding: '4px 0 8px' }}>
-                          {area.doctors.map(doc => (
+                          {[...area.doctors]
+                            // Marked doctors (visited or writing) float to the top of the
+                            // area, regardless of alphabetical order; unmarked keep their
+                            // (alphabetical) order below. Array.sort is stable in V8.
+                            .sort((a, b) => (a.isVisited || a.isWriting ? 0 : 1) - (b.isVisited || b.isWriting ? 0 : 1))
+                            .map(doc => (
                             <div key={doc.surveyDoctorId} style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <div style={{
                                 display: 'flex', alignItems: 'flex-start', gap: 10,
