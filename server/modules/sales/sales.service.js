@@ -49,12 +49,17 @@ export const COLUMN_ALIASES = {
     'المحافظة', 'محافظة', 'الفرع', 'فرع', 'الموقع',
   ],
   item:       [
-    'item', 'drug', 'product', 'medicine', 'brand', 'trade name', 'item name',
-    'product name', 'drug name', 'description',
-    'صنف', 'الصنف', 'مادة', 'دواء', 'منتج', 'المنتج', 'اسم المنتج',
-    'اسم الدواء', 'اسم الصنف', 'الدواء', 'المادة', 'اسم العلاج', 'بند',
-    'الايتم', 'ايتم', 'آيتم', 'الآيتم', 'اسم المادة', 'اسم الدواء', 'المستحضر',
-    'اسم المستحضر', 'اسم الايتم', 'Item Name', 'material', 'name of item',
+    // NOTE: order matters — resolveColumns() picks the FIRST alias that matches a
+    // header. Explicit drug/item-name headers come first so a file that has both
+    // an ambiguous "صنف" (often = customer type: تجاري/حكومي) and a real "المادة"
+    // column resolves item to "المادة", not "صنف". Ambiguous/generic terms go last
+    // as a fallback for files that only carry them.
+    'item name', 'product name', 'drug name', 'name of item', 'Item Name',
+    'اسم المادة', 'المادة', 'اسم الدواء', 'الدواء', 'اسم المنتج', 'المنتج',
+    'اسم الصنف', 'اسم الايتم', 'الايتم', 'ايتم', 'آيتم', 'الآيتم',
+    'المستحضر', 'اسم المستحضر', 'اسم العلاج',
+    'item', 'drug', 'product', 'medicine', 'brand', 'trade name', 'material',
+    'صنف', 'الصنف', 'مادة', 'دواء', 'منتج', 'بند', 'description',
   ],
   quantity:   [
     'quantity', 'qty', 'units', 'boxes', 'packs', 'count', 'no', 'pieces',
@@ -206,7 +211,10 @@ export async function processUploadedFile(file, options = {}) {
   const allRawEntries = [];
   let totalRows = 0;
   for (const { sheetName, forceReturn } of sheetsToProcess) {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+    const ws = workbook.Sheets[sheetName];
+    // Skip leading title/metadata rows: start parsing from the detected header row.
+    const headerRowIdx = detectHeaderRow(ws, columnMapping);
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRowIdx });
     if (rows.length === 0) continue;
     // Resolve columns independently per sheet (each sheet may have different header names)
     const sheetHeaders = Object.keys(rows[0]);
@@ -853,6 +861,56 @@ function resolveColumns(headers, overrides) {
     result[field] = field;
   }
   return result;
+}
+
+/**
+ * Count how many known fields a candidate header row resolves to an ACTUAL
+ * column (not the resolveColumns() fallback, which just returns the field name).
+ * Higher score = more likely to be the real header row.
+ */
+function scoreHeaderRow(cells, overrides) {
+  const cm = resolveColumns(cells, overrides);
+  let score = 0;
+  for (const [field, col] of Object.entries(cm)) {
+    if (col && col !== field && cells.includes(col)) score++;
+  }
+  return score;
+}
+
+/**
+ * Find the real header row in a worksheet.
+ *
+ * Many exported reports start with title/metadata rows (e.g. a
+ * "From :01/07/2026 To :31/07/2026" banner, a "الكل" filter line) BEFORE the
+ * actual column headers. sheet_to_json() treats the very first row as headers,
+ * so those files parse as __EMPTY / __EMPTY_1 columns and every row fails.
+ *
+ * We scan the first rows as arrays, score each as a potential header row via the
+ * column aliases, and return the 0-indexed sheet row with the best score. When no
+ * row scores high enough we fall back to the sheet's first row (legacy behavior),
+ * so normal files (headers on row 0) are unaffected.
+ *
+ * @returns {number} absolute sheet row index to pass as sheet_to_json `range`
+ */
+function detectHeaderRow(ws, overrides = {}) {
+  if (!ws || !ws['!ref']) return 0;
+  let range;
+  try { range = XLSX.utils.decode_range(ws['!ref']); } catch { return 0; }
+  const startRow = range.s.r;
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true });
+  const LOOK = Math.min(aoa.length, 25); // real headers appear near the top
+  const MIN_SCORE = 3;                   // need at least this many matched fields to trust detection
+
+  let bestIdx = 0, bestScore = -1;
+  for (let i = 0; i < LOOK; i++) {
+    const cells = (aoa[i] || []).map(c => String(c ?? '').trim()).filter(Boolean);
+    if (cells.length < 3) continue;      // header rows span several columns
+    const score = scoreHeaderRow(cells, overrides);
+    if (score > bestScore) { bestScore = score; bestIdx = i; }
+  }
+
+  if (bestScore < MIN_SCORE) return startRow; // not confident → first row (legacy)
+  return startRow + bestIdx;
 }
 
 /**
