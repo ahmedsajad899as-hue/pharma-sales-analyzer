@@ -1,0 +1,2 @@
+﻿Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "powershell.exe -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File """"d:\my code\marketing\pharma-sales-analyzer\auto-deploy.ps1""""", 0, False

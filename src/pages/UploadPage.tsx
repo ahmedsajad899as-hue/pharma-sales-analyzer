@@ -1,6 +1,7 @@
 ﻿import { useState, useRef, useCallback, useEffect } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import AnalysisRenderer from '../components/AnalysisRenderer';
+import ManualSalesModal from '../components/ManualSalesModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -58,6 +59,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [analyzeFile, setAnalyzeFile] = useState<UploadedFile | null>(null);
   const [analysisText, setAnalysisText] = useState('');
   const [analyzing, setAnalyzing]     = useState(false);
+
+  // Manual / invoice-image sales entry
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [manualMsg, setManualMsg]             = useState('');
 
   // Use a ref so loadFiles doesn't re-run when activeFileIds changes (avoids re-fetch on toggle)
   const activeFileIdsRef = useRef<number[]>(activeFileIds);
@@ -762,6 +767,38 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           </>
         )}
       </div>
+
+      {/* ── Add manual / invoice-image sales ─────────────────── */}
+      <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: '#faf5ff', borderColor: '#e9d5ff' }}>
+        <div style={{ fontSize: 12.5, color: '#6b21a8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 18 }}>🧾</span>
+          <span>مبيعات من فواتير المذاخر لا تظهر في الملفات؟ أضِفها من صورة الفاتورة أو يدوياً.</span>
+        </div>
+        <button onClick={() => { setManualMsg(''); setShowManualModal(true); }}
+          style={{ padding: '9px 18px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          ➕ إضافة مبيعات
+        </button>
+      </div>
+
+      {manualMsg && (
+        <div style={{ ...CARD, background: '#ecfdf5', borderColor: '#6ee7b7', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
+          ✅ {manualMsg}
+        </div>
+      )}
+
+      {showManualModal && (
+        <ManualSalesModal
+          token={token ?? ''}
+          files={files.map(f => ({ id: f.id, originalName: f.originalName, detectedCurrency: f.detectedCurrency }))}
+          onClose={() => setShowManualModal(false)}
+          onSaved={async (msg) => {
+            setShowManualModal(false);
+            setManualMsg(msg);
+            await loadFiles();
+            setTimeout(() => setManualMsg(''), 12000);
+          }}
+        />
+      )}
 
       {progress > 0 && (
         <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, marginBottom: 8, overflow: 'hidden' }}>

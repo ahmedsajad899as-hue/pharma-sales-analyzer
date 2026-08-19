@@ -23,6 +23,7 @@ import { loadResolutionContext } from '../../lib/itemResolver.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
+import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2  = path.dirname(__filename2);
@@ -932,4 +933,283 @@ async function findOrCreateRep(name, userId) {
   const existing = await findRepByName(name, userId);
   if (existing) return existing;
   return prisma.medicalRepresentative.create({ data: { name, userId } });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Manual / invoice-image sales entry
+// Sales that come as warehouse (مذخر) invoices and never appear in the uploaded
+// Excel files. Two entry paths (image → AI extract, or manual typing) both end
+// up as reviewed flat rows that get persisted as Sale records — either merged
+// into an existing UploadedFile or into a new one — reusing the same entity
+// resolution + auto-assign logic as the Excel upload (without touching
+// _finishProcessing).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر الأدوية العراقية واستخراج بياناتها.
+الصورة المرفقة فاتورة بيع من مذخر أدوية إلى صيدلية/زبون. نماذج الفواتير تختلف من مذخر لآخر
+(ترتيب الأعمدة، المسميات، وقد يكون الخط مطبوعاً أو يدوياً) — افهم *معنى* الحقول لا مواضعها الثابتة.
+
+استخرج التالي:
+• من ترويسة الفاتورة (تنطبق على كل الأصناف): اسم المذخر (البائع، غالباً بأعلى الفاتورة مع الشعار)،
+  رقم الفاتورة، التاريخ، اسم الصيدلية/الزبون المشتري، والمنطقة إن وُجدت.
+• لكل صنف (سطر) في جدول الفاتورة: اسم المادة/الدواء، الشركة المصنّعة، الكمية،
+  سعر الوحدة (الإفرادي)، السعر الكلي للسطر، والبونص (الكمية المجانية) إن وُجد.
+
+أعِد **مصفوفة JSON فقط** (JSON array) — بلا أي نص أو شرح قبلها أو بعدها — كل عنصر يمثّل صنفاً واحداً
+بهذا الشكل بالضبط:
+[
+  {
+    "item": "اسم المادة",
+    "company": "الشركة المصنّعة أو null",
+    "quantity": 10,
+    "unitPrice": 9900,
+    "total": 99000,
+    "bonus": 0,
+    "pharmacy": "اسم الصيدلية/الزبون",
+    "warehouse": "اسم المذخر",
+    "area": "المنطقة أو null",
+    "date": "2026-08-19",
+    "invoiceNumber": "22287"
+  }
+]
+
+قواعد صارمة:
+- كرّر قيم الترويسة (warehouse, pharmacy, invoiceNumber, date, area) في كل صف.
+- الأرقام أرقام حقيقية بلا فواصل آلاف ولا رموز عملة (مثال: 99000 وليس "99,000").
+- إن لم تجد قيمة حقلٍ فاجعلها null — لا تختلق ولا تخمّن قيماً.
+- التاريخ بصيغة YYYY-MM-DD إن أمكن، وإلا كما هو مكتوب.
+- إن كانت الصورة غير واضحة أو ليست فاتورة، أعِد مصفوفة فارغة [].`;
+
+/** Parse Gemini's reply into an array of invoice rows (mirrors analyzeSurveyEntriesBatched). */
+function parseInvoiceJson(raw) {
+  if (!raw) return [];
+  let cleaned = String(raw).replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  const match = cleaned.match(/\[[\s\S]*\]/); // first [...] block if wrapped in prose
+  if (match) cleaned = match[0];
+  let arr;
+  try { arr = JSON.parse(cleaned); } catch { return []; }
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(r => r && typeof r === 'object');
+}
+
+/**
+ * Extract sale rows from one or more invoice images via Gemini vision.
+ * Returns flat, UNSAVED rows for the user to review before saving.
+ * @param {{ mimeType: string, base64: string }[]} images
+ * @returns {Promise<object[]>}
+ */
+export async function extractInvoiceRows(images) {
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
+  }
+  const OVERALL_BUDGET_MS = 190_000; // stay under Nginx's 300s proxy timeout
+  const started = Date.now();
+  const allRows = [];
+  let processed = 0;
+  let lastErr = null;
+
+  for (const img of images) {
+    const elapsed = Date.now() - started;
+    if (elapsed >= OVERALL_BUDGET_MS) break;
+    try {
+      const parts = [
+        INVOICE_PROMPT,
+        { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
+      ];
+      const text = await callGeminiSmart(parts, {
+        timeoutMs:  70_000,
+        maxTotalMs: OVERALL_BUDGET_MS - elapsed,
+        thinkingBudget: 0,
+      });
+      allRows.push(...parseInvoiceJson(text));
+      processed++;
+    } catch (err) {
+      lastErr = err;
+      console.error('[invoice-extract] image failed:', String(err?.message || '').slice(0, 200));
+    }
+  }
+
+  if (processed === 0 && lastErr) {
+    throw new AppError('تعذّر تحليل الفاتورة عبر الذكاء الاصطناعي. جرّب صورة أوضح أو أدخل البيانات يدوياً.', 502, 'AI_EXTRACT_FAILED');
+  }
+  return allRows;
+}
+
+/**
+ * Persist manual / invoice-extracted sale rows as Sale records — merged into an
+ * existing UploadedFile or into a new one. Reuses the same normalization,
+ * entity-resolution and rep auto-assignment as the Excel upload path.
+ *
+ * @param {object}   opts
+ * @param {object[]} opts.rows   flat rows: { repName, item, company?, quantity, totalValue, unitPrice?, pharmacy?, warehouse?, area?, date?, invoiceNumber?, bonus? }
+ * @param {object}   opts.target { fileId?: number } | { newFileName?: string, sourceCurrency?: 'IQD'|'USD' }
+ * @param {number|null} opts.userId
+ * @param {string|null} opts.uploadedBy
+ */
+export async function insertManualSales({ rows, target = {}, userId = null, uploadedBy = null }) {
+  const normalizeAr = s => String(s ?? '')
+    .trim()
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ـ/g, '')
+    .replace(/[ً-ٟ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // ── 1. Coerce + validate incoming rows ──
+  const validRows = [];
+  for (const r of (Array.isArray(rows) ? rows : [])) {
+    const quantity  = Math.abs(Number(r.quantity) || 0);
+    const unitPrice = Number(r.unitPrice) || 0;
+    let totalValue  = Math.abs(Number(r.totalValue) || 0);
+    if (!totalValue && unitPrice) totalValue = quantity * unitPrice; // derive if only unit price given
+    const itemName = String(r.item ?? '').trim();
+    if (!itemName || quantity === 0) continue; // every row needs at least an item + quantity
+
+    const rawData = JSON.stringify({
+      invoiceNumber: r.invoiceNumber ?? null,
+      warehouse:     r.warehouse ?? null,
+      pharmacy:      r.pharmacy ?? null,
+      unitPrice:     unitPrice || null,
+      bonus:         r.bonus ?? null,
+      company:       r.company ?? null,
+      source:        'manual-invoice',
+    });
+
+    validRows.push({
+      repName:  normalizeAr(r.repName) || 'غير محدد',
+      area:     normalizeAr(r.area)    || 'غير محدد',
+      item:     normalizeAr(itemName),
+      company:  r.company  ? normalizeAr(r.company)  : undefined,
+      customer: r.pharmacy ? normalizeAr(r.pharmacy) : undefined, // pharmacy = buyer = Customer
+      quantity,
+      totalValue,
+      date:     r.date ? parseExcelDate(r.date) : undefined,
+      rawData,
+    });
+  }
+
+  if (validRows.length === 0) {
+    throw new AppError('لا توجد صفوف صالحة للحفظ — كل صف يحتاج اسم مادة وكمية أكبر من صفر.', 422, 'NO_VALID_MANUAL_ROWS');
+  }
+
+  // ── 2. Company fuzzy-normalization (same as _finishProcessing) ──
+  let sciCompanyIds = [];
+  if (userId) {
+    const userCompanies = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    sciCompanyIds = userCompanies.map(c => c.companyId);
+    const existingCompanies = await getAllCompanies(userId);
+    const incomingCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
+    const companyDedup = buildNormalizationMap(incomingCompanies, existingCompanies.map(c => c.name), 'company');
+    if (companyDedup.log.length > 0) {
+      for (const row of validRows) {
+        if (row.company && companyDedup.map[row.company]) row.company = companyDedup.map[row.company];
+      }
+    }
+  }
+
+  // ── 3. Resolve/create entities (de-duped) ──
+  const uniqueAreas     = [...new Set(validRows.map(r => r.area))];
+  const uniqueItems     = [...new Set(validRows.map(r => r.item))];
+  const uniqueReps      = [...new Set(validRows.map(r => r.repName))];
+  const uniqueCustomers = [...new Set(validRows.map(r => r.customer).filter(Boolean))];
+  const uniqueCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
+
+  const itemCtx = sciCompanyIds.length > 0
+    ? await loadResolutionContext({ scientificCompanyIds: sciCompanyIds, userId })
+    : null;
+
+  const [areaMap, itemMap, repMap, customerMap, companyMap] = await Promise.all([
+    resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId)),
+    resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId, sciCompanyIds, itemCtx)),
+    resolveEntities(uniqueReps,      name => findOrCreateRep(name, userId)),
+    resolveEntities(uniqueCustomers, name => findOrCreateCustomer(name, userId)),
+    resolveEntities(uniqueCompanies, name => findOrCreateCompany(name, userId)),
+  ]);
+
+  // Track temp/unknown items (catalog users only)
+  const unknownItems = [];
+  if (sciCompanyIds.length > 0) {
+    const resolvedItemIds = Object.values(itemMap).filter(Boolean);
+    const tempItems = await prisma.item.findMany({ where: { id: { in: resolvedItemIds }, isTemp: true }, select: { name: true } });
+    unknownItems.push(...tempItems.map(i => i.name));
+  }
+
+  // Link each item to its company (first row that maps item → company)
+  if (uniqueCompanies.length > 0) {
+    const itemCompanyMap = {};
+    for (const row of validRows) {
+      if (row.company && row.item && !itemCompanyMap[row.item]) itemCompanyMap[row.item] = row.company;
+    }
+    await Promise.all(Object.entries(itemCompanyMap).map(([itemName, companyName]) => {
+      const itemId = itemMap[itemName], companyId = companyMap[companyName];
+      if (itemId && companyId) return prisma.item.updateMany({ where: { id: itemId, companyId: null }, data: { companyId } });
+    }).filter(Boolean));
+  }
+
+  // ── 4. Currency ──
+  let detectedCurrency;
+  if (target.sourceCurrency === 'IQD' || target.sourceCurrency === 'USD') {
+    detectedCurrency = target.sourceCurrency;
+  } else {
+    const nonZero = validRows.map(r => r.totalValue || 0).filter(v => v > 0).sort((a, b) => a - b);
+    const median = nonZero.length ? nonZero[Math.floor(nonZero.length / 2)] : 0;
+    detectedCurrency = median >= 100000 ? 'IQD' : 'USD';
+  }
+
+  // ── 5. Resolve destination file (existing → merge, else create new) ──
+  let uploadedFile;
+  let merged = false;
+  if (target.fileId) {
+    uploadedFile = await prisma.uploadedFile.findFirst({ where: { id: Number(target.fileId), userId } });
+    if (!uploadedFile) throw new AppError('الملف المحدد غير موجود أو لا يخصّك.', 404, 'FILE_NOT_FOUND');
+    merged = true;
+  } else {
+    const name = String(target.newFileName || '').trim() || `مبيعات يدوية ${new Date().toLocaleDateString('en-GB')}`;
+    uploadedFile = await createUploadedFile({
+      filename:         `${Date.now()}_manual`,
+      originalName:     name,
+      rowCount:         validRows.length,
+      uploadedBy:       uploadedBy || null,
+      userId,
+      fileType:         'sales',
+      detectedCurrency,
+      currencyMode:     detectedCurrency,
+    });
+  }
+
+  // ── 6. Bulk insert (all treated as sales) ──
+  const built = validRows.map(r => ({
+    representativeId: repMap[r.repName],
+    areaId:           areaMap[r.area],
+    itemId:           itemMap[r.item],
+    customerId:       r.customer ? (customerMap[r.customer] ?? null) : null,
+    quantity:         r.quantity,
+    totalValue:       r.totalValue,
+    saleDate:         r.date ?? undefined,
+    rawData:          r.rawData,
+  }));
+  await bulkCreateSales(built, uploadedFile.id, userId, 'sale');
+
+  // ── 7. Auto-assign areas & items to each rep ──
+  const repAreaPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${areaMap[r.area]}`, { representativeId: repMap[r.repName], areaId: areaMap[r.area] }])).values()];
+  const repItemPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${itemMap[r.item]}`, { representativeId: repMap[r.repName], itemId: itemMap[r.item] }])).values()];
+  await Promise.all([
+    ...repAreaPairs.map(p => prisma.representativeArea.upsert({ where: { representativeId_areaId: p }, update: {}, create: p })),
+    ...repItemPairs.map(p => prisma.representativeItem.upsert({ where: { representativeId_itemId: p }, update: {}, create: p })),
+  ]);
+
+  // Merging into an existing file → keep its rowCount accurate
+  if (merged) {
+    await prisma.uploadedFile
+      .update({ where: { id: uploadedFile.id }, data: { rowCount: { increment: validRows.length } } })
+      .catch(() => {});
+  }
+
+  return {
+    addedCount:   validRows.length,
+    merged,
+    unknownItems,
+    uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName },
+  };
 }

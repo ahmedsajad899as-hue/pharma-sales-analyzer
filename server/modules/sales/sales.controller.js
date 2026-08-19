@@ -4,7 +4,7 @@
  * Delegates all business logic to the service layer.
  */
 
-import { processUploadedFile } from './sales.service.js';
+import { processUploadedFile, extractInvoiceRows, insertManualSales } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
 /**
@@ -50,6 +50,56 @@ export async function uploadSales(req, res, next) {
       success: true,
       data:    result,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sales/extract-invoice
+ * Accepts one or more invoice IMAGES (multipart, field "images") and returns
+ * AI-extracted sale rows for review. Does NOT save anything.
+ *
+ * Response 200: { success, data: { rows: [...] } }
+ */
+export async function extractInvoice(req, res, next) {
+  try {
+    const files = req.files || [];
+    if (files.length === 0) {
+      throw new AppError('لم يتم إرسال أي صورة. أرسل ملفات الصور في الحقل "images".', 400, 'NO_IMAGES');
+    }
+    const images = files.map(f => ({ mimeType: f.mimetype, base64: f.buffer.toString('base64') }));
+    const rows = await extractInvoiceRows(images);
+    return res.json({ success: true, data: { rows } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sales/manual
+ * Persist manually-entered / invoice-extracted sale rows as Sale records,
+ * merged into an existing file or into a new one.
+ *
+ * Body (application/json):
+ *   rows:   [{ repName, item, company?, quantity, totalValue, unitPrice?, pharmacy?, warehouse?, area?, date?, invoiceNumber?, bonus? }]
+ *   target: { fileId } | { newFileName, sourceCurrency? }
+ *
+ * Response 201: { success, data: { addedCount, merged, unknownItems, uploadedFile } }
+ */
+export async function addManualSales(req, res, next) {
+  try {
+    const { rows, target } = req.body || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new AppError('لا توجد صفوف للحفظ.', 400, 'NO_ROWS');
+    }
+    const result = await insertManualSales({
+      rows,
+      target:     target || {},
+      userId:     req.user?.id ?? null,
+      uploadedBy: req.user?.username || null,
+    });
+    return res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
