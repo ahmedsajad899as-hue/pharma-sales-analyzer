@@ -31,8 +31,7 @@ interface Row {
   imageIndex: number | null; // index into `images` this row was extracted from
   box: number[] | null;          // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
   boxCustomer: number[] | null;  // pharmacy/area block in the image
-  boxWarehouse: number[] | null; // warehouse name/logo
-  boxInvoice: number[] | null;   // invoice number + date block
+  boxHeader: number[] | null;    // whole header block (warehouse + invoice# + date)
 }
 
 interface Props {
@@ -42,7 +41,7 @@ interface Props {
   onSaved: (msg: string) => void;
 }
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxWarehouse: null, boxInvoice: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
@@ -235,8 +234,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
         box:           Array.isArray(r._box) ? r._box : null,
         boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
-        boxWarehouse:  Array.isArray(r._boxWarehouse) ? r._boxWarehouse : null,
-        boxInvoice:    Array.isArray(r._boxInvoice) ? r._boxInvoice : null,
+        boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
       }));
       setRows(rs => (rs.length === 1 && !rowHasData(rs[0]) ? mapped : [...rs, ...mapped]));
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
@@ -297,18 +295,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   // ── Smart-confirm mode: walk each field, auto-zoom the image to it, and
   // highlight the matching cell in the grid so the two are seen together. ──
   const [confirm, setConfirm] = useState<number | null>(null);
-  type Step = { kind: 'warehouse' | 'invoice' | 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
+  type Step = { kind: 'header' | 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
   const steps: Step[] = [];
   {
     const seen = new Set<number>();
     rows.forEach((r, i) => {
       const imgKey = r.imageIndex ?? -1;
-      // warehouse / invoice(number+date) / customer are per-invoice → added once each
+      // header (warehouse+invoice#+date, one wide block) and customer are per-invoice
       if (!seen.has(imgKey)) {
         seen.add(imgKey);
-        if (r.boxWarehouse) steps.push({ kind: 'warehouse', row: i, imageIndex: r.imageIndex, box: r.boxWarehouse });
-        if (r.boxInvoice)   steps.push({ kind: 'invoice',   row: i, imageIndex: r.imageIndex, box: r.boxInvoice });
-        if (r.boxCustomer)  steps.push({ kind: 'customer',  row: i, imageIndex: r.imageIndex, box: r.boxCustomer });
+        if (r.boxHeader)   steps.push({ kind: 'header',   row: i, imageIndex: r.imageIndex, box: r.boxHeader });
+        if (r.boxCustomer) steps.push({ kind: 'customer', row: i, imageIndex: r.imageIndex, box: r.boxCustomer });
       }
       if (r.box) steps.push({ kind: 'row', row: i, imageIndex: r.imageIndex, box: r.box });
     });
@@ -316,8 +313,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const activeStep = confirm != null ? steps[confirm] : null;
   const cellActive = (rowIdx: number, key: keyof Row): boolean => {
     if (!activeStep || activeStep.row !== rowIdx) return false;
-    if (activeStep.kind === 'warehouse') return key === 'warehouse';
-    if (activeStep.kind === 'invoice') return key === 'invoiceNumber' || key === 'date';
+    if (activeStep.kind === 'header') return key === 'warehouse' || key === 'invoiceNumber' || key === 'date';
     if (activeStep.kind === 'customer') return key === 'pharmacy' || key === 'area';
     return (['item', 'quantity', 'unitPrice', 'total', 'bonus'] as (keyof Row)[]).includes(key);
   };
@@ -356,8 +352,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const stepLabel = (st: Step | null): string => {
     if (!st) return '';
     const inv = st.imageIndex != null ? ` · فاتورة ${st.imageIndex + 1}` : '';
-    if (st.kind === 'warehouse') return `اسم المذخر${inv}`;
-    if (st.kind === 'invoice') return `رقم الفاتورة والتاريخ${inv}`;
+    if (st.kind === 'header') return `المذخر ورقم الفاتورة والتاريخ${inv}`;
     if (st.kind === 'customer') return `الصيدلية والمنطقة${inv}`;
     return `الصنف: ${rows[st.row]?.item || '—'}${inv}`;
   };

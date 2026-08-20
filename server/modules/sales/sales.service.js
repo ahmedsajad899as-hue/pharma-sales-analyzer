@@ -972,18 +972,16 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
     "invoiceNumber": "22287",
     "box": [ymin, xmin, ymax, xmax],
     "box_customer": [ymin, xmin, ymax, xmax],
-    "box_warehouse": [ymin, xmin, ymax, xmax],
-    "box_invoice": [ymin, xmin, ymax, xmax]
+    "box_header": [ymin, xmin, ymax, xmax]
   }
 ]
 
 قواعد صارمة:
-- **مواضع الحقول (box):** لكل صنف أضف أربعة مستطيلات محيطة بمواضعها في الصورة:
-  • "box" = سطر هذا الصنف (اسم المادة + كميته + أسعاره).
-  • "box_customer" = اسم الصيدلية/الزبون والمنطقة.
-  • "box_warehouse" = اسم المذخر/الشعار أعلى الفاتورة.
-  • "box_invoice" = مستطيل واحد يضمّ **رقم الفاتورة وتاريخها معاً** (سطراهما متجاوران عادةً، ومنفصلان عن شعار المذخر).
-  كل مستطيل أربعة أعداد صحيحة **بمقياس 0 إلى 1000** بالترتيب [ymin, xmin, ymax, xmax] (y من الأعلى للأسفل، x من اليسار لليمين). **حدّد موضع القيمة المكتوبة نفسها** (الكلمات/الأرقام الفعلية) لا التسمية المجاورة لها ولا الفراغ حولها، واجعل حدود المستطيل مطابقة لبداية ونهاية النص/الرقم قدر الإمكان. إن تعذّر تحديد موضعٍ اجعله null. تُستخدم هذه المواضع لتكبير الصورة على كل حقل عند المراجعة.
+- **مواضع المناطق (box):** لكل صنف أضف ثلاثة مستطيلات تحيط بـ**مناطق واسعة** في الصورة (تحديد المنطقة الأوسع أدقّ بكثير من الحقل المفرد الصغير):
+  • "box" = **سطر هذا الصنف كاملاً** في جدول الفاتورة (من اسم المادة حتى آخر أسعاره).
+  • "box_customer" = **كتلة الزبون كاملة** (اسم الصيدلية والمنطقة).
+  • "box_header" = **كتلة ترويسة الفاتورة كاملة** التي تضمّ اسم المذخر ورقم الفاتورة والتاريخ معاً.
+  كل مستطيل أربعة أعداد صحيحة **بمقياس 0 إلى 1000** بالترتيب [ymin, xmin, ymax, xmax] (y من الأعلى للأسفل، x من اليسار لليمين). اجعل المستطيل يحيط بالمنطقة/الكتلة **كاملةً بسخاء** (لا بحقل مفرد ضيّق). إن تعذّر تحديد موضعٍ اجعله null. تُستخدم لتكبير الصورة على كل منطقة عند المراجعة.
 - **اسم المادة (item):** انسخه كاملاً كما هو مكتوب في الفاتورة بلا اختصار أو حذف (الاسم + التركيز + الشكل، مثل "DEVA … 457MG SYRUP").
 - **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، وبلا المنطقة (انظر القاعدة التالية).
 - **فصل الصيدلية عن المنطقة:** كثيراً ما يُكتب اسم الصيدلية والمنطقة معاً في خانة الزبون مفصولين بشرطة «-» أو فاصلة، مثل «اروى علي احمد - التاجي». في هذه الحالة الجزء الأول («اروى علي احمد») هو اسم الصيدلية (pharmacy)، والجزء الأخير بعد الشرطة («التاجي») هو المنطقة (area). ضع كلاً في حقله المناسب ولا تدمجهما في حقل واحد.
@@ -1083,11 +1081,10 @@ export async function extractInvoiceRows(images) {
         row.pharmacy = split.pharmacy;
         row.area = split.area;
         row._imageIndex = idx;
-        row._box = normalizeBox(row.box);                    // this item's row in the image
-        row._boxCustomer = normalizeBox(row.box_customer);   // pharmacy/area block
-        row._boxWarehouse = normalizeBox(row.box_warehouse); // warehouse name/logo
-        row._boxInvoice = normalizeBox(row.box_invoice);     // invoice number + date block
-        delete row.box; delete row.box_customer; delete row.box_warehouse; delete row.box_invoice;
+        row._box = normalizeBox(row.box);                  // this item's whole row in the image
+        row._boxCustomer = normalizeBox(row.box_customer); // pharmacy/area block
+        row._boxHeader = normalizeBox(row.box_header);     // whole header block (warehouse+invoice#+date)
+        delete row.box; delete row.box_customer; delete row.box_header;
         allRows.push(row);
       }
       processed++;
