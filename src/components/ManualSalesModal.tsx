@@ -29,6 +29,8 @@ interface Row {
   pharmacy: string;
   area: string;
   imageIndex: number | null; // index into `images` this row was extracted from
+  box: number[] | null;         // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
+  boxCustomer: number[] | null; // pharmacy/area block in the image
 }
 
 interface Props {
@@ -38,15 +40,18 @@ interface Props {
   onSaved: (msg: string) => void;
 }
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
-function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) {
-  const [pos, setPos] = useState({ x: Math.max(16, window.innerWidth / 2 - 220), y: 76 });
+function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: number[] | null; onClose: () => void }) {
+  const [pos, setPos] = useState({ x: Math.max(16, window.innerWidth / 2 - 230), y: 70 });
   const [zoom, setZoom] = useState(1);            // image zoom (independent of window size)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
   useEffect(() => {
     const move = (e: MouseEvent) => {
       if (!dragRef.current) return;
@@ -57,6 +62,33 @@ function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) 
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, []);
+
+  // Auto zoom + scroll to the focused box (0-1000 coords) whenever it changes.
+  // Container is LTR + top-left origin so scroll math is standard; the user can
+  // still wheel/pan manually afterwards to correct an imprecise AI box.
+  const scrollToBox = (box: number[], z: number) => {
+    const cont = scrollRef.current, img = imgRef.current;
+    if (!cont || !img) return;
+    const [ymin, xmin, ymax, xmax] = box.map(v => Math.max(0, Math.min(1000, Number(v) || 0)));
+    const natW = img.naturalWidth || 1000, natH = img.naturalHeight || 1400;
+    const imgW = z * cont.clientWidth, imgH = imgW * (natH / natW);
+    const cx = ((xmin + xmax) / 2 / 1000) * imgW;
+    const cy = ((ymin + ymax) / 2 / 1000) * imgH;
+    cont.scrollLeft = Math.max(0, cx - cont.clientWidth / 2);
+    cont.scrollTop = Math.max(0, cy - cont.clientHeight / 2);
+  };
+  useEffect(() => {
+    if (!focusBox || focusBox.length !== 4 || !scrollRef.current || !imgRef.current) return;
+    const [ymin, xmin, ymax, xmax] = focusBox;
+    const fracW = Math.max(0.04, (xmax - xmin) / 1000), fracH = Math.max(0.04, (ymax - ymin) / 1000);
+    const Cw = scrollRef.current.clientWidth, Ch = scrollRef.current.clientHeight;
+    const natW = imgRef.current.naturalWidth || 1000, natH = imgRef.current.naturalHeight || 1400;
+    const imgH1 = Cw * (natH / natW);
+    const z = Math.min(6, Math.max(1.4, Math.min(0.8 / fracW, (0.8 * Ch) / (fracH * imgH1))));
+    setZoom(z);
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToBox(focusBox, z))); // after width reflow
+  }, [focusBox]);
+
   const startDrag = (e: React.MouseEvent) => {
     dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
     document.body.style.userSelect = 'none';
@@ -66,7 +98,7 @@ function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) 
     setZoom(z => Math.min(6, Math.max(0.4, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
   };
   return (
-    <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: 440, maxWidth: '96vw',
+    <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: 460, maxWidth: '96vw',
       background: '#fff', borderRadius: 10, boxShadow: '0 14px 48px rgba(0,0,0,0.5)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
       <div onMouseDown={startDrag}
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
@@ -78,10 +110,10 @@ function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) 
           <button onClick={onClose} title="إغلاق" style={hdrBtn}>✕</button>
         </span>
       </div>
-      <div onWheel={onWheel}
-        style={{ maxHeight: '70vh', minHeight: 220, overflow: 'auto', background: '#0f172a', resize: 'both' }}>
-        <img src={src} alt="فاتورة" draggable={false}
-          style={{ width: `${zoom * 100}%`, display: 'block', transformOrigin: 'top right' }} />
+      <div ref={scrollRef} dir="ltr" onWheel={onWheel}
+        style={{ maxHeight: '70vh', minHeight: 240, overflow: 'auto', background: '#0f172a', resize: 'both' }}>
+        <img ref={imgRef} src={src} alt="فاتورة" draggable={false}
+          style={{ width: `${zoom * 100}%`, display: 'block', transformOrigin: 'top left' }} />
       </div>
     </div>
   );
@@ -174,6 +206,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         pharmacy:      str(r.pharmacy),
         area:          str(r.area),
         imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
+        box:           Array.isArray(r._box) ? r._box : null,
+        boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
       }));
       setRows(rs => (rs.length === 1 && !rowHasData(rs[0]) ? mapped : [...rs, ...mapped]));
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
@@ -231,6 +265,44 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     }
   };
 
+  // ── Smart-confirm mode: walk each field, auto-zoom the image to it, and
+  // highlight the matching cell in the grid so the two are seen together. ──
+  const [confirm, setConfirm] = useState<number | null>(null);
+  type Step = { kind: 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
+  const steps: Step[] = [];
+  {
+    const seen = new Set<number>();
+    rows.forEach((r, i) => {
+      const imgKey = r.imageIndex ?? -1;
+      if (r.boxCustomer && !seen.has(imgKey)) { seen.add(imgKey); steps.push({ kind: 'customer', row: i, imageIndex: r.imageIndex, box: r.boxCustomer }); }
+      if (r.box) steps.push({ kind: 'row', row: i, imageIndex: r.imageIndex, box: r.box });
+    });
+  }
+  const activeStep = confirm != null ? steps[confirm] : null;
+  const cellActive = (rowIdx: number, key: keyof Row): boolean => {
+    if (!activeStep || activeStep.row !== rowIdx) return false;
+    if (activeStep.kind === 'customer') return key === 'pharmacy' || key === 'area';
+    return (['item', 'quantity', 'unitPrice', 'total', 'bonus'] as (keyof Row)[]).includes(key);
+  };
+  useEffect(() => {
+    if (confirm == null) return;
+    const st = steps[confirm];
+    if (st && st.imageIndex != null && images[st.imageIndex]) setPreview(images[st.imageIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirm]);
+  const startConfirm = () => {
+    if (!steps.length) return;
+    setConfirm(0);
+    const st = steps[0];
+    if (st.imageIndex != null && images[st.imageIndex]) setPreview(images[st.imageIndex]);
+  };
+  const stepLabel = (st: Step | null): string => {
+    if (!st) return '';
+    const inv = st.imageIndex != null ? ` · فاتورة ${st.imageIndex + 1}` : '';
+    if (st.kind === 'customer') return `الصيدلية والمنطقة${inv}`;
+    return `الصنف: ${rows[st.row]?.item || '—'}${inv}`;
+  };
+
   const cols: { key: keyof Row; label: string; w: number; numeric?: boolean; wide?: boolean }[] = [
     { key: 'warehouse',     label: 'المذخر',       w: 120 },
     { key: 'invoiceNumber', label: 'رقم الفاتورة', w: 90 },
@@ -286,6 +358,18 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
           </div>
         )}
 
+        {/* Smart-confirm control bar */}
+        {confirm != null && activeStep && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, position: 'sticky', top: 0, zIndex: 5 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>🎯 تأكيد ذكي</span>
+            <span style={{ fontSize: 12, color: '#78350f' }}>{confirm + 1}/{steps.length} — {stepLabel(activeStep)}</span>
+            <span style={{ flex: 1 }} />
+            <button onClick={() => setConfirm(c => Math.max(0, (c ?? 0) - 1))} disabled={confirm === 0} style={navBtn}>◀ السابق</button>
+            <button onClick={() => setConfirm(c => Math.min(steps.length - 1, (c ?? 0) + 1))} disabled={confirm >= steps.length - 1} style={navBtnP}>التالي ▶</button>
+            <button onClick={() => setConfirm(null)} style={navBtn}>إنهاء</button>
+          </div>
+        )}
+
         {/* Editable rows grid */}
         <div style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 13 }}>
@@ -299,24 +383,28 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  {cols.map(c => (
-                    <td key={c.key} style={td}>
-                      {c.wide ? (
-                        <textarea value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
-                          rows={2} title={r[c.key] as string}
-                          style={{ ...cell, minWidth: c.w, resize: 'vertical', lineHeight: 1.35, whiteSpace: 'pre-wrap' }} />
-                      ) : c.key === 'date' ? (
-                        <input type="date" value={r.date} onChange={e => setCell(i, 'date', e.target.value)} style={{ ...cell, minWidth: c.w }} />
-                      ) : c.numeric ? (
-                        <input value={r[c.key] as string} inputMode="decimal"
-                          onChange={e => (c.key === 'quantity' || c.key === 'unitPrice') ? onQtyPrice(i, c.key, e.target.value) : setCell(i, c.key, e.target.value)}
-                          style={{ ...cellNum, minWidth: c.w }} />
-                      ) : (
-                        <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
-                          title={r[c.key] as string} style={{ ...cell, minWidth: c.w }} />
-                      )}
-                    </td>
-                  ))}
+                  {cols.map(c => {
+                    const on = cellActive(i, c.key);
+                    const cs: React.CSSProperties = { ...cell, minWidth: c.w, ...(on ? { background: '#fffbeb', borderColor: '#f59e0b', fontWeight: 700 } : null) };
+                    return (
+                      <td key={c.key} style={{ ...td, ...(on ? { background: '#fef9c3', outline: '2px solid #f59e0b' } : null) }}>
+                        {c.wide ? (
+                          <textarea value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
+                            rows={2} title={r[c.key] as string}
+                            style={{ ...cs, resize: 'vertical', lineHeight: 1.35, whiteSpace: 'pre-wrap' }} />
+                        ) : c.key === 'date' ? (
+                          <input type="date" value={r.date} onChange={e => setCell(i, 'date', e.target.value)} style={cs} />
+                        ) : c.numeric ? (
+                          <input value={r[c.key] as string} inputMode="decimal"
+                            onChange={e => (c.key === 'quantity' || c.key === 'unitPrice') ? onQtyPrice(i, c.key, e.target.value) : setCell(i, c.key, e.target.value)}
+                            style={{ ...cs, textAlign: 'left' }} />
+                        ) : (
+                          <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
+                            title={r[c.key] as string} style={cs} />
+                        )}
+                      </td>
+                    );
+                  })}
                   <td style={{ ...td, textAlign: 'center' }}>
                     {r.imageIndex != null && images[r.imageIndex]
                       ? <button onClick={() => setPreview(images[r.imageIndex!])} title="عرض صورة الفاتورة" style={imgLinkBtn}>🖼️</button>
@@ -330,7 +418,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
             </tbody>
           </table>
         </div>
-        <button onClick={addRow} style={addBtn}>＋ صف جديد</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={addRow} style={addBtn}>＋ صف جديد</button>
+          {steps.length > 0 && confirm == null && (
+            <button onClick={startConfirm} style={confirmBtn} title="تكبير الصورة على كل حقل وإبراز خانته للتدقيق">
+              🎯 تأكيد ذكي من الصورة
+            </button>
+          )}
+        </div>
 
         {/* Destination */}
         <div style={{ marginTop: 16, padding: 14, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
@@ -375,7 +470,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       </div>
 
       {/* Draggable, non-modal preview so image + extracted rows are visible together */}
-      {preview && <DraggableImage src={preview} onClose={() => setPreview(null)} />}
+      {preview && <DraggableImage src={preview} focusBox={activeStep?.box ?? null} onClose={() => { setPreview(null); setConfirm(null); }} />}
     </div>
   );
 }
@@ -410,6 +505,9 @@ const cellNum: React.CSSProperties = { ...cell, textAlign: 'left' };
 const imgLinkBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1 };
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 14, lineHeight: 1 };
 const addBtn: React.CSSProperties = { padding: '7px 14px', background: '#f1f5f9', color: '#475569', border: '1px dashed #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' };
+const confirmBtn: React.CSSProperties = { padding: '7px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
+const navBtn: React.CSSProperties = { padding: '5px 12px', background: '#fff', color: '#78350f', border: '1px solid #fcd34d', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer' };
+const navBtnP: React.CSSProperties = { padding: '5px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: 'pointer' };
 const radio: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' };
 const errBox: React.CSSProperties = { marginTop: 12, padding: '9px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13 };
 const infoBox: React.CSSProperties = { marginTop: 12, padding: '9px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, color: '#166534', fontSize: 13 };

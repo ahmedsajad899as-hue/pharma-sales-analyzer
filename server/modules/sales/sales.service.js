@@ -969,11 +969,14 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
     "warehouse": "اسم المذخر",
     "area": "منطقة الصيدلية أو null",
     "date": "2026-08-19",
-    "invoiceNumber": "22287"
+    "invoiceNumber": "22287",
+    "box": [ymin, xmin, ymax, xmax],
+    "box_customer": [ymin, xmin, ymax, xmax]
   }
 ]
 
 قواعد صارمة:
+- **مواضع الحقول (box):** لكل صنف، أضف "box" = المستطيل المحيط بسطر هذا الصنف في الصورة (اسم المادة + كميته + أسعاره)، و "box_customer" = المستطيل المحيط بموضع اسم الصيدلية/الزبون والمنطقة في الصورة. كل مستطيل أربعة أعداد صحيحة **بمقياس 0 إلى 1000** بالترتيب [ymin, xmin, ymax, xmax] (y من الأعلى للأسفل، x من اليسار لليمين). إن تعذّر تحديد الموضع اجعله null. هذه المواضع تُستخدم لتكبير الصورة على كل حقل عند المراجعة.
 - **اسم المادة (item):** انسخه كاملاً كما هو مكتوب في الفاتورة بلا اختصار أو حذف (الاسم + التركيز + الشكل، مثل "DEVA … 457MG SYRUP").
 - **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، وبلا المنطقة (انظر القاعدة التالية).
 - **فصل الصيدلية عن المنطقة:** كثيراً ما يُكتب اسم الصيدلية والمنطقة معاً في خانة الزبون مفصولين بشرطة «-» أو فاصلة، مثل «اروى علي احمد - التاجي». في هذه الحالة الجزء الأول («اروى علي احمد») هو اسم الصيدلية (pharmacy)، والجزء الأخير بعد الشرطة («التاجي») هو المنطقة (area). ضع كلاً في حقله المناسب ولا تدمجهما في حقل واحد.
@@ -1013,6 +1016,14 @@ function splitPharmacyArea(pharmacy, area) {
     }
   }
   return { pharmacy: ph, area: ar };
+}
+
+/** Validate a Gemini bounding box → [ymin, xmin, ymax, xmax] in 0-1000, or null. */
+function normalizeBox(b) {
+  if (!Array.isArray(b) || b.length !== 4) return null;
+  const n = b.map(Number);
+  if (n.some(v => !isFinite(v))) return null;
+  return n;
 }
 
 /** Parse Gemini's reply into an array of invoice rows (mirrors analyzeSurveyEntriesBatched). */
@@ -1065,6 +1076,9 @@ export async function extractInvoiceRows(images) {
         row.pharmacy = split.pharmacy;
         row.area = split.area;
         row._imageIndex = idx;
+        row._box = normalizeBox(row.box);                 // this item's row in the image
+        row._boxCustomer = normalizeBox(row.box_customer); // pharmacy/area block in the image
+        delete row.box; delete row.box_customer;
         allRows.push(row);
       }
       processed++;
