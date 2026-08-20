@@ -41,6 +41,42 @@ interface Props {
 const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
+// Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
+// keep it beside the grid and compare the photo against the extracted rows.
+function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) {
+  const [pos, setPos] = useState({ x: Math.max(16, window.innerWidth / 2 - 190), y: 84 });
+  const [w, setW] = useState(380);
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      setPos({ x: e.clientX - dragRef.current.dx, y: Math.max(0, e.clientY - dragRef.current.dy) });
+    };
+    const up = () => { dragRef.current = null; document.body.style.userSelect = ''; };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, []);
+  return (
+    <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: w, maxWidth: '95vw',
+      background: '#fff', borderRadius: 10, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
+      <div onMouseDown={e => { dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; document.body.style.userSelect = 'none'; }}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
+        <span>📄 صورة الفاتورة — اسحب للتحريك</span>
+        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button onClick={() => setW(x => Math.max(240, x - 90))} title="تصغير" style={hdrBtn}>−</button>
+          <button onClick={() => setW(x => Math.min(760, x + 90))} title="تكبير" style={hdrBtn}>＋</button>
+          <button onClick={onClose} title="إغلاق" style={hdrBtn}>✕</button>
+        </span>
+      </div>
+      <div style={{ maxHeight: '66vh', overflow: 'auto', background: '#0f172a', resize: 'vertical' }}>
+        <img src={src} alt="فاتورة" style={{ width: '100%', display: 'block' }} />
+      </div>
+    </div>
+  );
+}
+const hdrBtn: React.CSSProperties = { background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, lineHeight: 1, width: 22, height: 22, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+
 export default function ManualSalesModal({ token, files, onClose, onSaved }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
 
@@ -327,15 +363,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         </div>
       </div>
 
-      {/* Invoice image preview */}
-      {preview && (
-        <div style={{ ...overlay, zIndex: 10000, background: 'rgba(0,0,0,0.8)' }} onClick={() => setPreview(null)}>
-          <div style={{ position: 'relative', maxWidth: '92vw', maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setPreview(null)} style={{ ...xBtn, position: 'absolute', top: -34, left: 0, color: '#fff', fontSize: 26 }}>✕</button>
-            <img src={preview} alt="فاتورة" style={{ maxWidth: '92vw', maxHeight: '88vh', objectFit: 'contain', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }} />
-          </div>
-        </div>
-      )}
+      {/* Draggable, non-modal preview so image + extracted rows are visible together */}
+      {preview && <DraggableImage src={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

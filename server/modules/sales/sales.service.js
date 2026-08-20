@@ -975,8 +975,9 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
 
 قواعد صارمة:
 - **اسم المادة (item):** انسخه كاملاً كما هو مكتوب في الفاتورة بلا اختصار أو حذف (الاسم + التركيز + الشكل، مثل "DEVA … 457MG SYRUP").
-- **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور". احذف هذه البادئات واكتب الاسم النظيف فقط.
-- **المنطقة (area):** هي منطقة/عنوان **الصيدلية المشترية** (يأتي عادةً في خانة خاصة أو مباشرةً بعد اسم الصيدلية) — وليست منطقة أو عنوان المذخر.
+- **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، وبلا المنطقة (انظر القاعدة التالية).
+- **فصل الصيدلية عن المنطقة:** كثيراً ما يُكتب اسم الصيدلية والمنطقة معاً في خانة الزبون مفصولين بشرطة «-» أو فاصلة، مثل «اروى علي احمد - التاجي». في هذه الحالة الجزء الأول («اروى علي احمد») هو اسم الصيدلية (pharmacy)، والجزء الأخير بعد الشرطة («التاجي») هو المنطقة (area). ضع كلاً في حقله المناسب ولا تدمجهما في حقل واحد.
+- **المنطقة (area):** منطقة **الصيدلية المشترية** فقط — تأتي عادةً في خانة خاصة أو مباشرةً بعد اسم الصيدلية (بعد الشرطة). لا تضع فيها عنوان المذخر، ولا اسم الشعبة/المندوب، ولا أي نص من ترويسة البائع.
 - المذخر (warehouse) هو البائع أعلى الفاتورة، والصيدلية (pharmacy) هي المشتري — لا تخلط بينهما.
 - كرّر قيم الترويسة (warehouse, pharmacy, invoiceNumber, date, area) في كل صف من هذه الفاتورة.
 - الأرقام أرقام حقيقية بلا فواصل آلاف ولا رموز عملة (مثال: 99000 وليس "99,000").
@@ -992,6 +993,26 @@ function cleanPharmacyName(name) {
   // Strip repeatedly in case of stacked prefixes (e.g. "اسم الزبون ...")
   for (let i = 0; i < 3 && PHARMACY_PREFIX_RE.test(s); i++) s = s.replace(PHARMACY_PREFIX_RE, '').trim();
   return s;
+}
+
+// Invoices often write "pharmacy name - area" in one customer field, e.g.
+// "اروى علي احمد - التاجي". Split on the LAST " - " (or " / "): the tail is the
+// area, the head is the pharmacy. The tail wins over a mis-read area because the
+// invoice puts the area right after the pharmacy name.
+function splitPharmacyArea(pharmacy, area) {
+  let ph = cleanPharmacyName(pharmacy);
+  let ar = String(area ?? '').trim();
+  const m = ph.match(/^(.*\S)\s*[-\/–]\s*(\S.*)$/); // last " - " or " / " separator
+  if (m) {
+    const head = m[1].trim();
+    const tail = m[2].trim();
+    // Only split when the tail looks like a short area label (not part of a long name)
+    if (head && tail && tail.split(/\s+/).length <= 4) {
+      ph = head;
+      ar = tail; // pharmacy-line area is the reliable one
+    }
+  }
+  return { pharmacy: ph, area: ar };
 }
 
 /** Parse Gemini's reply into an array of invoice rows (mirrors analyzeSurveyEntriesBatched). */
@@ -1040,7 +1061,9 @@ export async function extractInvoiceRows(images) {
         thinkingBudget: 0,
       });
       for (const row of parseInvoiceJson(text)) {
-        if (row.pharmacy) row.pharmacy = cleanPharmacyName(row.pharmacy);
+        const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
+        row.pharmacy = split.pharmacy;
+        row.area = split.area;
         row._imageIndex = idx;
         allRows.push(row);
       }
