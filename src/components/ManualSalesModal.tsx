@@ -47,10 +47,12 @@ const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').tri
 
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
-function DraggableImage({ src, focusBox, onImageClick, onClose }: { src: string; focusBox?: number[] | null; onImageClick?: () => void; onClose: () => void }) {
+function DraggableImage({ src, focusBox, onImageClick, dockX, onClose }: { src: string; focusBox?: number[] | null; onImageClick?: () => void; dockX?: number | null; onClose: () => void }) {
   // Default to the LEFT edge so the window doesn't cover the right-hand columns
   // (item / warehouse in this RTL grid) — the field being confirmed stays visible.
   const [pos, setPos] = useState({ x: 20, y: 64 });
+  // Parent docks the window to the side opposite the highlighted cell so they never overlap.
+  useEffect(() => { if (typeof dockX === 'number') setPos(p => ({ ...p, x: dockX })); }, [dockX]);
   const [zoom, setZoom] = useState(1);            // image zoom (independent of window size)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,9 +104,16 @@ function DraggableImage({ src, focusBox, onImageClick, onClose }: { src: string;
     // Never shrink below natural size (zoom = 1 fills the window width).
     setZoom(z => Math.min(6, Math.max(1, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
   };
-  // Highlight rectangle over the focused field (percentages of the image).
+  // Highlight rectangle over the focused field (percentages of the image), padded
+  // a little so a slightly-off AI box still frames the whole word/number.
+  const PAD = 1.3; // % of the image on each side
   const hl = (focusBox && focusBox.length === 4)
-    ? { l: Math.min(focusBox[1], focusBox[3]) / 10, t: Math.min(focusBox[0], focusBox[2]) / 10, w: Math.abs(focusBox[3] - focusBox[1]) / 10, h: Math.abs(focusBox[2] - focusBox[0]) / 10 }
+    ? {
+        l: Math.max(0, Math.min(focusBox[1], focusBox[3]) / 10 - PAD),
+        t: Math.max(0, Math.min(focusBox[0], focusBox[2]) / 10 - PAD),
+        w: Math.min(100, Math.abs(focusBox[3] - focusBox[1]) / 10 + 2 * PAD),
+        h: Math.min(100, Math.abs(focusBox[2] - focusBox[0]) / 10 + 2 * PAD),
+      }
     : null;
   return (
     <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: 460, maxWidth: '96vw',
@@ -316,11 +325,19 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   // Scroll the highlighted extracted cell into view on each step so it's visible
   // beside the zoomed image (the grid scrolls horizontally and can hide columns).
   const gridRef = useRef<HTMLDivElement>(null);
+  const [dockX, setDockX] = useState(20); // preview window x, docked opposite the active cell
   useEffect(() => {
     if (confirm == null) return;
     requestAnimationFrame(() => {
       const el = gridRef.current?.querySelector('[data-hl="1"]') as HTMLElement | null;
-      el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+      if (!el) return;
+      el.scrollIntoView({ block: 'nearest', inline: 'center' }); // instant so we can measure position
+      requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect();
+        const winW = 460;
+        // Cell on the left half → dock window to the RIGHT (and vice-versa) so they never overlap
+        setDockX((r.left + r.width / 2) < window.innerWidth / 2 ? Math.max(20, window.innerWidth - winW - 20) : 20);
+      });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirm]);
@@ -514,6 +531,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       {/* Draggable, non-modal preview so image + extracted rows are visible together */}
       {preview && <DraggableImage src={preview} focusBox={activeStep?.box ?? null}
         onImageClick={confirm != null && confirm < steps.length - 1 ? nextStep : undefined}
+        dockX={confirm != null ? dockX : undefined}
         onClose={() => { setPreview(null); setConfirm(null); }} />}
     </div>
   );
