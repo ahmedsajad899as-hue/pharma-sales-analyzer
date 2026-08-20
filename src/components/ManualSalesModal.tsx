@@ -99,7 +99,8 @@ function DraggableImage({ src, focusBox, onImageClick, onClose }: { src: string;
   };
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    setZoom(z => Math.min(6, Math.max(0.4, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
+    // Never shrink below natural size (zoom = 1 fills the window width).
+    setZoom(z => Math.min(6, Math.max(1, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
   };
   // Highlight rectangle over the focused field (percentages of the image).
   const hl = (focusBox && focusBox.length === 4)
@@ -112,7 +113,7 @@ function DraggableImage({ src, focusBox, onImageClick, onClose }: { src: string;
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
         <span>{onImageClick ? '📄 انقر الصورة للحقل التالي · عجلة الماوس للتكبير · اسحب الشريط للتحريك' : '📄 صورة الفاتورة — اسحب للتحريك · عجلة الماوس للتكبير'}</span>
         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }} onMouseDown={e => e.stopPropagation()}>
-          <button onClick={() => setZoom(z => Math.max(0.4, +(z - 0.25).toFixed(2)))} title="تصغير" style={hdrBtn}>−</button>
+          <button onClick={() => setZoom(z => Math.max(1, +(z - 0.25).toFixed(2)))} title="تصغير" style={hdrBtn}>−</button>
           <button onClick={() => setZoom(1)} title="إعادة ضبط" style={{ ...hdrBtn, width: 'auto', padding: '0 7px', fontSize: 10 }}>1:1</button>
           <button onClick={() => setZoom(z => Math.min(6, +(z + 0.25).toFixed(2)))} title="تكبير" style={hdrBtn}>＋</button>
           <button onClick={onClose} title="إغلاق" style={hdrBtn}>✕</button>
@@ -312,6 +313,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     return (['item', 'quantity', 'unitPrice', 'total', 'bonus'] as (keyof Row)[]).includes(key);
   };
   const nextStep = () => setConfirm(c => (c == null ? c : Math.min(steps.length - 1, c + 1)));
+  // Scroll the highlighted extracted cell into view on each step so it's visible
+  // beside the zoomed image (the grid scrolls horizontally and can hide columns).
+  const gridRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (confirm == null) return;
+    requestAnimationFrame(() => {
+      const el = gridRef.current?.querySelector('[data-hl="1"]') as HTMLElement | null;
+      el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirm]);
   useEffect(() => {
     if (confirm == null) return;
     const st = steps[confirm];
@@ -401,7 +413,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         )}
 
         {/* Editable rows grid */}
-        <div style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
+        <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f8fafc' }}>
@@ -417,7 +429,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
                     const on = cellActive(i, c.key);
                     const cs: React.CSSProperties = { ...cell, minWidth: c.w, ...(on ? { background: '#fffbeb', borderColor: '#f59e0b', fontWeight: 700 } : null) };
                     return (
-                      <td key={c.key} style={{ ...td, ...(on ? { background: '#fef9c3', outline: '2px solid #f59e0b' } : null) }}>
+                      <td key={c.key} data-hl={on ? '1' : undefined} style={{ ...td, ...(on ? { background: '#fef9c3', outline: '2px solid #f59e0b' } : null) }}>
                         {c.wide ? (
                           <textarea value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
                             rows={2} title={r[c.key] as string}
