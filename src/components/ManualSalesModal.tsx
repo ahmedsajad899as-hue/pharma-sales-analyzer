@@ -63,30 +63,30 @@ function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: nu
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, []);
 
-  // Auto zoom + scroll to the focused box (0-1000 coords) whenever it changes.
-  // Container is LTR + top-left origin so scroll math is standard; the user can
-  // still wheel/pan manually afterwards to correct an imprecise AI box.
-  const scrollToBox = (box: number[], z: number) => {
+  // Auto zoom + scroll to a focused box (0-1000 coords). Stored in a ref so it can
+  // re-run on image load — naturalWidth is 0 until the photo finishes loading,
+  // which is why the very first focus didn't zoom. LTR container + top-left origin
+  // keeps the scroll math standard; the user can still wheel/pan to fine-tune.
+  const boxRef = useRef<number[] | null>(null);
+  const focusOnBox = (box: number[]) => {
     const cont = scrollRef.current, img = imgRef.current;
-    if (!cont || !img) return;
+    if (!cont || !img || !img.naturalWidth) return;
     const [ymin, xmin, ymax, xmax] = box.map(v => Math.max(0, Math.min(1000, Number(v) || 0)));
-    const natW = img.naturalWidth || 1000, natH = img.naturalHeight || 1400;
-    const imgW = z * cont.clientWidth, imgH = imgW * (natH / natW);
-    const cx = ((xmin + xmax) / 2 / 1000) * imgW;
-    const cy = ((ymin + ymax) / 2 / 1000) * imgH;
-    cont.scrollLeft = Math.max(0, cx - cont.clientWidth / 2);
-    cont.scrollTop = Math.max(0, cy - cont.clientHeight / 2);
+    const fracW = Math.max(0.05, (xmax - xmin) / 1000), fracH = Math.max(0.05, (ymax - ymin) / 1000);
+    const Cw = cont.clientWidth, Ch = cont.clientHeight;
+    const imgH1 = Cw * (img.naturalHeight / img.naturalWidth);
+    const z = Math.min(6, Math.max(2, Math.min(0.9 / fracW, (0.9 * Ch) / (fracH * imgH1))));
+    setZoom(z);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const imgW = z * Cw, imgH = imgW * (img.naturalHeight / img.naturalWidth);
+      cont.scrollLeft = Math.max(0, ((xmin + xmax) / 2 / 1000) * imgW - Cw / 2);
+      cont.scrollTop = Math.max(0, ((ymin + ymax) / 2 / 1000) * imgH - Ch / 2);
+    }));
   };
   useEffect(() => {
-    if (!focusBox || focusBox.length !== 4 || !scrollRef.current || !imgRef.current) return;
-    const [ymin, xmin, ymax, xmax] = focusBox;
-    const fracW = Math.max(0.04, (xmax - xmin) / 1000), fracH = Math.max(0.04, (ymax - ymin) / 1000);
-    const Cw = scrollRef.current.clientWidth, Ch = scrollRef.current.clientHeight;
-    const natW = imgRef.current.naturalWidth || 1000, natH = imgRef.current.naturalHeight || 1400;
-    const imgH1 = Cw * (natH / natW);
-    const z = Math.min(6, Math.max(1.4, Math.min(0.8 / fracW, (0.8 * Ch) / (fracH * imgH1))));
-    setZoom(z);
-    requestAnimationFrame(() => requestAnimationFrame(() => scrollToBox(focusBox, z))); // after width reflow
+    boxRef.current = (focusBox && focusBox.length === 4) ? focusBox : null;
+    if (boxRef.current) focusOnBox(boxRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusBox]);
 
   const startDrag = (e: React.MouseEvent) => {
@@ -97,6 +97,10 @@ function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: nu
     e.preventDefault();
     setZoom(z => Math.min(6, Math.max(0.4, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
   };
+  // Highlight rectangle over the focused field (percentages of the image).
+  const hl = (focusBox && focusBox.length === 4)
+    ? { l: Math.min(focusBox[1], focusBox[3]) / 10, t: Math.min(focusBox[0], focusBox[2]) / 10, w: Math.abs(focusBox[3] - focusBox[1]) / 10, h: Math.abs(focusBox[2] - focusBox[0]) / 10 }
+    : null;
   return (
     <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: 460, maxWidth: '96vw',
       background: '#fff', borderRadius: 10, boxShadow: '0 14px 48px rgba(0,0,0,0.5)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
@@ -112,8 +116,16 @@ function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: nu
       </div>
       <div ref={scrollRef} dir="ltr" onWheel={onWheel}
         style={{ maxHeight: '70vh', minHeight: 240, overflow: 'auto', background: '#0f172a', resize: 'both' }}>
-        <img ref={imgRef} src={src} alt="فاتورة" draggable={false}
-          style={{ width: `${zoom * 100}%`, display: 'block', transformOrigin: 'top left' }} />
+        <div style={{ position: 'relative', width: `${zoom * 100}%` }}>
+          <img ref={imgRef} src={src} alt="فاتورة" draggable={false}
+            onLoad={() => { if (boxRef.current) focusOnBox(boxRef.current); }}
+            style={{ width: '100%', display: 'block' }} />
+          {hl && (
+            <div style={{ position: 'absolute', left: `${hl.l}%`, top: `${hl.t}%`, width: `${hl.w}%`, height: `${hl.h}%`,
+              border: '3px solid #f59e0b', background: 'rgba(245,158,11,0.18)', borderRadius: 4,
+              boxShadow: '0 0 0 2px rgba(255,255,255,0.7)', pointerEvents: 'none' }} />
+          )}
+        </div>
       </div>
     </div>
   );
