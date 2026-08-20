@@ -5,8 +5,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
  * warehouse (مذخر) invoices. Two entry paths that share one editable review grid:
  *   1) upload invoice image(s) → AI extracts rows → review/correct
  *   2) type rows manually
- * On save the rows become Sale records (via POST /api/sales/manual), either merged
- * into an existing uploaded file or into a brand-new one.
+ * Per-invoice header fields (warehouse / invoice number / date / pharmacy / area)
+ * live PER ROW so multi-image uploads keep each invoice's own details. Only the
+ * rep is shared. On save the rows become Sale records (POST /api/sales/manual),
+ * merged into an existing uploaded file or a brand-new one.
  */
 
 const API = '';
@@ -15,6 +17,9 @@ interface FileOpt { id: number; originalName: string; detectedCurrency?: string;
 interface Rep { id: number; name: string; }
 
 interface Row {
+  warehouse: string;
+  invoiceNumber: string;
+  date: string;        // YYYY-MM-DD
   item: string;
   company: string;
   quantity: string;
@@ -23,6 +28,7 @@ interface Row {
   bonus: string;
   pharmacy: string;
   area: string;
+  imageIndex: number | null; // index into `images` this row was extracted from
 }
 
 interface Props {
@@ -32,19 +38,16 @@ interface Props {
   onSaved: (msg: string) => void;
 }
 
-const emptyRow = (): Row => ({ item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '' });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 export default function ManualSalesModal({ token, files, onClose, onSaved }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
 
-  // Batch-level (per-invoice) fields, applied to every row on save
-  const [repName, setRepName]             = useState('');
-  const [warehouse, setWarehouse]         = useState('');
-  const [invoiceDate, setInvoiceDate]     = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-
+  const [repName, setRepName] = useState('');            // shared: chosen by the user
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
+  const [images, setImages] = useState<string[]>([]);    // object URLs of uploaded invoice photos
+  const [preview, setPreview] = useState<string | null>(null);
 
   // Destination
   const [destMode, setDestMode]     = useState<'existing' | 'new'>(files.length ? 'existing' : 'new');
@@ -58,12 +61,15 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const [error, setError]       = useState('');
   const [info, setInfo]         = useState('');
   const imgInputRef = useRef<HTMLInputElement>(null);
+  const imagesRef = useRef<string[]>([]);
+  imagesRef.current = images;
 
   useEffect(() => {
     fetch(`${API}/api/representatives`, { headers: authH })
       .then(r => r.json())
       .then(j => { if (Array.isArray(j.data)) setReps(j.data.map((r: any) => ({ id: r.id, name: r.name }))); })
       .catch(() => {});
+    return () => { imagesRef.current.forEach(u => URL.revokeObjectURL(u)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -74,9 +80,15 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   // ── Row helpers ──
   const setCell = (i: number, key: keyof Row, val: string) =>
     setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, [key]: val } : r)));
-  const addRow = () => setRows(rs => [...rs, emptyRow()]);
-  const removeRow = (i: number) => setRows(rs => (rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs));
-  // Auto-fill total = qty × unitPrice when total is empty
+  const addRow = () => setRows(rs => {
+    const last = rs[rs.length - 1];
+    // Carry over per-invoice header fields so entering several items of one invoice is fast
+    const seed = last
+      ? { ...emptyRow(), warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area }
+      : emptyRow();
+    return [...rs, seed];
+  });
+  const removeRow = (i: number) => setRows(rs => (rs.length > 1 ? rs.filter((_, idx) => idx !== i) : [emptyRow()]));
   const onQtyPrice = (i: number, key: 'quantity' | 'unitPrice', val: string) => {
     setRows(rs => rs.map((r, idx) => {
       if (idx !== i) return r;
@@ -91,6 +103,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const onImages = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setError(''); setInfo(''); setExtracting(true);
+    const baseIndex = imagesRef.current.length;
+    const newUrls = Array.from(fileList).map(f => URL.createObjectURL(f));
+    setImages(prev => [...prev, ...newUrls]);
     try {
       const fd = new FormData();
       Array.from(fileList).forEach(f => fd.append('images', f));
@@ -99,22 +114,20 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       if (!res.ok) throw new Error(j.message || j.error || 'فشل تحليل الصورة');
       const extracted: any[] = j.data?.rows ?? [];
       if (extracted.length === 0) { setInfo('لم يتم استخراج أي صف من الصورة. جرّب صورة أوضح أو أدخل يدوياً.'); return; }
-      // Fill batch fields from the first row if still empty
-      const first = extracted[0] || {};
-      if (!warehouse && first.warehouse) setWarehouse(String(first.warehouse));
-      if (!invoiceNumber && first.invoiceNumber) setInvoiceNumber(String(first.invoiceNumber));
-      if (!invoiceDate && first.date) { const d = normDate(first.date); if (d) setInvoiceDate(d); }
       const mapped: Row[] = extracted.map(r => ({
-        item:      str(r.item),
-        company:   str(r.company),
-        quantity:  r.quantity != null ? String(num(r.quantity)) : '',
-        unitPrice: r.unitPrice != null ? String(num(r.unitPrice)) : '',
-        total:     r.total != null ? String(num(r.total)) : '',
-        bonus:     r.bonus != null ? String(num(r.bonus)) : '',
-        pharmacy:  str(r.pharmacy),
-        area:      str(r.area),
+        warehouse:     str(r.warehouse),
+        invoiceNumber: str(r.invoiceNumber),
+        date:          normDate(r.date),
+        item:          str(r.item),
+        company:       str(r.company),
+        quantity:      r.quantity != null ? String(num(r.quantity)) : '',
+        unitPrice:     r.unitPrice != null ? String(num(r.unitPrice)) : '',
+        total:         r.total != null ? String(num(r.total)) : '',
+        bonus:         r.bonus != null ? String(num(r.bonus)) : '',
+        pharmacy:      str(r.pharmacy),
+        area:          str(r.area),
+        imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
       }));
-      // Replace initial empty row, otherwise append
       setRows(rs => (rs.length === 1 && !rowHasData(rs[0]) ? mapped : [...rs, ...mapped]));
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
     } catch (e: any) {
@@ -123,7 +136,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       setExtracting(false);
       if (imgInputRef.current) imgInputRef.current.value = '';
     }
-  }, [warehouse, invoiceNumber, invoiceDate, token]);
+  }, [token]);
 
   // ── Save ──
   const onSave = async () => {
@@ -131,16 +144,18 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     const payloadRows = rows
       .filter(r => r.item.trim() && Number(r.quantity) > 0)
       .map(r => ({
-        repName, warehouse, invoiceNumber,
-        date:       invoiceDate || undefined,
-        item:       r.item.trim(),
-        company:    r.company.trim() || undefined,
-        quantity:   Number(r.quantity),
-        totalValue: r.total !== '' ? Number(r.total) : undefined,
-        unitPrice:  r.unitPrice !== '' ? Number(r.unitPrice) : undefined,
-        bonus:      r.bonus !== '' ? Number(r.bonus) : undefined,
-        pharmacy:   r.pharmacy.trim() || undefined,
-        area:       r.area.trim() || undefined,
+        repName,
+        warehouse:     r.warehouse.trim() || undefined,
+        invoiceNumber: r.invoiceNumber.trim() || undefined,
+        date:          r.date || undefined,
+        item:          r.item.trim(),
+        company:       r.company.trim() || undefined,
+        quantity:      Number(r.quantity),
+        totalValue:    r.total !== '' ? Number(r.total) : undefined,
+        unitPrice:     r.unitPrice !== '' ? Number(r.unitPrice) : undefined,
+        bonus:         r.bonus !== '' ? Number(r.bonus) : undefined,
+        pharmacy:      r.pharmacy.trim() || undefined,
+        area:          r.area.trim() || undefined,
       }));
     if (payloadRows.length === 0) { setError('أضف صفاً واحداً على الأقل باسم مادة وكمية أكبر من صفر.'); return; }
     if (!repName.trim()) { setError('اختر أو اكتب اسم المندوب المسؤول عن هذه المبيعات.'); return; }
@@ -169,6 +184,20 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     }
   };
 
+  const cols: { key: keyof Row; label: string; w: number; numeric?: boolean; wide?: boolean }[] = [
+    { key: 'warehouse',     label: 'المذخر',       w: 120 },
+    { key: 'invoiceNumber', label: 'رقم الفاتورة', w: 90 },
+    { key: 'date',          label: 'التاريخ',      w: 120 },
+    { key: 'item',          label: 'المادة*',      w: 220, wide: true },
+    { key: 'company',       label: 'الشركة',       w: 100 },
+    { key: 'quantity',      label: 'الكمية*',      w: 64,  numeric: true },
+    { key: 'unitPrice',     label: 'سعر الوحدة',   w: 80,  numeric: true },
+    { key: 'total',         label: 'السعر الكلي',  w: 90,  numeric: true },
+    { key: 'bonus',         label: 'البونص',       w: 60,  numeric: true },
+    { key: 'pharmacy',      label: 'الصيدلية',     w: 150 },
+    { key: 'area',          label: 'المنطقة',      w: 120 },
+  ];
+
   return (
     <div style={overlay} onClick={onClose}>
       <div style={panel} dir="rtl" onClick={e => e.stopPropagation()}>
@@ -178,58 +207,74 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         </div>
 
         <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
-          للمبيعات التي تأتي من فواتير المذاخر ولا تظهر في ملفات Excel. ارفع صورة الفاتورة ليستخرجها الذكاء الاصطناعي، أو اكتب الصفوف يدوياً — ثم راجعها واحفظها.
+          للمبيعات التي تأتي من فواتير المذاخر ولا تظهر في ملفات Excel. ارفع صورة الفاتورة ليستخرجها الذكاء الاصطناعي، أو اكتب الصفوف يدوياً — كل فاتورة تحتفظ بتفاصيلها الخاصة. راجعها ثم احفظها.
         </p>
 
-        {/* Image upload */}
-        <div style={dropZone}>
-          <input ref={imgInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
-            onChange={e => onImages(e.target.files)} />
-          <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={imgBtn}>
-            {extracting ? '⏳ جاري تحليل الفاتورة…' : '📷 رفع صورة فاتورة (تحليل ذكي)'}
-          </button>
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>يفهم نماذج مذاخر مختلفة · يمكن رفع عدة صور</span>
-        </div>
-
-        {/* Batch-level fields */}
-        <div style={batchGrid}>
+        {/* Image upload + rep */}
+        <div style={topBar}>
+          <div style={dropZone}>
+            <input ref={imgInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+              onChange={e => onImages(e.target.files)} />
+            <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={imgBtn}>
+              {extracting ? '⏳ جاري التحليل…' : '📷 رفع صورة فاتورة (تحليل ذكي)'}
+            </button>
+            <span style={{ fontSize: 11.5, color: '#94a3b8' }}>يفهم نماذج مختلفة · عدة صور (كل فاتورة بتفاصيلها)</span>
+          </div>
           <label style={lbl}>المندوب*
             <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
               placeholder="اسم المندوب" style={inp} />
             <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
           </label>
-          <label style={lbl}>المذخر
-            <input value={warehouse} onChange={e => setWarehouse(e.target.value)} placeholder="اسم المذخر" style={inp} />
-          </label>
-          <label style={lbl}>التاريخ
-            <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} style={inp} />
-          </label>
-          <label style={lbl}>رقم الفاتورة
-            <input value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="—" style={inp} />
-          </label>
         </div>
 
+        {/* Uploaded invoice thumbnails */}
+        {images.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            {images.map((u, i) => (
+              <button key={i} onClick={() => setPreview(u)} title={`عرض الفاتورة ${i + 1}`} style={thumb}>
+                <img src={u} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                <span style={{ fontSize: 11, color: '#475569' }}>فاتورة {i + 1}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Editable rows grid */}
-        <div style={{ overflowX: 'auto', marginBottom: 12 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 780 }}>
+        <div style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f8fafc' }}>
-                {['المادة*', 'الشركة', 'الكمية*', 'سعر الوحدة', 'السعر الكلي', 'البونص', 'الصيدلية', 'المنطقة', ''].map(h => (
-                  <th key={h} style={th}>{h}</th>
-                ))}
+                {cols.map(c => <th key={c.key} style={{ ...th, minWidth: c.w }}>{c.label}</th>)}
+                <th style={{ ...th, minWidth: 44 }}>صورة</th>
+                <th style={{ ...th, minWidth: 36 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={td}><input value={r.item} onChange={e => setCell(i, 'item', e.target.value)} style={cell} /></td>
-                  <td style={td}><input value={r.company} onChange={e => setCell(i, 'company', e.target.value)} style={cell} /></td>
-                  <td style={td}><input value={r.quantity} onChange={e => onQtyPrice(i, 'quantity', e.target.value)} style={cellNum} inputMode="decimal" /></td>
-                  <td style={td}><input value={r.unitPrice} onChange={e => onQtyPrice(i, 'unitPrice', e.target.value)} style={cellNum} inputMode="decimal" /></td>
-                  <td style={td}><input value={r.total} onChange={e => setCell(i, 'total', e.target.value)} style={cellNum} inputMode="decimal" /></td>
-                  <td style={td}><input value={r.bonus} onChange={e => setCell(i, 'bonus', e.target.value)} style={cellNum} inputMode="decimal" /></td>
-                  <td style={td}><input value={r.pharmacy} onChange={e => setCell(i, 'pharmacy', e.target.value)} style={cell} /></td>
-                  <td style={td}><input value={r.area} onChange={e => setCell(i, 'area', e.target.value)} style={cell} /></td>
+                  {cols.map(c => (
+                    <td key={c.key} style={td}>
+                      {c.wide ? (
+                        <textarea value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
+                          rows={2} title={r[c.key] as string}
+                          style={{ ...cell, minWidth: c.w, resize: 'vertical', lineHeight: 1.35, whiteSpace: 'pre-wrap' }} />
+                      ) : c.key === 'date' ? (
+                        <input type="date" value={r.date} onChange={e => setCell(i, 'date', e.target.value)} style={{ ...cell, minWidth: c.w }} />
+                      ) : c.numeric ? (
+                        <input value={r[c.key] as string} inputMode="decimal"
+                          onChange={e => (c.key === 'quantity' || c.key === 'unitPrice') ? onQtyPrice(i, c.key, e.target.value) : setCell(i, c.key, e.target.value)}
+                          style={{ ...cellNum, minWidth: c.w }} />
+                      ) : (
+                        <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
+                          title={r[c.key] as string} style={{ ...cell, minWidth: c.w }} />
+                      )}
+                    </td>
+                  ))}
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    {r.imageIndex != null && images[r.imageIndex]
+                      ? <button onClick={() => setPreview(images[r.imageIndex!])} title="عرض صورة الفاتورة" style={imgLinkBtn}>🖼️</button>
+                      : <span style={{ color: '#cbd5e1' }}>—</span>}
+                  </td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
                   </td>
@@ -281,13 +326,23 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
           <button onClick={onClose} style={cancelBtn}>إلغاء</button>
         </div>
       </div>
+
+      {/* Invoice image preview */}
+      {preview && (
+        <div style={{ ...overlay, zIndex: 10000, background: 'rgba(0,0,0,0.8)' }} onClick={() => setPreview(null)}>
+          <div style={{ position: 'relative', maxWidth: '92vw', maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setPreview(null)} style={{ ...xBtn, position: 'absolute', top: -34, left: 0, color: '#fff', fontSize: 26 }}>✕</button>
+            <img src={preview} alt="فاتورة" style={{ maxWidth: '92vw', maxHeight: '88vh', objectFit: 'contain', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── small helpers ──
 const str = (v: any) => (v == null ? '' : String(v)).trim();
-const rowHasData = (r: Row) => Object.values(r).some(v => String(v).trim() !== '');
+const rowHasData = (r: Row) => Object.entries(r).some(([k, v]) => k !== 'imageIndex' && String(v).trim() !== '');
 const normDate = (v: any): string => {
   const s = String(v ?? '').trim();
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
@@ -299,18 +354,20 @@ const normDate = (v: any): string => {
 
 // ── styles ──
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 9999, padding: '24px 12px', overflowY: 'auto' };
-const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 920, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
+const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 1120, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
 const header: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 };
 const xBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize: 20, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 };
-const dropZone: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: 14, border: '2px dashed #c7d2fe', borderRadius: 12, background: '#eef2ff', marginBottom: 14 };
-const imgBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
-const batchGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 };
-const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569' };
+const topBar: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'stretch', flexWrap: 'wrap', marginBottom: 12 };
+const dropZone: React.CSSProperties = { flex: '1 1 320px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: 12, border: '2px dashed #c7d2fe', borderRadius: 12, background: '#eef2ff' };
+const imgBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' };
+const thumb: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 4px 4px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' };
+const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569', minWidth: 200, justifyContent: 'center' };
 const inp: React.CSSProperties = { padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none', background: '#fafafa' };
 const th: React.CSSProperties = { padding: '8px 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap' };
-const td: React.CSSProperties = { padding: '3px 4px' };
-const cell: React.CSSProperties = { width: '100%', minWidth: 90, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, direction: 'rtl', outline: 'none' };
-const cellNum: React.CSSProperties = { ...cell, minWidth: 70, textAlign: 'left' };
+const td: React.CSSProperties = { padding: '3px 4px', verticalAlign: 'top' };
+const cell: React.CSSProperties = { width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };
+const cellNum: React.CSSProperties = { ...cell, textAlign: 'left' };
+const imgLinkBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1 };
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 14, lineHeight: 1 };
 const addBtn: React.CSSProperties = { padding: '7px 14px', background: '#f1f5f9', color: '#475569', border: '1px dashed #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const radio: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' };

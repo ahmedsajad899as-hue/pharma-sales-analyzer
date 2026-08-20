@@ -946,12 +946,12 @@ async function findOrCreateRep(name, userId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر الأدوية العراقية واستخراج بياناتها.
-الصورة المرفقة فاتورة بيع من مذخر أدوية إلى صيدلية/زبون. نماذج الفواتير تختلف من مذخر لآخر
-(ترتيب الأعمدة، المسميات، وقد يكون الخط مطبوعاً أو يدوياً) — افهم *معنى* الحقول لا مواضعها الثابتة.
+الصورة المرفقة فاتورة بيع من مذخر أدوية (البائع) إلى صيدلية/زبون (المشتري). نماذج الفواتير تختلف
+من مذخر لآخر (ترتيب الأعمدة، المسميات، وقد يكون الخط مطبوعاً أو يدوياً) — افهم *معنى* الحقول لا مواضعها.
 
 استخرج التالي:
-• من ترويسة الفاتورة (تنطبق على كل الأصناف): اسم المذخر (البائع، غالباً بأعلى الفاتورة مع الشعار)،
-  رقم الفاتورة، التاريخ، اسم الصيدلية/الزبون المشتري، والمنطقة إن وُجدت.
+• من ترويسة الفاتورة (تنطبق على كل أصناف هذه الفاتورة): اسم المذخر (البائع، غالباً بأعلى الفاتورة مع الشعار)،
+  رقم الفاتورة، التاريخ، اسم الصيدلية/الزبون المشتري، ومنطقة الصيدلية.
 • لكل صنف (سطر) في جدول الفاتورة: اسم المادة/الدواء، الشركة المصنّعة، الكمية،
   سعر الوحدة (الإفرادي)، السعر الكلي للسطر، والبونص (الكمية المجانية) إن وُجد.
 
@@ -959,26 +959,40 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
 بهذا الشكل بالضبط:
 [
   {
-    "item": "اسم المادة",
+    "item": "اسم المادة كاملاً",
     "company": "الشركة المصنّعة أو null",
     "quantity": 10,
     "unitPrice": 9900,
     "total": 99000,
     "bonus": 0,
-    "pharmacy": "اسم الصيدلية/الزبون",
+    "pharmacy": "اسم الصيدلية فقط",
     "warehouse": "اسم المذخر",
-    "area": "المنطقة أو null",
+    "area": "منطقة الصيدلية أو null",
     "date": "2026-08-19",
     "invoiceNumber": "22287"
   }
 ]
 
 قواعد صارمة:
-- كرّر قيم الترويسة (warehouse, pharmacy, invoiceNumber, date, area) في كل صف.
+- **اسم المادة (item):** انسخه كاملاً كما هو مكتوب في الفاتورة بلا اختصار أو حذف (الاسم + التركيز + الشكل، مثل "DEVA … 457MG SYRUP").
+- **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور". احذف هذه البادئات واكتب الاسم النظيف فقط.
+- **المنطقة (area):** هي منطقة/عنوان **الصيدلية المشترية** (يأتي عادةً في خانة خاصة أو مباشرةً بعد اسم الصيدلية) — وليست منطقة أو عنوان المذخر.
+- المذخر (warehouse) هو البائع أعلى الفاتورة، والصيدلية (pharmacy) هي المشتري — لا تخلط بينهما.
+- كرّر قيم الترويسة (warehouse, pharmacy, invoiceNumber, date, area) في كل صف من هذه الفاتورة.
 - الأرقام أرقام حقيقية بلا فواصل آلاف ولا رموز عملة (مثال: 99000 وليس "99,000").
 - إن لم تجد قيمة حقلٍ فاجعلها null — لا تختلق ولا تخمّن قيماً.
 - التاريخ بصيغة YYYY-MM-DD إن أمكن، وإلا كما هو مكتوب.
 - إن كانت الصورة غير واضحة أو ليست فاتورة، أعِد مصفوفة فارغة [].`;
+
+// Common prefixes/titles that get typed before a pharmacy/customer name on
+// Iraqi invoices. We strip them so the stored customer is the clean name.
+const PHARMACY_PREFIX_RE = /^\s*(ص\.?|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|د\.?|دكتور|dr\.?)\s+/i;
+function cleanPharmacyName(name) {
+  let s = String(name ?? '').trim();
+  // Strip repeatedly in case of stacked prefixes (e.g. "اسم الزبون ...")
+  for (let i = 0; i < 3 && PHARMACY_PREFIX_RE.test(s); i++) s = s.replace(PHARMACY_PREFIX_RE, '').trim();
+  return s;
+}
 
 /** Parse Gemini's reply into an array of invoice rows (mirrors analyzeSurveyEntriesBatched). */
 function parseInvoiceJson(raw) {
@@ -1008,7 +1022,11 @@ export async function extractInvoiceRows(images) {
   let processed = 0;
   let lastErr = null;
 
-  for (const img of images) {
+  // Process each image separately so multi-invoice uploads keep per-image header
+  // details (warehouse / invoiceNumber / date / pharmacy / area). `_imageIndex`
+  // lets the UI link each row back to the invoice photo it came from.
+  for (let idx = 0; idx < images.length; idx++) {
+    const img = images[idx];
     const elapsed = Date.now() - started;
     if (elapsed >= OVERALL_BUDGET_MS) break;
     try {
@@ -1021,7 +1039,11 @@ export async function extractInvoiceRows(images) {
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,
       });
-      allRows.push(...parseInvoiceJson(text));
+      for (const row of parseInvoiceJson(text)) {
+        if (row.pharmacy) row.pharmacy = cleanPharmacyName(row.pharmacy);
+        row._imageIndex = idx;
+        allRows.push(row);
+      }
       processed++;
     } catch (err) {
       lastErr = err;
@@ -1081,7 +1103,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       area:     normalizeAr(r.area)    || 'غير محدد',
       item:     normalizeAr(itemName),
       company:  r.company  ? normalizeAr(r.company)  : undefined,
-      customer: r.pharmacy ? normalizeAr(r.pharmacy) : undefined, // pharmacy = buyer = Customer
+      customer: r.pharmacy ? normalizeAr(cleanPharmacyName(r.pharmacy)) : undefined, // pharmacy = buyer = Customer (strip prefixes)
       quantity,
       totalValue,
       date:     r.date ? parseExcelDate(r.date) : undefined,
