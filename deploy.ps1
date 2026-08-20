@@ -45,11 +45,18 @@ if (-not $SkipPush) {
 Step "2/5 npm run build"
 npm run build
 if ($LASTEXITCODE -ne 0) { throw "build failed - deploy aborted" }
+# Drop source maps — never shipped. They bloat dist and (with content-hashed
+# names) would otherwise pile up on the server every deploy until the disk fills.
+Get-ChildItem dist -Recurse -Filter *.map -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 # 3) transfer code + dist
 Step "3/5 scp -> $server"
 scp -i $key -r server prisma package.json package-lock.json "${server}:${dir}/"
 if ($LASTEXITCODE -ne 0) { throw "code transfer failed" }
+# Clear stale hashed chunks first so old builds don't accumulate — each build
+# emits new content-hash filenames, so without this dist/assets grows unbounded
+# (it had reached 3110 files / 1.8 GB, which stalled scp and filled the disk).
+ssh -i $key $server "cd ${dir}/dist && find assets -type f -delete 2>/dev/null; mkdir -p assets"
 scp -i $key -r dist/* "${server}:${dir}/dist/"
 if ($LASTEXITCODE -ne 0) { throw "dist transfer failed" }
 

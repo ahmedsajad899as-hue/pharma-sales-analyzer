@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
 import XLSX from 'xlsx';
+import XLSXStyle from 'xlsx-js-style'; // same API as xlsx, but writes cell styles (fills/fonts)
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1602,11 +1603,28 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
 
     const colWidths = outputHeaders.map(h => ({ wch: Math.max(14, String(h).length + 4) }));
 
+    // Rows added via the manual / invoice-image entry carry source:'manual-invoice'
+    // in rawData. We tint them amber in the main sheets AND collect them into a
+    // dedicated sheet, so imported invoice sales are easy to spot in the export.
+    const isManual = (s) => { try { return JSON.parse(s.rawData || '{}').source === 'manual-invoice'; } catch { return false; } };
+    const AMBER = { fill: { patternType: 'solid', fgColor: { rgb: 'FFF3C7' } } };
+    const highlightManual = (ws, rowSources) => {
+      rowSources.forEach((s, ri) => {
+        if (!isManual(s)) return;
+        for (let C = 0; C < outputHeaders.length; C++) {
+          const addr = XLSX.utils.encode_cell({ r: ri + 1, c: C }); // +1 skips header row
+          if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+          ws[addr].s = AMBER;
+        }
+      });
+    };
+
     const wb = XLSX.utils.book_new();
 
     // Sheet 1 – مبيعات (sales only, totals positive)
     const wsSales = XLSX.utils.aoa_to_sheet([outputHeaders, ...makeRows(salesRows)]);
     wsSales['!cols'] = colWidths;
+    highlightManual(wsSales, salesRows);
     XLSX.utils.book_append_sheet(wb, wsSales, 'مبيعات');
 
     // Sheet 2 – ارجاع (returns, totals positive in their own sheet)
@@ -1621,6 +1639,7 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     ];
     const wsNet = XLSX.utils.aoa_to_sheet([outputHeaders, ...netRows]);
     wsNet['!cols'] = colWidths;
+    highlightManual(wsNet, [...salesRows, ...returnRows]); // net sheet = sales then returns
     XLSX.utils.book_append_sheet(wb, wsNet, 'الصافي (مبيع - ارجاع)');
 
     // Sheet 4 – ملخص
@@ -1691,7 +1710,34 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     wsSummary['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, wsSummary, 'الملخص');
 
-    const buf   = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    // Sheet 5 – مبيعات الفواتير (rows added manually / from invoice images), with
+    // their own clean columns pulled from rawData. Only added when such rows exist.
+    const manualSales = sales.filter(isManual);
+    if (manualSales.length > 0) {
+      const mHead = ['المذخر', 'رقم الفاتورة', 'التاريخ', 'المادة', 'الشركة', 'الكمية', 'سعر الوحدة', 'السعر الكلي', 'البونص', 'الصيدلية', 'المنطقة', 'النوع'];
+      const mData = manualSales.map(s => {
+        let raw = {}; try { raw = JSON.parse(s.rawData || '{}'); } catch {}
+        const d = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '';
+        return [
+          raw.warehouse ?? '', raw.invoiceNumber ?? '', d,
+          s.item?.name ?? '', raw.company ?? '',
+          s.quantity, raw.unitPrice ?? '', Math.round(Math.abs(s.totalValue)),
+          raw.bonus ?? '', raw.pharmacy ?? '', s.area?.name ?? '',
+          s.recordType === 'return' ? 'مرتجع' : 'مبيعات',
+        ];
+      });
+      const wsManual = XLSX.utils.aoa_to_sheet([mHead, ...mData]);
+      wsManual['!cols'] = mHead.map(h => ({ wch: Math.max(12, h.length + 3) }));
+      // Amber-bold header so the sheet reads as "these are the imported invoice rows"
+      for (let C = 0; C < mHead.length; C++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+        if (wsManual[addr]) wsManual[addr].s = { fill: { patternType: 'solid', fgColor: { rgb: 'FDE68A' } }, font: { bold: true } };
+      }
+      XLSX.utils.book_append_sheet(wb, wsManual, 'مبيعات الفواتير');
+    }
+
+    // Write with the style-aware fork so the amber highlights are preserved.
+    const buf   = XLSXStyle.write(wb, { type: 'buffer', bookType: 'xlsx' });
     const fname = `مبيعات_${userName}_${new Date().toLocaleDateString('ar-IQ').replace(/\//g, '-')}.xlsx`;
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
