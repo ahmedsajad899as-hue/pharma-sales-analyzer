@@ -31,6 +31,7 @@ interface Row {
   imageIndex: number | null; // index into `images` this row was extracted from
   box: number[] | null;         // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
   boxCustomer: number[] | null; // pharmacy/area block in the image
+  boxHeader: number[] | null;   // warehouse/invoice#/date block in the image
 }
 
 interface Props {
@@ -40,13 +41,15 @@ interface Props {
   onSaved: (msg: string) => void;
 }
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
 function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: number[] | null; onClose: () => void }) {
-  const [pos, setPos] = useState({ x: Math.max(16, window.innerWidth / 2 - 230), y: 70 });
+  // Default to the LEFT edge so the window doesn't cover the right-hand columns
+  // (item / warehouse in this RTL grid) — the field being confirmed stays visible.
+  const [pos, setPos] = useState({ x: 20, y: 64 });
   const [zoom, setZoom] = useState(1);            // image zoom (independent of window size)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -122,8 +125,8 @@ function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: nu
             style={{ width: '100%', display: 'block' }} />
           {hl && (
             <div style={{ position: 'absolute', left: `${hl.l}%`, top: `${hl.t}%`, width: `${hl.w}%`, height: `${hl.h}%`,
-              border: '3px solid #f59e0b', background: 'rgba(245,158,11,0.18)', borderRadius: 4,
-              boxShadow: '0 0 0 2px rgba(255,255,255,0.7)', pointerEvents: 'none' }} />
+              border: '2px solid #f59e0b', background: 'transparent', borderRadius: 3,
+              boxShadow: '0 0 0 2px rgba(255,255,255,0.85), inset 0 0 0 2px rgba(255,255,255,0.85)', pointerEvents: 'none' }} />
           )}
         </div>
       </div>
@@ -220,6 +223,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
         box:           Array.isArray(r._box) ? r._box : null,
         boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
+        boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
       }));
       setRows(rs => (rs.length === 1 && !rowHasData(rs[0]) ? mapped : [...rs, ...mapped]));
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
@@ -280,19 +284,25 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   // ── Smart-confirm mode: walk each field, auto-zoom the image to it, and
   // highlight the matching cell in the grid so the two are seen together. ──
   const [confirm, setConfirm] = useState<number | null>(null);
-  type Step = { kind: 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
+  type Step = { kind: 'header' | 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
   const steps: Step[] = [];
   {
     const seen = new Set<number>();
     rows.forEach((r, i) => {
       const imgKey = r.imageIndex ?? -1;
-      if (r.boxCustomer && !seen.has(imgKey)) { seen.add(imgKey); steps.push({ kind: 'customer', row: i, imageIndex: r.imageIndex, box: r.boxCustomer }); }
+      // Header (warehouse/invoice#/date) and customer are per-invoice → added once
+      if (!seen.has(imgKey)) {
+        seen.add(imgKey);
+        if (r.boxHeader)   steps.push({ kind: 'header',   row: i, imageIndex: r.imageIndex, box: r.boxHeader });
+        if (r.boxCustomer) steps.push({ kind: 'customer', row: i, imageIndex: r.imageIndex, box: r.boxCustomer });
+      }
       if (r.box) steps.push({ kind: 'row', row: i, imageIndex: r.imageIndex, box: r.box });
     });
   }
   const activeStep = confirm != null ? steps[confirm] : null;
   const cellActive = (rowIdx: number, key: keyof Row): boolean => {
     if (!activeStep || activeStep.row !== rowIdx) return false;
+    if (activeStep.kind === 'header') return key === 'warehouse' || key === 'invoiceNumber' || key === 'date';
     if (activeStep.kind === 'customer') return key === 'pharmacy' || key === 'area';
     return (['item', 'quantity', 'unitPrice', 'total', 'bonus'] as (keyof Row)[]).includes(key);
   };
@@ -311,6 +321,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const stepLabel = (st: Step | null): string => {
     if (!st) return '';
     const inv = st.imageIndex != null ? ` · فاتورة ${st.imageIndex + 1}` : '';
+    if (st.kind === 'header') return `المذخر ورقم الفاتورة والتاريخ${inv}`;
     if (st.kind === 'customer') return `الصيدلية والمنطقة${inv}`;
     return `الصنف: ${rows[st.row]?.item || '—'}${inv}`;
   };
