@@ -44,8 +44,8 @@ const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').tri
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
 function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) {
-  const [pos, setPos] = useState({ x: Math.max(16, window.innerWidth / 2 - 190), y: 84 });
-  const [w, setW] = useState(380);
+  const [pos, setPos] = useState({ x: Math.max(16, window.innerWidth / 2 - 220), y: 76 });
+  const [zoom, setZoom] = useState(1);            // image zoom (independent of window size)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   useEffect(() => {
     const move = (e: MouseEvent) => {
@@ -57,20 +57,31 @@ function DraggableImage({ src, onClose }: { src: string; onClose: () => void }) 
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, []);
+  const startDrag = (e: React.MouseEvent) => {
+    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    document.body.style.userSelect = 'none';
+  };
+  const onWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    setZoom(z => Math.min(6, Math.max(0.4, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
+  };
   return (
-    <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: w, maxWidth: '95vw',
-      background: '#fff', borderRadius: 10, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
-      <div onMouseDown={e => { dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; document.body.style.userSelect = 'none'; }}
+    <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: 440, maxWidth: '96vw',
+      background: '#fff', borderRadius: 10, boxShadow: '0 14px 48px rgba(0,0,0,0.5)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
+      <div onMouseDown={startDrag}
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
-        <span>📄 صورة الفاتورة — اسحب للتحريك</span>
-        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button onClick={() => setW(x => Math.max(240, x - 90))} title="تصغير" style={hdrBtn}>−</button>
-          <button onClick={() => setW(x => Math.min(760, x + 90))} title="تكبير" style={hdrBtn}>＋</button>
+        <span>📄 صورة الفاتورة — اسحب للتحريك · عجلة الماوس للتكبير</span>
+        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }} onMouseDown={e => e.stopPropagation()}>
+          <button onClick={() => setZoom(z => Math.max(0.4, +(z - 0.25).toFixed(2)))} title="تصغير" style={hdrBtn}>−</button>
+          <button onClick={() => setZoom(1)} title="إعادة ضبط" style={{ ...hdrBtn, width: 'auto', padding: '0 7px', fontSize: 10 }}>1:1</button>
+          <button onClick={() => setZoom(z => Math.min(6, +(z + 0.25).toFixed(2)))} title="تكبير" style={hdrBtn}>＋</button>
           <button onClick={onClose} title="إغلاق" style={hdrBtn}>✕</button>
         </span>
       </div>
-      <div style={{ maxHeight: '66vh', overflow: 'auto', background: '#0f172a', resize: 'vertical' }}>
-        <img src={src} alt="فاتورة" style={{ width: '100%', display: 'block' }} />
+      <div onWheel={onWheel}
+        style={{ maxHeight: '70vh', minHeight: 220, overflow: 'auto', background: '#0f172a', resize: 'both' }}>
+        <img src={src} alt="فاتورة" draggable={false}
+          style={{ width: `${zoom * 100}%`, display: 'block', transformOrigin: 'top right' }} />
       </div>
     </div>
   );
@@ -235,8 +246,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   ];
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={panel} dir="rtl" onClick={e => e.stopPropagation()}>
+    <div style={overlay}>
+      <div style={panel} dir="rtl">
         <div style={header}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>➕ إضافة مبيعات من فاتورة / يدوياً</h3>
           <button onClick={onClose} style={xBtn}>✕</button>
