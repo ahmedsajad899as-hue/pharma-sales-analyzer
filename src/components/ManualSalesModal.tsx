@@ -29,9 +29,10 @@ interface Row {
   pharmacy: string;
   area: string;
   imageIndex: number | null; // index into `images` this row was extracted from
-  box: number[] | null;         // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
-  boxCustomer: number[] | null; // pharmacy/area block in the image
-  boxHeader: number[] | null;   // warehouse/invoice#/date block in the image
+  box: number[] | null;          // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
+  boxCustomer: number[] | null;  // pharmacy/area block in the image
+  boxWarehouse: number[] | null; // warehouse name/logo
+  boxInvoice: number[] | null;   // invoice number + date block
 }
 
 interface Props {
@@ -41,12 +42,12 @@ interface Props {
   onSaved: (msg: string) => void;
 }
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxWarehouse: null, boxInvoice: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
-function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: number[] | null; onClose: () => void }) {
+function DraggableImage({ src, focusBox, onImageClick, onClose }: { src: string; focusBox?: number[] | null; onImageClick?: () => void; onClose: () => void }) {
   // Default to the LEFT edge so the window doesn't cover the right-hand columns
   // (item / warehouse in this RTL grid) — the field being confirmed stays visible.
   const [pos, setPos] = useState({ x: 20, y: 64 });
@@ -109,7 +110,7 @@ function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: nu
       background: '#fff', borderRadius: 10, boxShadow: '0 14px 48px rgba(0,0,0,0.5)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
       <div onMouseDown={startDrag}
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
-        <span>📄 صورة الفاتورة — اسحب للتحريك · عجلة الماوس للتكبير</span>
+        <span>{onImageClick ? '📄 انقر الصورة للحقل التالي · عجلة الماوس للتكبير · اسحب الشريط للتحريك' : '📄 صورة الفاتورة — اسحب للتحريك · عجلة الماوس للتكبير'}</span>
         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }} onMouseDown={e => e.stopPropagation()}>
           <button onClick={() => setZoom(z => Math.max(0.4, +(z - 0.25).toFixed(2)))} title="تصغير" style={hdrBtn}>−</button>
           <button onClick={() => setZoom(1)} title="إعادة ضبط" style={{ ...hdrBtn, width: 'auto', padding: '0 7px', fontSize: 10 }}>1:1</button>
@@ -117,16 +118,17 @@ function DraggableImage({ src, focusBox, onClose }: { src: string; focusBox?: nu
           <button onClick={onClose} title="إغلاق" style={hdrBtn}>✕</button>
         </span>
       </div>
-      <div ref={scrollRef} dir="ltr" onWheel={onWheel}
-        style={{ maxHeight: '70vh', minHeight: 240, overflow: 'auto', background: '#0f172a', resize: 'both' }}>
+      <div ref={scrollRef} dir="ltr" onWheel={onWheel} onClick={onImageClick}
+        title={onImageClick ? 'انقر للانتقال إلى الحقل التالي' : undefined}
+        style={{ maxHeight: '70vh', minHeight: 240, overflow: 'auto', background: '#0f172a', resize: 'both', cursor: onImageClick ? 'pointer' : 'default' }}>
         <div style={{ position: 'relative', width: `${zoom * 100}%` }}>
           <img ref={imgRef} src={src} alt="فاتورة" draggable={false}
             onLoad={() => { if (boxRef.current) focusOnBox(boxRef.current); }}
             style={{ width: '100%', display: 'block' }} />
           {hl && (
+            // outline (not border) offset OUTSIDE the box so it frames the words without covering them
             <div style={{ position: 'absolute', left: `${hl.l}%`, top: `${hl.t}%`, width: `${hl.w}%`, height: `${hl.h}%`,
-              border: '2px solid #f59e0b', background: 'transparent', borderRadius: 3,
-              boxShadow: '0 0 0 2px rgba(255,255,255,0.85), inset 0 0 0 2px rgba(255,255,255,0.85)', pointerEvents: 'none' }} />
+              outline: '3px solid #f59e0b', outlineOffset: '3px', background: 'transparent', pointerEvents: 'none' }} />
           )}
         </div>
       </div>
@@ -223,7 +225,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
         box:           Array.isArray(r._box) ? r._box : null,
         boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
-        boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
+        boxWarehouse:  Array.isArray(r._boxWarehouse) ? r._boxWarehouse : null,
+        boxInvoice:    Array.isArray(r._boxInvoice) ? r._boxInvoice : null,
       }));
       setRows(rs => (rs.length === 1 && !rowHasData(rs[0]) ? mapped : [...rs, ...mapped]));
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
@@ -284,17 +287,18 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   // ── Smart-confirm mode: walk each field, auto-zoom the image to it, and
   // highlight the matching cell in the grid so the two are seen together. ──
   const [confirm, setConfirm] = useState<number | null>(null);
-  type Step = { kind: 'header' | 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
+  type Step = { kind: 'warehouse' | 'invoice' | 'customer' | 'row'; row: number; imageIndex: number | null; box: number[] | null };
   const steps: Step[] = [];
   {
     const seen = new Set<number>();
     rows.forEach((r, i) => {
       const imgKey = r.imageIndex ?? -1;
-      // Header (warehouse/invoice#/date) and customer are per-invoice → added once
+      // warehouse / invoice(number+date) / customer are per-invoice → added once each
       if (!seen.has(imgKey)) {
         seen.add(imgKey);
-        if (r.boxHeader)   steps.push({ kind: 'header',   row: i, imageIndex: r.imageIndex, box: r.boxHeader });
-        if (r.boxCustomer) steps.push({ kind: 'customer', row: i, imageIndex: r.imageIndex, box: r.boxCustomer });
+        if (r.boxWarehouse) steps.push({ kind: 'warehouse', row: i, imageIndex: r.imageIndex, box: r.boxWarehouse });
+        if (r.boxInvoice)   steps.push({ kind: 'invoice',   row: i, imageIndex: r.imageIndex, box: r.boxInvoice });
+        if (r.boxCustomer)  steps.push({ kind: 'customer',  row: i, imageIndex: r.imageIndex, box: r.boxCustomer });
       }
       if (r.box) steps.push({ kind: 'row', row: i, imageIndex: r.imageIndex, box: r.box });
     });
@@ -302,10 +306,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const activeStep = confirm != null ? steps[confirm] : null;
   const cellActive = (rowIdx: number, key: keyof Row): boolean => {
     if (!activeStep || activeStep.row !== rowIdx) return false;
-    if (activeStep.kind === 'header') return key === 'warehouse' || key === 'invoiceNumber' || key === 'date';
+    if (activeStep.kind === 'warehouse') return key === 'warehouse';
+    if (activeStep.kind === 'invoice') return key === 'invoiceNumber' || key === 'date';
     if (activeStep.kind === 'customer') return key === 'pharmacy' || key === 'area';
     return (['item', 'quantity', 'unitPrice', 'total', 'bonus'] as (keyof Row)[]).includes(key);
   };
+  const nextStep = () => setConfirm(c => (c == null ? c : Math.min(steps.length - 1, c + 1)));
   useEffect(() => {
     if (confirm == null) return;
     const st = steps[confirm];
@@ -321,7 +327,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const stepLabel = (st: Step | null): string => {
     if (!st) return '';
     const inv = st.imageIndex != null ? ` · فاتورة ${st.imageIndex + 1}` : '';
-    if (st.kind === 'header') return `المذخر ورقم الفاتورة والتاريخ${inv}`;
+    if (st.kind === 'warehouse') return `اسم المذخر${inv}`;
+    if (st.kind === 'invoice') return `رقم الفاتورة والتاريخ${inv}`;
     if (st.kind === 'customer') return `الصيدلية والمنطقة${inv}`;
     return `الصنف: ${rows[st.row]?.item || '—'}${inv}`;
   };
@@ -493,7 +500,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       </div>
 
       {/* Draggable, non-modal preview so image + extracted rows are visible together */}
-      {preview && <DraggableImage src={preview} focusBox={activeStep?.box ?? null} onClose={() => { setPreview(null); setConfirm(null); }} />}
+      {preview && <DraggableImage src={preview} focusBox={activeStep?.box ?? null}
+        onImageClick={confirm != null && confirm < steps.length - 1 ? nextStep : undefined}
+        onClose={() => { setPreview(null); setConfirm(null); }} />}
     </div>
   );
 }
