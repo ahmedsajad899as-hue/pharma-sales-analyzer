@@ -46,33 +46,59 @@ const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').tri
 
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
-function DraggableImage({ src, focusBox, onImageClick, dockX, onClose }: { src: string; focusBox?: number[] | null; onImageClick?: () => void; dockX?: number | null; onClose: () => void }) {
-  // Default to the LEFT edge so the window doesn't cover the right-hand columns
-  // (item / warehouse in this RTL grid) — the field being confirmed stays visible.
-  const [pos, setPos] = useState({ x: 20, y: 64 });
-  // Parent docks the window to the side opposite the highlighted cell so they never overlap.
+function DraggableImage({ src, focusBox, dockX, onClose }: { src: string; focusBox?: number[] | null; dockX?: number | null; onClose: () => void }) {
+  const [pos, setPos] = useState({ x: 20, y: 64 }); // window position (dragged by header)
   useEffect(() => { if (typeof dockX === 'number') setPos(p => ({ ...p, x: dockX })); }, [dockX]);
-  const [zoom, setZoom] = useState(1);            // image zoom (independent of window size)
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1); zoomRef.current = zoom;
+  const winDragRef = useRef<{ dx: number; dy: number } | null>(null); // dragging the whole window
+  const panRef = useRef<{ sx: number; sy: number; sl: number; st: number; moved: boolean } | null>(null); // panning the image
   const scrollRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const boxRef = useRef<number[] | null>(null);
 
+  // Zoom while keeping the point under the cursor fixed (zoom-to-cursor).
+  const applyZoom = (clientX: number, clientY: number, newZoom: number) => {
+    const cont = scrollRef.current; if (!cont) return;
+    const rect = cont.getBoundingClientRect();
+    const px = clientX - rect.left, py = clientY - rect.top;
+    const contentX = cont.scrollLeft + px, contentY = cont.scrollTop + py;
+    const ratio = newZoom / zoomRef.current;
+    zoomRef.current = newZoom; // update now so rapid successive events read the right base
+    setZoom(newZoom);
+    requestAnimationFrame(() => { cont.scrollLeft = contentX * ratio - px; cont.scrollTop = contentY * ratio - py; });
+  };
+  const zoomBtn = (factor: number) => {
+    const cont = scrollRef.current; if (!cont) return;
+    const r = cont.getBoundingClientRect();
+    applyZoom(r.left + r.width / 2, r.top + r.height / 2, Math.min(6, Math.max(1, +(zoomRef.current * factor).toFixed(2))));
+  };
+
+  // One set of window listeners drives BOTH window-drag (header) and image-pan (inside image).
   useEffect(() => {
     const move = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      setPos({ x: e.clientX - dragRef.current.dx, y: Math.max(0, e.clientY - dragRef.current.dy) });
+      if (winDragRef.current) {
+        setPos({ x: e.clientX - winDragRef.current.dx, y: Math.max(0, e.clientY - winDragRef.current.dy) });
+      } else if (panRef.current) {
+        const cont = scrollRef.current; if (!cont) return;
+        const dx = e.clientX - panRef.current.sx, dy = e.clientY - panRef.current.sy;
+        if (Math.abs(dx) + Math.abs(dy) > 4) panRef.current.moved = true;
+        cont.scrollLeft = panRef.current.sl - dx;
+        cont.scrollTop = panRef.current.st - dy;
+      }
     };
-    const up = () => { dragRef.current = null; document.body.style.userSelect = ''; };
+    const up = (e: MouseEvent) => {
+      if (panRef.current && !panRef.current.moved) applyZoom(e.clientX, e.clientY, Math.min(6, +(zoomRef.current * 1.5).toFixed(2))); // click = zoom in at point
+      winDragRef.current = null; panRef.current = null; document.body.style.userSelect = '';
+    };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto zoom + scroll to a focused box (0-1000 coords). Stored in a ref so it can
-  // re-run on image load — naturalWidth is 0 until the photo finishes loading,
-  // which is why the very first focus didn't zoom. LTR container + top-left origin
-  // keeps the scroll math standard; the user can still wheel/pan to fine-tune.
-  const boxRef = useRef<number[] | null>(null);
+  // Auto zoom + scroll to a focused box (0-1000 coords), re-run on image load
+  // (naturalWidth is 0 before load). The user can then pan/zoom to fine-tune.
   const focusOnBox = (box: number[]) => {
     const cont = scrollRef.current, img = imgRef.current;
     if (!cont || !img || !img.naturalWidth) return;
@@ -81,7 +107,7 @@ function DraggableImage({ src, focusBox, onImageClick, dockX, onClose }: { src: 
     const Cw = cont.clientWidth, Ch = cont.clientHeight;
     const imgH1 = Cw * (img.naturalHeight / img.naturalWidth);
     const z = Math.min(6, Math.max(2, Math.min(0.9 / fracW, (0.9 * Ch) / (fracH * imgH1))));
-    setZoom(z);
+    zoomRef.current = z; setZoom(z);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const imgW = z * Cw, imgH = imgW * (img.naturalHeight / img.naturalWidth);
       cont.scrollLeft = Math.max(0, ((xmin + xmax) / 2 / 1000) * imgW - Cw / 2);
@@ -94,48 +120,45 @@ function DraggableImage({ src, focusBox, onImageClick, dockX, onClose }: { src: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusBox]);
 
-  const startDrag = (e: React.MouseEvent) => {
-    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+  const startWinDrag = (e: React.MouseEvent) => {
+    winDragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    document.body.style.userSelect = 'none';
+  };
+  const startPan = (e: React.MouseEvent) => {
+    const cont = scrollRef.current; if (!cont) return;
+    panRef.current = { sx: e.clientX, sy: e.clientY, sl: cont.scrollLeft, st: cont.scrollTop, moved: false };
     document.body.style.userSelect = 'none';
   };
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    // Never shrink below natural size (zoom = 1 fills the window width).
-    setZoom(z => Math.min(6, Math.max(1, +(z * (e.deltaY < 0 ? 1.15 : 0.87)).toFixed(3))));
+    applyZoom(e.clientX, e.clientY, Math.min(6, Math.max(1, +(zoomRef.current * (e.deltaY < 0 ? 1.2 : 0.83)).toFixed(3))));
   };
-  // Highlight rectangle over the focused field (percentages of the image), padded
-  // a little so a slightly-off AI box still frames the whole word/number.
-  const PAD = 1.3; // % of the image on each side
+
+  const PAD = 1.3;
   const hl = (focusBox && focusBox.length === 4)
-    ? {
-        l: Math.max(0, Math.min(focusBox[1], focusBox[3]) / 10 - PAD),
-        t: Math.max(0, Math.min(focusBox[0], focusBox[2]) / 10 - PAD),
-        w: Math.min(100, Math.abs(focusBox[3] - focusBox[1]) / 10 + 2 * PAD),
-        h: Math.min(100, Math.abs(focusBox[2] - focusBox[0]) / 10 + 2 * PAD),
-      }
+    ? { l: Math.max(0, Math.min(focusBox[1], focusBox[3]) / 10 - PAD), t: Math.max(0, Math.min(focusBox[0], focusBox[2]) / 10 - PAD),
+        w: Math.min(100, Math.abs(focusBox[3] - focusBox[1]) / 10 + 2 * PAD), h: Math.min(100, Math.abs(focusBox[2] - focusBox[0]) / 10 + 2 * PAD) }
     : null;
   return (
     <div style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 10001, width: 460, maxWidth: '96vw',
       background: '#fff', borderRadius: 10, boxShadow: '0 14px 48px rgba(0,0,0,0.5)', border: '1px solid #cbd5e1', overflow: 'hidden' }}>
-      <div onMouseDown={startDrag}
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
-        <span>{onImageClick ? '📄 انقر الصورة للحقل التالي · عجلة الماوس للتكبير · اسحب الشريط للتحريك' : '📄 صورة الفاتورة — اسحب للتحريك · عجلة الماوس للتكبير'}</span>
+      <div onMouseDown={startWinDrag}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', color: '#fff', cursor: 'move', fontSize: 11.5, fontWeight: 600, userSelect: 'none' }}>
+        <span>📄 داخل الصورة: انقر للتقريب · اسحب للتحريك · عجلة الماوس للتكبير/التصغير — واسحب هذا الشريط لنقل النافذة</span>
         <span style={{ display: 'flex', gap: 6, alignItems: 'center' }} onMouseDown={e => e.stopPropagation()}>
-          <button onClick={() => setZoom(z => Math.max(1, +(z - 0.25).toFixed(2)))} title="تصغير" style={hdrBtn}>−</button>
-          <button onClick={() => setZoom(1)} title="إعادة ضبط" style={{ ...hdrBtn, width: 'auto', padding: '0 7px', fontSize: 10 }}>1:1</button>
-          <button onClick={() => setZoom(z => Math.min(6, +(z + 0.25).toFixed(2)))} title="تكبير" style={hdrBtn}>＋</button>
+          <button onClick={() => zoomBtn(0.8)} title="تصغير" style={hdrBtn}>−</button>
+          <button onClick={() => { zoomRef.current = 1; setZoom(1); requestAnimationFrame(() => { const c = scrollRef.current; if (c) { c.scrollLeft = 0; c.scrollTop = 0; } }); }} title="إعادة ضبط" style={{ ...hdrBtn, width: 'auto', padding: '0 7px', fontSize: 10 }}>1:1</button>
+          <button onClick={() => zoomBtn(1.25)} title="تكبير" style={hdrBtn}>＋</button>
           <button onClick={onClose} title="إغلاق" style={hdrBtn}>✕</button>
         </span>
       </div>
-      <div ref={scrollRef} dir="ltr" onWheel={onWheel} onClick={onImageClick}
-        title={onImageClick ? 'انقر للانتقال إلى الحقل التالي' : undefined}
-        style={{ maxHeight: '70vh', minHeight: 240, overflow: 'auto', background: '#0f172a', resize: 'both', cursor: onImageClick ? 'pointer' : 'default' }}>
+      <div ref={scrollRef} dir="ltr" onWheel={onWheel} onMouseDown={startPan}
+        style={{ maxHeight: '70vh', minHeight: 240, overflow: 'auto', background: '#0f172a', resize: 'both', cursor: 'grab' }}>
         <div style={{ position: 'relative', width: `${zoom * 100}%` }}>
           <img ref={imgRef} src={src} alt="فاتورة" draggable={false}
             onLoad={() => { if (boxRef.current) focusOnBox(boxRef.current); }}
             style={{ width: '100%', display: 'block' }} />
           {hl && (
-            // outline (not border) offset OUTSIDE the box so it frames the words without covering them
             <div style={{ position: 'absolute', left: `${hl.l}%`, top: `${hl.t}%`, width: `${hl.w}%`, height: `${hl.h}%`,
               outline: '3px solid #f59e0b', outlineOffset: '3px', background: 'transparent', pointerEvents: 'none' }} />
           )}
@@ -419,7 +442,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
             <span style={{ fontSize: 12, color: '#78350f' }}>{confirm + 1}/{steps.length} — {stepLabel(activeStep)}</span>
             <span style={{ flex: 1 }} />
             <button onClick={() => setConfirm(c => Math.max(0, (c ?? 0) - 1))} disabled={confirm === 0} style={navBtn}>◀ السابق</button>
-            <button onClick={() => setConfirm(c => Math.min(steps.length - 1, (c ?? 0) + 1))} disabled={confirm >= steps.length - 1} style={navBtnP}>التالي ▶</button>
+            <button onClick={nextStep} disabled={confirm >= steps.length - 1} style={navBtnP}>التالي ▶</button>
             <button onClick={() => setConfirm(null)} style={navBtn}>إنهاء</button>
           </div>
         )}
@@ -525,7 +548,6 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
 
       {/* Draggable, non-modal preview so image + extracted rows are visible together */}
       {preview && <DraggableImage src={preview} focusBox={activeStep?.box ?? null}
-        onImageClick={confirm != null && confirm < steps.length - 1 ? nextStep : undefined}
         dockX={confirm != null ? dockX : undefined}
         onClose={() => { setPreview(null); setConfirm(null); }} />}
     </div>
