@@ -1069,6 +1069,33 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             style={{ ...btnStyle(someChecked ? '#f59e0b' : '#64748b', true), fontSize: 11, padding: '3px 10px' }}
                           >{allChecked ? '✗ إلغاء الكل' : someChecked ? `◐ ${directChecked}/${groupAreaIds.length}` : '✓ تحديد الكل'}</button>
                         )}
+
+                        {/* نقل المناطق المُحدَّدة (المؤشَّرة لهذا المستخدم) في مجموعة «غير
+                            محدد» دفعة واحدة إلى محافظة — أسرع من تعديل كل منطقة على حدة. */}
+                        {pid === null && directChecked > 0 && (
+                          <>
+                            <select
+                              value={bulkTargetProvince}
+                              onChange={e => setBulkTargetProvince(e.target.value === '' ? '' : Number(e.target.value))}
+                              disabled={areaCrudBusy}
+                              style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', direction: 'rtl', maxWidth: 150 }}
+                            >
+                              <option value="">نقل المحدد ({directChecked}) إلى...</option>
+                              {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                            <button
+                              disabled={areaCrudBusy || bulkTargetProvince === ''}
+                              onClick={() => {
+                                if (bulkTargetProvince === '') return;
+                                const checkedIds = groupAreaIds.filter(id => draftAreaIds.includes(id));
+                                assignAreaProvince(checkedIds, Number(bulkTargetProvince));
+                                setBulkTargetProvince('');
+                              }}
+                              title="ينقل فقط المناطق المؤشَّرة (المُعيَّنة لهذا المستخدم) ضمن هذه المجموعة إلى المحافظة المختارة"
+                              style={{ ...btnStyle('#0d9488', true), fontSize: 11, padding: '3px 10px' }}
+                            >📍 نقل</button>
+                          </>
+                        )}
                       </div>
 
                       {!collapsed && (
