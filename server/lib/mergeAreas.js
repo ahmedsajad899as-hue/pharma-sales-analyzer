@@ -78,6 +78,19 @@ export async function mergeAreaInto(prisma, oldId, canonicalId) {
     });
   }
 
+  // المحافظة: المنطقة الباقية تحتفظ بمحافظتها. إن كانت بلا محافظة ترث محافظة
+  // المُمتصّة — وإلا ضاعت المعلومة بحذف الصف.
+  const [oldArea, canonicalArea] = await Promise.all([
+    prisma.area.findUnique({ where: { id: oldId },       select: { provinceId: true } }),
+    prisma.area.findUnique({ where: { id: canonicalId }, select: { provinceId: true } }),
+  ]);
+  if (canonicalArea && canonicalArea.provinceId == null && oldArea?.provinceId != null) {
+    await prisma.area.update({
+      where: { id: canonicalId },
+      data:  { provinceId: oldArea.provinceId },
+    });
+  }
+
   // Finally remove the absorbed duplicate
   await prisma.area.delete({ where: { id: oldId } });
 }
@@ -91,14 +104,20 @@ export async function mergeAreaInto(prisma, oldId, canonicalId) {
  * @returns {Promise<{ mergedCount: number, groups: Array<{ canonicalId: number, name: string, absorbed: number }> }>}
  */
 export async function mergeDuplicateAreasByName(prisma, normalize) {
-  const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+  const allAreas = await prisma.area.findMany({
+    select: { id: true, name: true, provinceId: true }, orderBy: { id: 'asc' },
+  });
 
-  const byKey = new Map(); // normalizedName → [{id,name}, …] (id asc)
+  // المفتاح يضم المحافظة: «المركز» في بغداد و«المركز» في البصرة مكانان مختلفان
+  // ودمجهما يخلط مبيعاتهما بلا رجعة. المناطق بلا محافظة تبقى في مجموعة واحدة
+  // (السلوك القديم) لأننا لا نملك ما يفرّقها.
+  const byKey = new Map(); // normalizedName|provinceId → [{id,name}, …] (id asc)
   for (const a of allAreas) {
     const key = normalize(a.name);
     if (!key) continue;
-    if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key).push(a);
+    const groupKey = key + '|' + (a.provinceId ?? '');
+    if (!byKey.has(groupKey)) byKey.set(groupKey, []);
+    byKey.get(groupKey).push(a);
   }
 
   let mergedCount = 0;

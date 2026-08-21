@@ -9,6 +9,7 @@ import { getRepresentativeReport } from '../representatives/representatives.cont
 import { COLUMN_ALIASES } from '../sales/sales.service.js';
 import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 
 const router = Router();
 
@@ -48,31 +49,11 @@ router.get('/overall', async (req, res) => {
         select: { id: true, userId: true },
       });
       if (sharedFiles.length > 0) {
-        // Try userAreaAssignment first, then fall back to scientificRepArea
-        // (scientific reps have areas in scientificRepArea, not userAreaAssignment)
-        let areaIds = [];
-        const userAreaRows = await prisma.userAreaAssignment.findMany({
-          where: { userId },
-          select: { areaId: true },
-        });
-        if (userAreaRows.length > 0) {
-          areaIds = userAreaRows.map(a => a.areaId);
-        } else {
-          // Check if this user is linked to a scientific rep (via user.linkedRepId)
-          const userRow = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { linkedRepId: true },
-          });
-          if (userRow?.linkedRepId) {
-            const sciAreaRows = await prisma.scientificRepArea.findMany({
-              where: { scientificRepId: userRow.linkedRepId },
-              select: { areaId: true },
-            });
-            if (sciAreaRows.length > 0) {
-              areaIds = sciAreaRows.map(a => a.areaId);
-            }
-          }
-        }
+        // نطاق المناطق الفعلي: UserAreaAssignment ∪ ScientificRepArea ∪ مناطق
+        // المحافظات المعيّنة. كان هنا تسلسل يدوي يجرّب الأول ثم يتراجع للثاني —
+        // وُحّد في areaScope.js ليشمل توسيع المحافظات، وليعطي اتحاداً بدل
+        // «أول مصدر غير فارغ» (مستخدم له مناطق يدوية ومحافظة كان يفقد الثانية).
+        const areaIds = await resolveEffectiveAreaIds(userId);
         if (areaIds.length > 0) {
           areaFilter = { areaId: { in: areaIds } };
         }

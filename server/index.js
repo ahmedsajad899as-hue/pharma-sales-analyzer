@@ -20,6 +20,8 @@ import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './l
 import { normalizeItemKey, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
+import { seedProvinces, autoMatchProvinces } from './lib/provinces.js';
+import { resolveEffectiveAreaIds, syncUserAreaDerivedLinks, userIdsAssignedToProvinces } from './lib/areaScope.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeItemInto, mergeReps, mergeCompanies,
@@ -166,13 +168,176 @@ app.get('/api/sa/items', requireSuperAdmin, async (req, res) => {
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   res.json({ success: true, data: deduped });
 });
+// حقول المنطقة التي تحتاجها لوحة السوبر أدمن: المحافظة لتجميع القائمة،
+// و provinceConflict لعرض شارة تحذير حين ورد اسم المنطقة بمحافظة مختلفة.
+/**
+ * عدد أطباء السيرفي المرتبطين بمنطقة. MasterSurveyDoctor يخزّن اسم المنطقة
+ * نصاً (areaName) بلا FK، فالمطابقة تتم بالاسم المطبَّع — وهذا أيضاً يلتقط
+ * اختلافات التهجئة (الحارثية/الحارثيه) التي كان FK ليفوّتها أصلاً.
+ */
+async function countSurveyDoctorsByAreaName(areaId) {
+  const area = await prisma.area.findUnique({ where: { id: areaId }, select: { name: true } });
+  if (!area) return 0;
+  const target = normalizeArabic(area.name);
+  const rows = await prisma.masterSurveyDoctor.findMany({
+    where: { areaName: { not: null } },
+    select: { areaName: true },
+  });
+  return rows.filter(r => normalizeArabic(r.areaName || '') === target).length;
+}
+
+const AREA_SA_SELECT = { id: true, name: true, provinceId: true, provinceConflict: true };
+
+// ════════════════════════════════════════════════════════════════════════════
+// المحافظات (Provinces) — إدارة السوبر أدمن
+// ────────────────────────────────────────────────────────────────────────────
+// المحافظة عالمية (بلا userId) بعكس المنطقة: قائمة العراق ثابتة ومشتركة.
+// تعيينها لمستخدم يتم من PUT /api/sa/users/:id/provinces، وتوسيعها إلى مناطق
+// يحدث وقت الاستعلام في lib/areaScope.js — لا تُسطَّح إلى صفوف مناطق.
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET /api/sa/provinces — القائمة + عدد المناطق في كل محافظة
+app.get('/api/sa/provinces', requireSuperAdmin, async (req, res) => {
+  try {
+    const provinces = await prisma.province.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, sortOrder: true, _count: { select: { areas: true } } },
+    });
+    const unassignedCount = await prisma.area.count({ where: { provinceId: null } });
+    res.json({
+      success: true,
+      data: provinces.map(p => ({
+        id: p.id, name: p.name, sortOrder: p.sortOrder, areaCount: p._count.areas,
+      })),
+      unassignedCount,
+    });
+  } catch (err) {
+    console.error('[provinces-list]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/provinces — إضافة محافظة { name }
+app.post('/api/sa/provinces', requireSuperAdmin, async (req, res) => {
+  try {
+    const name = String(req.body?.name ?? '').trim();
+    if (!name) return res.status(400).json({ success: false, error: 'اسم المحافظة مطلوب' });
+    const norm = normalizeArabic(name);
+    const existing = await prisma.province.findMany({ select: { id: true, name: true } });
+    if (existing.some(p => normalizeArabic(p.name) === norm)) {
+      return res.status(409).json({ success: false, error: 'توجد محافظة بنفس الاسم بالفعل' });
+    }
+    const maxOrder = existing.length;
+    await prisma.province.create({ data: { name, aliases: '[]', sortOrder: maxOrder + 1 } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[province-create]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/sa/provinces/:id — تعديل الاسم { name }
+app.put('/api/sa/provinces/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const name = String(req.body?.name ?? '').trim();
+    if (!name) return res.status(400).json({ success: false, error: 'اسم المحافظة مطلوب' });
+    const norm = normalizeArabic(name);
+    const others = await prisma.province.findMany({ where: { id: { not: id } }, select: { name: true } });
+    if (others.some(p => normalizeArabic(p.name) === norm)) {
+      return res.status(409).json({ success: false, error: 'توجد محافظة أخرى بنفس الاسم' });
+    }
+    await prisma.province.update({ where: { id }, data: { name } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[province-rename]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/sa/provinces/:id — حذف المحافظة فقط. مناطقها تعود «غير محدد»
+// ولا تُحذف أي بيانات مبيعات؛ وتعيينات المستخدمين لها تختفي بـ Cascade.
+app.delete('/api/sa/provinces/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const affected = await prisma.userProvinceAssignment.findMany({
+      where: { provinceId: id }, select: { userId: true },
+    });
+    await prisma.area.updateMany({ where: { provinceId: id }, data: { provinceId: null } });
+    await prisma.province.delete({ where: { id } });
+
+    // المستخدمون الذين فقدوا هذه المحافظة تغيّر نطاقهم — أعد بناء لقطاتهم
+    for (const uid of [...new Set(affected.map(a => a.userId))]) {
+      try { await syncUserAreaDerivedLinks(uid); } catch { /* غير حابس */ }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[province-delete]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/sa/areas/province-bulk — إسناد مناطق لمحافظة دفعة واحدة
+// { areaIds: number[], provinceId: number|null }  (null = إرجاعها «غير محدد»)
+// يمسح provinceConflict لأن قرار المدير يحسم التعارض.
+app.put('/api/sa/areas/province-bulk', requireSuperAdmin, async (req, res) => {
+  try {
+    const areaIds = (req.body?.areaIds ?? []).map(Number).filter(Number.isInteger);
+    const provinceIdRaw = req.body?.provinceId;
+    const provinceId = provinceIdRaw == null ? null : Number(provinceIdRaw);
+    if (areaIds.length === 0) return res.status(400).json({ success: false, error: 'لم تُحدَّد أي منطقة' });
+    if (provinceId != null && !Number.isInteger(provinceId)) {
+      return res.status(400).json({ success: false, error: 'معرّف محافظة غير صالح' });
+    }
+    if (provinceId != null) {
+      const p = await prisma.province.findUnique({ where: { id: provinceId }, select: { id: true } });
+      if (!p) return res.status(404).json({ success: false, error: 'المحافظة غير موجودة' });
+    }
+
+    await prisma.area.updateMany({
+      where: { id: { in: areaIds } },
+      data:  { provinceId, provinceConflict: null },
+    });
+
+    // نطاق كل مستخدم معيَّن على المحافظة (القديمة أو الجديدة) تغيّر
+    if (provinceId != null) {
+      for (const uid of await userIdsAssignedToProvinces([provinceId])) {
+        try { await syncUserAreaDerivedLinks(uid); } catch { /* غير حابس */ }
+      }
+    }
+
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, updated: areaIds.length });
+  } catch (err) {
+    console.error('[area-province-bulk]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/provinces/auto-match — إعادة تشغيل المطابقة التلقائية يدوياً.
+// { all: true } يعيد مطابقة كل المناطق حتى المُسندة (يتجاوز تعديلات المدير — لا
+// يُستعمل إلا عمداً)؛ الافتراضي يقتصر على المناطق بلا محافظة.
+app.post('/api/sa/provinces/auto-match', requireSuperAdmin, async (req, res) => {
+  try {
+    const onlyUnassigned = req.body?.all !== true;
+    const stats = await autoMatchProvinces(prisma, { onlyUnassigned });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, stats, data: finalAreas });
+  } catch (err) {
+    console.error('[provinces-auto-match]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   // Return ONLY area names from the latest active survey (exact match, nothing extra)
   const activeSurvey = await prisma.masterSurvey.findFirst({
     where: { isActive: true }, orderBy: { createdAt: 'desc' }, select: { id: true },
   });
   if (!activeSurvey) {
-    const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const areas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     return res.json({ success: true, data: areas });
   }
   const surveyRows = await prisma.masterSurveyDoctor.findMany({
@@ -184,7 +349,7 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   // Ensure each survey area exists — but match by Arabic-normalised name so spelling
   // variants (الحارثية/الحارثيه) collapse onto a single canonical Area row instead of
   // re-creating a duplicate every time this endpoint runs.
-  const existing = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+  const existing = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
   const existingByNorm = new Map(); // normalizedName → first (lowest-id) area row
   for (const a of existing) {
     const key = normalizeArabic(a.name);
@@ -193,7 +358,7 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   const toCreate = surveyNames.filter(n => !existingByNorm.has(normalizeArabic(n)));
   if (toCreate.length > 0) {
     await prisma.area.createMany({ data: toCreate.map(name => ({ name })), skipDuplicates: true });
-    const fresh = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    const fresh = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
     existingByNorm.clear();
     for (const a of fresh) {
       const key = normalizeArabic(a.name);
@@ -212,7 +377,7 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   result.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   // If survey has no area data, fall back to all areas in the Area table (deduplicated by name)
   if (result.length === 0) {
-    const allAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    const allAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
     const seen = new Map();
     for (const a of allAreas) {
       const key = normalizeArabic(a.name);
@@ -252,7 +417,7 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
 
     // 5. Delete areas NOT in survey AND having no sales/plan_areas (orphans)
     const surveySet = new Set(surveyNames);
-    const allFinal = await prisma.area.findMany({ select: { id: true, name: true } });
+    const allFinal = await prisma.area.findMany({ select: AREA_SA_SELECT });
     const areasNotInSurvey = allFinal.filter(a => !surveySet.has(a.name.trim()));
     for (const area of areasNotInSurvey) {
       const [saleCount, planCount] = await Promise.all([
@@ -271,8 +436,13 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
       }
     }
 
-    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
-    res.json({ success: true, data: finalAreas, count: finalAreas.length });
+    // المناطق التي أُنشئت للتو من السيرفي بلا محافظة — أسندها تلقائياً
+    let provinceStats = null;
+    try { provinceStats = await autoMatchProvinces(prisma); }
+    catch (e) { console.warn('[reset-areas] autoMatchProvinces failed (non-fatal):', e.message); }
+
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, count: finalAreas.length, provinceStats });
   } catch (err) {
     console.error('[reset-areas]', err);
     res.status(500).json({ success: false, error: err.message });
@@ -287,7 +457,7 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
 app.post('/api/sa/areas/merge-duplicates', requireSuperAdmin, async (req, res) => {
   try {
     const { mergedCount, groups } = await mergeDuplicateAreasByName(prisma, normalizeArabic);
-    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     res.json({ success: true, data: finalAreas, mergedCount, groups, count: finalAreas.length });
   } catch (err) {
     console.error('[merge-duplicate-areas]', err);
@@ -300,7 +470,7 @@ app.post('/api/sa/areas/merge-duplicates', requireSuperAdmin, async (req, res) =
 // already auto-merged), so the master admin can confirm/dismiss each one.
 app.get('/api/sa/areas/merge-suggestions', requireSuperAdmin, async (req, res) => {
   try {
-    const areas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    const areas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
     // Attach sale counts so the admin can pick the more-populated row as canonical.
     const counts = await prisma.sale.groupBy({ by: ['areaId'], _count: { _all: true } });
     const countByArea = new Map(counts.map(c => [c.areaId, c._count._all]));
@@ -342,7 +512,7 @@ app.post('/api/sa/areas/merge', requireSuperAdmin, async (req, res) => {
     if (!from || !to) return res.status(404).json({ success: false, error: 'منطقة غير موجودة' });
 
     await mergeAreaInto(prisma, fromId, toId);
-    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[area-merge-pair]', err);
@@ -369,7 +539,9 @@ app.get('/api/sa/areas/:id/usage', requireSuperAdmin, async (req, res) => {
       prisma.scientificRepArea.count({ where: { areaId: id } }),
       prisma.representativeArea.count({ where: { areaId: id } }),
       prisma.userAreaAssignment.count({ where: { areaId: id } }),
-      prisma.masterSurveyDoctor.count({ where: { areaId: id } }),
+      // MasterSurveyDoctor يخزّن اسم المنطقة نصاً (areaName) ولا يملك areaId —
+      // الاستعلام بـ areaId كان يرمي Unknown arg ويكسر هذه النقطة بالكامل.
+      countSurveyDoctorsByAreaName(id),
     ]);
     const usage = { sales, plans, doctors, pharmacies, pharmacyVisits, sciReps, reps, assignments, surveyDoctors };
     const total = Object.values(usage).reduce((a, b) => a + b, 0);
@@ -389,12 +561,12 @@ app.post('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     const name = String(req.body?.name ?? '').trim();
     if (!name) return res.status(400).json({ success: false, error: 'اسم المنطقة مطلوب' });
     const norm = normalizeArabic(name);
-    const existing = await prisma.area.findMany({ select: { id: true, name: true } });
+    const existing = await prisma.area.findMany({ select: AREA_SA_SELECT });
     if (existing.some(a => normalizeArabic(a.name) === norm)) {
       return res.status(409).json({ success: false, error: 'توجد منطقة بنفس الاسم بالفعل' });
     }
     await prisma.area.create({ data: { name } });
-    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[area-create]', err);
@@ -418,7 +590,7 @@ app.put('/api/sa/areas/:id', requireSuperAdmin, async (req, res) => {
       return res.status(409).json({ success: false, error: 'توجد منطقة أخرى بنفس الاسم' });
     }
     await prisma.area.update({ where: { id }, data: { name } });
-    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[area-rename]', err);
@@ -459,7 +631,8 @@ app.delete('/api/sa/areas/:id', requireSuperAdmin, async (req, res) => {
       await prisma.doctor.updateMany({ where: { areaId: id }, data: { areaId: null } });
       await prisma.pharmacyVisit.updateMany({ where: { areaId: id }, data: { areaId: null } });
       await prisma.pharmacy.updateMany({ where: { areaId: id }, data: { areaId: null } });
-      await prisma.masterSurveyDoctor.updateMany({ where: { areaId: id }, data: { areaId: null } });
+      // لا يوجد areaId لنُصفّره هنا — الحقل نصي، وأطباء السيرفي لا يُفكّ ارتباطهم
+      // بحذف المنطقة (يظلون مرتبطين بالاسم). نتركهم كما هم عمداً.
       // Remove join rows that have a required areaId
       await prisma.planArea.deleteMany({ where: { areaId: id } });
       await prisma.scientificRepArea.deleteMany({ where: { areaId: id } });
@@ -468,7 +641,7 @@ app.delete('/api/sa/areas/:id', requireSuperAdmin, async (req, res) => {
       await prisma.area.delete({ where: { id } });
     }
 
-    const finalAreas = await prisma.area.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[area-delete]', err);
@@ -1499,9 +1672,11 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     });
     let areaIds;
     if (shareRecord?.customAreaIds) {
+      // تخصيص المشاركة يتقدّم دائماً على نطاق المستخدم — قرار صريح لهذا الملف
       try { areaIds = JSON.parse(shareRecord.customAreaIds); } catch { areaIds = []; }
     } else {
-      areaIds = targetUser.areaAssignments.map(a => a.areaId);
+      // النطاق الفعلي: المناطق المحددة ∪ مناطق المحافظات المعيّنة (areaScope.js)
+      areaIds = await resolveEffectiveAreaIds(targetId, { linkedRepId: targetUser.linkedRepId ?? null });
     }
     const userName = targetUser.displayName || targetUser.username;
 
@@ -2763,7 +2938,9 @@ function analyzePharmaSalesData(data, filters) {
         || headers.find(h => al.some(a => a.length > 2 && norm(h).includes(a)));
   };
   const repColumn    = findCol(COLUMN_ALIASES.repName);
-  const regionColumn = findCol(COLUMN_ALIASES.area);
+  // نفس تراجع محلّل الرفع: «محافظة» لم تعد alias للمنطقة، فملف يحمل عمود
+  // المحافظة وحده كان سيفقد التجميع الجغرافي هنا لولا هذا التراجع.
+  const regionColumn = findCol(COLUMN_ALIASES.area) || findCol(COLUMN_ALIASES.province);
   const drugColumn   = findCol(COLUMN_ALIASES.item);
   const qtyColumn    = findCol(COLUMN_ALIASES.quantity);
   // عمود القيمة: نفضّل عمود الإجمالي/القيمة؛ وإن غاب نحسبه لاحقاً من الكمية × سعر الوحدة
@@ -3983,6 +4160,10 @@ if (process.env.VERCEL) {
     ensurePrimaryCompanies()
       .then(n => { if (n) console.log(`✓ تم تعيين شركة رئيسية لـ ${n} مستخدم (backfill)`); })
       .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
+    // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
+    seedProvinces(prisma)
+      .then(n => console.log(`✓ المحافظات جاهزة (${n})`))
+      .catch(e => console.error('[seedProvinces]', e.message));
   });
 }
 

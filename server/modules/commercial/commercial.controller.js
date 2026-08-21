@@ -1,4 +1,6 @@
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
+import { resolveEffectiveAreas } from '../../lib/areaScope.js';
 import XLSX   from 'xlsx';
 import fs     from 'fs';
 import crypto from 'crypto';
@@ -793,12 +795,8 @@ export async function getSurveyPharmacies(req, res, next) {
     const { id: userId, role } = req.user;
     if (!isRep(role)) return res.status(403).json({ error: 'Commercial reps only' });
 
-    // Get rep's area assignments
-    const areaAssignments = await prisma.userAreaAssignment.findMany({
-      where: { userId },
-      select: { areaId: true },
-    });
-    const areaIds = areaAssignments.map(a => a.areaId);
+    // نطاق مناطق المندوب — يشمل مناطق محافظاته المعيّنة (lib/areaScope.js)
+    const areaIds = await resolveEffectiveAreaIds(userId);
 
     // Return pharmacies that belong to rep's areas OR were added by this rep directly
     const pharmacies = await prisma.pharmacy.findMany({
@@ -848,11 +846,8 @@ export async function getRepDashboard(req, res, next) {
         },
         _sum: { returnedAmount: true },
       }),
-      // User's assigned areas
-      prisma.userAreaAssignment.findMany({
-        where: { userId },
-        include: { area: { select: { id: true, name: true } } },
-      }),
+      // نطاق مناطق المستخدم — يشمل مناطق محافظاته المعيّنة (lib/areaScope.js)
+      resolveEffectiveAreas(userId).then(rows => rows.map(a => ({ areaId: a.id, area: a }))),
       // Invoice items for company breakdown
       prisma.commercialInvoiceItem.findMany({
         where: {

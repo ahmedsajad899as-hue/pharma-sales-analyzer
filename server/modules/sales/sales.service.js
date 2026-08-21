@@ -19,6 +19,8 @@ import {
   getAllCompanies,
 } from './sales.repository.js';
 import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
+import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
+import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { loadResolutionContext } from '../../lib/itemResolver.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -44,11 +46,17 @@ export const COLUMN_ALIASES = {
     'مندوب', 'اسم المندوب', 'المندوب', 'اسم الممثل', 'الممثل', 'البائع',
     'اسم البائع', 'موظف المبيعات', 'مندوب المبيعات',
   ],
+  // المحافظة لم تعد هنا — صارت حقلاً مستقلاً (province) أدناه. كانت الترويستان
+  // «محافظة» و«الموقع» في نفس القائمة، و resolveColumns يأخذ أول alias يطابق
+  // ترويسة موجودة، فيفوز عمود واحد ويُهمل الآخر تماماً.
   area:       [
     'area', 'region', 'territory', 'zone', 'city', 'location', 'district',
     'منطقة', 'المنطقة', 'المدينة', 'مدينة', 'المنطقه', 'منطقه',
-    'المحافظة', 'محافظة', 'الفرع', 'فرع', 'الموقع',
+    'الفرع', 'فرع', 'الموقع',
   ],
+  // المستوى الجغرافي الأعلى. القائمة مشتركة مع autoMatchProvinces الذي يقرأ
+  // نفس الترويسات من Sale.rawData للملفات المرفوعة قبل هذه الميزة.
+  province:   [...PROVINCE_COLUMN_ALIASES],
   item:       [
     // NOTE: order matters — resolveColumns() picks the FIRST alias that matches a
     // header. Explicit drug/item-name headers come first so a file that has both
@@ -273,10 +281,23 @@ export async function processUploadedFile(file, options = {}) {
       rowRecordType = (fileType === 'returns' || forceReturn || rawQty < 0 || rawTotal < 0) ? 'return' : 'sale';
     }
 
+    // قيمة عمود المحافظة — تُحفظ على Area لاحقاً، لا على Sale (المحافظة تُشتق
+    // من المنطقة). null إن لم يوجد عمود محافظة في الملف.
+    const provinceVal = String(raw[rc.province] || '').trim() || null;
+
+    // تراجع: ملف فيه «محافظة» فقط بلا عمود منطقة كان يعمل قبل فصل الحقلين
+    // (كانت «محافظة» alias للمنطقة). نُبقيه يعمل باستعمال المحافظة اسماً
+    // للمنطقة أيضاً، وإلا صارت كل صفوفه «غير محدد».
+    const areaVal = String(raw[rc.area] || '').trim()
+      || provinceVal
+      || String(raw['_sheetName'] || '').trim()
+      || 'غير محدد';
+
     const parsed = {
       repName:    String(raw[rc.repName]    || '').trim() || 'غير محدد',
-      // Use sheet name as area when no area column is found in the row
-      area:       String(raw[rc.area]       || raw['_sheetName'] || '').trim() || 'غير محدد',
+      // اسم الشيت يُستعمل كمنطقة حين لا يوجد عمود منطقة ولا محافظة في الصف
+      area:       areaVal,
+      province:   provinceVal,
       item:       String(raw[rc.item]       || '').trim() || 'غير محدد',
       company:    (String(raw[rc.company]   || '').trim()) || undefined,
       quantity:   qty,
@@ -377,6 +398,8 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     if (row.company)  row.company  = normalizeAr(row.company);
   }
 
+  // المحافظة تُكتب على Area لا على Sale — تُشتق لاحقاً عبر Area.provinceId
+  const areaProvinceMap = await buildAreaProvinceMap(validRows);
   const uniqueAreas     = [...new Set(validRows.map(r => r.area))];
   const uniqueItems     = [...new Set(validRows.map(r => r.item))];
   const uniqueReps      = [...new Set(validRows.map(r => r.repName))];
@@ -390,12 +413,28 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     : null;
 
   const [areaMap, itemMap, repMap, customerMap, companyMap] = await Promise.all([
-    resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId)),
+    resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId, areaProvinceMap[name] ?? null)),
     resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId, sciCompanyIds, itemCtx)),
     resolveEntities(uniqueReps,      name => findOrCreateRep(name, userId)),
     resolveEntities(uniqueCustomers, name => findOrCreateCustomer(name, userId)),
     resolveEntities(uniqueCompanies, name => findOrCreateCompany(name, userId)),
   ]);
+
+  // المستخدمون المعيَّنون على المحافظات الواردة في هذا الملف قد تكون دخلت
+  // نطاقَهم مناطقُ جديدة للتو. فلترتهم وقت الاستعلام تلتقط ذلك تلقائياً، لكن
+  // اللقطات المشتقة (ScientificRepArea/Commercial) لا — فنعيد بناءها.
+  // غير حابس: فشلُه لا يُفشل الرفع.
+  const touchedProvinceIds = [...new Set(Object.values(areaProvinceMap))];
+  if (touchedProvinceIds.length > 0) {
+    try {
+      const uids = await userIdsAssignedToProvinces(touchedProvinceIds);
+      for (const uid of uids) {
+        await syncUserAreaDerivedLinks(uid).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('[upload] province re-sync failed (non-fatal):', e.message);
+    }
+  }
 
   // Track which items are temporary (not in any company catalog)
   const tempItemNames = [];
@@ -920,6 +959,46 @@ function detectHeaderRow(ws, overrides = {}) {
  * @param {string[]} names
  * @param {Function} upsertFn
  */
+/**
+ * خريطة: اسم المنطقة ← معرّف المحافظة، مبنية من صفوف الملف.
+ *
+ * تصويت بالأغلبية لأن نفس المنطقة قد ترد بمحافظات مختلفة داخل الملف الواحد
+ * (خطأ إدخال، أو اسم منطقة متكرر بين محافظتين). نأخذ الأكثر تكراراً بدل أول
+ * صف يصادفنا، فلا يقرّر صفٌّ شاذّ محافظةَ المنطقة كلها.
+ *
+ * @returns {Promise<Record<string, number>>} فارغة إن لم يحمل الملف عمود محافظة
+ */
+async function buildAreaProvinceMap(validRows) {
+  const withProvince = validRows.filter(r => r.province);
+  if (withProvince.length === 0) return {};
+
+  const provinces = await prisma.province.findMany();
+  if (provinces.length === 0) return {};
+  const lookup = buildProvinceLookup(provinces);
+
+  const votes = new Map(); // areaName -> Map(provinceId -> count)
+  const unmatched = new Set();
+  for (const r of withProvince) {
+    const p = matchProvinceName(r.province, lookup);
+    if (!p) { unmatched.add(r.province); continue; }
+    if (!votes.has(r.area)) votes.set(r.area, new Map());
+    const m = votes.get(r.area);
+    m.set(p.id, (m.get(p.id) || 0) + 1);
+  }
+
+  if (unmatched.size > 0) {
+    console.warn('[upload] محافظات غير معروفة (تُتجاهل):', [...unmatched].join(', '));
+  }
+
+  const out = {};
+  for (const [areaName, m] of votes) {
+    let bestId = null, bestCount = -1;
+    for (const [pid, count] of m) if (count > bestCount) { bestId = pid; bestCount = count; }
+    if (bestId != null) out[areaName] = bestId;
+  }
+  return out;
+}
+
 async function resolveEntities(names, upsertFn) {
   const entries = await Promise.all(names.map(async name => [name, (await upsertFn(name)).id]));
   return Object.fromEntries(entries);
@@ -1174,6 +1253,8 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   }
 
   // ── 3. Resolve/create entities (de-duped) ──
+  // المحافظة تُكتب على Area لا على Sale — تُشتق لاحقاً عبر Area.provinceId
+  const areaProvinceMap = await buildAreaProvinceMap(validRows);
   const uniqueAreas     = [...new Set(validRows.map(r => r.area))];
   const uniqueItems     = [...new Set(validRows.map(r => r.item))];
   const uniqueReps      = [...new Set(validRows.map(r => r.repName))];
@@ -1185,7 +1266,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     : null;
 
   const [areaMap, itemMap, repMap, customerMap, companyMap] = await Promise.all([
-    resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId)),
+    resolveEntities(uniqueAreas,     name => findOrCreateArea(name, userId, areaProvinceMap[name] ?? null)),
     resolveEntities(uniqueItems,     name => findOrCreateItem(name, userId, sciCompanyIds, itemCtx)),
     resolveEntities(uniqueReps,      name => findOrCreateRep(name, userId)),
     resolveEntities(uniqueCustomers, name => findOrCreateCustomer(name, userId)),

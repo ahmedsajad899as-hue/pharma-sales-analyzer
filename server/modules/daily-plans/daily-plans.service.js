@@ -9,6 +9,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { resolveDocOwnerUserId } from '../doctors/doctors.controller.js';
 
@@ -549,13 +550,8 @@ export async function suggest(ctx, { mode = 'new', areaId, date }) {
 }
 
 async function getRepAreaIds(ctx) {
-  const [ua, sa] = await Promise.all([
-    prisma.userAreaAssignment.findMany({ where: { userId: ctx.repUserId }, select: { areaId: true } }),
-    ctx.scientificRepId
-      ? prisma.scientificRepArea.findMany({ where: { scientificRepId: ctx.scientificRepId }, select: { areaId: true } })
-      : Promise.resolve([]),
-  ]);
-  return [...new Set([...ua.map((r) => r.areaId), ...sa.map((r) => r.areaId)])];
+  // يشمل مناطق المحافظات المعيّنة — راجع lib/areaScope.js
+  return resolveEffectiveAreaIds(ctx.repUserId, { linkedRepId: ctx.scientificRepId ?? null });
 }
 
 // ─── Reports ─────────────────────────────────────────────────

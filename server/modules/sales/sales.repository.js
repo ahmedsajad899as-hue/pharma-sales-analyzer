@@ -76,19 +76,45 @@ export function saleValueUSD(sale) {
  * @param {string} name
  * @param {number} userId
  */
-export async function findOrCreateArea(name, userId) {
+export async function findOrCreateArea(name, userId, provinceId = null) {
   const normalized = normalizeArabic(name);
   // Pull all areas for this user and find one whose normalized name matches.
   // This handles variants like ا/أ/إ/آ, ه/ة, with/without diacritics etc.
   const userAreas = await prisma.area.findMany({
     where: { userId: userId ?? null },
-    select: { id: true, name: true },
+    select: { id: true, name: true, provinceId: true },
   });
   const existing = userAreas.find(r => normalizeArabic(r.name) === normalized);
-  if (existing) return existing;
+
+  if (existing) {
+    if (provinceId != null && existing.provinceId !== provinceId) {
+      if (existing.provinceId == null) {
+        // منطقة قديمة بلا محافظة — املأها من أول ملف يحمل العمود.
+        await prisma.area.update({ where: { id: existing.id }, data: { provinceId } });
+        existing.provinceId = provinceId;
+      } else {
+        // تعارض: نفس اسم المنطقة ورد بمحافظة مختلفة. لا نكتب فوق القيمة
+        // المحفوظة — إدخال المحافظة في مفتاح تفرّد Area كان سيولّد انفجار
+        // مناطق مكررة (المشكلة التي وُجدت كل آلة الدمج لمعالجتها). نسجّل
+        // التعارض ليظهر بشارة تحذير في لوحة السوبر أدمن ويحسمه المدير.
+        const conflictName = await prisma.province.findUnique({
+          where: { id: provinceId }, select: { name: true },
+        });
+        if (conflictName?.name) {
+          await prisma.area.update({
+            where: { id: existing.id },
+            data:  { provinceConflict: conflictName.name },
+          });
+        }
+      }
+    }
+    return existing;
+  }
 
   // Create using the normalized name so future lookups stay consistent.
-  return prisma.area.create({ data: { name: normalized, userId: userId ?? null } });
+  return prisma.area.create({
+    data: { name: normalized, userId: userId ?? null, provinceId: provinceId ?? null },
+  });
 }
 
 /**

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreas } from '../../lib/areaScope.js';
 
 // ── Constants ────────────────────────────────────────────────
 const FEEDBACK_AR = {
@@ -2034,11 +2035,10 @@ async function executeReturnsQuery(spec, repId) {
 async function executeSurveyQuery(spec, repId) {
   const { filters = {}, groupBy, limit } = spec;
 
-  const areaAssignments = await prisma.userAreaAssignment.findMany({
-    where: { userId: repId },
-    include: { area: { select: { id: true, name: true } } },
-  });
-  const allAreaIds = areaAssignments.map(a => a.areaId);
+  // يشمل مناطق المحافظات المعيّنة (lib/areaScope.js)
+  const areaRecords = await resolveEffectiveAreas(repId);
+  const areaAssignments = areaRecords.map(a => ({ areaId: a.id, area: a }));
+  const allAreaIds = areaRecords.map(a => a.id);
 
   // Area name filter
   let filteredAreaIds = null;
@@ -2404,11 +2404,9 @@ export async function handleCommand(req, res) {
           distinct: ['pharmacyName'],
           take: 80,
         }).catch(() => []),
-        prisma.userAreaAssignment.findMany({
-          where: { userId },
-          include: { area: { select: { name: true } } },
-          take: 40,
-        }).catch(() => []),
+        resolveEffectiveAreas(userId)
+          .then(rows => rows.slice(0, 40).map(a => ({ area: a })))
+          .catch(() => []),
       ]);
 
       const pharmNames = pharmsRaw.map(p => p.pharmacyName);

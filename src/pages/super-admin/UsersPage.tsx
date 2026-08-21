@@ -29,7 +29,8 @@ interface Office   { id: number; name: string; }
 interface Company  { id: number; name: string; officeId: number; }
 interface Line     { id: number; name?: string; companyId: number; }
 interface Item     { id: number; name: string; companyId?: number | null; companyName?: string; }
-interface Area     { id: number; name: string; }
+interface Area     { id: number; name: string; provinceId?: number | null; provinceConflict?: string | null; }
+interface Province { id: number; name: string; sortOrder?: number; areaCount?: number; }
 interface UserRow  {
   id: number; username: string; displayName?: string; role: string; phone?: string;
   isActive: boolean; officeId?: number; office?: { id: number; name: string };
@@ -45,6 +46,7 @@ interface UserDetail extends UserRow {
   lineAssignments:    { lineId: number;    line:    { name?: string; companyId: number } }[];
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
   areaAssignments:    { areaId: number;    area:    { name: string } }[];
+  provinceAssignments?: { provinceId: number; province: { id: number; name: string } }[];
   managersOfUser:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
 }
 
@@ -71,6 +73,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [lines,     setLines]     = useState<Line[]>([]);
   const [items,     setItems]     = useState<Item[]>([]);
   const [areas,     setAreas]     = useState<Area[]>([]);
+  const [provinces, setProvinces] = useState<Province[]>([]);
   const [refsLoading, setRefsLoading] = useState(false);
   const [loading,   setLoading]   = useState(true);
   const [detail,    setDetail]    = useState<UserDetail | null>(null);
@@ -90,6 +93,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftLineIds,       setDraftLineIds]       = useState<number[]>([]);
   const [draftItemIds,       setDraftItemIds]       = useState<number[]>([]);
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
+  // تعيين المحافظة ديناميكي: يُحفظ كمحافظة لا كقائمة مناطق، فتدخل نطاقَ
+  // المستخدم تلقائياً أي منطقة تُضاف لها لاحقاً.
+  const [draftProvinceIds,   setDraftProvinceIds]   = useState<number[]>([]);
+  const [collapsedProvinces, setCollapsedProvinces] = useState<Set<string>>(new Set());
+  const [bulkTargetProvince, setBulkTargetProvince] = useState<number | ''>('');
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [itemSearch,         setItemSearch]         = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
@@ -136,12 +144,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     try {
       // ملاحظة: قائمة الايتمات لم تعد تُحمَّل هنا عمومياً — صارت مقيّدة بشركات المستخدم
       // وتُحمَّل لكل مستخدم على حدة عبر /api/sa/users/:id/company-items (تأثير detail?.id).
-      const [li, ar] = await Promise.all([
+      const [li, ar, pr] = await Promise.all([
         fetch('/api/sa/companies/all-lines', { headers: H() }).then(r => r.json()),
         fetch('/api/sa/areas',  { headers: H() }).then(r => r.json()),
+        fetch('/api/sa/provinces', { headers: H() }).then(r => r.json()),
       ]);
       if (li.success) setLines(li.data);
       if (ar.success) setAreas(ar.data);
+      if (pr.success) setProvinces(pr.data);
     } finally {
       setRefsLoading(false);
     }
@@ -195,6 +205,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setDraftLineIds(detail.lineAssignments.map(a => a.lineId));
     setDraftItemIds(detail.itemAssignments.map(a => a.itemId));
     setDraftAreaIds(detail.areaAssignments.map(a => a.areaId));
+    setDraftProvinceIds((detail.provinceAssignments ?? []).map(p => p.provinceId));
     setDraftMgrIds(detail.managersOfUser.map(a => a.managerId));
     try {
       const p = JSON.parse(detail.permissions || '{}');
@@ -282,6 +293,40 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, 1800);
   };
 
+  // حفظ المحافظات — مستقل عن المناطق: المحافظة لا تُسطَّح إلى مناطق، بل تبقى
+  // تعييناً يُوسَّع وقت الاستعلام (راجع server/lib/areaScope.js).
+  const saveProvinces = async (ids: number[]) => {
+    if (!detail) return false;
+    const res = await fetch(`/api/sa/users/${detail.id}/provinces`, {
+      method: 'PUT', headers: H(), body: JSON.stringify({ provinceIds: ids }),
+    });
+    if (!res.ok) {
+      if (res.status === 401) { showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626'); logout(); return false; }
+      let errMsg = 'فشل حفظ المحافظات';
+      try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+      showToast('❌ ' + errMsg, '#dc2626');
+      return false;
+    }
+    return true;
+  };
+
+  // زر «حفظ التغييرات» في تبويب المناطق يحفظ الاثنين معاً بترتيب ثابت:
+  // المحافظات أولاً، فإن فشلت لا نحفظ المناطق ونترك الحالة كما هي.
+  const saveAreasAndProvinces = async () => {
+    if (!detail) return;
+    setSaving(true);
+    try {
+      const ok = await saveProvinces(draftProvinceIds);
+      if (!ok) return;
+    } catch {
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
+      return;
+    } finally {
+      setSaving(false);
+    }
+    await saveAssignment('areas', draftAreaIds);
+  };
+
   const saveAssignment = async (type: string, ids: number[]) => {
     if (!detail) return;
     setSaving(true);
@@ -347,6 +392,33 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       else showToast('❌ ' + j.error, '#dc2626');
     } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
     finally { setAreaCrudBusy(false); }
+  };
+
+  // نقل منطقة (أو عدة مناطق) إلى محافظة. يمسح شارة التعارض لأن قرار المدير
+  // يحسمها. السيرفر يعيد قائمة المناطق كاملة فنستبدل الحالة بها.
+  const assignAreaProvince = async (areaIds: number[], provinceId: number | null) => {
+    setAreaCrudBusy(true);
+    try {
+      const r = await fetch('/api/sa/areas/province-bulk', {
+        method: 'PUT', headers: H(), body: JSON.stringify({ areaIds, provinceId }),
+      });
+      const j = await r.json();
+      if (j.success) {
+        setAreas(j.data);
+        await loadProvinceCounts();
+        showToast(`✅ تم نقل ${j.updated} منطقة`);
+      } else showToast('❌ ' + (j.error || 'فشل النقل'), '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setAreaCrudBusy(false); }
+  };
+
+  // أعداد المناطق لكل محافظة تتغيّر بعد أي نقل — أعد جلبها
+  const loadProvinceCounts = async () => {
+    try {
+      const r = await fetch('/api/sa/provinces', { headers: H() });
+      const j = await r.json();
+      if (j.success) setProvinces(j.data);
+    } catch { /* غير حابس */ }
   };
 
   const openDeleteArea = async (id: number, name: string) => {
@@ -451,6 +523,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const selLineIds    = draftLineIds;
     const selItemIds    = draftItemIds;
     const selAreaIds    = draftAreaIds;
+    const selProvinceIds = draftProvinceIds;
     const selMgrIds     = draftMgrIds;
 
     // The areas list comes from the active survey (deduped). A user may still be
@@ -460,8 +533,49 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     // see/uncheck them.
     const assignedExtraAreas = (detail.areaAssignments ?? [])
       .filter(aa => !areas.some(a => a.id === aa.areaId))
-      .map(aa => ({ id: aa.areaId, name: aa.area?.name ?? `#${aa.areaId}`, _extra: true as const }));
+      .map(aa => ({
+        id: aa.areaId, name: aa.area?.name ?? `#${aa.areaId}`,
+        provinceId: null as number | null, provinceConflict: null as string | null,
+        _extra: true as const,
+      }));
     const displayAreas = [...areas, ...assignedExtraAreas];
+
+    // ── تجميع المناطق حسب المحافظة ─────────────────────────────────────────
+    // المناطق «خارج السيرفي» وأي منطقة بلا محافظة تقع في مجموعة «غير محدد».
+    const provinceById = new Map(provinces.map(p => [p.id, p]));
+    const filteredAreas = displayAreas.filter(
+      a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()),
+    );
+    const groupsMap = new Map<string, { key: string; province: Province | null; areas: typeof filteredAreas }>();
+    for (const a of filteredAreas) {
+      const p = a.provinceId != null ? provinceById.get(a.provinceId) ?? null : null;
+      const key = p ? String(p.id) : 'none';
+      if (!groupsMap.has(key)) groupsMap.set(key, { key, province: p, areas: [] });
+      groupsMap.get(key)!.areas.push(a);
+    }
+    // محافظات معيّنة للمستخدم لكن بلا أي منطقة بعد — يجب أن تظهر كي يستطيع
+    // المدير رؤية التعيين وإلغاءه، وإلا صار تعييناً خفياً.
+    for (const pid of draftProvinceIds) {
+      const key = String(pid);
+      if (!groupsMap.has(key) && provinceById.has(pid) && !areaSearch) {
+        groupsMap.set(key, { key, province: provinceById.get(pid)!, areas: [] });
+      }
+    }
+    const areaGroups = [...groupsMap.values()].sort((x, y) => {
+      if (!x.province) return 1;   // «غير محدد» دائماً في الأسفل
+      if (!y.province) return -1;
+      return (x.province.sortOrder ?? 0) - (y.province.sortOrder ?? 0)
+          || x.province.name.localeCompare(y.province.name, 'ar');
+    });
+
+    // المناطق المشمولة ضمنياً عبر محافظة معيّنة — تُعرض مؤشَّرة ومعطَّلة
+    const impliedAreaIds = new Set(
+      displayAreas.filter(a => a.provinceId != null && draftProvinceIds.includes(a.provinceId))
+                  .map(a => a.id),
+    );
+    const effectiveAreaCount = new Set([...draftAreaIds, ...impliedAreaIds]).size;
+    const conflictCount = displayAreas.filter(a => a.provinceConflict).length;
+
 
     // ايتمات كتالوج شركات المستخدم، مفلترة بالبحث ومجمّعة حسب الشركة (لتبويب «الايتمات»).
     const filteredItems = items.filter(i => !itemSearch || i.name.toLowerCase().includes(itemSearch.toLowerCase()));
@@ -511,7 +625,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           <TabBtn id="companies" label={`الشركات (${selCompanyIds.length})`} />
           <TabBtn id="lines"     label={`اللاينات (${selLineIds.length})`} />
           <TabBtn id="items"     label={`الايتمات (${selItemIds.length})`} />
-          <TabBtn id="areas"     label={`المناطق (${selAreaIds.length})`} />
+          <TabBtn id="areas"     label={`المناطق (${effectiveAreaCount})`} />
           <TabBtn id="managers"  label={`المدراء (${selMgrIds.length})`} />
           <TabBtn id="features"  label="🎛️ المميزات" />
         </div>
@@ -773,7 +887,34 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 >
                   {saving ? '...' : '🔄 تحديث من السيرفي'}
                 </button>
+                <button
+                  disabled={saving}
+                  title="يُسند محافظة لكل منطقة بلا محافظة: أولاً من عمود المحافظة داخل بيانات المبيعات المحفوظة، ثم بمطابقة اسم المنطقة نفسه"
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      const r = await fetch('/api/sa/provinces/auto-match', {
+                        method: 'POST', headers: H(), body: JSON.stringify({}),
+                      });
+                      const j = await r.json();
+                      if (j.success) {
+                        setAreas(j.data);
+                        await loadProvinceCounts();
+                        const s = j.stats || {};
+                        alert(`✅ المطابقة التلقائية للمحافظات\n\n• من بيانات المبيعات: ${s.matchedFromSales ?? 0}\n• من اسم المنطقة: ${s.matchedFromName ?? 0}\n• بقيت بلا محافظة: ${s.unresolved ?? 0}\n\n(فُحصت ${s.scanned ?? 0} منطقة)`);
+                      } else alert('❌ ' + j.error);
+                    } finally { setSaving(false); }
+                  }}
+                  style={{ ...btnStyle('#0d9488', true), fontSize: 12, padding: '4px 14px' }}
+                >
+                  {saving ? '...' : '🗺️ مطابقة المحافظات تلقائياً'}
+                </button>
               </div>
+              {conflictCount > 0 && (
+                <div style={{ marginBottom: 10, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#991b1b' }}>
+                  ⚠️ <strong>{conflictCount}</strong> منطقة ورد اسمها في ملف بمحافظة تختلف عن المحفوظة. اختر المحافظة الصحيحة من القائمة بجانب المنطقة لحسم التعارض.
+                </div>
+              )}
               {mergeSugs !== null && (
                 <div style={{ marginBottom: 12, border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: 10, padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -835,13 +976,16 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button
                   onClick={() => { if (displayAreas.length > 0) setDraftAreaIds(displayAreas.map(a => a.id)); }}
+                  title="يؤشّر كل المناطق فردياً (ثابت). لتعيين ديناميكي أشّر المحافظة نفسها."
                   disabled={displayAreas.length === 0}
                   style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px', opacity: displayAreas.length === 0 ? 0.4 : 1 }}
                 >✓ اختيار الكل</button>
                 <button
                   onClick={() => {
-                    if (draftAreaIds.length > 0 && !confirm('سيتم إلغاء تحديد جميع المناطق. هل أنت متأكد؟')) return;
+                    if ((draftAreaIds.length > 0 || draftProvinceIds.length > 0)
+                        && !confirm('سيتم إلغاء تحديد جميع المناطق والمحافظات. هل أنت متأكد؟')) return;
                     setDraftAreaIds([]);
+                    setDraftProvinceIds([]);
                   }}
                   style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}
                 >✗ إلغاء الكل</button>
@@ -863,61 +1007,144 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   style={{ ...btnStyle('#16a34a', true), fontSize: 13, padding: '4px 16px', opacity: (areaCrudBusy || !newAreaName.trim()) ? 0.5 : 1 }}
                 >{areaCrudBusy ? '...' : '➕ إضافة'}</button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {(() => {
-                  // الترتيب يعتمد على المناطق المحفوظة فعلياً (detail.areaAssignments) لا
-                  // draftAreaIds، حتى تبقى المنطقة المُحدَّدة حديثاً في مكانها بالصف (مع
-                  // تظليلها) ولا تقفز لأعلى إلا بعد الضغط على «حفظ التغييرات» (يُحدّث detail).
-                  const committedAreaIds = new Set(detail.areaAssignments.map(a => a.areaId));
-                  const filtered = displayAreas.filter(a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()));
-                  const selected = filtered.filter(a => committedAreaIds.has(a.id));
-                  const unselected = filtered.filter(a => !committedAreaIds.has(a.id));
-                  const sorted = [...selected, ...unselected];
-                  return sorted.map((a, idx) => (
-                    <>
-                      {idx === selected.length && selected.length > 0 && unselected.length > 0 && (
-                        <div key={`sep-${a.id}`} style={{ height: 1, background: '#e2e8f0', margin: '2px 0' }} />
-                      )}
-                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: draftAreaIds.includes(a.id) ? '#f0fdf4' : '#f8fafc', border: `1px solid ${draftAreaIds.includes(a.id) ? '#86efac' : 'transparent'}`, borderRadius: 8, fontSize: 14, transition: 'background 0.15s' }}>
-                        {editingAreaId === a.id ? (
-                          <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 380, overflowY: 'auto' }}>
+                {areaGroups.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8', fontSize: 13 }}>لا توجد مناطق مطابقة</div>
+                )}
+                {areaGroups.map(group => {
+                  const pid = group.province?.id ?? null;
+                  const provinceChecked = pid != null && draftProvinceIds.includes(pid);
+                  const groupAreaIds = group.areas.map(a => a.id);
+                  const directChecked = groupAreaIds.filter(id => draftAreaIds.includes(id)).length;
+                  // ثلاثي الحالة على مستوى المجموعة: الكل / جزئي / لا شيء
+                  const allChecked  = groupAreaIds.length > 0 && directChecked === groupAreaIds.length;
+                  const someChecked = directChecked > 0 && !allChecked;
+                  const collapsed = collapsedProvinces.has(group.key);
+                  const toggleCollapse = () => setCollapsedProvinces(prev => {
+                    const next = new Set(prev);
+                    if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
+                    return next;
+                  });
+
+                  return (
+                    <div key={group.key} style={{ border: `1px solid ${provinceChecked ? '#86efac' : '#e2e8f0'}`, borderRadius: 10, background: provinceChecked ? '#f0fdf4' : '#fff', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: provinceChecked ? '#dcfce7' : '#f8fafc', borderBottom: collapsed ? 'none' : '1px solid #e2e8f0' }}>
+                        <button
+                          onClick={toggleCollapse}
+                          title={collapsed ? 'عرض المناطق' : 'إخفاء المناطق'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#475569', padding: 0, width: 18 }}
+                        >{collapsed ? '◀' : '▼'}</button>
+
+                        {pid != null ? (
+                          <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
                             <input
-                              type="text"
-                              value={editingAreaName}
-                              onChange={e => setEditingAreaName(e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') renameArea(a.id); if (e.key === 'Escape') setEditingAreaId(null); }}
-                              autoFocus
-                              disabled={areaCrudBusy}
-                              style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid #93c5fd', fontSize: 14, direction: 'rtl' }}
+                              type="checkbox"
+                              checked={provinceChecked}
+                              onChange={e => setDraftProvinceIds(
+                                e.target.checked
+                                  ? [...draftProvinceIds, pid]
+                                  : draftProvinceIds.filter(x => x !== pid),
+                              )}
                             />
-                            <button onClick={() => renameArea(a.id)} disabled={areaCrudBusy || !editingAreaName.trim()} title="حفظ الاسم" style={{ ...btnStyle('#16a34a', true), fontSize: 12, padding: '4px 10px' }}>💾</button>
-                            <button onClick={() => { setEditingAreaId(null); setEditingAreaName(''); }} disabled={areaCrudBusy} title="إلغاء" style={{ ...btnStyle('#94a3b8', true), fontSize: 12, padding: '4px 10px' }}>✕</button>
-                          </>
+                            🗺️ {group.province!.name}
+                            <span style={{ fontWeight: 500, fontSize: 12, color: '#64748b' }}>({group.areas.length} منطقة)</span>
+                            {provinceChecked && (
+                              <span title="تعيين ديناميكي: أي منطقة تُضاف لهذه المحافظة لاحقاً تدخل نطاق المستخدم تلقائياً" style={{ fontSize: 10, fontWeight: 700, color: '#166534', background: '#bbf7d0', border: '1px solid #86efac', borderRadius: 6, padding: '1px 6px' }}>المحافظة كاملة</span>
+                            )}
+                          </label>
                         ) : (
-                          <>
-                            <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                              <input type="checkbox" checked={draftAreaIds.includes(a.id)} onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))} />
-                              {a.name}
-                              {(a as any)._extra && <span title="منطقة معيّنة للمستخدم لكنها غير موجودة في السيرفي الحالي" style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, padding: '1px 6px' }}>خارج السيرفي</span>}
-                            </label>
-                            <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 10px' }}>✏️</button>
-                            <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={{ ...btnStyle('#dc2626', true), fontSize: 12, padding: '4px 10px' }}>🗑️</button>
-                          </>
+                          <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: '#92400e' }}>
+                            ⚠️ غير محدد <span style={{ fontWeight: 500, fontSize: 12, color: '#a16207' }}>({group.areas.length} منطقة بلا محافظة)</span>
+                          </span>
+                        )}
+
+                        {!provinceChecked && groupAreaIds.length > 0 && (
+                          <button
+                            onClick={() => setDraftAreaIds(
+                              allChecked
+                                ? draftAreaIds.filter(id => !groupAreaIds.includes(id))
+                                : [...new Set([...draftAreaIds, ...groupAreaIds])],
+                            )}
+                            title={allChecked ? 'إلغاء تحديد مناطق هذه المجموعة' : 'تحديد مناطق هذه المجموعة فقط (ثابت، غير ديناميكي)'}
+                            style={{ ...btnStyle(someChecked ? '#f59e0b' : '#64748b', true), fontSize: 11, padding: '3px 10px' }}
+                          >{allChecked ? '✗ إلغاء الكل' : someChecked ? `◐ ${directChecked}/${groupAreaIds.length}` : '✓ تحديد الكل'}</button>
                         )}
                       </div>
-                    </>
-                  ));
-                })()}
+
+                      {!collapsed && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 8 }}>
+                          {group.areas.length === 0 && (
+                            <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 8px' }}>لا توجد مناطق في هذه المحافظة بعد — ستدخل تلقائياً عند رفع ملف يحتوي عليها.</div>
+                          )}
+                          {group.areas.map(a => {
+                            const implied = impliedAreaIds.has(a.id);
+                            const checked = implied || draftAreaIds.includes(a.id);
+                            return (
+                              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: checked ? '#f0fdf4' : '#f8fafc', border: `1px solid ${checked ? '#bbf7d0' : 'transparent'}`, borderRadius: 8, fontSize: 14 }}>
+                                {editingAreaId === a.id ? (
+                                  <>
+                                    <input
+                                      type="text"
+                                      value={editingAreaName}
+                                      onChange={e => setEditingAreaName(e.target.value)}
+                                      onKeyDown={e => { if (e.key === 'Enter') renameArea(a.id); if (e.key === 'Escape') setEditingAreaId(null); }}
+                                      autoFocus
+                                      disabled={areaCrudBusy}
+                                      style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid #93c5fd', fontSize: 14, direction: 'rtl' }}
+                                    />
+                                    <button onClick={() => renameArea(a.id)} disabled={areaCrudBusy || !editingAreaName.trim()} title="حفظ الاسم" style={{ ...btnStyle('#16a34a', true), fontSize: 12, padding: '4px 10px' }}>💾</button>
+                                    <button onClick={() => { setEditingAreaId(null); setEditingAreaName(''); }} disabled={areaCrudBusy} title="إلغاء" style={{ ...btnStyle('#94a3b8', true), fontSize: 12, padding: '4px 10px' }}>✕</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: implied ? 'default' : 'pointer', opacity: implied ? 0.75 : 1 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={implied}
+                                        title={implied ? 'مشمولة تلقائياً عبر تعيين المحافظة' : undefined}
+                                        onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))}
+                                      />
+                                      {a.name}
+                                      {implied && <span style={{ fontSize: 10, color: '#166534', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 6, padding: '1px 6px' }}>عبر المحافظة</span>}
+                                      {a.provinceConflict && (
+                                        <span title={`ورد اسم هذه المنطقة في ملف بمحافظة «${a.provinceConflict}» تختلف عن المحفوظة — راجعها واحسم التعارض`} style={{ fontSize: 10, fontWeight: 700, color: '#b91c1c', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '1px 6px' }}>⚠️ {a.provinceConflict}</span>
+                                      )}
+                                      {(a as any)._extra && <span title="منطقة معيّنة للمستخدم لكنها غير موجودة في السيرفي الحالي" style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, padding: '1px 6px' }}>خارج السيرفي</span>}
+                                    </label>
+                                    <select
+                                      value={a.provinceId ?? ''}
+                                      onChange={e => assignAreaProvince([a.id], e.target.value === '' ? null : Number(e.target.value))}
+                                      disabled={areaCrudBusy}
+                                      title="نقل المنطقة إلى محافظة"
+                                      style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', direction: 'rtl', maxWidth: 130 }}
+                                    >
+                                      <option value="">— بلا محافظة</option>
+                                      {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                    <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 10px' }}>✏️</button>
+                                    <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={{ ...btnStyle('#dc2626', true), fontSize: 12, padding: '4px 10px' }}>🗑️</button>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               </>
               )}
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => {
-                    if (draftAreaIds.length === 0 && detail.areaAssignments.length > 0) {
-                      if (!confirm(`سيتم حذف جميع المناطق المُعيَّنة (${detail.areaAssignments.length} منطقة) لهذا المستخدم. هل أنت متأكد؟`)) return;
+                    if (draftAreaIds.length === 0 && draftProvinceIds.length === 0
+                        && (detail.areaAssignments.length > 0 || (detail.provinceAssignments ?? []).length > 0)) {
+                      if (!confirm(`سيتم حذف جميع المناطق والمحافظات المُعيَّنة لهذا المستخدم. هل أنت متأكد؟`)) return;
                     }
-                    saveAssignment('areas', draftAreaIds);
+                    saveAreasAndProvinces();
                   }}
                   disabled={saving || refsLoading}
                   style={btnStyle('#0f172a', true)}

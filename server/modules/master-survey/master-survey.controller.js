@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveAreaScope } from '../../lib/surveyDoctors.js';
 
@@ -22,14 +23,10 @@ function visibleWhere(user) {
 }
 
 // ── Area filter helper ──────────────────────────────────────
-// Returns the area names assigned to a user via UserAreaAssignment.
-// Returns empty array if no areas assigned (→ no filtering applied).
+// أسماء مناطق المستخدم الفعلية (تشمل مناطق محافظاته المعيّنة).
+// قائمة فارغة = لا تُطبَّق أي فلترة.
 async function getUserAssignedAreaNames(userId) {
-  const assignments = await prisma.userAreaAssignment.findMany({
-    where: { userId },
-    include: { area: { select: { name: true } } },
-  });
-  return assignments.map(a => a.area.name.trim());
+  return resolveEffectiveAreaNames(userId);
 }
 
 // ── Log helper ───────────────────────────────────────────────

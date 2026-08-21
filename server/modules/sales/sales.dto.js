@@ -27,6 +27,9 @@ export const ColumnMappingDTO = z.object({
 export const ExcelRowSchema = z.object({
   repName:    z.string().min(1, 'Representative name is required'),
   area:       z.string().min(1, 'Area is required'),
+  // المحافظة اختيارية: كثير من الملفات لا تحمل العمود إطلاقاً. تُكتب على
+  // Area لا على Sale — المحافظة تُشتق من المنطقة عبر Area.provinceId.
+  province:   z.string().nullable().optional(),
   item:       z.string().min(1, 'Item is required'),
   quantity:   z.number().nonnegative('Quantity must be >= 0'),
   totalValue: z.number().nonnegative('Total value must be >= 0'),

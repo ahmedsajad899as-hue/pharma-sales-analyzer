@@ -2,6 +2,7 @@ import * as repo from './scientific-reps.repository.js';
 import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope, normalizeArabic } from '../sales/sales.repository.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
+import { areaIdsOfProvinces } from '../../lib/areaScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -626,15 +627,37 @@ async function resolveSciRepSales(id, query = {}, select) {
     where: { scientificRepId: id },
     select: { areaId: true, area: { select: { id: true, name: true } } },
   });
+  // مناطق المحافظات المعيّنة لحسابات هذا المندوب — التوسيع الديناميكي.
+  // ScientificRepArea لقطة تُبنى عند الحفظ، فلا تعرف المناطق التي دخلت المحافظة
+  // لاحقاً. نضمّها هنا قبل التوسيع بالاسم كي تشملها مطابقة التهجئة أيضاً.
+  // حسابات الدخول المرتبطة بهذا المندوب فقط (User.linkedRepId). ننتبه ألّا
+  // نستعمل rep.userId — هو مالك السجل (المدير) بحكم @@unique([name, userId])،
+  // وضمّه كان سيمنح المندوب نطاق محافظات مديره كاملاً.
+  const repUsers = await prisma.user.findMany({
+    where:  { linkedRepId: id },
+    select: { id: true },
+  });
+  let provinceAreaIds = [];
+  if (repUsers.length) {
+    const provRows = await prisma.userProvinceAssignment.findMany({
+      where:  { userId: { in: repUsers.map(u => u.id) } },
+      select: { provinceId: true },
+    });
+    provinceAreaIds = await areaIdsOfProvinces([...new Set(provRows.map(r => r.provinceId))]);
+  }
+
   let areaIds = null;
-  if (areaLinks.length) {
+  if (areaLinks.length || provinceAreaIds.length) {
     // Always keep the directly-linked area IDs; also expand by NORMALISED name to
     // catch duplicate area records that spell the same place differently
     // (الشعب/شعب, الحسينية/حسينيه, شارع المغرب/شارع مغرب…). Without this, sales
     // stored under one spelling are missed when the rep is assigned another.
-    const directAreaIds = areaLinks.map(l => l.areaId);
-    const assignedNorms = new Set(areaLinks.map(l => normalizeArabic(l.area.name)));
+    const directAreaIds = [...areaLinks.map(l => l.areaId), ...provinceAreaIds];
     const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const directSet = new Set(directAreaIds);
+    const assignedNorms = new Set(
+      allAreas.filter(a => directSet.has(a.id)).map(a => normalizeArabic(a.name)),
+    );
     const matchingIds = allAreas.filter(a => assignedNorms.has(normalizeArabic(a.name))).map(a => a.id);
     areaIds = [...new Set([...directAreaIds, ...matchingIds])];
   }

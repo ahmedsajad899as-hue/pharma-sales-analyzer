@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -337,11 +338,8 @@ export async function suggest(req, res, next) {
       repLinkedUserId = repRecord?.userId ?? null;
 
       if (areaIds.length === 0 && repLinkedUserId) {
-        const userAreas = await prisma.userAreaAssignment.findMany({
-          where: { userId: repLinkedUserId },
-          select: { areaId: true },
-        });
-        areaIds = userAreas.map(a => a.areaId);
+        // يشمل مناطق المحافظات المعيّنة (lib/areaScope.js)
+        areaIds = await resolveEffectiveAreaIds(repLinkedUserId);
       }
 
       doctorUserId = await resolveRepDoctorOwnerUserId(repLinkedUserId, userId);
@@ -959,11 +957,8 @@ export async function suggestAreas(req, res, next) {
 
     // Fallback: UserAreaAssignment
     if (areaIds.length === 0 && repLinkedUserId) {
-      const userAreas = await prisma.userAreaAssignment.findMany({
-        where: { userId: repLinkedUserId },
-        select: { areaId: true },
-      });
-      areaIds = userAreas.map(a => a.areaId);
+      // يشمل مناطق المحافظات المعيّنة (lib/areaScope.js)
+      areaIds = await resolveEffectiveAreaIds(repLinkedUserId);
     }
 
     if (areaIds.length === 0) return res.json([]);
@@ -2368,13 +2363,8 @@ export async function availableDoctors(req, res, next) {
     } else if (FIELD_ROLES.includes(role)) {
       const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
       const linkedRepId = dbUser?.linkedRepId ?? null;
-      const [userAreaRows, repAreaRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-          : Promise.resolve([]),
-      ]);
-      const repAreaIds = [...new Set([...userAreaRows.map(a => a.areaId), ...repAreaRows.map(a => a.areaId)])];
+      // يشمل مناطق المحافظات المعيّنة (lib/areaScope.js)
+      const repAreaIds = await resolveEffectiveAreaIds(userId, { linkedRepId });
       if (repAreaIds.length > 0) {
         areaFilter = { areaId: { in: repAreaIds } };
       }

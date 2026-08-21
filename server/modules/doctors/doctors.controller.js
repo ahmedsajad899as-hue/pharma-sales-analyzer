@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
@@ -253,16 +254,8 @@ export async function list(req, res, next) {
 
       if (q?.trim()) {
         // ── جلب مناطق المندوب أولاً (مصدر رئيسي لفلترة البحث) ──
-        const [userAreaRows, repAreaRows] = await Promise.all([
-          prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-          linkedRepId
-            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-            : Promise.resolve([]),
-        ]);
-        const repAreaIds = [...new Set([
-          ...userAreaRows.map(a => a.areaId),
-          ...repAreaRows.map(a => a.areaId),
-        ])];
+        // يشمل مناطق المحافظات المعيّنة أيضاً — راجع lib/areaScope.js
+        const repAreaIds = await resolveEffectiveAreaIds(userId, { linkedRepId: linkedRepId ?? null });
 
         const nameFilter = { name: { contains: q.trim() } };
 
@@ -297,16 +290,8 @@ export async function list(req, res, next) {
         if (isActive !== undefined) where.isActive = (isActive === 'true');
       } else {
         // ── عند التصفح (بدون q): استخدام فلتر المناطق + null-area docs من المدير ──
-        const [userAreaRows, repAreaRows] = await Promise.all([
-          prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
-          linkedRepId
-            ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-            : Promise.resolve([]),
-        ]);
-        const repAreaIds = [...new Set([
-          ...userAreaRows.map(a => a.areaId),
-          ...repAreaRows.map(a => a.areaId),
-        ])];
+        // يشمل مناطق المحافظات المعيّنة أيضاً — راجع lib/areaScope.js
+        const repAreaIds = await resolveEffectiveAreaIds(userId, { linkedRepId: linkedRepId ?? null });
 
         // نحتاج userId المدير لتضمين الأطباء الذين areaId = null (مسجلين تحت المدير)
         let browseManagerId = userId;

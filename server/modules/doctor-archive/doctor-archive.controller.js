@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds, resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeArabic, normalizeAreaName } from '../../lib/itemResolver.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, isFieldRole,
@@ -21,13 +22,9 @@ function visibleWhere(user) {
   };
 }
 
-// Get area names assigned to this user
+// أسماء مناطق المستخدم — تشمل مناطق محافظاته المعيّنة (areaScope.js)
 async function getUserAreaNames(userId) {
-  const rows = await prisma.userAreaAssignment.findMany({
-    where: { userId },
-    include: { area: { select: { name: true } } },
-  });
-  return rows.map(r => r.area.name.trim());
+  return resolveEffectiveAreaNames(userId);
 }
 
 // ── GET /api/doctor-archive ──────────────────────────────────
@@ -353,13 +350,7 @@ export async function importFromVisits(req, res, next) {
     } else {
       // Field rep or manager targeting a specific rep: use MasterSurveyDoctor in their areas
       const linkedRepId = targetUser?.linkedRepId ?? null;
-      const [uaRows, saRows] = await Promise.all([
-        prisma.userAreaAssignment.findMany({ where: { userId: targetUserId }, select: { areaId: true } }),
-        linkedRepId
-          ? prisma.scientificRepArea.findMany({ where: { scientificRepId: linkedRepId }, select: { areaId: true } })
-          : Promise.resolve([]),
-      ]);
-      const repAreaIds = [...new Set([...uaRows.map(r => r.areaId), ...saRows.map(r => r.areaId)])];
+      const repAreaIds = await resolveEffectiveAreaIds(targetUserId, { linkedRepId });
 
       if (repAreaIds.length > 0) {
         const areaRecords = await prisma.area.findMany({

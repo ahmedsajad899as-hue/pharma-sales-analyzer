@@ -59,6 +59,7 @@ model User {
   lineAssignments     UserLineAssignment[]
   itemAssignments     UserItemAssignment[]
   areaAssignments     UserAreaAssignment[]
+  provinceAssignments UserProvinceAssignment[]
   managersOfUser      UserManagerAssignment[]     @relation("UserSubordinates")
   subordinatesOfUser  UserManagerAssignment[]     @relation("UserManagers")
   interactionAsActor  UserInteractionPermission[] @relation("InteractionActor")
@@ -155,10 +156,15 @@ model Area {
   name      String
   createdAt DateTime @default(now())
 
-  userId   Int?
-  user     User?             @relation(fields: [userId], references: [id])
-  officeId Int?
-  office   ScientificOffice? @relation("OfficeAreas", fields: [officeId], references: [id])
+  userId           Int?
+  user             User?             @relation(fields: [userId], references: [id])
+  officeId         Int?
+  office           ScientificOffice? @relation("OfficeAreas", fields: [officeId], references: [id])
+  provinceId       Int?
+  province         Province?         @relation(fields: [provinceId], references: [id], onDelete: SetNull)
+  // آخر اسم محافظة مخالف ورد من ملف — أول محافظة تُشاهَد تُثبَّت، والمخالفة تُسجَّل
+  // هنا للمراجعة اليدوية بدل الكتابة فوق القيمة المحفوظة.
+  provinceConflict String?
 
   // Relations
   representatives     RepresentativeArea[]
@@ -174,6 +180,7 @@ model Area {
   @@unique([name, userId])
   @@index([userId])
   @@index([officeId])
+  @@index([provinceId])
   @@map("areas")
 }
 
@@ -1437,8 +1444,8 @@ model ItemMergeRule {
   scientificCompanyId Int?
   scientificCompany   ScientificCompany? @relation("CompanyAliases", fields: [scientificCompanyId], references: [id], onDelete: Cascade)
   // الايتم القانوني الهدف (أمتن من toName النصّي؛ يصمد أمام إعادة التسمية)
-  toItemId Int?
-  toItem   Item? @relation("ItemAliases", fields: [toItemId], references: [id], onDelete: Cascade)
+  toItemId            Int?
+  toItem              Item?              @relation("ItemAliases", fields: [toItemId], references: [id], onDelete: Cascade)
 
   // منشئ القاعدة (كان مفتاح النطاق سابقاً؛ nullable الآن لأن قواعد الشركة قد لا ترتبط بمستخدم)
   userId Int?
@@ -1737,4 +1744,36 @@ model DailyPlanSettings {
   user User @relation(fields: [userId], references: [id])
 
   @@map("daily_plan_settings")
+}
+
+// ─── Province (المحافظة) ─────────────────────────────────────
+// مستوى جغرافي واحد فوق Area. عالمي (بلا userId) لأن محافظات العراق ثابتة
+// ويشترك فيها كل الحسابات — بعكس Area المُنطاقة لكل مستخدم.
+model Province {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  aliases   String? // JSON array — أسماء بديلة للمطابقة التلقائية (الموصل ← نينوى)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  areas       Area[]
+  assignments UserProvinceAssignment[]
+
+  @@map("provinces")
+}
+
+// ─── User ↔ Province Assignment (تعيين ديناميكي) ─────────────
+// تعيين محافظة يعني ضمنياً كل مناطقها — الآن ومستقبلاً. التوسيع يحدث وقت
+// الاستعلام في server/lib/areaScope.js، فأي منطقة جديدة تدخل المحافظة
+// تظهر للمستخدم تلقائياً بلا إعادة تعيين.
+model UserProvinceAssignment {
+  userId     Int
+  provinceId Int
+  assignedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  province Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, provinceId])
+  @@map("user_province_assignments")
 }

@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -13,6 +14,7 @@ const userSelect = {
   lineAssignments:    { include: { line:    { select: { id: true, name: true, companyId: true } } } },
   itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
   areaAssignments:    { include: { area:    { select: { id: true, name: true } } } },
+  provinceAssignments: { include: { province: { select: { id: true, name: true } } } },
   managersOfUser:     { include: { manager: { select: { id: true, username: true, displayName: true } } } },
   subordinatesOfUser: { include: { user:    { select: { id: true, username: true, displayName: true } } } },
   interactionAsActor: { include: { target:  { select: { id: true, username: true, displayName: true } } } },
@@ -279,81 +281,49 @@ export async function setUserAreas(req, res) {
     })] : []),
   ]);
 
-  // Sync to ScientificRepArea + auto-assign commercial reps if this user is a scientific rep
+  // مزامنة الروابط المشتقة (ScientificRepArea + ScientificRepCommercial).
+  // نُقلت إلى areaScope.js لأن تعيين المحافظات صار مُشغّلاً ثانياً لها، ورفعُ
+  // ملفٍ يُنشئ مناطق داخل محافظة معيَّنة مُشغّلاً ثالثاً.
   try {
-    const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-    if (userRow?.linkedRepId) {
-      const repId = userRow.linkedRepId;
-
-      // 1. Sync ScientificRepArea
-      await prisma.$transaction([
-        prisma.scientificRepArea.deleteMany({ where: { scientificRepId: repId } }),
-        ...(finalAreaIds.length ? [prisma.scientificRepArea.createMany({
-          data: finalAreaIds.map(areaId => ({ scientificRepId: repId, areaId })),
-          skipDuplicates: true,
-        })] : []),
-      ]);
-
-      // 2. Auto-assign commercial reps based on area name matching
-      if (finalAreaIds.length > 0) {
-        const normA = normalizeAreaName;
-
-        // Get the names of the assigned areas
-        const assignedAreas = await prisma.area.findMany({
-          where: { id: { in: finalAreaIds } },
-          select: { id: true, name: true },
-        });
-        const assignedNormSet = new Set(assignedAreas.map(a => normA(a.name)));
-
-        // Find all Area records (any scope) that are the SAME place as an assigned
-        // area — exact normalised match only. Substring matching (includes) was too
-        // loose: short norms like «الحسين» matched «الحسينيه», «اور»/«مغرب» matched
-        // many unrelated areas, which pulled in commercial reps from places the rep
-        // doesn't actually cover. normA already collapses ة/ه, the «حي/محله/...»
-        // prefix and diacritics, so genuine cross-file duplicates still match.
-        const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-        const matchingAreaIds = allAreas
-          .filter(a => assignedNormSet.has(normA(a.name)))
-          .map(a => a.id);
-
-        // Find MedicalRepresentative records that cover those areas
-        const commercialReps = await prisma.medicalRepresentative.findMany({
-          where: { areas: { some: { areaId: { in: matchingAreaIds } } } },
-          select: { id: true, name: true },
-          orderBy: { id: 'asc' },
-        });
-
-        // Deduplicate by normalized name — keep only the first record per unique name
-        // (same real person can exist as multiple DB records from different uploaded files)
-        const normName = s => String(s || '').trim()
-          .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-          .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
-        const seenNames = new Set();
-        const uniqueReps = commercialReps.filter(r => {
-          const n = normName(r.name);
-          if (seenNames.has(n)) return false;
-          seenNames.add(n);
-          return true;
-        });
-
-        // Full-replace ScientificRepCommercial based on area-derived reps
-        await prisma.$transaction([
-          prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } }),
-          ...(uniqueReps.length ? [prisma.scientificRepCommercial.createMany({
-            data: uniqueReps.map(r => ({ scientificRepId: repId, commercialRepId: r.id })),
-            skipDuplicates: true,
-          })] : []),
-        ]);
-      } else {
-        // No areas → clear commercial reps too
-        await prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } });
-      }
-    }
+    await syncUserAreaDerivedLinks(userId);
   } catch (e) {
     console.warn('[setUserAreas] ScientificRepArea/commercial sync failed (non-fatal):', e.message);
   }
 
   res.json({ success: true });
+}
+
+// ── Set user provinces (المحافظات) ────────────────────────────────────────
+// تعيين محافظة = كل مناطقها ضمنياً، الآن ومستقبلاً. لا نُسطِّحها إلى صفوف
+// UserAreaAssignment: التسطيح يجمّد القائمة عند لحظة الحفظ، فتغيب أي منطقة
+// تدخل المحافظة لاحقاً. التوسيع يحدث وقت الاستعلام في areaScope.js.
+export async function setUserProvinces(req, res) {
+  const userId = parseInt(req.params.id);
+  const { provinceIds = [] } = req.body;
+  const ids = [...new Set(provinceIds.map(Number).filter(Number.isInteger))];
+
+  const existing = ids.length
+    ? await prisma.province.findMany({ where: { id: { in: ids } }, select: { id: true } })
+    : [];
+  const validIds = existing.map(p => p.id);
+
+  await prisma.$transaction([
+    prisma.userProvinceAssignment.deleteMany({ where: { userId } }),
+    ...(validIds.length ? [prisma.userProvinceAssignment.createMany({
+      data: validIds.map(provinceId => ({ userId, provinceId })),
+      skipDuplicates: true,
+    })] : []),
+  ]);
+
+  // الروابط المشتقة لقطات — يجب إعادة بنائها لأن نطاق المناطق تغيّر
+  try {
+    await syncUserAreaDerivedLinks(userId);
+  } catch (e) {
+    console.warn('[setUserProvinces] derived-link sync failed (non-fatal):', e.message);
+  }
+
+  const effectiveAreaIds = await resolveEffectiveAreaIds(userId);
+  res.json({ success: true, provinceIds: validIds, effectiveAreaCount: effectiveAreaIds.length });
 }
 
 // ── Set user items ────────────────────────────────────────────────────────
