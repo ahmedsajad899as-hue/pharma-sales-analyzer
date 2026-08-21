@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { usePharmacyNetFiles } from '../hooks/usePharmacyNetFiles';
+import * as XLSX from 'xlsx';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -36,6 +37,34 @@ interface PharmacyDetail {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+/**
+ * تصدير أي جدول معروض إلى ملف إكسل.
+ *
+ * يُصدَّر ما هو ظاهر فعلاً على الشاشة (بعد البحث/الفلترة/الترتيب) لا كل البيانات،
+ * حتى يطابق الملفُ ما يراه المستخدم — وإلا صدّر أرقاماً لا تطابق الجدول أمامه.
+ * الأعمدة تُمرَّر كأزواج [العنوان, القيمة] للحفاظ على ترتيب أعمدة الجدول نفسه.
+ */
+function exportRowsToExcel<T>(
+  rows: T[],
+  columns: { header: string; value: (row: T) => string | number }[],
+  sheetName: string,
+  fileName: string,
+) {
+  if (rows.length === 0) { alert('لا توجد بيانات للتصدير'); return; }
+  const aoa = [
+    columns.map(c => c.header),
+    ...rows.map(r => columns.map(c => c.value(r))),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = columns.map(c => ({ wch: Math.max(12, Math.min(34, c.header.length + 8)) }));
+  // RTL يجعل إكسل يفتح الورقة من اليمين — الجداول كلها عربية هنا
+  (ws as any)['!views'] = [{ RTL: true }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `${fileName}-${stamp}.xlsx`);
+}
+
 function fmt(n: number) { return n.toLocaleString('ar-IQ'); }
 function fmtDate(d: string) {
   try { return new Date(d).toLocaleDateString('ar-IQ', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
@@ -562,6 +591,30 @@ export default function PharmacyAnalysisPage() {
               ))}
             </div>
 
+            <button
+              onClick={() => exportRowsToExcel(
+                sortedPharmacies,
+                [
+                  { header: 'الصيدلية',       value: p => p.name },
+                  { header: 'المنطقة',        value: p => p.areaName || '' },
+                  { header: 'المندوب',        value: p => p.repName || '' },
+                  { header: 'عدد الطلبيات',   value: p => p.totalOrders },
+                  { header: 'عدد الايتمات',   value: p => p.itemCount },
+                  { header: 'الكمية',         value: p => p.totalQty },
+                  { header: 'القيمة',         value: p => p.totalValue },
+                  { header: 'كمية الراجع',    value: p => p.returnsQty },
+                  { header: 'قيمة الراجع',    value: p => p.returnsValue },
+                  { header: 'أول طلبية',      value: p => p.firstOrder ? new Date(p.firstOrder).toISOString().slice(0, 10) : '' },
+                  { header: 'آخر طلبية',      value: p => p.lastOrder ? new Date(p.lastOrder).toISOString().slice(0, 10) : '' },
+                  { header: 'الأيام منذ آخر طلبية', value: p => p.daysSinceLast },
+                ],
+                'الصيدليات',
+                'تحليل-الصيدليات',
+              )}
+              disabled={sortedPharmacies.length === 0}
+              title="تصدير الصيدليات المعروضة (بعد البحث والترتيب) إلى إكسل"
+              style={{ padding: '7px 14px', border: '1px solid #16a34a', borderRadius: 6, background: sortedPharmacies.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedPharmacies.length === 0 ? '#94a3b8' : '#fff', cursor: sortedPharmacies.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+            >📥 تصدير إكسل</button>
             <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#374151' }}>↻ تحديث</button>
             <span style={{ fontSize: 12, color: '#6b7280' }}>{pharmacies.length} صيدلية</span>
           </div>
@@ -764,6 +817,24 @@ export default function PharmacyAnalysisPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={itemSearch} onChange={e => onItemSearch(e.target.value)} placeholder="بحث باسم الايتم..."
               style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
+            <button
+              onClick={() => exportRowsToExcel(
+                sortedItems,
+                [
+                  { header: 'الايتم',         value: i => i.name },
+                  { header: 'عدد الصيدليات',  value: i => i.pharmacyCount },
+                  { header: 'الكمية',         value: i => i.totalQty },
+                  { header: 'القيمة',         value: i => i.totalValue },
+                  { header: 'أول طلبية',      value: i => i.firstOrder ? new Date(i.firstOrder).toISOString().slice(0, 10) : '' },
+                  { header: 'آخر طلبية',      value: i => i.lastOrder ? new Date(i.lastOrder).toISOString().slice(0, 10) : '' },
+                ],
+                'الايتمات',
+                'تحليل-الايتمات',
+              )}
+              disabled={sortedItems.length === 0}
+              title="تصدير الايتمات المعروضة (بعد البحث والترتيب) إلى إكسل"
+              style={{ padding: '7px 14px', border: '1px solid #16a34a', borderRadius: 6, background: sortedItems.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedItems.length === 0 ? '#94a3b8' : '#fff', cursor: sortedItems.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+            >📥 تصدير إكسل</button>
             <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻ تحديث</button>
             <span style={{ fontSize: 12, color: '#6b7280' }}>{items.length} ايتم</span>
           </div>
@@ -874,6 +945,25 @@ export default function PharmacyAnalysisPage() {
               style={{ width: 64, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center' }} />
             <input value={alertSearch} onChange={e => setAlertSearch(e.target.value)} placeholder="بحث..."
               style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, marginRight: 'auto' }} />
+            <button
+              onClick={() => exportRowsToExcel(
+                sortedAlerts,
+                [
+                  { header: 'الصيدلية',        value: a => a.pharmaName },
+                  { header: 'المنطقة',         value: a => a.areaName || '' },
+                  { header: 'الايتم',          value: a => a.itemName },
+                  { header: 'الكمية السابقة',  value: a => a.totalQty },
+                  { header: 'عدد الطلبيات',    value: a => a.orderCount },
+                  { header: 'آخر طلبية',       value: a => a.lastOrder ? new Date(a.lastOrder).toISOString().slice(0, 10) : '' },
+                  { header: 'الأيام منذ آخر طلبية', value: a => a.daysSinceLast },
+                ],
+                'التنبيهات',
+                `تنبيهات-تجاوزت-${alertDays}-يوم`,
+              )}
+              disabled={sortedAlerts.length === 0}
+              title="تصدير التنبيهات المعروضة (بعد البحث والترتيب) إلى ملف إكسل"
+              style={{ padding: '5px 12px', border: '1px solid #16a34a', borderRadius: 6, background: sortedAlerts.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedAlerts.length === 0 ? '#94a3b8' : '#fff', cursor: sortedAlerts.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+            >📥 تصدير إكسل</button>
             <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻</button>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>{filteredAlerts.length} تنبيه</span>
           </div>
