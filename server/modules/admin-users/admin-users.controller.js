@@ -15,6 +15,7 @@ const userSelect = {
   itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
   areaAssignments:    { include: { area:    { select: { id: true, name: true } } } },
   provinceAssignments: { include: { province: { select: { id: true, name: true } } } },
+  subProvinceAssignments: { include: { subProvince: { select: { id: true, name: true, provinceId: true } } } },
   managersOfUser:     { include: { manager: { select: { id: true, username: true, displayName: true } } } },
   subordinatesOfUser: { include: { user:    { select: { id: true, username: true, displayName: true } } } },
   interactionAsActor: { include: { target:  { select: { id: true, username: true, displayName: true } } } },
@@ -324,6 +325,37 @@ export async function setUserProvinces(req, res) {
 
   const effectiveAreaIds = await resolveEffectiveAreaIds(userId);
   res.json({ success: true, provinceIds: validIds, effectiveAreaCount: effectiveAreaIds.length });
+}
+
+// ── Set user sub-provinces (أقسام المحافظة: الكرخ/الرصافة) ────────────────
+// نفس منطق المحافظات: تعيين قسم = كل مناطقه ضمنياً الآن ومستقبلاً، والتوسيع
+// وقت الاستعلام في areaScope.js — فلا نُسطّحه إلى صفوف UserAreaAssignment.
+export async function setUserSubProvinces(req, res) {
+  const userId = parseInt(req.params.id);
+  const { subProvinceIds = [] } = req.body;
+  const ids = [...new Set(subProvinceIds.map(Number).filter(Number.isInteger))];
+
+  const existing = ids.length
+    ? await prisma.subProvince.findMany({ where: { id: { in: ids } }, select: { id: true } })
+    : [];
+  const validIds = existing.map(s => s.id);
+
+  await prisma.$transaction([
+    prisma.userSubProvinceAssignment.deleteMany({ where: { userId } }),
+    ...(validIds.length ? [prisma.userSubProvinceAssignment.createMany({
+      data: validIds.map(subProvinceId => ({ userId, subProvinceId })),
+      skipDuplicates: true,
+    })] : []),
+  ]);
+
+  try {
+    await syncUserAreaDerivedLinks(userId);
+  } catch (e) {
+    console.warn('[setUserSubProvinces] derived-link sync failed (non-fatal):', e.message);
+  }
+
+  const effectiveAreaIds = await resolveEffectiveAreaIds(userId);
+  res.json({ success: true, subProvinceIds: validIds, effectiveAreaCount: effectiveAreaIds.length });
 }
 
 // ── Set user items ────────────────────────────────────────────────────────

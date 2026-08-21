@@ -20,8 +20,8 @@ import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './l
 import { normalizeItemKey, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
-import { seedProvinces, autoMatchProvinces } from './lib/provinces.js';
-import { resolveEffectiveAreaIds, syncUserAreaDerivedLinks, userIdsAssignedToProvinces } from './lib/areaScope.js';
+import { seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces } from './lib/provinces.js';
+import { resolveEffectiveAreaIds, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeItemInto, mergeReps, mergeCompanies,
@@ -186,7 +186,7 @@ async function countSurveyDoctorsByAreaName(areaId) {
   return rows.filter(r => normalizeArabic(r.areaName || '') === target).length;
 }
 
-const AREA_SA_SELECT = { id: true, name: true, provinceId: true, provinceConflict: true };
+const AREA_SA_SELECT = { id: true, name: true, provinceId: true, provinceConflict: true, subProvinceId: true };
 
 // ════════════════════════════════════════════════════════════════════════════
 // المحافظات (Provinces) — إدارة السوبر أدمن
@@ -327,6 +327,153 @@ app.post('/api/sa/provinces/auto-match', requireSuperAdmin, async (req, res) => 
     res.json({ success: true, stats, data: finalAreas });
   } catch (err) {
     console.error('[provinces-auto-match]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ─── الأقسام داخل المحافظة (الكرخ/الرصافة) ──────────────────────────────────
+
+// GET /api/sa/sub-provinces — كل الأقسام + عدد مناطق كل قسم
+app.get('/api/sa/sub-provinces', requireSuperAdmin, async (req, res) => {
+  try {
+    const subs = await prisma.subProvince.findMany({
+      orderBy: [{ provinceId: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true, name: true, provinceId: true, sortOrder: true,
+        _count: { select: { areas: true } },
+      },
+    });
+    res.json({
+      success: true,
+      data: subs.map(s => ({
+        id: s.id, name: s.name, provinceId: s.provinceId,
+        sortOrder: s.sortOrder, areaCount: s._count.areas,
+      })),
+    });
+  } catch (err) {
+    console.error('[sub-provinces-list]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/sub-provinces — { name, provinceId }
+app.post('/api/sa/sub-provinces', requireSuperAdmin, async (req, res) => {
+  try {
+    const name = String(req.body?.name ?? '').trim();
+    const provinceId = Number(req.body?.provinceId);
+    if (!name) return res.status(400).json({ success: false, error: 'اسم القسم مطلوب' });
+    if (!Number.isInteger(provinceId)) return res.status(400).json({ success: false, error: 'المحافظة مطلوبة' });
+
+    const prov = await prisma.province.findUnique({ where: { id: provinceId }, select: { id: true } });
+    if (!prov) return res.status(404).json({ success: false, error: 'المحافظة غير موجودة' });
+
+    const norm = normalizeArabic(name);
+    const existing = await prisma.subProvince.findMany({ where: { provinceId }, select: { name: true } });
+    if (existing.some(s => normalizeArabic(s.name) === norm)) {
+      return res.status(409).json({ success: false, error: 'يوجد قسم بنفس الاسم في هذه المحافظة' });
+    }
+    await prisma.subProvince.create({ data: { name, provinceId, sortOrder: existing.length + 1 } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[sub-province-create]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/sa/sub-provinces/:id — { name }
+app.put('/api/sa/sub-provinces/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const name = String(req.body?.name ?? '').trim();
+    if (!name) return res.status(400).json({ success: false, error: 'اسم القسم مطلوب' });
+
+    const sub = await prisma.subProvince.findUnique({ where: { id }, select: { provinceId: true } });
+    if (!sub) return res.status(404).json({ success: false, error: 'القسم غير موجود' });
+
+    const norm = normalizeArabic(name);
+    const others = await prisma.subProvince.findMany({
+      where: { provinceId: sub.provinceId, id: { not: id } }, select: { name: true },
+    });
+    if (others.some(s => normalizeArabic(s.name) === norm)) {
+      return res.status(409).json({ success: false, error: 'يوجد قسم آخر بنفس الاسم في هذه المحافظة' });
+    }
+    await prisma.subProvince.update({ where: { id }, data: { name } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[sub-province-rename]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/sa/sub-provinces/:id — يحذف القسم فقط. مناطقه تعود لتتبع محافظتها
+// مباشرة (subProvinceId = null) ولا تُحذف أي بيانات مبيعات.
+app.delete('/api/sa/sub-provinces/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    const affected = await userIdsAssignedToSubProvinces([id]);
+    await prisma.area.updateMany({ where: { subProvinceId: id }, data: { subProvinceId: null } });
+    await prisma.subProvince.delete({ where: { id } });
+    for (const uid of affected) {
+      try { await syncUserAreaDerivedLinks(uid); } catch { /* غير حابس */ }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[sub-province-delete]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/sa/areas/sub-province-bulk — { areaIds, subProvinceId|null }
+// نقل مناطق بين الكرخ/الرصافة دفعة واحدة. يضبط provinceId تلقائياً ليطابق
+// محافظة القسم — منطقة تحت «الكرخ» يجب أن تكون في بغداد بالضرورة.
+app.put('/api/sa/areas/sub-province-bulk', requireSuperAdmin, async (req, res) => {
+  try {
+    const areaIds = (req.body?.areaIds ?? []).map(Number).filter(Number.isInteger);
+    const raw = req.body?.subProvinceId;
+    const subProvinceId = raw == null ? null : Number(raw);
+    if (areaIds.length === 0) return res.status(400).json({ success: false, error: 'لم تُحدَّد أي منطقة' });
+    if (subProvinceId != null && !Number.isInteger(subProvinceId)) {
+      return res.status(400).json({ success: false, error: 'معرّف قسم غير صالح' });
+    }
+
+    let data = { subProvinceId: null };
+    if (subProvinceId != null) {
+      const sub = await prisma.subProvince.findUnique({
+        where: { id: subProvinceId }, select: { id: true, provinceId: true },
+      });
+      if (!sub) return res.status(404).json({ success: false, error: 'القسم غير موجود' });
+      data = { subProvinceId: sub.id, provinceId: sub.provinceId, provinceConflict: null };
+    }
+
+    await prisma.area.updateMany({ where: { id: { in: areaIds } }, data });
+
+    if (subProvinceId != null) {
+      for (const uid of await userIdsAssignedToSubProvinces([subProvinceId])) {
+        try { await syncUserAreaDerivedLinks(uid); } catch { /* غير حابس */ }
+      }
+    }
+
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, updated: areaIds.length });
+  } catch (err) {
+    console.error('[area-sub-province-bulk]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/sub-provinces/auto-match — توزيع مناطق بغداد على الكرخ/الرصافة
+app.post('/api/sa/sub-provinces/auto-match', requireSuperAdmin, async (req, res) => {
+  try {
+    const onlyUnassigned = req.body?.all !== true;
+    await seedSubProvinces(prisma);
+    const stats = await autoMatchSubProvinces(prisma, { onlyUnassigned });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, stats, data: finalAreas });
+  } catch (err) {
+    console.error('[sub-provinces-auto-match]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -4162,7 +4309,11 @@ if (process.env.VERCEL) {
       .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
     // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
     seedProvinces(prisma)
-      .then(n => console.log(`✓ المحافظات جاهزة (${n})`))
+      .then(async n => {
+        console.log(`✓ المحافظات جاهزة (${n})`);
+        const s = await seedSubProvinces(prisma);
+        console.log(`✓ أقسام المحافظات جاهزة (${s})`);
+      })
       .catch(e => console.error('[seedProvinces]', e.message));
   });
 }

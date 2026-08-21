@@ -190,3 +190,124 @@ export async function autoMatchProvinces(prisma, opts = {}) {
     scanned:    areas.length,
   };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// الأقسام داخل المحافظة (SubProvince) — بغداد: الكرخ/الرصافة
+// ────────────────────────────────────────────────────────────────────────────
+// مستوى ثالث اختياري. بغداد وحدها مقسّمة إدارياً إلى جانبَي دجلة، وبقية
+// المحافظات تبقى بلا أقسام فتظهر مناطقها مباشرة تحتها كما كانت.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * أسماء مناطق بغداد المعروف جانبها. المفاتيح تُطبَّع بـ normalizeAreaName الذي
+ * يحذف «ال» التعريف وبادئات «حي/محلة/...»، فـ«حي الجهاد» و«الجهاد» يلتقيان على
+ * نفس المفتاح — لذا نكتب الاسم الأساسي فقط دون تكرار الصيغ.
+ *
+ * ما ليس في القائمتين يبقى بلا قسم ليحدده المدير يدوياً — لا نُخمّن، لأن إسناد
+ * منطقة للجانب الخطأ يُفسد تقارير مَن يُعيَّن على ذلك الجانب.
+ */
+export const BAGHDAD_SUBPROVINCES = [
+  {
+    name: 'الكرخ',
+    sortOrder: 1,
+    areas: [
+      'منصور', 'يرموك', 'غزالية', 'خضراء', 'عامرية', 'جهاد', 'بياع', 'سيدية',
+      'دورة', 'دوره', 'ابو دشير', 'علاوي', 'شعلة', 'كاظمية', 'عامل', 'وشاش',
+      'حارثية', 'شارع حيفا', 'صالحية', 'عطيفية', 'عطيفه', 'طوبجي', 'ابو غريب',
+      'تاجي', 'محمودية', 'لطيفية', 'يوسفية', 'جميلة', 'اسكان', 'جامعة',
+      'داوودي', 'دولعي', 'طارمية', 'مشاهده', 'سبع بور', 'شرطه رابعه', 'قادسية',
+      'معالف', 'ناحيه الرشيد', 'نفق الشرطة', 'بنوك', 'جكوك', 'عدل',
+      'ساحه الاندلس', 'شالجيه', 'سلمان فائق', 'بساتين', 'رحمانيه', 'رساله',
+    ],
+  },
+  {
+    name: 'الرصافة',
+    sortOrder: 2,
+    areas: [
+      'اعظمية', 'كريعات', 'اعظيمه كريعات', 'شعب', 'صليخ', 'وزيرية', 'باب المعظم',
+      'مدينه الصدر', 'شهداء', 'حبيبية', 'حبيبه', 'زعفرانية', 'جسر ديالى', 'غدير',
+      'زيونه', 'كراده', 'جادرية', 'سعدون', 'شارع فلسطين', 'بغداد الجديده', 'امين',
+      'مشتل', 'بلديات', 'اور', 'نهروان', 'مدائن', 'حسينيه المعامل', 'حسينية',
+      'طالبية', 'عبيدي', 'كمالية', 'تونس', 'قاهره', 'فضل', 'فضيلية', 'مستنصرية',
+      'ساحه بيروت', 'ساحه الواثق', 'شارع المغرب', 'شارع كفاح', 'شارع مسبح',
+      'بسمايه', 'سبع ابكار',
+    ],
+  },
+];
+
+/** بذر أقسام بغداد — idempotent، لا يلمس أي تسمية عدّلها المدير. */
+export async function seedSubProvinces(prisma) {
+  const baghdad = await prisma.province.findFirst({ where: { name: 'بغداد' }, select: { id: true } });
+  if (!baghdad) return 0;
+
+  for (const sp of BAGHDAD_SUBPROVINCES) {
+    await prisma.subProvince.upsert({
+      where:  { name_provinceId: { name: sp.name, provinceId: baghdad.id } },
+      update: { sortOrder: sp.sortOrder },
+      create: { name: sp.name, provinceId: baghdad.id, sortOrder: sp.sortOrder },
+    });
+  }
+  return prisma.subProvince.count();
+}
+
+/**
+ * إسناد قسم (كرخ/رصافة) لمناطق بغداد التي بلا قسم.
+ *
+ * مطابقة تامة بعد التطبيع، ثم «يبدأ بـ الاسم + مسافة» — الأخيرة تلتقط الصيغ
+ * المركّبة مثل «دوره - مهديه» و«كراده داخل» التي تشترك في الجذر نفسه.
+ * ما لا يُطابَق يبقى بلا قسم ليحسمه المدير.
+ */
+export async function autoMatchSubProvinces(prisma, opts = {}) {
+  const { onlyUnassigned = true } = opts;
+  const EMPTY = { matched: 0, unresolved: 0, scanned: 0 };
+
+  const baghdad = await prisma.province.findFirst({ where: { name: 'بغداد' }, select: { id: true } });
+  if (!baghdad) return EMPTY;
+
+  const subs = await prisma.subProvince.findMany({ where: { provinceId: baghdad.id } });
+  if (subs.length === 0) return EMPTY;
+  const subByName = new Map(subs.map(s => [s.name, s.id]));
+
+  // الاسم المطبَّع -> معرّف القسم
+  const lookup = new Map();
+  for (const sp of BAGHDAD_SUBPROVINCES) {
+    const subId = subByName.get(sp.name);
+    if (!subId) continue;
+    for (const a of sp.areas) {
+      const k = normalizeAreaName(a);
+      if (k && !lookup.has(k)) lookup.set(k, subId);
+    }
+  }
+
+  const areas = await prisma.area.findMany({
+    where:  onlyUnassigned
+      ? { provinceId: baghdad.id, subProvinceId: null }
+      : { provinceId: baghdad.id },
+    select: { id: true, name: true },
+  });
+  if (areas.length === 0) return EMPTY;
+
+  const resolved = new Map();
+  for (const a of areas) {
+    const norm = normalizeAreaName(a.name);
+    if (!norm) continue;
+    let hit = lookup.get(norm) ?? null;
+    if (hit == null) {
+      for (const [key, subId] of lookup) {
+        if (key && norm.startsWith(key + ' ')) { hit = subId; break; }
+      }
+    }
+    if (hit != null) resolved.set(a.id, hit);
+  }
+
+  const bySub = new Map();
+  for (const [areaId, subId] of resolved) {
+    if (!bySub.has(subId)) bySub.set(subId, []);
+    bySub.get(subId).push(areaId);
+  }
+  for (const [subId, ids] of bySub) {
+    await prisma.area.updateMany({ where: { id: { in: ids } }, data: { subProvinceId: subId } });
+  }
+
+  return { matched: resolved.size, unresolved: areas.length - resolved.size, scanned: areas.length };
+}

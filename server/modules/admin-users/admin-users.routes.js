@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   listAllUsers, getUser, createUser, updateUser,
-  setUserCompanies, setUserAreas, setUserProvinces, setUserItems, setUserLines,
+  setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
   setUserManagers, setUserInteractions, setUserFeatures,
   getUserRepInfo, getUserCompanyItems,
   deleteUser,
@@ -24,6 +24,7 @@ router.delete('/:id',      deleteUser);
 router.put('/:id/companies',    setUserCompanies);
 router.put('/:id/areas',        setUserAreas);
 router.put('/:id/provinces',    setUserProvinces);
+router.put('/:id/sub-provinces', setUserSubProvinces);
 router.put('/:id/items',        setUserItems);
 router.put('/:id/lines',        setUserLines);
 router.put('/:id/managers',     setUserManagers);

@@ -23,6 +23,25 @@ export async function areaIdsOfProvinces(provinceIds) {
   return rows.map(r => r.id);
 }
 
+/** كل معرّفات المناطق التابعة لمجموعة أقسام (كرخ/رصافة). */
+export async function areaIdsOfSubProvinces(subProvinceIds) {
+  if (!subProvinceIds || subProvinceIds.length === 0) return [];
+  const rows = await prisma.area.findMany({
+    where:  { subProvinceId: { in: subProvinceIds } },
+    select: { id: true },
+  });
+  return rows.map(r => r.id);
+}
+
+/** معرّفات الأقسام المعيّنة لمستخدم. */
+export async function subProvinceIdsForUser(userId) {
+  const rows = await prisma.userSubProvinceAssignment.findMany({
+    where:  { userId },
+    select: { subProvinceId: true },
+  });
+  return rows.map(r => r.subProvinceId);
+}
+
 /** معرّفات المحافظات المعيّنة لمستخدم. */
 export async function provinceIdsForUser(userId) {
   const rows = await prisma.userProvinceAssignment.findMany({
@@ -54,20 +73,27 @@ export async function resolveEffectiveAreaIds(userId, opts = {}) {
     repId = u?.linkedRepId ?? null;
   }
 
-  const [ua, sa, provinceIds] = await Promise.all([
+  const [ua, sa, provinceIds, subProvinceIds] = await Promise.all([
     prisma.userAreaAssignment.findMany({ where: { userId }, select: { areaId: true } }),
     includeRepAreas && repId
       ? prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } })
       : Promise.resolve([]),
     provinceIdsForUser(userId),
+    subProvinceIdsForUser(userId),
   ]);
 
-  const provinceAreaIds = await areaIdsOfProvinces(provinceIds);
+  // تعيين المحافظة يشمل كل مناطقها (بما فيها مناطق أقسامها)، وتعيين قسم بعينه
+  // يشمل مناطق ذلك القسم وحده — فيمكن منح مندوب «الكرخ» دون «الرصافة».
+  const [provinceAreaIds, subProvinceAreaIds] = await Promise.all([
+    areaIdsOfProvinces(provinceIds),
+    areaIdsOfSubProvinces(subProvinceIds),
+  ]);
 
   return [...new Set([
     ...ua.map(r => r.areaId),
     ...sa.map(r => r.areaId),
     ...provinceAreaIds,
+    ...subProvinceAreaIds,
   ])];
 }
 
@@ -173,6 +199,15 @@ export async function syncUserAreaDerivedLinks(userId, areaIdsOverride = null) {
  * كل المستخدمين المعيَّنين على محافظة — لإعادة مزامنة روابطهم المشتقة بعد أن
  * يُضيف رفعُ ملفٍ مناطق جديدة إليها.
  */
+export async function userIdsAssignedToSubProvinces(subProvinceIds) {
+  if (!subProvinceIds || subProvinceIds.length === 0) return [];
+  const rows = await prisma.userSubProvinceAssignment.findMany({
+    where:  { subProvinceId: { in: subProvinceIds } },
+    select: { userId: true },
+  });
+  return [...new Set(rows.map(r => r.userId))];
+}
+
 export async function userIdsAssignedToProvinces(provinceIds) {
   if (!provinceIds || provinceIds.length === 0) return [];
   const rows = await prisma.userProvinceAssignment.findMany({

@@ -55,25 +55,26 @@ model User {
   pharmacyVisitLikes PharmacyVisitLike[]
 
   // Multi-tenant assignments
-  companyAssignments  UserCompanyAssignment[]
-  lineAssignments     UserLineAssignment[]
-  itemAssignments     UserItemAssignment[]
-  areaAssignments     UserAreaAssignment[]
-  provinceAssignments UserProvinceAssignment[]
-  managersOfUser      UserManagerAssignment[]     @relation("UserSubordinates")
-  subordinatesOfUser  UserManagerAssignment[]     @relation("UserManagers")
-  interactionAsActor  UserInteractionPermission[] @relation("InteractionActor")
-  interactionAsTarget UserInteractionPermission[] @relation("InteractionTarget")
-  invoiceSheets       InvoiceSheet[]
-  fmsPlans            FmsPlan[]
-  fileShares          FileUserShare[]
-  pharmacies          Pharmacy[]                  @relation("PharmacyOwner")
-  assignedInvoices    CommercialInvoice[]         @relation("AssignedInvoices")
-  createdInvoices     CommercialInvoice[]         @relation("CreatedInvoices")
-  ownedInvoices       CommercialInvoice[]         @relation("InvoiceOwner")
-  collections         CollectionRecord[]          @relation("CollectionByUser")
-  notifications       AppNotification[]           @relation("NotificationRecipient")
-  sentNotifications   AppNotification[]           @relation("NotificationSender")
+  companyAssignments     UserCompanyAssignment[]
+  lineAssignments        UserLineAssignment[]
+  itemAssignments        UserItemAssignment[]
+  areaAssignments        UserAreaAssignment[]
+  provinceAssignments    UserProvinceAssignment[]
+  subProvinceAssignments UserSubProvinceAssignment[]
+  managersOfUser         UserManagerAssignment[]     @relation("UserSubordinates")
+  subordinatesOfUser     UserManagerAssignment[]     @relation("UserManagers")
+  interactionAsActor     UserInteractionPermission[] @relation("InteractionActor")
+  interactionAsTarget    UserInteractionPermission[] @relation("InteractionTarget")
+  invoiceSheets          InvoiceSheet[]
+  fmsPlans               FmsPlan[]
+  fileShares             FileUserShare[]
+  pharmacies             Pharmacy[]                  @relation("PharmacyOwner")
+  assignedInvoices       CommercialInvoice[]         @relation("AssignedInvoices")
+  createdInvoices        CommercialInvoice[]         @relation("CreatedInvoices")
+  ownedInvoices          CommercialInvoice[]         @relation("InvoiceOwner")
+  collections            CollectionRecord[]          @relation("CollectionByUser")
+  notifications          AppNotification[]           @relation("NotificationRecipient")
+  sentNotifications      AppNotification[]           @relation("NotificationSender")
 
   // Master Survey relations
   surveyDoctorEdits   MasterSurveyDoctor[]     @relation("SurveyDoctorEditor")
@@ -165,6 +166,9 @@ model Area {
   // آخر اسم محافظة مخالف ورد من ملف — أول محافظة تُشاهَد تُثبَّت، والمخالفة تُسجَّل
   // هنا للمراجعة اليدوية بدل الكتابة فوق القيمة المحفوظة.
   provinceConflict String?
+  // القسم داخل المحافظة (الكرخ/الرصافة). null = المنطقة تتبع المحافظة مباشرة.
+  subProvinceId    Int?
+  subProvince      SubProvince?      @relation(fields: [subProvinceId], references: [id], onDelete: SetNull)
 
   // Relations
   representatives     RepresentativeArea[]
@@ -181,6 +185,7 @@ model Area {
   @@index([userId])
   @@index([officeId])
   @@index([provinceId])
+  @@index([subProvinceId])
   @@map("areas")
 }
 
@@ -1756,8 +1761,9 @@ model Province {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 
-  areas       Area[]
-  assignments UserProvinceAssignment[]
+  areas        Area[]
+  subProvinces SubProvince[]
+  assignments  UserProvinceAssignment[]
 
   @@map("provinces")
 }
@@ -1776,4 +1782,39 @@ model UserProvinceAssignment {
 
   @@id([userId, provinceId])
   @@map("user_province_assignments")
+}
+
+// ─── SubProvince (قسم داخل المحافظة: الكرخ/الرصافة) ──────────
+// مستوى ثالث اختياري بين Province و Area. اختياري عمداً: أغلب المحافظات لا
+// تحتاجه، وبغداد وحدها تُقسَّم إلى كرخ/رصافة. المنطقة التي لا قسم لها تظهر
+// مباشرة تحت محافظتها كما كانت.
+model SubProvince {
+  id         Int      @id @default(autoincrement())
+  name       String
+  provinceId Int
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  province    Province                    @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  areas       Area[]
+  assignments UserSubProvinceAssignment[]
+
+  @@unique([name, provinceId])
+  @@index([provinceId])
+  @@map("sub_provinces")
+}
+
+// ─── User ↔ SubProvince Assignment (تعيين ديناميكي) ──────────
+// نفس منطق تعيين المحافظة: تعيين «الكرخ» يعني كل مناطقه الآن ومستقبلاً،
+// والتوسيع يحدث وقت الاستعلام في server/lib/areaScope.js.
+model UserSubProvinceAssignment {
+  userId        Int
+  subProvinceId Int
+  assignedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subProvince SubProvince @relation(fields: [subProvinceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, subProvinceId])
+  @@map("user_sub_province_assignments")
 }

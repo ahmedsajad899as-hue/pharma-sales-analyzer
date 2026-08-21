@@ -29,8 +29,9 @@ interface Office   { id: number; name: string; }
 interface Company  { id: number; name: string; officeId: number; }
 interface Line     { id: number; name?: string; companyId: number; }
 interface Item     { id: number; name: string; companyId?: number | null; companyName?: string; }
-interface Area     { id: number; name: string; provinceId?: number | null; provinceConflict?: string | null; }
+interface Area     { id: number; name: string; provinceId?: number | null; provinceConflict?: string | null; subProvinceId?: number | null; }
 interface Province { id: number; name: string; sortOrder?: number; areaCount?: number; }
+interface SubProvince { id: number; name: string; provinceId: number; sortOrder?: number; areaCount?: number; }
 interface UserRow  {
   id: number; username: string; displayName?: string; role: string; phone?: string;
   isActive: boolean; officeId?: number; office?: { id: number; name: string };
@@ -47,6 +48,7 @@ interface UserDetail extends UserRow {
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
   areaAssignments:    { areaId: number;    area:    { name: string } }[];
   provinceAssignments?: { provinceId: number; province: { id: number; name: string } }[];
+  subProvinceAssignments?: { subProvinceId: number; subProvince: { id: number; name: string; provinceId: number } }[];
   managersOfUser:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
 }
 
@@ -74,6 +76,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [items,     setItems]     = useState<Item[]>([]);
   const [areas,     setAreas]     = useState<Area[]>([]);
   const [provinces, setProvinces] = useState<Province[]>([]);
+  const [subProvinces, setSubProvinces] = useState<SubProvince[]>([]);
   const [refsLoading, setRefsLoading] = useState(false);
   const [loading,   setLoading]   = useState(true);
   const [detail,    setDetail]    = useState<UserDetail | null>(null);
@@ -96,8 +99,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // تعيين المحافظة ديناميكي: يُحفظ كمحافظة لا كقائمة مناطق، فتدخل نطاقَ
   // المستخدم تلقائياً أي منطقة تُضاف لها لاحقاً.
   const [draftProvinceIds,   setDraftProvinceIds]   = useState<number[]>([]);
+  const [draftSubProvinceIds, setDraftSubProvinceIds] = useState<number[]>([]);
   const [collapsedProvinces, setCollapsedProvinces] = useState<Set<string>>(new Set());
   const [bulkTargetProvince, setBulkTargetProvince] = useState<number | ''>('');
+  const [bulkTargetSub,      setBulkTargetSub]      = useState<number | ''>('');
   // أي صف منطقة مفتوح له منتقي المحافظة السريع الآن (بدل عرض قائمة منسدلة
   // بكل صف دائماً — كانت تُثقّل القائمة بصرياً مع مئات المناطق)
   const [openProvincePicker,  setOpenProvincePicker]  = useState<number | null>(null);
@@ -147,14 +152,16 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     try {
       // ملاحظة: قائمة الايتمات لم تعد تُحمَّل هنا عمومياً — صارت مقيّدة بشركات المستخدم
       // وتُحمَّل لكل مستخدم على حدة عبر /api/sa/users/:id/company-items (تأثير detail?.id).
-      const [li, ar, pr] = await Promise.all([
+      const [li, ar, pr, sp] = await Promise.all([
         fetch('/api/sa/companies/all-lines', { headers: H() }).then(r => r.json()),
         fetch('/api/sa/areas',  { headers: H() }).then(r => r.json()),
         fetch('/api/sa/provinces', { headers: H() }).then(r => r.json()),
+        fetch('/api/sa/sub-provinces', { headers: H() }).then(r => r.json()),
       ]);
       if (li.success) setLines(li.data);
       if (ar.success) setAreas(ar.data);
       if (pr.success) setProvinces(pr.data);
+      if (sp.success) setSubProvinces(sp.data);
     } finally {
       setRefsLoading(false);
     }
@@ -209,6 +216,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setDraftItemIds(detail.itemAssignments.map(a => a.itemId));
     setDraftAreaIds(detail.areaAssignments.map(a => a.areaId));
     setDraftProvinceIds((detail.provinceAssignments ?? []).map(p => p.provinceId));
+    setDraftSubProvinceIds((detail.subProvinceAssignments ?? []).map(s => s.subProvinceId));
     setDraftMgrIds(detail.managersOfUser.map(a => a.managerId));
     try {
       const p = JSON.parse(detail.permissions || '{}');
@@ -241,9 +249,24 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const toCollapse = new Set<string>();
     for (const p of provinces) if (!relevantKeys.has(String(p.id))) toCollapse.add(String(p.id));
     if (!relevantKeys.has('none')) toCollapse.add('none');
+
+    // مستوى الأقسام: اطوِ أي قسم لا منطقة مُعيَّنة فيه ولا هو معيَّن بذاته،
+    // كي لا تنفتح كرخ ورصافة معاً بمئات الصفوف حين يخصّ المستخدمَ جانبٌ واحد.
+    const committedSubIds = new Set((detail.subProvinceAssignments ?? []).map(s => s.subProvinceId));
+    const relevantSubKeys = new Set<string>();
+    for (const a of areas) {
+      if (!committedAreaIds.has(a.id)) continue;
+      const pKey = a.provinceId != null ? String(a.provinceId) : 'none';
+      relevantSubKeys.add(pKey + ':' + (a.subProvinceId != null ? String(a.subProvinceId) : 'direct'));
+    }
+    for (const s of subProvinces) {
+      const key = String(s.provinceId) + ':' + String(s.id);
+      const wholeProvince = committedProvinceIds.has(s.provinceId);
+      if (!wholeProvince && !committedSubIds.has(s.id) && !relevantSubKeys.has(key)) toCollapse.add(key);
+    }
     setCollapsedProvinces(toCollapse);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.id, areas.length, provinces.length]);
+  }, [detail?.id, areas.length, provinces.length, subProvinces.length]);
 
   const loadDetail = (id: number, opts: { keepTab?: boolean } = {}) => {
     // Save current scroll position before entering detail
@@ -337,12 +360,29 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   // زر «حفظ التغييرات» في تبويب المناطق يحفظ الاثنين معاً بترتيب ثابت:
   // المحافظات أولاً، فإن فشلت لا نحفظ المناطق ونترك الحالة كما هي.
+  const saveSubProvinces = async (ids: number[]) => {
+    if (!detail) return false;
+    const res = await fetch(`/api/sa/users/${detail.id}/sub-provinces`, {
+      method: 'PUT', headers: H(), body: JSON.stringify({ subProvinceIds: ids }),
+    });
+    if (!res.ok) {
+      if (res.status === 401) { showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626'); logout(); return false; }
+      let errMsg = 'فشل حفظ الأقسام';
+      try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+      showToast('❌ ' + errMsg, '#dc2626');
+      return false;
+    }
+    return true;
+  };
+
   const saveAreasAndProvinces = async () => {
     if (!detail) return;
     setSaving(true);
     try {
       const ok = await saveProvinces(draftProvinceIds);
       if (!ok) return;
+      const okSub = await saveSubProvinces(draftSubProvinceIds);
+      if (!okSub) return;
     } catch {
       showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
       return;
@@ -437,12 +477,36 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     finally { setAreaCrudBusy(false); }
   };
 
+  // نقل مناطق إلى قسم (كرخ/رصافة). السيرفر يضبط provinceId ليطابق محافظة
+  // القسم، فلا يمكن أن تنتهي منطقة تحت قسم لا يتبع محافظتها.
+  const assignAreaSubProvince = async (areaIds: number[], subProvinceId: number | null) => {
+    if (areaIds.length === 0) return;
+    setAreaCrudBusy(true);
+    try {
+      const r = await fetch('/api/sa/areas/sub-province-bulk', {
+        method: 'PUT', headers: H(), body: JSON.stringify({ areaIds, subProvinceId }),
+      });
+      const j = await r.json();
+      if (j.success) {
+        setAreas(j.data);
+        await loadProvinceCounts();
+        showToast(`✅ تم نقل ${j.updated} منطقة`);
+      } else showToast('❌ ' + (j.error || 'فشل النقل'), '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setAreaCrudBusy(false); }
+  };
+
   // أعداد المناطق لكل محافظة تتغيّر بعد أي نقل — أعد جلبها
   const loadProvinceCounts = async () => {
     try {
-      const r = await fetch('/api/sa/provinces', { headers: H() });
+      const [r, rs] = await Promise.all([
+        fetch('/api/sa/provinces', { headers: H() }),
+        fetch('/api/sa/sub-provinces', { headers: H() }),
+      ]);
       const j = await r.json();
       if (j.success) setProvinces(j.data);
+      const js = await rs.json();
+      if (js.success) setSubProvinces(js.data);
     } catch { /* غير حابس */ }
   };
 
@@ -561,6 +625,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       .map(aa => ({
         id: aa.areaId, name: aa.area?.name ?? `#${aa.areaId}`,
         provinceId: null as number | null, provinceConflict: null as string | null,
+        subProvinceId: null as number | null,
         _extra: true as const,
       }));
     const displayAreas = [...areas, ...assignedExtraAreas];
@@ -571,32 +636,74 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const filteredAreas = displayAreas.filter(
       a => !areaSearch || a.name.toLowerCase().includes(areaSearch.toLowerCase()),
     );
-    const groupsMap = new Map<string, { key: string; province: Province | null; areas: typeof filteredAreas }>();
+    // ── بناء الشجرة: محافظة ← قسم (كرخ/رصافة) ← مناطق ────────────────────
+    // القسم مستوى اختياري: مناطق المحافظة التي لا قسم لها تظهر مباشرة تحتها
+    // في مجموعة فرعية ضمنية (subKey='direct')، فلا تختفي.
+    type SubGroup = { subKey: string; sub: SubProvince | null; areas: typeof filteredAreas };
+    type Group = { key: string; province: Province | null; areas: typeof filteredAreas; subs: SubGroup[] };
+
+    const subById = new Map(subProvinces.map(s => [s.id, s]));
+    const groupsMap = new Map<string, Group>();
+    const ensureGroup = (key: string, province: Province | null): Group => {
+      if (!groupsMap.has(key)) groupsMap.set(key, { key, province, areas: [], subs: [] });
+      return groupsMap.get(key)!;
+    };
+    const ensureSub = (g: Group, sub: SubProvince | null): SubGroup => {
+      const subKey = sub ? String(sub.id) : 'direct';
+      let sg = g.subs.find(s => s.subKey === subKey);
+      if (!sg) { sg = { subKey, sub, areas: [] }; g.subs.push(sg); }
+      return sg;
+    };
+
     for (const a of filteredAreas) {
       const p = a.provinceId != null ? provinceById.get(a.provinceId) ?? null : null;
-      const key = p ? String(p.id) : 'none';
-      if (!groupsMap.has(key)) groupsMap.set(key, { key, province: p, areas: [] });
-      groupsMap.get(key)!.areas.push(a);
+      const g = ensureGroup(p ? String(p.id) : 'none', p);
+      g.areas.push(a);
+      // القسم يُحتسب فقط داخل محافظته — منطقة بقسم لا يتبع محافظتها تُعامَل كبلا قسم
+      const s = a.subProvinceId != null ? subById.get(a.subProvinceId) ?? null : null;
+      ensureSub(g, s && p && s.provinceId === p.id ? s : null).areas.push(a);
     }
-    // محافظات معيّنة للمستخدم لكن بلا أي منطقة بعد — يجب أن تظهر كي يستطيع
-    // المدير رؤية التعيين وإلغاءه، وإلا صار تعييناً خفياً.
-    for (const pid of draftProvinceIds) {
-      const key = String(pid);
-      if (!groupsMap.has(key) && provinceById.has(pid) && !areaSearch) {
-        groupsMap.set(key, { key, province: provinceById.get(pid)!, areas: [] });
+
+    // محافظات/أقسام معيّنة للمستخدم لكن بلا مناطق بعد — تظهر كي لا يصير التعيين خفياً
+    if (!areaSearch) {
+      for (const pid of draftProvinceIds) {
+        if (provinceById.has(pid)) ensureGroup(String(pid), provinceById.get(pid)!);
+      }
+      for (const sid of draftSubProvinceIds) {
+        const s = subById.get(sid);
+        if (!s) continue;
+        const p = provinceById.get(s.provinceId) ?? null;
+        ensureSub(ensureGroup(p ? String(p.id) : 'none', p), s);
+      }
+      // أقسام موجودة أصلاً داخل محافظة معروضة — تظهر فارغة بدل أن تختفي
+      for (const s of subProvinces) {
+        const key = String(s.provinceId);
+        if (groupsMap.has(key)) ensureSub(groupsMap.get(key)!, s);
       }
     }
+
     const areaGroups = [...groupsMap.values()].sort((x, y) => {
       if (!x.province) return 1;   // «غير محدد» دائماً في الأسفل
       if (!y.province) return -1;
       return (x.province.sortOrder ?? 0) - (y.province.sortOrder ?? 0)
           || x.province.name.localeCompare(y.province.name, 'ar');
     });
+    // «بلا قسم» أسفل الأقسام المسمّاة داخل كل محافظة
+    for (const g of areaGroups) {
+      g.subs.sort((x, y) => {
+        if (!x.sub) return 1;
+        if (!y.sub) return -1;
+        return (x.sub.sortOrder ?? 0) - (y.sub.sortOrder ?? 0)
+            || x.sub.name.localeCompare(y.sub.name, 'ar');
+      });
+    }
 
-    // المناطق المشمولة ضمنياً عبر محافظة معيّنة — تُعرض مؤشَّرة ومعطَّلة
+    // مشمولة ضمنياً = عبر المحافظة كاملة، أو عبر قسم معيَّن منها
     const impliedAreaIds = new Set(
-      displayAreas.filter(a => a.provinceId != null && draftProvinceIds.includes(a.provinceId))
-                  .map(a => a.id),
+      displayAreas.filter(a =>
+        (a.provinceId != null && draftProvinceIds.includes(a.provinceId))
+        || (a.subProvinceId != null && draftSubProvinceIds.includes(a.subProvinceId)),
+      ).map(a => a.id),
     );
     const effectiveAreaCount = new Set([...draftAreaIds, ...impliedAreaIds]).size;
     const conflictCount = displayAreas.filter(a => a.provinceConflict).length;
@@ -934,6 +1041,28 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 >
                   {saving ? '...' : '🗺️ مطابقة المحافظات تلقائياً'}
                 </button>
+                <button
+                  disabled={saving}
+                  title="ينشئ الكرخ والرصافة تحت بغداد ويوزّع مناطقها المعروفة عليهما. ما هو غير واضح يبقى «بلا قسم» لتحدده يدوياً."
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      const r = await fetch('/api/sa/sub-provinces/auto-match', {
+                        method: 'POST', headers: H(), body: JSON.stringify({}),
+                      });
+                      const j = await r.json();
+                      if (j.success) {
+                        setAreas(j.data);
+                        await loadProvinceCounts();
+                        const s = j.stats || {};
+                        alert(`✅ توزيع مناطق بغداد على الكرخ/الرصافة\n\n• تم توزيع: ${s.matched ?? 0}\n• بقيت بلا قسم: ${s.unresolved ?? 0}\n\n(فُحصت ${s.scanned ?? 0} منطقة)`);
+                      } else alert('❌ ' + j.error);
+                    } finally { setSaving(false); }
+                  }}
+                  style={{ ...btnStyle('#4f46e5', true), fontSize: 12, padding: '4px 14px' }}
+                >
+                  {saving ? '...' : '🏙️ توزيع كرخ/رصافة'}
+                </button>
               </div>
               {conflictCount > 0 && (
                 <div style={{ marginBottom: 10, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#991b1b' }}>
@@ -1007,10 +1136,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 >✓ اختيار الكل</button>
                 <button
                   onClick={() => {
-                    if ((draftAreaIds.length > 0 || draftProvinceIds.length > 0)
-                        && !confirm('سيتم إلغاء تحديد جميع المناطق والمحافظات. هل أنت متأكد؟')) return;
+                    if ((draftAreaIds.length > 0 || draftProvinceIds.length > 0 || draftSubProvinceIds.length > 0)
+                        && !confirm('سيتم إلغاء تحديد جميع المناطق والمحافظات والأقسام. هل أنت متأكد؟')) return;
                     setDraftAreaIds([]);
                     setDraftProvinceIds([]);
+                    setDraftSubProvinceIds([]);
                   }}
                   style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}
                 >✗ إلغاء الكل</button>
@@ -1147,7 +1277,105 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                           {group.areas.length === 0 && (
                             <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 8px' }}>لا توجد مناطق في هذه المحافظة بعد — ستدخل تلقائياً عند رفع ملف يحتوي عليها.</div>
                           )}
-                          {group.areas.map(a => {
+                          {group.subs.map(sg => {
+                            const subId = sg.sub?.id ?? null;
+                            const subChecked = subId != null && draftSubProvinceIds.includes(subId);
+                            const subAreaIds = sg.areas.map(a => a.id);
+                            const subDirect = subAreaIds.filter(id => draftAreaIds.includes(id)).length;
+                            const subAll = subAreaIds.length > 0 && subDirect === subAreaIds.length;
+                            const subSome = subDirect > 0 && !subAll;
+                            const subKeyFull = group.key + ':' + sg.subKey;
+                            const subCollapsed = areaSearch.trim() ? false : collapsedProvinces.has(subKeyFull);
+                            const toggleSub = () => setCollapsedProvinces(prev => {
+                              const next = new Set(prev);
+                              if (next.has(subKeyFull)) next.delete(subKeyFull); else next.add(subKeyFull);
+                              return next;
+                            });
+                            // محافظة كاملة معيّنة ⇒ القسم مشمول ضمناً، فلا معنى لتأشيره منفرداً
+                            const subImplied = provinceChecked;
+
+                            return (
+                              <div key={sg.subKey} style={{ border: `1px solid ${subChecked ? '#86efac' : '#eef2f7'}`, borderRadius: 8, background: subChecked ? '#f0fdf4' : '#fcfdfe' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', padding: '6px 10px', background: subChecked ? '#dcfce7' : '#f1f5f9', borderBottom: subCollapsed ? 'none' : '1px solid #e8edf3', borderRadius: subCollapsed ? 7 : '7px 7px 0 0' }}>
+                                  <button
+                                    onClick={toggleSub}
+                                    title={subCollapsed ? 'عرض المناطق' : 'إخفاء المناطق'}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#64748b', padding: 0, width: 16, flexShrink: 0 }}
+                                  >{subCollapsed ? '◀' : '▼'}</button>
+
+                                  {sg.sub ? (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: subImplied ? 'default' : 'pointer', fontWeight: 600, fontSize: 13, color: '#334155', opacity: subImplied ? 0.7 : 1 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={subChecked || subImplied}
+                                        disabled={subImplied}
+                                        title={subImplied ? 'مشمول تلقائياً لأن المحافظة كاملة معيّنة' : 'تعيين ديناميكي: أي منطقة تُضاف لهذا القسم لاحقاً تدخل نطاق المستخدم تلقائياً'}
+                                        onChange={e => setDraftSubProvinceIds(
+                                          e.target.checked
+                                            ? [...draftSubProvinceIds, sg.sub!.id]
+                                            : draftSubProvinceIds.filter(x => x !== sg.sub!.id),
+                                        )}
+                                      />
+                                      🏙️ {sg.sub.name}
+                                      <span style={{ fontWeight: 500, fontSize: 11, color: '#64748b' }}>({sg.areas.length})</span>
+                                      {subChecked && !subImplied && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#166534', background: '#bbf7d0', border: '1px solid #86efac', borderRadius: 6, padding: '1px 6px' }}>القسم كامل</span>
+                                      )}
+                                    </label>
+                                  ) : (
+                                    <span style={{ fontWeight: 600, fontSize: 13, color: '#64748b' }}>
+                                      ▪️ بلا قسم <span style={{ fontWeight: 500, fontSize: 11 }}>({sg.areas.length})</span>
+                                    </span>
+                                  )}
+
+                                  <div style={{ flex: 1 }} />
+                                  {!provinceChecked && !subChecked && subAreaIds.length > 0 && (
+                                    <button
+                                      onClick={() => setDraftAreaIds(
+                                        subAll
+                                          ? draftAreaIds.filter(id => !subAreaIds.includes(id))
+                                          : [...new Set([...draftAreaIds, ...subAreaIds])],
+                                      )}
+                                      title={subAll ? 'إلغاء تحديد مناطق هذا القسم' : 'تحديد مناطق هذا القسم فقط (ثابت، غير ديناميكي)'}
+                                      style={{ ...btnStyle(subSome ? '#f59e0b' : '#94a3b8', true), fontSize: 10, padding: '2px 8px', flexShrink: 0 }}
+                                    >{subAll ? '✗ إلغاء' : subSome ? `◐ ${subDirect}/${subAreaIds.length}` : '✓ تحديد'}</button>
+                                  )}
+
+                                  {/* نقل مناطق مؤشَّرة بين الكرخ/الرصافة — يظهر داخل «بلا قسم»
+                                      وأي قسم آخر، بشرط وجود أقسام في هذه المحافظة أصلاً. */}
+                                  {subDirect > 0 && group.province && subProvinces.some(s => s.provinceId === group.province!.id) && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexBasis: '100%', paddingTop: 4 }}>
+                                      <select
+                                        value={bulkTargetSub}
+                                        onChange={e => setBulkTargetSub(e.target.value === '' ? '' : Number(e.target.value))}
+                                        disabled={areaCrudBusy}
+                                        style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', direction: 'rtl', maxWidth: 170 }}
+                                      >
+                                        <option value="">نقل المحدد ({subDirect}) إلى قسم...</option>
+                                        {subProvinces.filter(s => s.provinceId === group.province!.id).map(s => (
+                                          <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        disabled={areaCrudBusy || bulkTargetSub === ''}
+                                        onClick={() => {
+                                          if (bulkTargetSub === '') return;
+                                          assignAreaSubProvince(subAreaIds.filter(id => draftAreaIds.includes(id)), Number(bulkTargetSub));
+                                          setBulkTargetSub('');
+                                        }}
+                                        title="ينقل المناطق المؤشَّرة ضمن هذا القسم إلى القسم المختار"
+                                        style={{ ...btnStyle('#0d9488', true), fontSize: 11, padding: '3px 10px' }}
+                                      >🏙️ نقل</button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {!subCollapsed && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6 }}>
+                                    {sg.areas.length === 0 && (
+                                      <div style={{ fontSize: 11, color: '#94a3b8', padding: '3px 6px' }}>لا توجد مناطق في هذا القسم بعد.</div>
+                                    )}
+                                    {sg.areas.map(a => {
                             const implied = impliedAreaIds.has(a.id);
                             const checked = implied || draftAreaIds.includes(a.id);
                             const pickerOpen = openProvincePicker === a.id;
@@ -1216,6 +1444,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                 )}
                               </div>
                             );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
                           })}
                         </div>
                       )}
@@ -1228,8 +1461,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => {
-                    if (draftAreaIds.length === 0 && draftProvinceIds.length === 0
-                        && (detail.areaAssignments.length > 0 || (detail.provinceAssignments ?? []).length > 0)) {
+                    if (draftAreaIds.length === 0 && draftProvinceIds.length === 0 && draftSubProvinceIds.length === 0
+                        && (detail.areaAssignments.length > 0 || (detail.provinceAssignments ?? []).length > 0
+                            || (detail.subProvinceAssignments ?? []).length > 0)) {
                       if (!confirm(`سيتم حذف جميع المناطق والمحافظات المُعيَّنة لهذا المستخدم. هل أنت متأكد؟`)) return;
                     }
                     saveAreasAndProvinces();
