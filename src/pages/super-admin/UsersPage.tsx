@@ -98,6 +98,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftProvinceIds,   setDraftProvinceIds]   = useState<number[]>([]);
   const [collapsedProvinces, setCollapsedProvinces] = useState<Set<string>>(new Set());
   const [bulkTargetProvince, setBulkTargetProvince] = useState<number | ''>('');
+  // أي صف منطقة مفتوح له منتقي المحافظة السريع الآن (بدل عرض قائمة منسدلة
+  // بكل صف دائماً — كانت تُثقّل القائمة بصرياً مع مئات المناطق)
+  const [openProvincePicker,  setOpenProvincePicker]  = useState<number | null>(null);
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
   const [itemSearch,         setItemSearch]         = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
@@ -219,6 +222,28 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       });
     } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
   }, [detail?.id]);
+
+  // طيّ افتراضي عند فتح مستخدم: نطوي كل مجموعة (محافظة أو «غير محدد») لا صلة لها
+  // بهذا المستخدم، ونُبقي مفتوحاً فقط ما يخصّه فعلاً — بدل عرض ~19 مجموعة/مئات
+  // الصفوف دفعة واحدة (كان هذا سبب الازدحام والتشوّش في العرض). لا يعيد الطيّ
+  // عند كل تحديث بيانات (مثل الحفظ) — فقط عند تبديل المستخدم نفسه.
+  useEffect(() => {
+    if (!detail || areas.length === 0) return;
+    const committedAreaIds = new Set(detail.areaAssignments.map(a => a.areaId));
+    const committedProvinceIds = new Set((detail.provinceAssignments ?? []).map(p => p.provinceId));
+    const relevantKeys = new Set<string>();
+    for (const a of areas) {
+      if (!committedAreaIds.has(a.id)) continue;
+      relevantKeys.add(a.provinceId != null ? String(a.provinceId) : 'none');
+    }
+    for (const pid of committedProvinceIds) relevantKeys.add(String(pid));
+
+    const toCollapse = new Set<string>();
+    for (const p of provinces) if (!relevantKeys.has(String(p.id))) toCollapse.add(String(p.id));
+    if (!relevantKeys.has('none')) toCollapse.add('none');
+    setCollapsedProvinces(toCollapse);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, areas.length, provinces.length]);
 
   const loadDetail = (id: number, opts: { keepTab?: boolean } = {}) => {
     // Save current scroll position before entering detail
@@ -1007,7 +1032,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   style={{ ...btnStyle('#16a34a', true), fontSize: 13, padding: '4px 16px', opacity: (areaCrudBusy || !newAreaName.trim()) ? 0.5 : 1 }}
                 >{areaCrudBusy ? '...' : '➕ إضافة'}</button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 380, overflowY: 'auto' }}>
+              {/* شريط ملخّص + طيّ/فتح الكل — يعوّض غياب سياق واضح مع ~19 مجموعة محتملة */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, fontSize: 12, color: '#64748b' }}>
+                <span>{areaGroups.length} مجموعة (محافظة أو «غير محدد»)</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => setCollapsedProvinces(new Set())}
+                    style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}
+                  >▼ فتح الكل</button>
+                  <button
+                    onClick={() => setCollapsedProvinces(new Set(areaGroups.map(g => g.key)))}
+                    style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}
+                  >◀ طيّ الكل</button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 460, overflowY: 'auto', paddingInlineEnd: 2 }}>
                 {areaGroups.length === 0 && (
                   <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8', fontSize: 13 }}>لا توجد مناطق مطابقة</div>
                 )}
@@ -1016,10 +1055,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   const provinceChecked = pid != null && draftProvinceIds.includes(pid);
                   const groupAreaIds = group.areas.map(a => a.id);
                   const directChecked = groupAreaIds.filter(id => draftAreaIds.includes(id)).length;
-                  // ثلاثي الحالة على مستوى المجموعة: الكل / جزئي / لا شيء
                   const allChecked  = groupAreaIds.length > 0 && directChecked === groupAreaIds.length;
                   const someChecked = directChecked > 0 && !allChecked;
-                  const collapsed = collapsedProvinces.has(group.key);
+                  // أثناء البحث: افتح كل مجموعة فيها نتائج، بصرف النظر عن حالة الطيّ المحفوظة
+                  const isCollapsed = areaSearch.trim() ? false : collapsedProvinces.has(group.key);
                   const toggleCollapse = () => setCollapsedProvinces(prev => {
                     const next = new Set(prev);
                     if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
@@ -1027,16 +1066,16 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   });
 
                   return (
-                    <div key={group.key} style={{ border: `1px solid ${provinceChecked ? '#86efac' : '#e2e8f0'}`, borderRadius: 10, background: provinceChecked ? '#f0fdf4' : '#fff', overflow: 'hidden' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: provinceChecked ? '#dcfce7' : '#f8fafc', borderBottom: collapsed ? 'none' : '1px solid #e2e8f0' }}>
+                    <div key={group.key} style={{ border: `1px solid ${provinceChecked ? '#86efac' : '#e2e8f0'}`, borderRadius: 10, background: provinceChecked ? '#f0fdf4' : '#fff' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', padding: '8px 12px', background: provinceChecked ? '#dcfce7' : '#f8fafc', borderBottom: isCollapsed ? 'none' : '1px solid #e2e8f0', borderRadius: isCollapsed ? 9 : '9px 9px 0 0' }}>
                         <button
                           onClick={toggleCollapse}
-                          title={collapsed ? 'عرض المناطق' : 'إخفاء المناطق'}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#475569', padding: 0, width: 18 }}
-                        >{collapsed ? '◀' : '▼'}</button>
+                          title={isCollapsed ? 'عرض المناطق' : 'إخفاء المناطق'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#475569', padding: 0, width: 18, flexShrink: 0 }}
+                        >{isCollapsed ? '◀' : '▼'}</button>
 
                         {pid != null ? (
-                          <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
                             <input
                               type="checkbox"
                               checked={provinceChecked}
@@ -1047,17 +1086,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                               )}
                             />
                             🗺️ {group.province!.name}
-                            <span style={{ fontWeight: 500, fontSize: 12, color: '#64748b' }}>({group.areas.length} منطقة)</span>
-                            {provinceChecked && (
-                              <span title="تعيين ديناميكي: أي منطقة تُضاف لهذه المحافظة لاحقاً تدخل نطاق المستخدم تلقائياً" style={{ fontSize: 10, fontWeight: 700, color: '#166534', background: '#bbf7d0', border: '1px solid #86efac', borderRadius: 6, padding: '1px 6px' }}>المحافظة كاملة</span>
-                            )}
+                            <span style={{ fontWeight: 500, fontSize: 12, color: '#64748b' }}>({group.areas.length})</span>
                           </label>
                         ) : (
-                          <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: '#92400e' }}>
-                            ⚠️ غير محدد <span style={{ fontWeight: 500, fontSize: 12, color: '#a16207' }}>({group.areas.length} منطقة بلا محافظة)</span>
+                          <span style={{ fontWeight: 700, fontSize: 14, color: '#92400e' }}>
+                            ⚠️ غير محدد <span style={{ fontWeight: 500, fontSize: 12, color: '#a16207' }}>({group.areas.length})</span>
                           </span>
                         )}
 
+                        {provinceChecked && (
+                          <span title="تعيين ديناميكي: أي منطقة تُضاف لهذه المحافظة لاحقاً تدخل نطاق المستخدم تلقائياً" style={{ fontSize: 10, fontWeight: 700, color: '#166534', background: '#bbf7d0', border: '1px solid #86efac', borderRadius: 6, padding: '1px 6px' }}>المحافظة كاملة</span>
+                        )}
+
+                        {/* يدفع باقي عناصر الرأس (الأزرار) لطرف السطر؛ ويلتف تلقائياً تحته
+                            بفضل flexWrap إن ضاقت المساحة، بدل أن تُقصّ خارج الرؤية */}
+                        <div style={{ flex: 1 }} />
                         {!provinceChecked && groupAreaIds.length > 0 && (
                           <button
                             onClick={() => setDraftAreaIds(
@@ -1066,19 +1109,20 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                 : [...new Set([...draftAreaIds, ...groupAreaIds])],
                             )}
                             title={allChecked ? 'إلغاء تحديد مناطق هذه المجموعة' : 'تحديد مناطق هذه المجموعة فقط (ثابت، غير ديناميكي)'}
-                            style={{ ...btnStyle(someChecked ? '#f59e0b' : '#64748b', true), fontSize: 11, padding: '3px 10px' }}
+                            style={{ ...btnStyle(someChecked ? '#f59e0b' : '#64748b', true), fontSize: 11, padding: '3px 10px', flexShrink: 0 }}
                           >{allChecked ? '✗ إلغاء الكل' : someChecked ? `◐ ${directChecked}/${groupAreaIds.length}` : '✓ تحديد الكل'}</button>
                         )}
 
                         {/* نقل المناطق المُحدَّدة (المؤشَّرة لهذا المستخدم) في مجموعة «غير
-                            محدد» دفعة واحدة إلى محافظة — أسرع من تعديل كل منطقة على حدة. */}
+                            محدد» دفعة واحدة إلى محافظة — أسرع من تعديل كل منطقة على حدة.
+                            في سطر مستقل (basis:100%) كي لا يزدحم مع بقية أزرار الرأس. */}
                         {pid === null && directChecked > 0 && (
-                          <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexBasis: '100%' }}>
                             <select
                               value={bulkTargetProvince}
                               onChange={e => setBulkTargetProvince(e.target.value === '' ? '' : Number(e.target.value))}
                               disabled={areaCrudBusy}
-                              style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', direction: 'rtl', maxWidth: 150 }}
+                              style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', direction: 'rtl', maxWidth: 160 }}
                             >
                               <option value="">نقل المحدد ({directChecked}) إلى...</option>
                               {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1094,11 +1138,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                               title="ينقل فقط المناطق المؤشَّرة (المُعيَّنة لهذا المستخدم) ضمن هذه المجموعة إلى المحافظة المختارة"
                               style={{ ...btnStyle('#0d9488', true), fontSize: 11, padding: '3px 10px' }}
                             >📍 نقل</button>
-                          </>
+                          </div>
                         )}
                       </div>
 
-                      {!collapsed && (
+                      {!isCollapsed && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 8 }}>
                           {group.areas.length === 0 && (
                             <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 8px' }}>لا توجد مناطق في هذه المحافظة بعد — ستدخل تلقائياً عند رفع ملف يحتوي عليها.</div>
@@ -1106,8 +1150,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                           {group.areas.map(a => {
                             const implied = impliedAreaIds.has(a.id);
                             const checked = implied || draftAreaIds.includes(a.id);
+                            const pickerOpen = openProvincePicker === a.id;
                             return (
-                              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: checked ? '#f0fdf4' : '#f8fafc', border: `1px solid ${checked ? '#bbf7d0' : 'transparent'}`, borderRadius: 8, fontSize: 14 }}>
+                              <div key={a.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', padding: '5px 10px', background: checked ? '#f0fdf4' : '#f8fafc', border: `1px solid ${checked ? '#bbf7d0' : 'transparent'}`, borderRadius: 8, fontSize: 14 }}>
                                 {editingAreaId === a.id ? (
                                   <>
                                     <input
@@ -1117,14 +1162,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                       onKeyDown={e => { if (e.key === 'Enter') renameArea(a.id); if (e.key === 'Escape') setEditingAreaId(null); }}
                                       autoFocus
                                       disabled={areaCrudBusy}
-                                      style={{ flex: 1, padding: '5px 10px', borderRadius: 6, border: '1px solid #93c5fd', fontSize: 14, direction: 'rtl' }}
+                                      style={{ flex: 1, minWidth: 120, padding: '5px 10px', borderRadius: 6, border: '1px solid #93c5fd', fontSize: 14, direction: 'rtl' }}
                                     />
                                     <button onClick={() => renameArea(a.id)} disabled={areaCrudBusy || !editingAreaName.trim()} title="حفظ الاسم" style={{ ...btnStyle('#16a34a', true), fontSize: 12, padding: '4px 10px' }}>💾</button>
                                     <button onClick={() => { setEditingAreaId(null); setEditingAreaName(''); }} disabled={areaCrudBusy} title="إلغاء" style={{ ...btnStyle('#94a3b8', true), fontSize: 12, padding: '4px 10px' }}>✕</button>
                                   </>
                                 ) : (
                                   <>
-                                    <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, cursor: implied ? 'default' : 'pointer', opacity: implied ? 0.75 : 1 }}>
+                                    <label style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 10, cursor: implied ? 'default' : 'pointer', opacity: implied ? 0.75 : 1, color: '#1e293b' }}>
                                       <input
                                         type="checkbox"
                                         checked={checked}
@@ -1132,23 +1177,39 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                         title={implied ? 'مشمولة تلقائياً عبر تعيين المحافظة' : undefined}
                                         onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))}
                                       />
-                                      {a.name}
+                                      <span>{a.name}</span>
                                       {implied && <span style={{ fontSize: 10, color: '#166534', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 6, padding: '1px 6px' }}>عبر المحافظة</span>}
                                       {a.provinceConflict && (
                                         <span title={`ورد اسم هذه المنطقة في ملف بمحافظة «${a.provinceConflict}» تختلف عن المحفوظة — راجعها واحسم التعارض`} style={{ fontSize: 10, fontWeight: 700, color: '#b91c1c', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '1px 6px' }}>⚠️ {a.provinceConflict}</span>
                                       )}
                                       {(a as any)._extra && <span title="منطقة معيّنة للمستخدم لكنها غير موجودة في السيرفي الحالي" style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 6, padding: '1px 6px' }}>خارج السيرفي</span>}
                                     </label>
-                                    <select
-                                      value={a.provinceId ?? ''}
-                                      onChange={e => assignAreaProvince([a.id], e.target.value === '' ? null : Number(e.target.value))}
-                                      disabled={areaCrudBusy}
-                                      title="نقل المنطقة إلى محافظة"
-                                      style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', direction: 'rtl', maxWidth: 130 }}
-                                    >
-                                      <option value="">— بلا محافظة</option>
-                                      {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                    </select>
+                                    {pickerOpen ? (
+                                      <>
+                                        <select
+                                          autoFocus
+                                          defaultValue={a.provinceId ?? ''}
+                                          onChange={e => {
+                                            assignAreaProvince([a.id], e.target.value === '' ? null : Number(e.target.value));
+                                            setOpenProvincePicker(null);
+                                          }}
+                                          onBlur={() => setOpenProvincePicker(null)}
+                                          disabled={areaCrudBusy}
+                                          style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #93c5fd', direction: 'rtl', maxWidth: 140 }}
+                                        >
+                                          <option value="">— بلا محافظة</option>
+                                          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                        </select>
+                                        <button onClick={() => setOpenProvincePicker(null)} disabled={areaCrudBusy} title="إلغاء" style={{ ...btnStyle('#94a3b8', true), fontSize: 12, padding: '4px 8px' }}>✕</button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => setOpenProvincePicker(a.id)}
+                                        disabled={areaCrudBusy}
+                                        title={`المحافظة الحالية: ${a.provinceId != null ? (provinces.find(p => p.id === a.provinceId)?.name ?? '—') : 'بلا محافظة'} — اضغط للتغيير`}
+                                        style={{ ...btnStyle('#64748b', true), fontSize: 11, padding: '3px 8px' }}
+                                      >🗺️ {a.provinceId != null ? (provinces.find(p => p.id === a.provinceId)?.name ?? '؟') : '—'}</button>
+                                    )}
                                     <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 10px' }}>✏️</button>
                                     <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={{ ...btnStyle('#dc2626', true), fontSize: 12, padding: '4px 10px' }}>🗑️</button>
                                   </>
