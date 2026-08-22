@@ -1515,6 +1515,42 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return v;
   };
 
+  /**
+   * مبيعات الفواتير المصوّرة/اليدوية تُخزّن rawData بمفاتيح إنجليزية
+   * (warehouse/pharmacy/unitPrice/bonus/company/invoiceNumber) بينما ملفات الإكسل
+   * تحمل ترويسات عربية — فكانت تظهر في التصدير كأعمدة منفصلة بجانب الأصلية بدل
+   * أن تنزل تحتها في نفس الأعمدة.
+   *
+   * كما أن rawData هذه لا تحوي الحقول الأساسية (المندوب/المنطقة/المادة/الكمية/
+   * المجموع/التاريخ) لأنها محفوظة على صف Sale نفسه، فكانت خلاياها فارغة.
+   *
+   * هذه الدالة تُرجع نسخة بمفاتيح عربية قانونية تندمج مع مجموعات الـALIAS،
+   * وتملأ الحقول الأساسية من صف المبيعة. صفوف الإكسل تمر كما هي بلا تغيير.
+   */
+  const enrichRawForExport = (s: any, raw: any): any => {
+    if (!raw || raw.source !== 'manual-invoice') return raw;
+    const put = (o: any, k: string, v: any) => {
+      if (v !== undefined && v !== null && v !== '') o[k] = v;
+    };
+    const out: any = {};
+    // الحقول الأساسية من صف المبيعة (غير موجودة في rawData اليدوية)
+    put(out, 'اسم المندوب', s.representative?.name);
+    put(out, 'المنطقة',     s.area?.name);
+    put(out, 'المادة',      s.item?.name);
+    put(out, 'الكمية',      s.quantity);
+    put(out, 'المجموع الكلي', s.totalValue);
+    put(out, 'التاريخ',     s.saleDate);
+    // المفاتيح الإنجليزية → نظيراتها العربية القانونية
+    put(out, 'رقم الفاتورة', raw.invoiceNumber);
+    put(out, 'المذخر',       raw.warehouse);
+    put(out, 'الصيدلية',     raw.pharmacy ?? s.customer?.name);
+    put(out, 'السعر',        raw.unitPrice);
+    put(out, 'كمية البونص',  raw.bonus);
+    put(out, 'الشركة',       raw.company);
+    out['المصدر'] = 'فاتورة مصوّرة';
+    return out;
+  };
+
   /* ─── Build sheet AOA from raw sales (shared by doExport + buildPreviewData) ─── */
   const buildSheet = (sales: any[], sciRepName?: string): any[][] => {
     if (sales.length === 0) return [[t.reports.noDataTable]];
@@ -1527,7 +1563,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const allKeys = new Set<string>();
     let hasRaw = false;
     sales.forEach(s => {
-      if (s.rawData) { hasRaw = true; try { Object.keys(JSON.parse(s.rawData)).forEach((k: string) => allKeys.add(k)); } catch {} }
+      if (!s.rawData) return;
+      hasRaw = true;
+      try {
+        const r = enrichRawForExport(s, JSON.parse(s.rawData));
+        Object.keys(r).forEach((k: string) => allKeys.add(k));
+      } catch {}
     });
     if (hasRaw && allKeys.size > 0) {
       // Same alias merge as buildMergedSheet — different active files can label the
@@ -1598,7 +1639,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         finalHeaders,
         ...sales.map(s => {
           let raw: any = {};
-          try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
+          try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData)); } catch {}
           const isRet = s.recordType === 'return';
           const typeLabel = isRet ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
           const rawGet = (h: string) => {
@@ -1978,7 +2019,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const allKeys = new Set<string>();
       const parsed = rows.map(s => {
         let raw: any = {};
-        try { if (s.rawData) raw = JSON.parse(s.rawData); } catch {}
+        try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData)); } catch {}
         Object.keys(raw).forEach(k => allKeys.add(k));
         return { s, raw };
       });
