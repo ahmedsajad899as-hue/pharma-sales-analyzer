@@ -41,6 +41,22 @@ router.get('/overall', async (req, res) => {
     // نطاق ايتمات المستخدم (تبويب «الايتمات»): إن حُدِّدت ايتمات فالمبيع
     // والإرجاع يُحسبان عليها فقط. فارغة = بلا تقييد.
     const itemScopeFilter = await buildItemScopeFilter(userId);
+
+    // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
+    // يتجاوز قائمة ايتمات المستخدم ليعرض كل ما في الملف. مسموح **فقط** على
+    // الملفات التي يملكها الطالب: قيود المناطق والحجب أدناه يضعها صاحب الملف
+    // على من حُوِّل له، وتجاوزها من المستلم كان سيكشف بيانات ليست له.
+    // (الملفات المملوكة لا يُطبَّق عليها فلتر مناطق أو حجب أصلاً — القيد
+    //  الوحيد عليها هو قائمة ايتماته.)
+    const rawRequested = String(req.query.raw ?? '') === '1';
+    let rawApplied = false;
+    if (rawRequested && userId && parsedFileIds.length > 0) {
+      const ownedCount = await prisma.uploadedFile.count({
+        where: { id: { in: parsedFileIds }, userId },
+      });
+      rawApplied = ownedCount === parsedFileIds.length;
+    }
+    const effectiveItemScope = rawApplied ? {} : itemScopeFilter;
     // ── Block filter: names the file owner (manager) has globally blocked
     //    (BlockedArea/BlockedItem/BlockedCommercialRep) must stay hidden from
     //    anyone the file is transferred to — same lists used by the
@@ -159,7 +175,7 @@ router.get('/overall', async (req, res) => {
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
-      ...itemScopeFilter,
+      ...effectiveItemScope,
       ...(blockFilterConditions.length > 0 ? { AND: blockFilterConditions } : {}),
       // No explicit dates → per-file garbage exclusion; otherwise the explicit range.
       ...(noDateFileFilter
@@ -290,7 +306,7 @@ router.get('/overall', async (req, res) => {
     const byAreaItem = [...areaItemMap.values()];
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

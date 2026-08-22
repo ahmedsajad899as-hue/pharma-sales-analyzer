@@ -673,6 +673,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // Scientific
   const [sciReps, setSciReps]     = useState<Rep[]>([]);
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
+  // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ويعرض كل ما في الملف.
+  // يسري على الملفات المملوكة فقط — السيرفر يرفضه على الملفات المحوَّلة إليك.
+  const [overallRaw, setOverallRaw] = useState(() => sessionStorage.getItem('rpt_overallRaw') === '1');
+  const [overallRawBlocked, setOverallRawBlocked] = useState(false);
   const [sciReport, setSciReport]                     = useState<SciReport | null>(null);
   const [sciReturnsReport, setSciReturnsReport]       = useState<SciReport | null>(null);
 
@@ -833,6 +837,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   useEffect(() => { sessionStorage.setItem('rpt_mode', mode); }, [mode]);
   useEffect(() => { sessionStorage.setItem('rpt_commRepId', commRepId); }, [commRepId]);
   useEffect(() => { sessionStorage.setItem('rpt_sciRepId', sciRepId); }, [sciRepId]);
+  useEffect(() => { sessionStorage.setItem('rpt_overallRaw', overallRaw ? '1' : '0'); }, [overallRaw]);
   useEffect(() => { sessionStorage.setItem('rpt_fromDate', fromDate); }, [fromDate]);
   useEffect(() => { sessionStorage.setItem('rpt_toDate', toDate); }, [toDate]);
   useEffect(() => { sessionStorage.setItem('rpt_view', reportView); }, [reportView]);
@@ -1094,6 +1099,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     finally { setLoading(false); }
   };
 
+  // تبديل وضع «تحليل كامل» يعيد التحليل فوراً — الزر بلا أثر مرئي لولا ذلك.
+  // نتخطّى أول تشغيل كي لا يسبق التحميل التلقائي الأول.
+  const rawToggleFirst = useRef(true);
+  useEffect(() => {
+    if (rawToggleFirst.current) { rawToggleFirst.current = false; return; }
+    if (mode !== 'overall') return;
+    const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
+    if (ids.length === 0) return;
+    loadOverallReport();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overallRaw]);
   const loadOverallReport = async () => {
     // Selected files (multi). Fall back to all active files when none explicitly picked.
     const fileIds = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
@@ -1124,6 +1140,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (useUserDates && toDate)   params.set('endDate', toDate);
       // Scope to all selected files — the backend sums matching areas/items/companies.
       params.set('fileIds', fileIds.join(','));
+      if (overallRaw) params.set('raw', '1');
       const [salesRes, returnsRes] = await Promise.all([
         fetch(`/api/reports/overall?${params}&recordType=sale`,   { headers: authH() }),
         fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
@@ -1131,6 +1148,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
       if (!salesRes.ok) throw new Error(salesJson.message || salesJson.error || 'فشل تحميل البيانات');
       const salesData = salesJson.data ?? salesJson;
+      // السيرفر يرفض الوضع الكامل على ملف محوَّل إليك — نعرض ذلك بصدق بدل
+      // إبقاء الزر مضاءً وكأن القيود رُفعت.
+      setOverallRawBlocked(!!salesData.rawRequested && !salesData.rawApplied);
       // Auto-populate date inputs from file's actual date range when no filter was set.
       // Use LOCAL date (not UTC slice) to avoid timezone off-by-one: Iraq is UTC+3 so
       // midnight local = 21:00 UTC previous day — slice(0,10) on UTC would give wrong date.
@@ -2565,6 +2585,32 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </button>
             )}
           </div>
+
+          {mode === 'overall' && overallRawBlocked && (
+            <span style={{ fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+              ⚠️ التحليل الكامل يسري على ملفاتك أنت فقط — هذا الملف محوَّل إليك، فبقيت قيود صاحبه
+            </span>
+          )}
+          {/* زر «تحليل كامل» — يظهر في التحليل الشامل فقط */}
+          {mode === 'overall' && (
+            <button
+              onClick={() => setOverallRaw(v => !v)}
+              disabled={loading}
+              title={overallRaw
+                ? 'الوضع الحالي: كل بيانات الملف (كل الشركات والايتمات والمناطق والمناديب) — اضغط للرجوع إلى نطاقك المحدَّد'
+                : 'الوضع الحالي: نطاقك المحدَّد فقط — اضغط لتحليل كل بيانات الملف بغض النظر عن التقسيمات'}
+              style={{
+                padding: '7px 14px', borderRadius: 6, flexShrink: 0, fontSize: 13, fontWeight: 700,
+                border: `1px solid ${overallRaw ? '#7c3aed' : '#d1d5db'}`,
+                background: overallRaw ? '#7c3aed' : '#fff',
+                color: overallRaw ? '#fff' : '#6b7280',
+                cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {overallRaw ? '🌐 تحليل كامل' : '🔒 نطاقي فقط'}
+            </button>
+          )}
 
           {/* Generate button */}
           <button
