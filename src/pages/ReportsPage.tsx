@@ -941,6 +941,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [mode, overallSales]);
 
+  // المندوب المعروض عند فتح تبويب: المحفوظ إن كان ما يزال ضمن القائمة، وإلا الأول.
+  const autoPickRep = (currentId: string, reps: { id: number }[]): string => {
+    if (reps.length === 0) return '';
+    if (currentId && reps.some(r => String(r.id) === currentId)) return currentId;
+    return String(reps[0].id);
+  };
   // Auto-reload last report after page refresh (once reps list is loaded)
   const autoLoaded = useRef(false);
   useEffect(() => {
@@ -972,12 +978,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       }
     }
 
-    if (mode === 'commercial' && commRepId && commReps.length > 0) {
+    // أول زيارة بلا مندوب محفوظ: نختار الأول تلقائياً بدل ترك الصفحة فارغة
+    // حتى يضغط المستخدم «تحليل».
+    if (mode === 'commercial' && commReps.length > 0) {
+      const id = commRepId || String(commReps[0].id);
       autoLoaded.current = true;
-      loadCommReport(commRepId);
-    } else if (mode === 'scientific' && sciRepId && sciReps.length > 0) {
+      if (!commRepId) setCommRepId(id);
+      loadCommReport(id);
+    } else if (mode === 'scientific' && sciReps.length > 0) {
+      const id = sciRepId || String(sciReps[0].id);
       autoLoaded.current = true;
-      loadSciReport(sciRepId);
+      if (!sciRepId) setSciRepId(id);
+      loadSciReport(id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commReps, sciReps]);
@@ -2446,8 +2458,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           .map(([id, label]) => (
           <button key={id} onClick={() => {
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
-            if (id === 'scientific') { setMode('scientific'); setError(''); setSciReport(null); }
-            if (id === 'commercial') { setMode('commercial'); setError(''); setCommReport(null); }
+            // التبديل كان يمسح التقرير بلا إعادة تحميل، فيبقى التبويب فارغاً حتى
+            // يضغط المستخدم «تحليل». نحمّله فوراً بمندوب محفوظ أو بأول مندوب.
+            if (id === 'scientific') {
+              setMode('scientific'); setError(''); setSciReport(null);
+              const rid = autoPickRep(sciRepId, sciReps);
+              if (rid) { if (rid !== sciRepId) setSciRepId(rid); loadSciReport(rid); }
+            }
+            if (id === 'commercial') {
+              setMode('commercial'); setError(''); setCommReport(null);
+              const rid = autoPickRep(commRepId, commReps);
+              if (rid) { if (rid !== commRepId) setCommRepId(rid); loadCommReport(rid); }
+            }
           }} style={{
             padding: '8px 16px', border: 'none', borderRadius: '4px 4px 0 0', cursor: 'pointer',
             background: 'transparent',
