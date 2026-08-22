@@ -7,6 +7,11 @@ import * as XLSX from 'xlsx';
 interface Company { id: number; name: string; officeId?: number; office?: { name: string }; _count?: { items: number } }
 interface Item    { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; warehousePrice?: number | null }
 interface Alias   { id: number; fromName: string; toName: string; toItemId: number | null; toItem?: { id: number; name: string } | null; updatedAt: string }
+interface DupPair {
+  identical: boolean; samePrice: boolean; sim: number;
+  a: { id: number; name: string; price: number | null; sales: number };
+  b: { id: number; name: string; price: number | null; sales: number };
+}
 interface ReviewItem { id: number; name: string; userName: string | null; salesCount: number; confidence: string; suggestions: { id: number; name: string; sim: number }[] }
 
 type Tab = 'catalog' | 'aliases' | 'review' | 'import';
@@ -321,6 +326,40 @@ export default function ItemsCatalogPage() {
     setBusy(false);
   };
 
+  // ── اقتراحات دمج ايتمات مكررة (بتأكيد المدير — لا دمج تلقائي) ──
+  const [dupPairs, setDupPairs] = useState<DupPair[] | null>(null);
+  const [dupBusy, setDupBusy]   = useState(false);
+
+  const loadDupSuggestions = async () => {
+    if (!companyId) return;
+    setDupBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/sa/companies/${companyId}/item-merge-suggestions`, { headers: H() });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشل');
+      setDupPairs(Array.isArray(d.data) ? d.data : []);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'تعذّر جلب الاقتراحات'); }
+    setDupBusy(false);
+  };
+
+  // fromId يُمتص في toId — كل مبيعاته وزياراته وتارگته تنتقل للهدف ثم يُحذف
+  const mergeTwoItems = async (fromId: number, toId: number, fromName: string, toName: string) => {
+    if (!companyId) return;
+    if (!confirm(`دمج «${fromName}» داخل «${toName}»؟\n\nتنتقل كل مبيعات وزيارات «${fromName}» إلى «${toName}» ثم يُحذف، ويُحفظ اسمه كقاعدة توحيد.\n\nلا يمكن التراجع.`)) return;
+    setDupBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/sa/companies/${companyId}/items/merge`, {
+        method: 'POST', headers: H(), body: JSON.stringify({ fromId, toId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشل الدمج');
+      setDupPairs(prev => prev ? prev.filter(p => p.a.id !== fromId && p.b.id !== fromId) : prev);
+      exitSelectMode();
+      await reload();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'فشل الدمج'); }
+    setDupBusy(false);
+  };
+
   // ── تحديد متعدد + نقل جماعي لشركة أخرى ──
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -454,6 +493,11 @@ export default function ItemsCatalogPage() {
               {selectMode ? '✕ إلغاء التحديد' : '☑ تحديد متعدد'}
             </button>
           )}
+          {tab === 'catalog' && (
+            <button onClick={loadDupSuggestions} disabled={dupBusy} style={btnStyle('#d97706')}>
+              {dupBusy ? '...' : '🔍 اقتراحات الدمج'}
+            </button>
+          )}
           {tab === 'catalog' && <button onClick={() => setItemModal(true)} style={btnStyle('#6366f1')}>+ إضافة ايتم</button>}
           {tab === 'aliases' && <button onClick={() => setAliasModal(true)} style={btnStyle('#0891b2')} disabled={items.length === 0}>+ قاعدة توحيد</button>}
         </div>
@@ -464,6 +508,45 @@ export default function ItemsCatalogPage() {
           {/* ── الكتالوج ── */}
           {tab === 'catalog' && (
             <>
+              {dupPairs !== null && (
+                <div style={{ border: '1.5px solid #fcd34d', background: '#fffbeb', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: 13, color: '#92400e' }}>🔍 ايتمات متشابهة ({dupPairs.length})</strong>
+                    <span style={{ fontSize: 11, color: '#a16207' }}>
+                      راجع كل زوج بنفسك — التشابه لا يعني التطابق (عبوة 1 amp مقابل 5 amp، أو IM مقابل IV، منتجات مختلفة).
+                    </span>
+                    <button onClick={() => setDupPairs(null)} style={{ ...btnStyle('#64748b', true), fontSize: 11, padding: '3px 10px', marginRight: 'auto' }}>✕ إغلاق</button>
+                  </div>
+                  {dupPairs.length === 0 && <div style={{ fontSize: 12, color: '#64748b' }}>لا توجد ايتمات متشابهة في هذه الشركة 🎉</div>}
+                  {dupPairs.map((pr, idx) => (
+                    <div key={idx} style={{ background: '#fff', border: '1px solid #fde68a', borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                        {pr.identical && <span style={{ fontSize: 10, fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: 20 }}>تطابق تام</span>}
+                        {pr.samePrice && <span style={{ fontSize: 10, fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: 20 }}>نفس السعر</span>}
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>تشابه {Math.round(pr.sim * 100)}%</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {[pr.a, pr.b].map((side, k) => {
+                          const other = k === 0 ? pr.b : pr.a;
+                          return (
+                            <div key={side.id} style={{ border: '1px solid #e8edf5', borderRadius: 8, padding: 8 }}>
+                              <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>{side.name}</div>
+                              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>
+                                🏢 {side.price == null ? '—' : side.price.toLocaleString('ar-IQ')} · 📊 {side.sales} مبيعة
+                              </div>
+                              <button
+                                disabled={dupBusy}
+                                onClick={() => mergeTwoItems(other.id, side.id, other.name, side.name)}
+                                style={{ ...btnStyle('#059669', true), fontSize: 11, padding: '4px 10px', width: '100%' }}
+                              >⬅ أبقِ هذا وادمج الآخر فيه</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {selectMode && (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
@@ -479,6 +562,30 @@ export default function ItemsCatalogPage() {
                   >
                     {filteredItems.length > 0 && filteredItems.every(i => selectedIds.includes(i.id)) ? 'إلغاء تحديد الكل' : '✓ تحديد الكل'}
                   </button>
+                  {/* دمج يدوي لايتمين — يغطي الحالات التي لا تقترحها الخوارزمية
+                      عمداً، مثل «AMOKLAVIN BID 400/57MG» و«... 457MG» حيث يمنع
+                      حارس الجرعة الاقتراح لأنه لا يعرف أن 400+57 = 457. */}
+                  {selectedIds.length === 2 && (() => {
+                    const [x, y] = selectedIds.map(id => items.find(i => i.id === id)).filter(Boolean) as Item[];
+                    if (!x || !y) return null;
+                    return (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, color: '#4338ca', fontWeight: 700 }}>🔗 دمج:</span>
+                        <button
+                          disabled={dupBusy}
+                          onClick={() => mergeTwoItems(y.id, x.id, y.name, x.name)}
+                          title={`يُبقي «${x.name}» ويدمج «${y.name}» فيه`}
+                          style={{ ...btnStyle('#059669', true), fontSize: 11, padding: '4px 10px' }}
+                        >أبقِ «{x.name}»</button>
+                        <button
+                          disabled={dupBusy}
+                          onClick={() => mergeTwoItems(x.id, y.id, x.name, y.name)}
+                          title={`يُبقي «${y.name}» ويدمج «${x.name}» فيه`}
+                          style={{ ...btnStyle('#059669', true), fontSize: 11, padding: '4px 10px' }}
+                        >أبقِ «{y.name}»</button>
+                      </div>
+                    );
+                  })()}
                   <button
                     onClick={() => setBulkTransferOpen(true)}
                     disabled={selectedIds.length === 0}

@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
 import { normalizeItemKey, loadCompanyContext, resolveItemName } from '../../lib/itemResolver.js';
 import { mergeItems } from '../sales/sales.repository.js';
+import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 
 // ── List companies (optionally filtered by officeId) ──────────────────────
 export async function listCompanies(req, res) {
@@ -582,4 +583,89 @@ export async function importCompanyItems(req, res) {
   }
 
   res.json({ success: true, data: { inserted, skipped, errors } });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// اقتراحات دمج ايتمات الكتالوج المتشابهة (بتأكيد المدير)
+// ────────────────────────────────────────────────────────────────────────────
+// لا دمج تلقائي إطلاقاً: فحص بيانات الإنتاج أظهر أن معظم المتشابهات منتجات
+// مختلفة فعلاً (Amikaver 1 amp مقابل 5 amp، Daytrix IM مقابل IV، عائلة
+// Otravyat) — الدمج الأعمى كان سيُتلفها. نعرض الأزواج مع السعر وعدد المبيعات
+// ليقرر المدير، تماماً كما تعمل اقتراحات دمج المناطق.
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET /api/sa/companies/:id/item-merge-suggestions
+export async function getItemMergeSuggestions(req, res) {
+  try {
+    const companyId = parseInt(req.params.id);
+    if (!Number.isInteger(companyId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+    const items = await prisma.item.findMany({
+      where:  { scientificCompanyId: companyId, isTemp: false },
+      select: { id: true, name: true, price: true, warehousePrice: true, _count: { select: { sales: true } } },
+      orderBy: { name: 'asc' },
+    });
+
+    const pairs = [];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        const ka = normalizeItemKey(a.name), kb = normalizeItemKey(b.name);
+        const identical = ka === kb;
+        if (!identical && !areSimilar(a.name, b.name)) continue;
+        pairs.push({
+          identical,
+          samePrice: a.price != null && b.price != null && Number(a.price) === Number(b.price),
+          sim: identical ? 1 : similarity(ka, kb),
+          a: { id: a.id, name: a.name, price: a.price, sales: a._count.sales },
+          b: { id: b.id, name: b.name, price: b.price, sales: b._count.sales },
+        });
+      }
+    }
+    // الأرجح أولاً: تطابق تام، ثم نفس السعر (دلالة قوية على أنه نفس الايتم)
+    pairs.sort((x, y) =>
+      (y.identical - x.identical) || (y.samePrice - x.samePrice) || (y.sim - x.sim));
+
+    res.json({ success: true, data: pairs });
+  } catch (err) {
+    console.error('[item-merge-suggestions]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// POST /api/sa/companies/:id/items/merge  { fromId, toId }
+// fromId يُمتص في toId: كل المبيعات والزيارات والتارگت تُعاد للهدف ثم يُحذف المصدر.
+export async function mergeCatalogItems(req, res) {
+  try {
+    const companyId = parseInt(req.params.id);
+    const fromId = parseInt(req.body?.fromId);
+    const toId   = parseInt(req.body?.toId);
+    if (!Number.isInteger(fromId) || !Number.isInteger(toId)) {
+      return res.status(400).json({ error: 'fromId و toId مطلوبان' });
+    }
+    if (fromId === toId) return res.status(400).json({ error: 'لا يمكن دمج الايتم مع نفسه' });
+
+    const [from, to] = await Promise.all([
+      prisma.item.findFirst({ where: { id: fromId, scientificCompanyId: companyId }, select: { id: true, name: true } }),
+      prisma.item.findFirst({ where: { id: toId,   scientificCompanyId: companyId }, select: { id: true, name: true } }),
+    ]);
+    if (!from || !to) return res.status(404).json({ error: 'أحد الايتمين غير موجود في كتالوج هذه الشركة' });
+
+    await mergeItems(fromId, toId);
+
+    // احفظ الاسم الممتص كقاعدة توحيد كي لا يعود ايتماً جديداً عند رفع ملف لاحق
+    const fromKey = normalizeItemKey(from.name);
+    if (fromKey && fromKey !== normalizeItemKey(to.name)) {
+      await prisma.itemMergeRule.upsert({
+        where:  { scientificCompanyId_fromKey: { scientificCompanyId: companyId, fromKey } },
+        update: { fromName: from.name, toName: to.name, toItemId: to.id },
+        create: { scientificCompanyId: companyId, fromKey, fromName: from.name, toName: to.name, toItemId: to.id },
+      });
+    }
+
+    res.json({ success: true, merged: { from: from.name, to: to.name } });
+  } catch (err) {
+    console.error('[merge-catalog-items]', err);
+    res.status(500).json({ error: err.message });
+  }
 }
