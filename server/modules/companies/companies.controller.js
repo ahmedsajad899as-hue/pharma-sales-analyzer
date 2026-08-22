@@ -264,7 +264,7 @@ export async function getReviewQueue(req, res) {
 // ── Resolve one review item: add | link | delete ──────────────────────────
 export async function resolveReviewItem(req, res) {
   const companyId = parseInt(req.params.id);
-  const { tempItemId, action, targetItemId } = req.body || {};
+  const { tempItemId, action, targetItemId, targetCompanyId } = req.body || {};
   if (!tempItemId || !action) return res.status(400).json({ error: 'tempItemId و action مطلوبان' });
 
   const temp = await prisma.item.findFirst({
@@ -273,20 +273,34 @@ export async function resolveReviewItem(req, res) {
   });
   if (!temp) return res.status(404).json({ error: 'الايتم المؤقت غير موجود' });
 
-  const rememberAlias = async (toItem) => {
+  // الشركة الوجهة — تسمح بنقل ايتم من الطابور مباشرةً لكتالوج شركة أخرى بدل
+  // الاضطرار لتبديل الشركة المعروضة أولاً. الافتراضي هي المعروضة حالياً.
+  let destCompanyId = companyId;
+  if (targetCompanyId != null && String(targetCompanyId) !== '') {
+    const parsed = parseInt(targetCompanyId);
+    if (!Number.isInteger(parsed)) return res.status(400).json({ error: 'شركة الوجهة غير صالحة' });
+    // ScientificCompany لا Company — الكتالوج مرتبط بـ Item.scientificCompanyId
+    const destExists = await prisma.scientificCompany.findUnique({ where: { id: parsed }, select: { id: true } });
+    if (!destExists) return res.status(404).json({ error: 'شركة الوجهة غير موجودة' });
+    destCompanyId = parsed;
+  }
+
+  // قاعدة التوحيد تُسجَّل على شركة الوجهة: ItemMergeRule منطاقة بالشركة، فحفظها
+  // على الشركة المعروضة كان سيجعلها بلا أثر عند رفع ملفات شركة الوجهة.
+  const rememberAlias = async (toItem, scopeCompanyId = destCompanyId) => {
     const fromKey = normalizeItemKey(temp.name);
     if (!fromKey || normalizeItemKey(toItem.name) === fromKey) return;
     await prisma.itemMergeRule.upsert({
-      where:  { scientificCompanyId_fromKey: { scientificCompanyId: companyId, fromKey } },
+      where:  { scientificCompanyId_fromKey: { scientificCompanyId: scopeCompanyId, fromKey } },
       update: { fromName: temp.name, toName: toItem.name, toItemId: toItem.id },
-      create: { scientificCompanyId: companyId, fromKey, fromName: temp.name, toName: toItem.name, toItemId: toItem.id },
+      create: { scientificCompanyId: scopeCompanyId, fromKey, fromName: temp.name, toName: toItem.name, toItemId: toItem.id },
     });
   };
 
   if (action === 'link') {
     if (!targetItemId) return res.status(400).json({ error: 'targetItemId مطلوب للربط' });
     const target = await prisma.item.findFirst({
-      where: { id: parseInt(targetItemId), scientificCompanyId: companyId, isTemp: false },
+      where: { id: parseInt(targetItemId), scientificCompanyId: destCompanyId, isTemp: false },
       select: { id: true, name: true },
     });
     if (!target || target.id === temp.id) return res.status(400).json({ error: 'الهدف غير صالح' });
@@ -297,7 +311,7 @@ export async function resolveReviewItem(req, res) {
 
   if (action === 'add') {
     // منع التكرار: إن وُجد ايتم كتالوج بنفس المفتاح → ندمج بدل الإنشاء + alias
-    const catalog = await prisma.item.findMany({ where: { scientificCompanyId: companyId, isTemp: false }, select: { id: true, name: true } });
+    const catalog = await prisma.item.findMany({ where: { scientificCompanyId: destCompanyId, isTemp: false }, select: { id: true, name: true } });
     const key = normalizeItemKey(temp.name);
     const dup = catalog.find(c => normalizeItemKey(c.name) === key);
     if (dup) {
@@ -306,8 +320,8 @@ export async function resolveReviewItem(req, res) {
       return res.json({ success: true, action: 'merged-duplicate' });
     }
     // ترقية نفس السجل → يحافظ على المبيعات المرتبطة، ويصبح ايتماً قانونياً
-    await prisma.item.update({ where: { id: temp.id }, data: { scientificCompanyId: companyId, isTemp: false } });
-    return res.json({ success: true, action: 'add' });
+    await prisma.item.update({ where: { id: temp.id }, data: { scientificCompanyId: destCompanyId, isTemp: false } });
+    return res.json({ success: true, action: 'add', companyId: destCompanyId });
   }
 
   if (action === 'delete') {

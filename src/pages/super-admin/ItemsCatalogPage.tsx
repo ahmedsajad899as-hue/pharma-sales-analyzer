@@ -190,12 +190,19 @@ export default function ItemsCatalogPage() {
   };
 
   // ── أفعال طابور المراجعة ──
-  const resolveReview = async (tempItemId: number, action: 'link' | 'add' | 'delete', targetItemId?: number) => {
+  // targetCompanyId اختياري: يسمح بإضافة ايتم من الطابور لكتالوج شركة أخرى
+  // مباشرةً بدل تبديل الشركة المعروضة أولاً. غيابه = الشركة المعروضة.
+  const resolveReview = async (
+    tempItemId: number,
+    action: 'link' | 'add' | 'delete',
+    targetItemId?: number,
+    targetCompanyId?: number,
+  ) => {
     if (!companyId) return;
     setBusy(true); setErr('');
     try {
       const r = await fetch(`/api/sa/companies/${companyId}/review-queue/resolve`, {
-        method: 'POST', headers: H(), body: JSON.stringify({ tempItemId, action, targetItemId }),
+        method: 'POST', headers: H(), body: JSON.stringify({ tempItemId, action, targetItemId, targetCompanyId }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'فشل');
@@ -382,6 +389,28 @@ export default function ItemsCatalogPage() {
                         {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                       </select>
                       <button onClick={() => resolveReview(r.id, 'add')} disabled={busy} style={btnStyle('#059669', true)}>➕ إضافة للكتالوج</button>
+                      {/* نقل مباشر لكتالوج شركة أخرى — يوفّر تبديل الشركة المعروضة ثم البحث عن الايتم */}
+                      <select
+                        value=""
+                        onChange={e => {
+                          const cid = parseInt(e.target.value);
+                          if (!cid) return;
+                          const cname = companies.find(c => c.id === cid)?.name ?? '';
+                          if (confirm(`نقل «${r.name}» إلى كتالوج شركة «${cname}»؟
+
+تنتقل مبيعاته معه، وإن وُجد ايتم مطابق هناك فسيُدمج فيه.`)) {
+                            resolveReview(r.id, 'add', undefined, cid);
+                          }
+                        }}
+                        disabled={busy || companies.length <= 1}
+                        title="إضافة هذا الايتم لكتالوج شركة أخرى مباشرةً"
+                        style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid #a7f3d0', background: '#ecfdf5', color: '#047857', fontSize: 12, fontWeight: 700 }}
+                      >
+                        <option value="">🏢 إضافة لشركة أخرى…</option>
+                        {companies.filter(c => c.id !== companyId).map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
                       <button onClick={() => resolveReview(r.id, 'delete')} disabled={busy} style={btnStyle('#ef4444', true)}>🗑 حذف</button>
                     </div>
                   </div>
