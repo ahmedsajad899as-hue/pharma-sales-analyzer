@@ -125,6 +125,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftDisableActLog, setDraftDisableActLog] = useState(false);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
 
+  // حفظ الشركات: تطبيق فوري (حفظ تلقائي) + تحقق من النتيجة المحفوظة فعلاً
+  const [companySaveState, setCompanySaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  // draftsUserId = المستخدم الذي تمّت تهيئة الـdrafts من بياناته (يمنع حفظ/جلب بقيم المستخدم السابق)
+  const [draftsUserId,     setDraftsUserId]     = useState<number | null>(null);
+  const companySaveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const companySaveSeq    = useRef(0);
+  const pendingCompanyRef = useRef<{ ids: number[]; primary: number | null } | null>(null);
+  const itemsReqSeq       = useRef(0);
+
   const load = (restoreScroll = false) => {
     const scrollPos = restoreScroll ? (getMainEl()?.scrollTop ?? 0) : 0;
     setLoading(true);
@@ -198,18 +207,25 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     onJumpClear?.();
   }, [jumpUserId]);
 
-  // ايتمات كتالوج الشركات المعيّنة للمستخدم (تُغذّي تبويب «الايتمات»)
-  const loadCompanyItems = (userId: number) => {
-    fetch(`/api/sa/users/${userId}/company-items`, { headers: H() })
+  // ايتمات كتالوج الشركات المعيّنة للمستخدم (تُغذّي تبويب «الايتمات»).
+  // تمرير companyIds يعرض ايتمات الاختيار الحالي فوراً حتى قبل اكتمال حفظ الشركات.
+  const loadCompanyItems = (userId: number, companyIds?: number[]) => {
+    const seq = ++itemsReqSeq.current;
+    if (companyIds && companyIds.length === 0) { setItems([]); return; }
+    const qs = companyIds && companyIds.length ? `?companyIds=${companyIds.join(',')}` : '';
+    fetch(`/api/sa/users/${userId}/company-items${qs}`, { headers: H() })
       .then(r => r.json())
-      .then(d => { if (d.success) setItems(d.data); })
+      .then(d => { if (seq === itemsReqSeq.current && d.success) setItems(d.data); })
       .catch(() => {});
   };
 
   // Reset drafts whenever detail changes
   useEffect(() => {
-    if (!detail) { setItems([]); return; }
-    loadCompanyItems(detail.id);
+    if (!detail) { setItems([]); setDraftsUserId(null); return; }
+    // لا نجلب الايتمات هنا — أصبحت تتبع اختيار الشركات الحالي (effect مستقل أدناه)
+    pendingCompanyRef.current = null;
+    if (companySaveTimer.current) { clearTimeout(companySaveTimer.current); companySaveTimer.current = null; }
+    setCompanySaveState('idle');
     setDraftCompanyIds(detail.companyAssignments.map(a => a.companyId));
     setDraftPrimaryCompanyId(detail.companyAssignments.find(a => a.isPrimary)?.companyId ?? detail.companyAssignments[0]?.companyId ?? null);
     setDraftLineIds(detail.lineAssignments.map(a => a.lineId));
@@ -218,6 +234,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setDraftProvinceIds((detail.provinceAssignments ?? []).map(p => p.provinceId));
     setDraftSubProvinceIds((detail.subProvinceAssignments ?? []).map(s => s.subProvinceId));
     setDraftMgrIds(detail.managersOfUser.map(a => a.managerId));
+    setDraftsUserId(detail.id);
     try {
       const p = JSON.parse(detail.permissions || '{}');
       setDraftDisabledFeats(p.disabledFeatures ?? []);
@@ -268,6 +285,78 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.id, areas.length, provinces.length, subProvinces.length]);
 
+  // توقيع الشركات المحفوظة فعلاً على الخادم (مرجع المقارنة للحفظ التلقائي ولمؤشر «غير محفوظ»)
+  const savedCompanyIds  = detail ? detail.companyAssignments.map(a => a.companyId) : [];
+  // نفس منطق fallback في تهيئة الـdraft أدناه (أول شركة إن لم توجد isPrimary صريحة) —
+  // بدونه، مستخدم قديم بلا isPrimary=true محفوظة يظهر «غير محفوظ» دائماً ويُطلق حفظاً تلقائياً كاذباً.
+  const savedPrimaryId   = detail ? (detail.companyAssignments.find(a => a.isPrimary)?.companyId ?? detail.companyAssignments[0]?.companyId ?? null) : null;
+  const savedCompanySig  = [...savedCompanyIds].sort((a, b) => a - b).join(',') + '|' + String(savedPrimaryId);
+  const draftCompanySig  = [...draftCompanyIds].sort((a, b) => a - b).join(',') + '|'
+    + String(draftCompanyIds.includes(draftPrimaryCompanyId as number) ? draftPrimaryCompanyId : (draftCompanyIds[0] ?? null));
+  const companiesDirty   = Boolean(detail) && draftsUserId === detail?.id && savedCompanySig !== draftCompanySig;
+
+  // الحفظ الفعلي للشركات — مع مهلة زمنية وتحقق من أن ما عاد من الخادم = ما طُلب حفظه.
+  // لا نكتفي بـ success: نقرأ القائمة المحفوظة ونعيد مزامنة الواجهة عليها.
+  const persistCompanies = async (idsIn: number[], primaryIn: number | null): Promise<boolean> => {
+    if (!detail) return false;
+    const userId = detail.id;
+    const ids = [...new Set(idsIn.map(n => Number(n)).filter(n => Number.isInteger(n)))];
+    const primary = ids.includes(primaryIn as number) ? primaryIn : (ids[0] ?? null);
+    const seq = ++companySaveSeq.current;
+    if (companySaveTimer.current) { clearTimeout(companySaveTimer.current); companySaveTimer.current = null; }
+    setCompanySaveState('saving');
+    const ctrl = new AbortController();
+    const killer = setTimeout(() => ctrl.abort(), 25000); // طلب معلّق لا يجوز أن يترك الزر عالقاً على «...»
+    try {
+      const res = await fetch(`/api/sa/users/${userId}/companies`, {
+        method: 'PUT', headers: H(), signal: ctrl.signal,
+        body: JSON.stringify({ companyIds: ids, primaryCompanyId: primary }),
+      });
+      if (!res.ok) {
+        if (res.status === 401) { showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626'); logout(); return false; }
+        let errMsg = 'فشل حفظ الشركات';
+        try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+        setCompanySaveState('error');
+        showToast('❌ ' + errMsg, '#dc2626');
+        return false;
+      }
+      const j = await res.json().catch(() => null);
+      if (seq !== companySaveSeq.current) return true; // ردّ قديم تجاوزته محاولة أحدث
+      const savedIds: number[] = Array.isArray(j?.data) ? j.data.map((a: any) => a.companyId) : ids;
+      const savedPrimary: number | null = j?.primaryCompanyId ?? primary;
+      const matches = [...savedIds].sort((a, b) => a - b).join(',') === [...ids].sort((a, b) => a - b).join(',');
+      pendingCompanyRef.current = null;
+      // الواجهة تعكس المحفوظ فعلاً لا ما جرى اختياره فقط
+      setDraftCompanyIds(savedIds);
+      setDraftPrimaryCompanyId(savedPrimary);
+      loadDetail(userId, { keepTab: true });
+      loadCompanyItems(userId, savedIds);
+      if (!matches) {
+        setCompanySaveState('error');
+        const missing = ids.filter(id => !savedIds.includes(id)).length;
+        showToast(`⚠️ حُفظت ${savedIds.length} من ${ids.length} شركة (${missing} غير موجودة)`, '#d97706');
+        return false;
+      }
+      setCompanySaveState('saved');
+      return true;
+    } catch (e: any) {
+      if (seq === companySaveSeq.current) {
+        setCompanySaveState('error');
+        showToast(e?.name === 'AbortError' ? '❌ انتهت مهلة الحفظ — لم يُحفظ التغيير' : '❌ تعذّر الاتصال بالخادم', '#dc2626');
+      }
+      return false;
+    } finally {
+      clearTimeout(killer);
+    }
+  };
+
+  // تفريغ أي حفظ شركات مؤجّل قبل أي عملية تعتمد عليه (مثلاً حفظ الايتمات)
+  const flushCompanySave = async (): Promise<boolean> => {
+    const pending = pendingCompanyRef.current;
+    if (!pending) return true;
+    return persistCompanies(pending.ids, pending.primary);
+  };
+
   const loadDetail = (id: number, opts: { keepTab?: boolean } = {}) => {
     // Save current scroll position before entering detail
     const main = getMainEl();
@@ -286,6 +375,30 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     });
     loadRefs();
   };
+
+  // حفظ تلقائي للشركات: أي اختيار/إلغاء يُطبّق فعلاً خلال لحظة واحدة — لا يبقى اختيار معلّق
+  // يظنّه المستخدم محفوظاً. زر «حفظ الآن» يبقى للحفظ الفوري/إعادة المحاولة.
+  useEffect(() => {
+    if (!detail || draftsUserId !== detail.id) return;
+    if (!companiesDirty) { pendingCompanyRef.current = null; return; }
+    const ids = [...draftCompanyIds];
+    const primary = ids.includes(draftPrimaryCompanyId as number) ? draftPrimaryCompanyId : (ids[0] ?? null);
+    pendingCompanyRef.current = { ids, primary };
+    if (companySaveTimer.current) clearTimeout(companySaveTimer.current);
+    companySaveTimer.current = setTimeout(() => { void persistCompanies(ids, primary); }, 700);
+    return () => { if (companySaveTimer.current) { clearTimeout(companySaveTimer.current); companySaveTimer.current = null; } };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, draftsUserId, draftCompanySig, savedCompanySig, companiesDirty]);
+
+  // قائمة الايتمات تتبع الشركات المختارة فوراً (قبل اكتمال الحفظ) — فتظهر الشركة
+  // وايتماتها في تبويب «الايتمات» لحظة تأشيرها في تبويب «الشركات».
+  useEffect(() => {
+    if (!detail || draftsUserId !== detail.id) return;
+    const ids = [...draftCompanyIds];
+    const t = setTimeout(() => loadCompanyItems(detail.id, ids), 120);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, draftsUserId, draftCompanyIds.join(',')]);
 
   const goBack = () => {
     setDetail(null);
@@ -418,12 +531,23 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         showToast('❌ ' + errMsg, '#dc2626');
         return;
       }
+      // تحقق من المحفوظ فعلاً: الخادم يرجع قائمة الـids بعد الحفظ للايتمات/اللاينات
+      const j = await res.json().catch(() => null);
+      const savedIds: number[] | null = Array.isArray(j?.data) && (type === 'items' || type === 'lines')
+        ? j.data.map((n: any) => Number(n)) : null;
+      if (savedIds) {
+        if (type === 'items') setDraftItemIds(savedIds);
+        if (type === 'lines') setDraftLineIds(savedIds);
+      }
       // Reload detail but keep the user on the same tab (don't snap back to 'info')
       loadDetail(detail.id, { keepTab: true });
-      // تغيير الشركات يغيّر مجموعة الايتمات المتاحة → أعد جلبها (نفس الـid لا يُشغّل الـeffect)
-      if (type === 'companies') loadCompanyItems(detail.id);
       if (type === 'areas') window.dispatchEvent(new Event('areas-changed'));
-      showToast('✅ تم الحفظ');
+      if (savedIds && savedIds.length !== ids.length) {
+        const missing = ids.length - savedIds.length;
+        showToast(`⚠️ حُفظ ${savedIds.length} من ${ids.length} (${missing} غير موجود)`, '#d97706');
+        return;
+      }
+      showToast(savedIds ? `✅ تم الحفظ (${savedIds.length})` : '✅ تم الحفظ');
     } catch (e) {
       console.error('saveAssignment error:', e);
       showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
@@ -754,7 +878,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           <TabBtn id="info"      label="معلومات" />
-          <TabBtn id="companies" label={`الشركات (${selCompanyIds.length})`} />
+          <TabBtn id="companies" label={`الشركات (${selCompanyIds.length})${companiesDirty ? ' ●' : ''}`} />
           <TabBtn id="lines"     label={`اللاينات (${selLineIds.length})`} />
           <TabBtn id="items"     label={`الايتمات (${selItemIds.length})`} />
           <TabBtn id="areas"     label={`المناطق (${effectiveAreaCount})`} />
@@ -843,8 +967,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           {tab === 'companies' && (
             <div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => { setDraftCompanyIds(companies.map(c => c.id)); if (draftPrimaryCompanyId == null) setDraftPrimaryCompanyId(companies[0]?.id ?? null); }} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => { setDraftCompanyIds(companies.map(c => c.id)); setDraftPrimaryCompanyId(prev => prev ?? companies[0]?.id ?? null); }} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
                 <button onClick={() => { setDraftCompanyIds([]); setDraftPrimaryCompanyId(null); }} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+                <span style={{ marginRight: 'auto', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+                  color: companySaveState === 'error' ? '#dc2626' : companiesDirty ? '#d97706' : '#16a34a' }}>
+                  {companySaveState === 'saving' ? '⏳ جارٍ الحفظ...'
+                    : companySaveState === 'error' ? '❌ لم يُحفظ — اضغط «حفظ الآن»'
+                    : companiesDirty ? '● تغييرات غير محفوظة (تُحفظ تلقائياً)'
+                    : `✅ محفوظ (${savedCompanyIds.length})`}
+                </span>
               </div>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
@@ -854,9 +985,20 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   return (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: isPrimary ? '#fef9c3' : '#f8fafc', borderRadius: 8, fontSize: 14, border: isPrimary ? '1.5px solid #eab308' : '1.5px solid transparent' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}>
+                        {/* تحديث دالي (prev =>) لا من نسخة الـrender: النقر السريع على عدة مربعات
+                            كان يضيّع اختيارات (قراءة حالة قديمة قبل اكتمال إعادة الرسم — والصفحة ثقيلة). */}
                         <input type="checkbox" checked={checked} onChange={e => {
-                          if (e.target.checked) { setDraftCompanyIds([...draftCompanyIds, c.id]); if (draftPrimaryCompanyId == null) setDraftPrimaryCompanyId(c.id); }
-                          else { setDraftCompanyIds(draftCompanyIds.filter(x => x !== c.id)); if (draftPrimaryCompanyId === c.id) setDraftPrimaryCompanyId(draftCompanyIds.filter(x => x !== c.id)[0] ?? null); }
+                          const on = e.target.checked;
+                          setDraftCompanyIds(prev => {
+                            const next = on ? (prev.includes(c.id) ? prev : [...prev, c.id]) : prev.filter(x => x !== c.id);
+                            setDraftPrimaryCompanyId(p => (on ? (p == null ? c.id : p) : (p === c.id ? (next[0] ?? null) : p)));
+                            return next;
+                          });
+                          // إلغاء شركة يُسقط ايتماتها من القائمة البيضاء كي لا تبقى مختارة بلا شركة
+                          if (!on) {
+                            const gone = new Set(items.filter(i => i.companyId === c.id).map(i => i.id));
+                            if (gone.size) setDraftItemIds(prev => prev.filter(x => !gone.has(x)));
+                          }
                         }} />
                         {c.name}
                       </label>
@@ -870,8 +1012,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   );
                 })}
               </div>
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => saveAssignment('companies', draftCompanyIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  الاختيار يُطبّق ويُحفظ تلقائياً، وتظهر ايتمات الشركة فوراً في تبويب «الايتمات».
+                </span>
+                <button
+                  onClick={() => persistCompanies(draftCompanyIds, draftPrimaryCompanyId)}
+                  disabled={companySaveState === 'saving'}
+                  style={btnStyle(companiesDirty || companySaveState === 'error' ? '#0f172a' : '#64748b', true)}
+                >{companySaveState === 'saving' ? '...' : (companySaveState === 'error' ? '↻ إعادة المحاولة' : 'حفظ الآن')}</button>
               </div>
             </div>
           )}
@@ -884,7 +1033,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {lines.map(l => (
                   <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftLineIds.includes(l.id)} onChange={e => setDraftLineIds(e.target.checked ? [...draftLineIds, l.id] : draftLineIds.filter(x => x !== l.id))} />
+                    <input type="checkbox" checked={draftLineIds.includes(l.id)} onChange={e => setDraftLineIds(prev => e.target.checked ? (prev.includes(l.id) ? prev : [...prev, l.id]) : prev.filter(x => x !== l.id))} />
                     {l.name || `لاين #${l.id}`}
                   </label>
                 ))}
@@ -901,6 +1050,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 <br />
                 ℹ️ إذا لم تختر أي ايتم، يعمل المستخدم على <b>كل</b> ايتمات شركاته — وأي ايتم يُضاف للشركة لاحقاً يظهر له تلقائياً.
               </div>
+              <div style={{ fontSize: 12, color: '#334155', marginBottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700 }}>شركات هذا المستخدم:</span>
+                {draftCompanyIds.length === 0 && <span style={{ color: '#94a3b8' }}>— لا توجد</span>}
+                {draftCompanyIds.map(cid => {
+                  const c = companies.find(x => x.id === cid);
+                  const unsaved = !savedCompanyIds.includes(cid);
+                  return (
+                    <span key={cid} title={unsaved ? 'غير محفوظة بعد — تُحفظ تلقائياً' : 'محفوظة'}
+                      style={{ background: unsaved ? '#fef3c7' : '#e0f2fe', color: unsaved ? '#92400e' : '#075985',
+                        border: `1px solid ${unsaved ? '#fcd34d' : '#bae6fd'}`, borderRadius: 20, padding: '2px 10px', fontWeight: 600 }}>
+                      🏭 {c?.name ?? `#${cid}`}{unsaved ? ' ●' : ''}
+                    </span>
+                  );
+                })}
+              </div>
               <input
                 type="text"
                 placeholder="🔍 بحث عن ايتم..."
@@ -914,7 +1078,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
               {items.length === 0 ? (
                 <div style={{ color: '#94a3b8', fontSize: 13, padding: 20, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>
-                  لا توجد ايتمات — عيّن شركة لهذا المستخدم من تبويب «الشركات» أولاً، وستظهر ايتمات كتالوجها هنا.
+                  {draftCompanyIds.length === 0
+                    ? 'لا توجد ايتمات — عيّن شركة لهذا المستخدم من تبويب «الشركات»، وستظهر ايتمات كتالوجها هنا فوراً.'
+                    : 'لا يوجد أي ايتم في كتالوج الشركات المختارة.'}
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 360, overflowY: 'auto' }}>
@@ -926,9 +1092,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>🏭 {companyName} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({groupItems.length})</span></div>
                           <button
-                            onClick={() => allSel
-                              ? setDraftItemIds(draftItemIds.filter(x => !groupIds.includes(x)))
-                              : setDraftItemIds([...new Set([...draftItemIds, ...groupIds])])}
+                            onClick={() => setDraftItemIds(prev => allSel
+                              ? prev.filter(x => !groupIds.includes(x))
+                              : [...new Set([...prev, ...groupIds])])}
                             style={{ ...btnStyle(allSel ? '#64748b' : '#2563eb', true), fontSize: 11, padding: '2px 10px' }}>
                             {allSel ? 'إلغاء الشركة' : 'تحديد الشركة'}
                           </button>
@@ -938,7 +1104,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             const on = draftItemIds.includes(i.id);
                             return (
                               <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: on ? '#eff6ff' : '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14, border: on ? '1px solid #bfdbfe' : '1px solid transparent' }}>
-                                <input type="checkbox" checked={on} onChange={e => setDraftItemIds(e.target.checked ? [...draftItemIds, i.id] : draftItemIds.filter(x => x !== i.id))} />
+                                <input type="checkbox" checked={on} onChange={e => setDraftItemIds(prev => e.target.checked ? (prev.includes(i.id) ? prev : [...prev, i.id]) : prev.filter(x => x !== i.id))} />
                                 {i.name}
                               </label>
                             );
@@ -955,7 +1121,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     ? '✓ لم تُختر ايتمات → المستخدم يعمل على كل ايتمات شركاته'
                     : `مُختار ${draftItemIds.length} ايتم — المستخدم يعمل عليها فقط`}
                 </span>
-                <button onClick={() => saveAssignment('items', draftItemIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
+                <button
+                  onClick={async () => {
+                    // القائمة البيضاء لا معنى لها قبل ثبوت شركات المستخدم — نفرّغ أي حفظ شركات مؤجّل أولاً
+                    const ok = await flushCompanySave();
+                    if (!ok) { showToast('❌ لم تُحفظ الشركات — لم يُحفظ اختيار الايتمات', '#dc2626'); return; }
+                    await saveAssignment('items', draftItemIds);
+                  }}
+                  disabled={saving || companySaveState === 'saving'}
+                  style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
             </div>
           )}
@@ -1547,7 +1721,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {users.filter(u => u.id !== detail.id).map(u => (
                   <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftMgrIds.includes(u.id)} onChange={e => setDraftMgrIds(e.target.checked ? [...draftMgrIds, u.id] : draftMgrIds.filter(x => x !== u.id))} />
+                    <input type="checkbox" checked={draftMgrIds.includes(u.id)} onChange={e => setDraftMgrIds(prev => e.target.checked ? (prev.includes(u.id) ? prev : [...prev, u.id]) : prev.filter(x => x !== u.id))} />
                     {u.displayName || u.username} ({ROLES.find(r => r.value === u.role)?.label || u.role})
                   </label>
                 ))}

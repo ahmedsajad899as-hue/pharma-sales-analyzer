@@ -163,11 +163,24 @@ export async function getUserRepInfo(req, res) {
 // المستخدم على كل هذه الايتمات (السلوك الافتراضي — يُطبَّق في /api/items و getMySharedItems).
 export async function getUserCompanyItems(req, res) {
   const userId = parseInt(req.params.id);
-  const companies = await prisma.userCompanyAssignment.findMany({
-    where: { userId },
-    select: { companyId: true },
-  });
-  const companyIds = companies.map(c => c.companyId);
+
+  // ?companyIds=1,2,3 ← معاينة فورية لايتمات اختيارٍ لم يُحفظ بعد في تبويب «الشركات».
+  // بدونه يعود لسلوكه الأصلي: ايتمات الشركات المحفوظة فعلاً للمستخدم.
+  const rawQ = req.query.companyIds;
+  const override = typeof rawQ === 'string' && rawQ.trim().length > 0
+    ? [...new Set(rawQ.split(',').map(n => parseInt(n)).filter(Number.isInteger))]
+    : null;
+
+  let companyIds;
+  if (override) {
+    companyIds = override;
+  } else {
+    const companies = await prisma.userCompanyAssignment.findMany({
+      where: { userId },
+      select: { companyId: true },
+    });
+    companyIds = companies.map(c => c.companyId);
+  }
   if (companyIds.length === 0) return res.json({ success: true, data: [] });
 
   const items = await prisma.item.findMany({
@@ -216,19 +229,51 @@ export async function deleteUser(req, res) {
 // واحدة فقط؛ إن لم تُرسَل أو لم تكن ضمن القائمة → الأولى تصبح رئيسية.
 export async function setUserCompanies(req, res) {
   const userId = parseInt(req.params.id);
-  const { companyIds = [], primaryCompanyId } = req.body;
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
 
-  const ids = companyIds.map(id => parseInt(id));
-  let primaryId = primaryCompanyId != null ? parseInt(primaryCompanyId) : null;
-  if (!ids.includes(primaryId)) primaryId = ids[0] ?? null; // fallback: الأولى
+  const raw = Array.isArray(req.body?.companyIds) ? req.body.companyIds : [];
+  // تطهير المدخلات: أي تكرار في companyIds كان يضرب المفتاح المركّب (userId, companyId)
+  // فيُلغي الـtransaction كاملاً ويضيع الحفظ دون رسالة خطأ واضحة.
+  const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
 
-  await prisma.$transaction([
-    prisma.userCompanyAssignment.deleteMany({ where: { userId } }),
-    prisma.userCompanyAssignment.createMany({
-      data: ids.map(id => ({ userId, companyId: id, isPrimary: id === primaryId })),
-    }),
-  ]);
-  res.json({ success: true });
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
+
+    // تجاهل أي شركة محذوفة بدل إسقاط الحفظ كله بخطأ مفتاح أجنبي
+    const found = requested.length
+      ? await prisma.scientificCompany.findMany({ where: { id: { in: requested } }, select: { id: true } })
+      : [];
+    const validSet = new Set(found.map(c => c.id));
+    const ids = requested.filter(id => validSet.has(id));
+    const dropped = requested.filter(id => !validSet.has(id));
+
+    let primaryId = req.body?.primaryCompanyId != null ? parseInt(req.body.primaryCompanyId) : null;
+    if (!Number.isInteger(primaryId) || !ids.includes(primaryId)) primaryId = ids[0] ?? null; // fallback: الأولى
+
+    await prisma.$transaction([
+      prisma.userCompanyAssignment.deleteMany({ where: { userId } }),
+      ...(ids.length ? [prisma.userCompanyAssignment.createMany({
+        data: ids.map(id => ({ userId, companyId: id, isPrimary: id === primaryId })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+
+    // نقرأ المحفوظ فعلاً ونُرجعه للواجهة لتتحقق من النتيجة (لا تكتفي بـ success)
+    const saved = await prisma.userCompanyAssignment.findMany({
+      where: { userId },
+      select: { companyId: true, isPrimary: true },
+    });
+    res.json({
+      success: true,
+      data: saved.map(a => ({ companyId: a.companyId, isPrimary: a.isPrimary })),
+      primaryCompanyId: saved.find(a => a.isPrimary)?.companyId ?? null,
+      dropped,
+    });
+  } catch (err) {
+    console.error('[setUserCompanies] failed for user', userId, err);
+    res.status(500).json({ error: 'فشل حفظ الشركات — لم يتغيّر شيء. حاول مرة أخرى.' });
+  }
 }
 
 // ── Set user areas ────────────────────────────────────────────────────────
@@ -361,29 +406,66 @@ export async function setUserSubProvinces(req, res) {
 // ── Set user items ────────────────────────────────────────────────────────
 export async function setUserItems(req, res) {
   const userId = parseInt(req.params.id);
-  const { itemIds = [] } = req.body;
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
 
-  await prisma.$transaction([
-    prisma.userItemAssignment.deleteMany({ where: { userId } }),
-    prisma.userItemAssignment.createMany({
-      data: itemIds.map(id => ({ userId, itemId: parseInt(id) })),
-    }),
-  ]);
-  res.json({ success: true });
+  const raw = Array.isArray(req.body?.itemIds) ? req.body.itemIds : [];
+  const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
+
+  try {
+    // ايتم محذوف في القائمة كان يُسقط عملية الحفظ بأكملها (FK)
+    const found = requested.length
+      ? await prisma.item.findMany({ where: { id: { in: requested } }, select: { id: true } })
+      : [];
+    const validSet = new Set(found.map(i => i.id));
+    const ids = requested.filter(id => validSet.has(id));
+    const dropped = requested.filter(id => !validSet.has(id));
+
+    await prisma.$transaction([
+      prisma.userItemAssignment.deleteMany({ where: { userId } }),
+      ...(ids.length ? [prisma.userItemAssignment.createMany({
+        data: ids.map(id => ({ userId, itemId: id })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+
+    const saved = await prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } });
+    res.json({ success: true, data: saved.map(a => a.itemId), dropped });
+  } catch (err) {
+    console.error('[setUserItems] failed for user', userId, err);
+    res.status(500).json({ error: 'فشل حفظ الايتمات — لم يتغيّر شيء. حاول مرة أخرى.' });
+  }
 }
 
 // ── Set user lines ────────────────────────────────────────────────────────
 export async function setUserLines(req, res) {
   const userId = parseInt(req.params.id);
-  const { lineIds = [] } = req.body;
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
 
-  await prisma.$transaction([
-    prisma.userLineAssignment.deleteMany({ where: { userId } }),
-    prisma.userLineAssignment.createMany({
-      data: lineIds.map(id => ({ userId, lineId: parseInt(id) })),
-    }),
-  ]);
-  res.json({ success: true });
+  const raw = Array.isArray(req.body?.lineIds) ? req.body.lineIds : [];
+  const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
+
+  try {
+    const found = requested.length
+      ? await prisma.productLine.findMany({ where: { id: { in: requested } }, select: { id: true } })
+      : [];
+    const validSet = new Set(found.map(l => l.id));
+    const ids = requested.filter(id => validSet.has(id));
+    const dropped = requested.filter(id => !validSet.has(id));
+
+    await prisma.$transaction([
+      prisma.userLineAssignment.deleteMany({ where: { userId } }),
+      ...(ids.length ? [prisma.userLineAssignment.createMany({
+        data: ids.map(id => ({ userId, lineId: id })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+
+    const saved = await prisma.userLineAssignment.findMany({ where: { userId }, select: { lineId: true } });
+    res.json({ success: true, data: saved.map(a => a.lineId), dropped });
+  } catch (err) {
+    console.error('[setUserLines] failed for user', userId, err);
+    res.status(500).json({ error: 'فشل حفظ اللاينات — لم يتغيّر شيء. حاول مرة أخرى.' });
+  }
 }
 
 // ── Set user managers ─────────────────────────────────────────────────────
