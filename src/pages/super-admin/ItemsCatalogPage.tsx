@@ -725,7 +725,14 @@ export default function ItemsCatalogPage() {
                                   const unresolved = it.action === 'item-confirm' && !it.targetItemId;
                                   return (
                                     <tr key={it.name + ii} style={{ borderTop: '1px solid #f1f5f9', background: unresolved ? '#fffbeb' : '#fff' }}>
-                                      <td style={{ padding: 8, fontWeight: 600, color: '#1e293b' }}>{it.name}</td>
+                                      <td style={{ padding: 8, fontWeight: 600, color: '#1e293b' }}>
+                                        {it.name}
+                                        {it.action === 'item-confirm' && (
+                                          <span data-x="conf-badge-import" title="مطابقة ضبابية — أكّدها قبل الربط" style={{ marginInlineStart: 6, fontSize: 9, fontWeight: 700, color: (CONF_META[it.confidence] || CONF_META.none).color, background: (CONF_META[it.confidence] || CONF_META.none).bg, padding: '1px 6px', borderRadius: 20 }}>
+                                            {(CONF_META[it.confidence] || CONF_META.none).label}
+                                          </span>
+                                        )}
+                                      </td>
                                       <td style={{ padding: 8 }}>
                                         <span style={{ fontSize: 10, fontWeight: 700, color: am.color, background: am.bg, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>{am.label}</span>
                                       </td>

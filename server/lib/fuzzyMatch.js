@@ -135,13 +135,30 @@ function wordOverlapRatio(a, b) {
      .filter(w => w.length > 2 && !DOSE_RE.test(w) && !CONC_RE.test(w) && !FORM_WORDS.has(w));
   const wa = sig(a), wb = sig(b);
   if (wa.length === 0 || wb.length === 0) return 0;
+
+  // spacing variant: «air tide» و«AIRTIDE» نفس الاسم مكتوباً بمسافة. نقارن
+  // الكلمات الدالة ملتصقةً — مساواة تامة لا تخمين، فلا تلتقط «Win fast»
+  // مع «Potafast» (winfast ≠ potafast).
+  if (wa.join('') === wb.join('')) return 1;
   const shorter = wa.length <= wb.length ? wa : wb;
   const longer  = wa.length <= wb.length ? wb : wa;
-  // Use fuzzy word-level similarity (≥0.8) in addition to substring matching
-  // This catches spelling variants like "gel" ↔ "jel"
+  // الاحتواء المجرّد كان يعتبر «fast» و«potafast» كلمة واحدة، فيُدمج
+  // «Win fast» مع «Potafast 50 mg» — وهما دواءان مختلفان. نشترط أن يشكّل
+  // المقطع الأقصر معظم الأطول كي يدل الاحتواء على نفس الاسم
+  const CONTAIN_MIN = 0.7;
+  // «ال» التعريف تُضخّم الطول فتُسقِط نسبة الاحتواء دون العتبة، فيضيع تطابق
+  // «حي البنوك» مع «بنوك». تُحذف عند قياس النسبة فقط — لا في مسافة ليفنشتاين،
+  // وإلا تقاربت أسماء غير متطابقة مثل «الغدير» و«غير».
+  const stripAl = w => (w.length > 4 && w.startsWith('ال')) ? w.slice(2) : w;
   const wordSim = (w1, w2) => {
-    if (w1.includes(w2) || w2.includes(w1)) return true;
-    const maxL = Math.max(w1.length, w2.length);
+    if (w1 === w2) return true;
+    const shortW = w1.length <= w2.length ? w1 : w2;
+    const longW  = w1.length <= w2.length ? w2 : w1;
+    if (longW.includes(shortW)) {
+      const s = stripAl(shortW), l = stripAl(longW);
+      return l.length > 0 && s.length / l.length >= CONTAIN_MIN;
+    }
+    const maxL = longW.length;
     if (maxL === 0) return true;
     return (1 - levenshtein(w1, w2) / maxL) >= 0.75;
   };

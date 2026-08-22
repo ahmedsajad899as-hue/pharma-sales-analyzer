@@ -98,17 +98,21 @@ export async function previewCatalogImport(req, res) {
         const r = m.company ? await resolveItemName(row.name, itemCtx) : { canonicalItem: null, confidence: 'none', suggestions: [] };
         const temps = tempIndex.get(key) || [];
 
+        // الترتيب مقصود: المطابقات القاطعة أولاً (alias/exact ثم الايتم المؤقت
+        // بمفتاح مطابق تماماً)، وأي مطابقة ضبابية بعدها يؤكّده المدير — حتى
+        // 'high' (مرشّح واحد) لأنها تخمين لا يقين، وقد ربطت «Win fast» بـ
+        // «Potafast 50 mg» قبل تشديد المطابقة.
         let action, targetItemId = null, currentPrice = null, matchedName = null;
-        if (r.canonicalItem && ['alias', 'exact', 'high'].includes(r.confidence)) {
+        if (r.canonicalItem && ['alias', 'exact'].includes(r.confidence)) {
           action = 'item-link';
           targetItemId = r.canonicalItem.id;
           matchedName = r.canonicalItem.name;
           currentPrice = priceById.get(r.canonicalItem.id) ?? null;
-        } else if (r.confidence === 'medium') {
-          action = 'item-confirm';           // مرشّحان فأكثر — يقرّرها المدير
         } else if (temps.length > 0) {
           action = 'item-promote';           // ايتم مؤقت بنفس الاسم — يُرقّى بمبيعاته
           targetItemId = temps[0].id;
+        } else if (r.confidence === 'high' || r.confidence === 'medium') {
+          action = 'item-confirm';           // ضبابي — يؤكّده المدير قبل الربط
         } else {
           action = 'item-create';
         }
