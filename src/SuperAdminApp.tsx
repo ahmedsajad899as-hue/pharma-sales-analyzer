@@ -101,10 +101,10 @@ function NotificationBell({ token, refreshKey, onOpen }: { token: string; refres
   );
 }
 
-interface SAStats { offices: number; companies: number; users: number; }
+interface SAStats { offices: number; companies: number; users: number; items: number; }
 
 function StatsBar({ token }: { token: string }) {
-  const [stats, setStats] = useState<SAStats>({ offices: 0, companies: 0, users: 0 });
+  const [stats, setStats] = useState<SAStats>({ offices: 0, companies: 0, users: 0, items: 0 });
   const H = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
@@ -116,6 +116,11 @@ function StatsBar({ token }: { token: string }) {
       offices:   Array.isArray(o.data) ? o.data.length : 0,
       companies: Array.isArray(c.data) ? c.data.length : 0,
       users:     Array.isArray(u.data) ? u.data.length : 0,
+      // إجمالي ايتمات الكتالوج عبر كل الشركات — /api/sa/companies يرجع
+      // _count.items لكل شركة أصلاً، فلا حاجة لنقطة جديدة.
+      items: Array.isArray(c.data)
+        ? c.data.reduce((s: number, x: any) => s + (x?._count?.items ?? 0), 0)
+        : 0,
     })).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
@@ -124,6 +129,7 @@ function StatsBar({ token }: { token: string }) {
     { label: 'مكتب',      value: stats.offices,   icon: '🏢', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)',   border: 'rgba(6,182,212,0.25)'   },
     { label: 'شركة',      value: stats.companies, icon: '🏭', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)',  border: 'rgba(139,92,246,0.25)'  },
     { label: 'مستخدم',   value: stats.users,     icon: '👥', color: '#10b981', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.25)'  },
+    { label: 'ايتم',      value: stats.items,     icon: '💊', color: '#ec4899', bg: 'rgba(236,72,153,0.1)',  border: 'rgba(236,72,153,0.25)'  },
   ];
 
   return (
