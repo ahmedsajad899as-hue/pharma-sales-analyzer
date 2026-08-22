@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { NAV_ITEMS, FEATURE_PAGE_MAP, COMM_REP_ORDER } from '../../config/featureConfig';
+import NotificationBell from '../NotificationBell';
 
 function OrdineLogo({ size = 28 }: { size?: number }) {
   return (
@@ -410,9 +411,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           }}>Ordine</span>
           <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={32} /></span>
         </div>
-        <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu" style={{ marginRight: 0, fontSize: 16 }}>
-          ☰
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 0 }}>
+          <NotificationBell compact />
+          <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu" style={{ marginRight: 0, fontSize: 16 }}>
+            ☰
+          </button>
+        </div>
       </header>
 
       {/* ── MOBILE BOTTOM NAV ── */}
@@ -614,7 +618,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   </div>
                   <div style={{ fontSize: 12, color: '#6366f1' }}>{ROLE_LABELS[user?.role ?? ''] ?? user?.role}</div>
                 </div>
-                <span style={{ fontSize: 18, color: '#6366f1' }}>✓</span>
+                <NotificationBell />
               </div>
             </div>
 

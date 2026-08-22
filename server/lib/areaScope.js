@@ -244,3 +244,70 @@ export async function resolveEffectiveAreas(userId, opts = {}) {
     orderBy: { name: 'asc' },
   });
 }
+
+/**
+ * عكس resolveEffectiveAreaIds: مَن المستخدمون الذين تقع هذه المناطق ضمن نطاقهم؟
+ *
+ * يُستعمل لتوجيه التنبيهات التلقائية للمندوب المسؤول عن منطقة الصيدلية. يجمع
+ * المصادر الأربعة نفسها (منطقة مباشرة، مندوب علمي، محافظة، قسم) — فمندوب
+ * مُعيَّن على «الكرخ» يستلم تنبيهات مناطق الكرخ دون أن يُعيَّن على كل منطقة.
+ *
+ * @param {number[]} areaIds
+ * @returns {Promise<Map<number, number[]>>} areaId -> userIds
+ */
+export async function usersForAreaIds(areaIds) {
+  const out = new Map();
+  if (!areaIds || areaIds.length === 0) return out;
+  const add = (areaId, userId) => {
+    if (!out.has(areaId)) out.set(areaId, new Set());
+    out.get(areaId).add(userId);
+  };
+
+  const areas = await prisma.area.findMany({
+    where:  { id: { in: areaIds } },
+    select: { id: true, provinceId: true, subProvinceId: true },
+  });
+  const provinceIds    = [...new Set(areas.map(a => a.provinceId).filter(Boolean))];
+  const subProvinceIds = [...new Set(areas.map(a => a.subProvinceId).filter(Boolean))];
+
+  const [direct, viaRep, viaProvince, viaSub] = await Promise.all([
+    prisma.userAreaAssignment.findMany({
+      where: { areaId: { in: areaIds } }, select: { userId: true, areaId: true },
+    }),
+    prisma.scientificRepArea.findMany({
+      where:  { areaId: { in: areaIds } },
+      select: { areaId: true, scientificRep: { select: { linkedUsers: { select: { id: true } } } } },
+    }),
+    provinceIds.length
+      ? prisma.userProvinceAssignment.findMany({
+          where: { provinceId: { in: provinceIds } }, select: { userId: true, provinceId: true },
+        })
+      : Promise.resolve([]),
+    subProvinceIds.length
+      ? prisma.userSubProvinceAssignment.findMany({
+          where: { subProvinceId: { in: subProvinceIds } }, select: { userId: true, subProvinceId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  for (const r of direct) add(r.areaId, r.userId);
+  for (const r of viaRep) {
+    for (const u of r.scientificRep?.linkedUsers ?? []) add(r.areaId, u.id);
+  }
+  const byProvince = new Map();
+  for (const r of viaProvince) {
+    if (!byProvince.has(r.provinceId)) byProvince.set(r.provinceId, []);
+    byProvince.get(r.provinceId).push(r.userId);
+  }
+  const bySub = new Map();
+  for (const r of viaSub) {
+    if (!bySub.has(r.subProvinceId)) bySub.set(r.subProvinceId, []);
+    bySub.get(r.subProvinceId).push(r.userId);
+  }
+  for (const a of areas) {
+    for (const uid of byProvince.get(a.provinceId) ?? []) add(a.id, uid);
+    for (const uid of bySub.get(a.subProvinceId) ?? []) add(a.id, uid);
+  }
+
+  return new Map([...out].map(([k, v]) => [k, [...v]]));
+}

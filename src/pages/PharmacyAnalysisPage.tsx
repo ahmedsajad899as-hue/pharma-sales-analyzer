@@ -138,6 +138,10 @@ export default function PharmacyAnalysisPage() {
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertDays, setAlertDays]       = useState(30);
   const [alertSearch, setAlertSearch]   = useState('');
+  // إعدادات التنبيهات التلقائية (المُجدوِل في السيرفر يقرأها)
+  const [alertSettings, setAlertSettings] = useState<any>(null);
+  const [showAlertSettings, setShowAlertSettings] = useState(false);
+  const [alertSaving, setAlertSaving] = useState(false);
 
   // Upload
   // Currency display toggle
@@ -207,6 +211,50 @@ export default function PharmacyAnalysisPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileIdsParam, itemSearch, token]);
 
+  const loadAlertSettings = useCallback(() => {
+    fetch(`${API}/api/pharmacy-analysis/alert-settings`, { headers })
+      .then(r => r.json()).then(d => { if (d.success) setAlertSettings(d.data); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveAlertSettings = async () => {
+    if (!alertSettings) return;
+    setAlertSaving(true);
+    try {
+      const r = await fetch(`${API}/api/pharmacy-analysis/alert-settings`, {
+        method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(alertSettings),
+      });
+      const d = await r.json();
+      if (d.success) { setAlertSettings(d.data); alert('✅ تم حفظ الإعدادات'); }
+      else alert('❌ ' + (d.error || 'فشل الحفظ'));
+    } catch { alert('❌ تعذّر الاتصال بالخادم'); }
+    finally { setAlertSaving(false); }
+  };
+
+  const runAlertsNow = async () => {
+    setAlertSaving(true);
+    try {
+      const r = await fetch(`${API}/api/pharmacy-analysis/alert-settings/run-now`, {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const d = await r.json();
+      if (d.success) {
+        const x = d.result || {};
+        alert(`✅ تم الإرسال
+
+• تنبيهات مطابقة: ${x.alerts ?? 0}
+• مندوبون أُشعروا: ${x.repNotifs ?? 0}
+• ملخّص المدير: ${x.managerNotifs ? 'نعم' : 'لا'}
+
+ما لم يُرسَل غالباً ضمن فترة عدم التكرار.`);
+        loadAlertSettings();
+      } else alert('❌ ' + (d.error || 'فشل الإرسال'));
+    } catch { alert('❌ تعذّر الاتصال بالخادم'); }
+    finally { setAlertSaving(false); }
+  };
+
   const loadAlerts = useCallback(() => {
     if (selFiles.size === 0) { setAlerts([]); setAlertsLoading(false); return; }
     setAlertsLoading(true);
@@ -218,6 +266,7 @@ export default function PharmacyAnalysisPage() {
   useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [fileIdsParam]);
   useEffect(() => { if (tab === 'items')      loadItems();      }, [fileIdsParam]);
   useEffect(() => { if (tab === 'alerts')     loadAlerts();     }, [fileIdsParam, alertDays]);
+  useEffect(() => { if (tab === 'alerts' && !alertSettings) loadAlertSettings(); }, [tab]);
   useEffect(() => {
     if (tab === 'pharmacies') loadPharmacies();
     else if (tab === 'items') loadItems();
@@ -965,8 +1014,106 @@ export default function PharmacyAnalysisPage() {
               style={{ padding: '5px 12px', border: '1px solid #16a34a', borderRadius: 6, background: sortedAlerts.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedAlerts.length === 0 ? '#94a3b8' : '#fff', cursor: sortedAlerts.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
             >📥 تصدير إكسل</button>
             <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻</button>
+            <button
+              onClick={() => { setShowAlertSettings(v => !v); if (!alertSettings) loadAlertSettings(); }}
+              title="إعدادات التنبيهات التلقائية"
+              style={{ padding: '5px 12px', border: '1px solid #4f46e5', borderRadius: 6, background: showAlertSettings ? '#4f46e5' : '#fff', color: showAlertSettings ? '#fff' : '#4f46e5', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >⚙️ تلقائي{alertSettings?.enabled ? ' ✓' : ''}</button>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>{filteredAlerts.length} تنبيه</span>
           </div>
+
+          {/* ── إعدادات التنبيهات التلقائية ── */}
+          {showAlertSettings && alertSettings && (
+            <div style={{ ...CARD, marginBottom: 12, border: '1px solid #c7d2fe', background: '#f5f3ff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <strong style={{ fontSize: 13, color: '#3730a3' }}>⚙️ التنبيهات التلقائية</strong>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>يفحص النظام دورياً ويُشعر المعنيين داخل التطبيق</span>
+                <button onClick={() => setShowAlertSettings(false)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>✕</button>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', fontSize: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 700, color: '#1e293b' }}>
+                  <input type="checkbox" checked={alertSettings.enabled}
+                    onChange={e => setAlertSettings({ ...alertSettings, enabled: e.target.checked })} />
+                  تفعيل
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  التكرار:
+                  <select value={alertSettings.frequency}
+                    onChange={e => setAlertSettings({ ...alertSettings, frequency: e.target.value })}
+                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}>
+                    <option value="daily">يومياً</option>
+                    <option value="weekly">أسبوعياً</option>
+                  </select>
+                </label>
+
+                {alertSettings.frequency === 'weekly' && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    اليوم:
+                    <select value={alertSettings.weekday}
+                      onChange={e => setAlertSettings({ ...alertSettings, weekday: Number(e.target.value) })}
+                      style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}>
+                      {['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'].map((d, i) => (
+                        <option key={i} value={i}>{d}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  الساعة (بغداد):
+                  <input type="number" min={0} max={23} value={alertSettings.hour}
+                    onChange={e => setAlertSettings({ ...alertSettings, hour: Number(e.target.value) })}
+                    style={{ width: 56, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }} />
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  يُعتبر متأخراً بعد:
+                  <input type="number" min={1} max={365} value={alertSettings.thresholdDays}
+                    onChange={e => setAlertSettings({ ...alertSettings, thresholdDays: Number(e.target.value) })}
+                    style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }} /> يوم
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }} title="لا يُعاد التنبيه على نفس الصيدلية/الايتم قبل مرور هذه المدة">
+                  لا يتكرر قبل:
+                  <input type="number" min={1} max={180} value={alertSettings.cooldownDays}
+                    onChange={e => setAlertSettings({ ...alertSettings, cooldownDays: Number(e.target.value) })}
+                    style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }} /> يوم
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} title="كل مندوب يستلم صيدليات مناطقه فقط">
+                  <input type="checkbox" checked={alertSettings.notifyReps}
+                    onChange={e => setAlertSettings({ ...alertSettings, notifyReps: e.target.checked })} />
+                  إشعار المندوبين (حسب المنطقة)
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={alertSettings.notifyManager}
+                    onChange={e => setAlertSettings({ ...alertSettings, notifyManager: e.target.checked })} />
+                  ملخّص لي
+                </label>
+
+                <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
+                  <button onClick={saveAlertSettings} disabled={alertSaving}
+                    style={{ padding: '5px 14px', border: 'none', borderRadius: 6, background: '#4f46e5', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: alertSaving ? 0.6 : 1 }}>
+                    {alertSaving ? '...' : '💾 حفظ'}
+                  </button>
+                  <button onClick={runAlertsNow} disabled={alertSaving}
+                    title="إرسال فوري للتجربة — يحترم فترة عدم التكرار"
+                    style={{ padding: '5px 14px', border: '1px solid #4f46e5', borderRadius: 6, background: '#fff', color: '#4f46e5', cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: alertSaving ? 0.6 : 1 }}>
+                    ▶️ إرسال الآن
+                  </button>
+                </div>
+              </div>
+
+              {alertSettings.lastRunAt && (
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+                  آخر إرسال: {new Date(alertSettings.lastRunAt).toLocaleString('ar-IQ')}
+                </div>
+              )}
+            </div>
+          )}
 
           {alertsLoading ? <Loader /> : (
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>

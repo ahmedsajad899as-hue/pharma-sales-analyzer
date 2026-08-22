@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
 
 // Normalise Arabic text for fuzzy matching
 function norm(s = '') {
@@ -378,65 +379,13 @@ export async function itemDetail(req, res, next) {
 // ── GET /api/pharmacy-analysis/alerts ─────────────────────────
 export async function getAlerts(req, res, next) {
   try {
-    const userId      = req.user.id;
-    const fileIds     = req.query.fileIds || null;
+    // الحساب في pharmacy-alerts.service.js — مشترك مع المُجدوِل الذي يرسل
+    // الإشعارات التلقائية، فلا يختلف ما يُعرض عمّا يُرسَل.
     const thresholdDays = parseInt(req.query.days || '30');
-
-    const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
-      select: {
-        quantity: true, totalValue: true, saleDate: true,
-        item:         { select: { name: true } },
-        customer:     { select: { name: true } },
-        area:         { select: { name: true } },
-        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-        rawData:  true,
-      },
+    const alerts = await computePharmacyAlerts(req.user.id, {
+      fileIds: req.query.fileIds || null,
+      thresholdDays,
     });
-
-    // For each pharmacy × item pair, keep only the LATEST order
-    // (last order qty is shown as reminder; old orders are ignored once a newer one exists)
-    const map = new Map(); // `pharma|||item` → { pharmaName, itemName, areaName, lastOrder, lastOrderQty, orderCount }
-    const seenAlerts = new Set();
-    for (const s of sales) {
-      const iName = s.item?.name || 'غير محدد';
-      let pharmaName = s.customer?.name;
-      if (!pharmaName && s.rawData) {
-        try {
-          const raw = JSON.parse(s.rawData);
-          pharmaName = raw.pharmacyName || raw.pharmacy || raw.customer || raw.Customer || raw['اسم الصيدلية'] || raw['الصيدلية'] || raw['العميل'] || null;
-        } catch {}
-      }
-      if (!pharmaName) continue;
-
-      // Deduplicate rows from overlapping uploaded files
-      const dedupKey = [norm(pharmaName), norm(iName), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue].join('|');
-      if (seenAlerts.has(dedupKey)) continue;
-      seenAlerts.add(dedupKey);
-
-      const key = `${pharmaName}|||${iName}`;
-      if (!map.has(key)) {
-        map.set(key, { pharmaName, itemName: iName, areaName: s.area?.name || '', lastOrder: s.saleDate, lastOrderQty: s.quantity, orderCount: 0 });
-      }
-      const e = map.get(key);
-      e.orderCount++;
-      // Keep track of the most recent order's date and quantity
-      if (new Date(s.saleDate) > new Date(e.lastOrder)) {
-        e.lastOrder    = s.saleDate;
-        e.lastOrderQty = s.quantity;
-      }
-    }
-
-    const now = Date.now();
-    const alerts = [...map.values()]
-      .map(e => ({
-        ...e,
-        totalQty: e.lastOrderQty,   // الكمية السابقة = qty of the latest (most recent) order
-        daysSinceLast: Math.floor((now - new Date(e.lastOrder).getTime()) / 86400000),
-      }))
-      .filter(e => e.daysSinceLast >= thresholdDays)
-      .sort((a, b) => b.daysSinceLast - a.daysSinceLast);
-
     res.json({ alerts, threshold: thresholdDays, total: alerts.length });
   } catch (e) { next(e); }
 }

@@ -61,6 +61,7 @@ model User {
   areaAssignments        UserAreaAssignment[]
   provinceAssignments    UserProvinceAssignment[]
   subProvinceAssignments UserSubProvinceAssignment[]
+  pharmacyAlertSettings  PharmacyAlertSettings?      @relation("PharmacyAlertOwner")
   managersOfUser         UserManagerAssignment[]     @relation("UserSubordinates")
   subordinatesOfUser     UserManagerAssignment[]     @relation("UserManagers")
   interactionAsActor     UserInteractionPermission[] @relation("InteractionActor")
@@ -1817,4 +1818,43 @@ model UserSubProvinceAssignment {
 
   @@id([userId, subProvinceId])
   @@map("user_sub_province_assignments")
+}
+
+// ─── إعدادات تنبيهات الصيدليات التلقائية ─────────────────────
+// صف واحد لكل مدير (مالك ملفات Pharmacy Net). يتحكم بجدولة الفحص التلقائي
+// للصيدليات التي تأخرت عن الطلب. lastRunAt يمنع تكرار الإرسال عند إعادة تشغيل
+// السيرفر — بدونه كل restart قرب موعد الإرسال كان سيُعيد إرسال نفس الدفعة.
+model PharmacyAlertSettings {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @unique
+  enabled       Boolean   @default(false)
+  frequency     String    @default("daily") // "daily" | "weekly"
+  weekday       Int       @default(0) // 0=الأحد … 6=السبت (يُستعمل مع weekly فقط)
+  hour          Int       @default(8) // ساعة الإرسال بتوقيت بغداد (0-23)
+  thresholdDays Int       @default(30) // كم يوماً بلا طلبية يُعتبر تأخراً
+  cooldownDays  Int       @default(14) // لا يُعاد التنبيه لنفس الصيدلية/الايتم قبل هذه المدة
+  notifyReps    Boolean   @default(true) // إشعار المندوب المسؤول عن منطقة الصيدلية
+  notifyManager Boolean   @default(true) // ملخّص شامل للمدير
+  lastRunAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation("PharmacyAlertOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("pharmacy_alert_settings")
+}
+
+// ─── سجل ما تم التنبيه عليه (منع التكرار) ────────────────────
+// المفتاح مطبَّع (صيدلية|ايتم) لأن الأسماء تأتي من ملفات إكسل بتهجئات مختلفة.
+model PharmacyAlertLog {
+  id          Int      @id @default(autoincrement())
+  ownerUserId Int // صاحب الملفات الذي وُلّد التنبيه من بياناته
+  recipientId Int // المستخدم الذي استلم الإشعار
+  alertKey    String // normalized: pharmacy|item
+  notifiedAt  DateTime @default(now())
+
+  @@unique([recipientId, alertKey])
+  @@index([ownerUserId])
+  @@index([notifiedAt])
+  @@map("pharmacy_alert_logs")
 }

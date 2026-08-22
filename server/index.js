@@ -21,6 +21,7 @@ import { normalizeItemKey, loadCompanyContext, resolveItemName } from './lib/ite
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
 import { seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces } from './lib/provinces.js';
+import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmacy-alerts.scheduler.js';
 import { resolveEffectiveAreaIds, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
@@ -792,6 +793,48 @@ app.delete('/api/sa/areas/:id', requireSuperAdmin, async (req, res) => {
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[area-delete]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ─── إشعارات عامة لكل المستخدمين ────────────────────────────────────────────
+// كانت الإشعارات تُقرأ من /api/commercial/notifications فقط، فلا يراها إلا
+// المندوب التجاري. هذه النسخة عامة ليصل تنبيه الصيدليات لأي مستخدم.
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+    const [items, unread] = await Promise.all([
+      prisma.appNotification.findMany({
+        where: { userId }, orderBy: { createdAt: 'desc' }, take: limit,
+        select: { id: true, type: true, title: true, body: true, isRead: true, data: true, createdAt: true },
+      }),
+      prisma.appNotification.count({ where: { userId, isRead: false } }),
+    ]);
+    res.json({ success: true, data: items, unread });
+  } catch (err) {
+    console.error('[notifications-list]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/notifications/:id/read  (id=all لتعليم الكل)
+app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    if (req.params.id === 'all') {
+      await prisma.appNotification.updateMany({ where: { userId, isRead: false }, data: { isRead: true } });
+    } else {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+      // where يشمل userId كي لا يستطيع مستخدم تعليم إشعار غيره
+      await prisma.appNotification.updateMany({ where: { id, userId }, data: { isRead: true } });
+    }
+    const unread = await prisma.appNotification.count({ where: { userId, isRead: false } });
+    res.json({ success: true, unread });
+  } catch (err) {
+    console.error('[notification-read]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -4308,6 +4351,7 @@ if (process.env.VERCEL) {
       .then(n => { if (n) console.log(`✓ تم تعيين شركة رئيسية لـ ${n} مستخدم (backfill)`); })
       .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
     // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
+    startPharmacyAlertScheduler();
     seedProvinces(prisma)
       .then(async n => {
         console.log(`✓ المحافظات جاهزة (${n})`);
