@@ -22,35 +22,21 @@ const normalizeAr = (s: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-/* Canonical raw-sales column order (matches the reference invoice-export layout):
-   رقم الفاتورة → تاريخ → المندوب → نوع السجل → العميل → الموقع → الشركة → المادة →
-   كمية → سعر الوحدة → كمية مجانية → السعر الكلي → ملاحظة → اسم المذخر → (اسم المندوب
-   العلمي وأي أعمدة أخرى غير معروفة تُصفَّط بعد ذلك). */
-const CANONICAL_COLUMN_SLOTS: ((h: string) => boolean)[] = [
-  h => /رقم\s*ال(فاتور|طلبي)/i.test(h),
-  h => /تاريخ/i.test(h),
-  h => /مندوب/i.test(h) && !/علمي/i.test(h),
-  h => /نوع.*سجل|record\s*type/i.test(h),
-  h => /صيدلي|عميل|زبون/i.test(h),
-  h => /منطق|موقع/i.test(h),
-  h => /^الشرك[ةه]$/.test(h),
-  h => /(ماد[ةه]|صنف|منتج|دواء|مستحضر|ايتم|آيتم)/i.test(h) && !/رقم\s*الماد[ةه]/i.test(h),
-  h => /^(ال)?كمي[ةه]$/i.test(h),
-  h => /سعر\s*الوحد/i.test(h),
-  h => /مجاني|بونص/i.test(h),
-  h => /السعر الكلي|المجموع الكلي|مبلغ الإجمالي/i.test(h),
-  h => /ملاحظ/i.test(h),
-  h => /مذخر|مخزن|مستودع/i.test(h),
-];
-const reorderHeaders = (headers: string[]): string[] => {
-  const used = new Set<number>();
-  const ordered: string[] = [];
-  for (const matches of CANONICAL_COLUMN_SLOTS) {
-    const idx = headers.findIndex((h, i) => !used.has(i) && matches(h));
-    if (idx >= 0) { ordered.push(headers[idx]); used.add(idx); }
-  }
-  headers.forEach((h, i) => { if (!used.has(i)) ordered.push(h); });
-  return ordered;
+/* ترتيب أعمدة التصدير = ترتيب الملف الأصلي.
+
+   كان هنا تصفيط «قانوني» بقائمة ثابتة يُعيد ترتيب الأعمدة على هواه، فيخرج
+   الملف المُصدَّر بترتيب مختلف عن الملف المرفوع ويصعب مطابقتهما. الآن يُحفظ
+   ترتيب الملف كما هو: مفاتيح rawData تُحفظ بترتيب أعمدة الإكسل الأصلي (JSON
+   يحفظ ترتيب الإدراج)، والأعمدة الجديدة من ملفات لاحقة تُلحق بعدها.
+
+   الأعمدة التي يضيفها التطبيق ولا وجود لها في الملف (نوع السجل، اسم المندوب
+   العلمي) تُلحق في النهاية، ولا تُدرج إلا إذا حملت معلومة فعلية. */
+/** يُبقي الأعمدة بترتيب ورودها ويزيل التكرار — لا إعادة تصفيط. */
+const keepSourceOrder = (headers: string[]): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of headers) { if (!seen.has(h)) { seen.add(h); out.push(h); } }
+  return out;
 };
 
 // Raw-file columns that should never appear in the export (not useful to reps/managers).
@@ -1600,7 +1586,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const typeHeader = t.reports.exportColRecordType;
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; sciHeader/typeHeader don't
       // match any canonical slot so they naturally fall after «ملاحظة» with the rest.
-      const finalHeaders = reorderHeaders([...(sciRepName ? [sciHeader] : []), typeHeader, ...headers]);
+      // «نوع السجل» عمود يضيفه التطبيق: لا يُدرج إلا إذا كان الملف يحوي إرجاعات
+      // فعلاً، وإلا كان عموداً ثابت القيمة لا فائدة منه ولا وجود له في الأصل.
+      const hasReturns = sales.some(s => s.recordType === 'return');
+      const finalHeaders = keepSourceOrder([
+        ...headers,
+        ...(sciRepName ? [sciHeader] : []),
+        ...(hasReturns ? [typeHeader] : []),
+      ]);
       return [
         finalHeaders,
         ...sales.map(s => {
@@ -1646,7 +1639,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const sciHeader  = t.reports.exportColSciRep;
     const typeHeader = t.reports.exportColRecordType;
     const baseHeaders = [t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate];
-    const finalHeaders = reorderHeaders([...(sciRepName ? [sciHeader] : []), typeHeader, ...baseHeaders]);
+    // لا rawData هنا (بيانات مُجمَّعة من التطبيق لا من ملف) — الأعمدة كلها من
+    // صنع التطبيق، فنُبقيها بترتيبها المنطقي.
+    const hasReturns = sales.some(s => s.recordType === 'return');
+    const finalHeaders = keepSourceOrder([
+      ...baseHeaders,
+      ...(sciRepName ? [sciHeader] : []),
+      ...(hasReturns ? [typeHeader] : []),
+    ]);
     return [
       finalHeaders,
       ...sales.map(s => {
@@ -2010,7 +2010,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const itemCodeKey = headers.find(isItemCodeKey);
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; unrecognised columns fall
       // after «ملاحظة» instead of appearing in their original raw-file order.
-      const finalHeaders = reorderHeaders(headers);
+      const finalHeaders = keepSourceOrder(headers);
       const dataRows = parsed.map(({ s, raw }) => {
         const isRet = s.recordType === 'return';
         const rawGet = (h: string) => {
@@ -2058,7 +2058,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     }
 
     // Fallback: no rawData
-    const header = reorderHeaders(['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ']);
+    const header = keepSourceOrder(['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ']);
     const dataRows = rows.map(s => {
       const isRet = s.recordType === 'return';
       const valuesByHeader: Record<string, any> = {
