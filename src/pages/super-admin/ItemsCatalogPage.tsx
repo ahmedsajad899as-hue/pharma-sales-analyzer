@@ -108,13 +108,14 @@ export default function ItemsCatalogPage() {
   const [impBusy, setImpBusy]       = useState(false);
   const [impResult, setImpResult]   = useState<any>(null);
   const [impFileName, setImpFileName] = useState('');
+  const [impCols, setImpCols] = useState<{ code: string; name: string; price: string | null } | null>(null);
 
   // ── أفعال الاستيراد الشامل ──
   // الملف يُحلَّل في المتصفح ثم تُرسل الصفوف JSON (نفس نمط CompaniesPage)،
   // فلا حاجة لرفع multipart. المطابقة كلها في السيرفر لأنها تحتاج قاعدة البيانات.
   const onImportFile = async (file: File) => {
     setErr(''); setImpResult(null); setImpPlan(null); setImpTotals(null);
-    setImpFileName(file.name);
+    setImpFileName(file.name); setImpCols(null);
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
@@ -123,18 +124,55 @@ export default function ItemsCatalogPage() {
 
       // الأعمدة: A = كود يحمل اسم الشركة، B = اسم الايتم، C = السعر.
       // نطابق الترويسات بمرونة لأن التسمية تختلف بين الملفات.
-      const pick = (row: any, keys: string[]) => {
-        for (const k of Object.keys(row)) {
-          const n = String(k).toLowerCase().trim();
-          if (keys.some(x => n === x || n.includes(x))) return row[k];
-        }
-        return '';
+      // خريطة الأعمدة: تمريران — تطابق تام أولاً ثم احتواء، مع منع عمود واحد
+      // من خدمة حقلين. بدون ذلك كان حقل «الايتم» يلتقط ترويسة «item code»
+      // (لأنها تحتوي كلمة item وتسبقه في الترتيب)، فيصير اسم الايتم = كود
+      // الشركة، وتنهار كل صفوف الشركة الواحدة إلى صف واحد.
+      const normHdr = (h: string) => String(h).toLowerCase().trim()
+        .replace(/\u0629/g, '\u0647').replace(/\s+/g, ' ');
+
+      const FIELD_HDRS: Record<string, { exact: string[]; contains: string[] }> = {
+        code: {
+          exact: ['item code', 'itemcode', 'code', 'كود', 'كود الايتم', 'الشركه', 'شركه',
+                  'اسم الشركه', 'company', 'company name', 'الشركة'],
+          contains: ['كود', 'code', 'شرك', 'company'],
+        },
+        name: {
+          exact: ['item', 'item name', 'itemname', 'name', 'الايتم', 'ايتم', 'اسم الايتم',
+                  'الصنف', 'اسم الصنف', 'الماده', 'اسم الماده', 'المنتج', 'الدواء'],
+          contains: ['ايتم', 'صنف', 'ماده', 'منتج', 'دواء', 'item'],
+        },
+        price: {
+          exact: ['price', 'السعر', 'سعر', 'سعر المكتب', 'office price'],
+          contains: ['price', 'سعر'],
+        },
       };
+
+      const headers = raw.length ? Object.keys(raw[0]) : [];
+      const chosen: Record<string, string | null> = { code: null, name: null, price: null };
+      const used = new Set<string>();
+
+      for (const f of ['code', 'name', 'price']) {
+        const hit = headers.find(h => !used.has(h) && FIELD_HDRS[f].exact.includes(normHdr(h)));
+        if (hit) { chosen[f] = hit; used.add(hit); }
+      }
+      for (const f of ['code', 'name', 'price']) {
+        if (chosen[f]) continue;
+        const hit = headers.find(h => !used.has(h) && FIELD_HDRS[f].contains.some(x => normHdr(h).includes(x)));
+        if (hit) { chosen[f] = hit; used.add(hit); }
+      }
+
+      if (!chosen.code || !chosen.name) {
+        setErr(`تعذّر تحديد الأعمدة. وُجد: ${headers.join(' | ')} — المطلوب عمود للشركة/الكود وعمود لاسم الايتم.`);
+        return;
+      }
+      setImpCols({ code: chosen.code, name: chosen.name, price: chosen.price });
+
       const rows = raw.map(r => ({
-        code:  String(pick(r, ['item code', 'code', 'كود'])          ?? '').trim(),
-        name:  String(pick(r, ['item', 'اسم', 'المادة', 'الصنف'])     ?? '').trim(),
-        price: pick(r, ['price', 'سعر', 'السعر']),
-      })).filter(r => r.code || r.name);
+        code:  String(r[chosen.code!] ?? '').trim(),
+        name:  String(r[chosen.name!] ?? '').trim(),
+        price: chosen.price ? r[chosen.price] : null,
+      })).filter(r => r.code && r.name);
 
       if (rows.length === 0) { setErr('لم يُعثر على صفوف صالحة — تأكد من وجود أعمدة الكود والاسم والسعر'); return; }
       setImpRows(rows);
@@ -588,6 +626,11 @@ export default function ItemsCatalogPage() {
                   {impBusy ? '⏳ جاري التحليل...' : '📂 اختيار ملف إكسل'}
                 </button>
                 {impFileName && <span style={{ fontSize: 12, color: '#64748b' }}>📄 {impFileName}</span>}
+                {impCols && (
+                  <span style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
+                    🔍 الأعمدة المكتشفة — الشركة: <b>{impCols.code}</b> · الايتم: <b>{impCols.name}</b> · السعر: <b>{impCols.price ?? '—'}</b>
+                  </span>
+                )}
                 {impTotals && (
                   <span style={{ fontSize: 12, color: '#64748b' }}>
                     {impTotals.fileRows} صف · {impTotals.companies} شركة · {impTotals.items} ايتم
@@ -624,7 +667,7 @@ export default function ItemsCatalogPage() {
                     {pendingCount > 0
                       ? <span style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>⚠️ {pendingCount} قرار بانتظارك قبل التطبيق</span>
                       : <span style={{ fontSize: 13, color: '#059669' }}>كل القرارات مكتملة</span>}
-                    <button onClick={() => { setImpPlan(null); setImpTotals(null); setImpFileName(''); }} style={{ ...btnStyle('#94a3b8', true), marginRight: 'auto' }}>إلغاء</button>
+                    <button onClick={() => { setImpPlan(null); setImpTotals(null); setImpFileName(''); setImpCols(null); }} style={{ ...btnStyle('#94a3b8', true), marginRight: 'auto' }}>إلغاء</button>
                   </div>
 
                   {impPlan.map((c, ci) => {
