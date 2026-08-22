@@ -1,14 +1,45 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
+import * as XLSX from 'xlsx';
 
 // ─── أنواع ──────────────────────────────────────────────────────────────────
-interface Company { id: number; name: string; office?: { name: string }; _count?: { items: number } }
+interface Company { id: number; name: string; officeId?: number; office?: { name: string }; _count?: { items: number } }
 interface Item    { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; warehousePrice?: number | null }
 interface Alias   { id: number; fromName: string; toName: string; toItemId: number | null; toItem?: { id: number; name: string } | null; updatedAt: string }
 interface ReviewItem { id: number; name: string; userName: string | null; salesCount: number; confidence: string; suggestions: { id: number; name: string; sim: number }[] }
 
-type Tab = 'catalog' | 'aliases' | 'review';
+type Tab = 'catalog' | 'aliases' | 'review' | 'import';
+
+// ── استيراد الكتالوج الشامل ──
+type ImpAction = 'item-link' | 'item-promote' | 'item-create' | 'item-confirm' | 'skip';
+interface ImpItem {
+  name: string; price: number | null; action: ImpAction; targetItemId: number | null;
+  matchedName: string | null; confidence: string;
+  suggestions: { id: number; name: string; sim: number }[];
+  tempCandidates: { id: number; name: string; salesCount: number }[];
+  currentPrice: number | null; priceChanged: boolean;
+}
+interface ImpCompany {
+  extractedName: string;
+  matched: { id: number; name: string } | null;
+  confidence: string;
+  suggestions: { id: number; name: string; sim: number }[];
+  itemCount: number; items: ImpItem[];
+  // قرار المدير (يُضاف في الواجهة)
+  decision?: 'use' | 'create' | 'skip';
+  decisionCompanyId?: number | null;
+  rememberAlias?: boolean;
+}
+
+// شارات إجراءات الاستيراد الشامل
+const ACT_META: Record<string, { label: string; color: string; bg: string }> = {
+  'item-link':    { label: '🔗 مربوط',        color: '#059669', bg: '#ecfdf5' },
+  'item-promote': { label: '⬆️ من الطابور',    color: '#7c3aed', bg: '#f5f3ff' },
+  'item-create':  { label: '➕ جديد',          color: '#2563eb', bg: '#eff6ff' },
+  'item-confirm': { label: '⚠️ يحتاج تأكيد',  color: '#b45309', bg: '#fffbeb' },
+  'skip':         { label: '⏭ تخطّي',          color: '#64748b', bg: '#f1f5f9' },
+};
 
 const CONF_META: Record<string, { label: string; color: string; bg: string }> = {
   alias:  { label: 'قاعدة محفوظة', color: '#059669', bg: '#ecfdf5' },
@@ -61,12 +92,132 @@ export default function ItemsCatalogPage() {
         const d = await fetch(`/api/sa/companies/${companyId}/review-queue`, { headers: H() }).then(r => r.json());
         setReview(Array.isArray(d.data) ? d.data : []);
       }
+      // تبويب 'import' لا يجلب شيئاً — الملف يشمل عدة شركات ولا يتبع المختارة
     } catch { setErr('تعذّر تحميل البيانات'); }
     setLoading(false);
   }, [companyId, tab, H]);
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { setSelectMode(false); setSelectedIds([]); }, [companyId, tab]);
+
+  // ── حالة الاستيراد الشامل ──
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [impRows, setImpRows]       = useState<{ code: string; name: string; price: any }[]>([]);
+  const [impPlan, setImpPlan]       = useState<ImpCompany[] | null>(null);
+  const [impTotals, setImpTotals]   = useState<any>(null);
+  const [impBusy, setImpBusy]       = useState(false);
+  const [impResult, setImpResult]   = useState<any>(null);
+  const [impFileName, setImpFileName] = useState('');
+
+  // ── أفعال الاستيراد الشامل ──
+  // الملف يُحلَّل في المتصفح ثم تُرسل الصفوف JSON (نفس نمط CompaniesPage)،
+  // فلا حاجة لرفع multipart. المطابقة كلها في السيرفر لأنها تحتاج قاعدة البيانات.
+  const onImportFile = async (file: File) => {
+    setErr(''); setImpResult(null); setImpPlan(null); setImpTotals(null);
+    setImpFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      // الأعمدة: A = كود يحمل اسم الشركة، B = اسم الايتم، C = السعر.
+      // نطابق الترويسات بمرونة لأن التسمية تختلف بين الملفات.
+      const pick = (row: any, keys: string[]) => {
+        for (const k of Object.keys(row)) {
+          const n = String(k).toLowerCase().trim();
+          if (keys.some(x => n === x || n.includes(x))) return row[k];
+        }
+        return '';
+      };
+      const rows = raw.map(r => ({
+        code:  String(pick(r, ['item code', 'code', 'كود'])          ?? '').trim(),
+        name:  String(pick(r, ['item', 'اسم', 'المادة', 'الصنف'])     ?? '').trim(),
+        price: pick(r, ['price', 'سعر', 'السعر']),
+      })).filter(r => r.code || r.name);
+
+      if (rows.length === 0) { setErr('لم يُعثر على صفوف صالحة — تأكد من وجود أعمدة الكود والاسم والسعر'); return; }
+      setImpRows(rows);
+      await runPreview(rows);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'تعذّرت قراءة الملف');
+    }
+  };
+
+  const runPreview = async (rows: { code: string; name: string; price: any }[]) => {
+    setImpBusy(true); setErr('');
+    try {
+      const officeId = companies.find(c => c.id === companyId)?.officeId ?? 1;
+      const r = await fetch('/api/sa/catalog-import/preview', {
+        method: 'POST', headers: H(), body: JSON.stringify({ officeId, rows }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشلت المعاينة');
+      // قرار مبدئي لكل شركة: المطابَقة بثقة عالية تُستخدم مباشرة، وغيرها تنتظر المدير
+      const plan: ImpCompany[] = (d.data.companies || []).map((c: ImpCompany) => ({
+        ...c,
+        decision: c.matched ? 'use' : undefined,
+        decisionCompanyId: c.matched?.id ?? null,
+        rememberAlias: c.confidence !== 'exact' && c.confidence !== 'alias',
+      }));
+      setImpPlan(plan);
+      setImpTotals(d.data.totals);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'فشلت المعاينة');
+    }
+    setImpBusy(false);
+  };
+
+  const setCompanyDecision = (idx: number, patch: Partial<ImpCompany>) =>
+    setImpPlan(prev => prev ? prev.map((c, i) => i === idx ? { ...c, ...patch } : c) : prev);
+
+  const setItemDecision = (ci: number, ii: number, patch: Partial<ImpItem>) =>
+    setImpPlan(prev => prev ? prev.map((c, i) => i !== ci ? c : {
+      ...c, items: c.items.map((it, j) => j === ii ? { ...it, ...patch } : it),
+    }) : prev);
+
+  // القرارات الناقصة تمنع التطبيق — هذا ما يحقق «نبّهني إذا هذا الاسم نفسه ذاك»
+  const pendingCount = (impPlan ?? []).reduce((n, c) => {
+    if (!c.decision) return n + 1;
+    if (c.decision === 'skip') return n;
+    if (c.decision === 'use' && !c.decisionCompanyId) return n + 1;
+    return n + c.items.filter(it => it.action === 'item-confirm' && !it.targetItemId).length;
+  }, 0);
+
+  const commitImport = async () => {
+    if (!impPlan) return;
+    if (!confirm('سيتم تطبيق الخطة: إنشاء الشركات والايتمات الناقصة وتحديث الأسعار. متابعة؟')) return;
+    setImpBusy(true); setErr('');
+    try {
+      const officeId = companies.find(c => c.id === companyId)?.officeId ?? 1;
+      const payload = {
+        officeId,
+        companies: impPlan.map(c => ({
+          extractedName: c.extractedName,
+          action: c.decision ?? 'skip',
+          companyId: c.decisionCompanyId ?? null,
+          newName: c.extractedName,
+          rememberAlias: !!c.rememberAlias,
+          items: c.items.map(it => ({
+            name: it.name, price: it.price,
+            action: it.action === 'item-confirm' && !it.targetItemId ? 'skip' : it.action,
+            targetItemId: it.targetItemId,
+          })),
+        })),
+      };
+      const r = await fetch('/api/sa/catalog-import/commit', {
+        method: 'POST', headers: H(), body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشل التطبيق');
+      setImpResult(d.summary);
+      setImpPlan(null);
+      await reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'فشل التطبيق');
+    }
+    setImpBusy(false);
+  };
 
   // ── أفعال الكتالوج ──
   const [itemModal, setItemModal] = useState(false);
@@ -219,6 +370,7 @@ export default function ItemsCatalogPage() {
     { id: 'catalog', label: 'الكتالوج',       count: items.length,   icon: '💊' },
     { id: 'aliases', label: 'قواعد التوحيد',  count: aliases.length, icon: '🔗' },
     { id: 'review',  label: 'طابور المراجعة', count: review.length,  icon: '🆕' },
+    { id: 'import',  label: 'استيراد شامل',   count: impPlan ? impPlan.length : 0, icon: '📥' },
   ];
 
   return (
@@ -417,6 +569,164 @@ export default function ItemsCatalogPage() {
                 );
               })}
               {filteredReview.length === 0 && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>لا توجد ايتمات بحاجة مراجعة 🎉</div>}
+            </div>
+          )}
+          {/* ── استيراد شامل من إكسل ── */}
+          {tab === 'import' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 12, padding: 14, fontSize: 13, color: '#1e3a8a', lineHeight: 1.9 }}>
+                <div style={{ fontWeight: 800, marginBottom: 6 }}>📥 استيراد شامل للشركات والايتمات</div>
+                هذا التبويب <b>لا يتبع الشركة المختارة أعلاه</b> — الملف يشمل عدة شركات ويُوزّعها بنفسه.<br />
+                الأعمدة المتوقّعة: <b>كود الايتم</b> (يُستخرج منه اسم الشركة) · <b>اسم الايتم</b> · <b>السعر</b>.
+                أعمدة المذاخر تُتجاهل. لا يُكتب شيء قبل ضغطك «تطبيق».
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input ref={importInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) onImportFile(f); e.currentTarget.value = ''; }} />
+                <button onClick={() => importInputRef.current?.click()} disabled={impBusy} style={btnStyle('#2563eb')}>
+                  {impBusy ? '⏳ جاري التحليل...' : '📂 اختيار ملف إكسل'}
+                </button>
+                {impFileName && <span style={{ fontSize: 12, color: '#64748b' }}>📄 {impFileName}</span>}
+                {impTotals && (
+                  <span style={{ fontSize: 12, color: '#64748b' }}>
+                    {impTotals.fileRows} صف · {impTotals.companies} شركة · {impTotals.items} ايتم
+                    {impTotals.skippedRows > 0 && ` · تُخطّي ${impTotals.skippedRows}`}
+                  </span>
+                )}
+              </div>
+
+              {impResult && (
+                <div style={{ border: '1px solid #86efac', background: '#f0fdf4', borderRadius: 12, padding: 14, fontSize: 13, color: '#166534', lineHeight: 2 }}>
+                  <div style={{ fontWeight: 800, marginBottom: 4 }}>✅ تم التطبيق</div>
+                  شركات جديدة: <b>{impResult.companiesCreated}</b> · شركات مطابَقة: <b>{impResult.companiesMatched}</b> ·
+                  قواعد ربط محفوظة: <b>{impResult.aliasesSaved}</b><br />
+                  ايتمات جديدة: <b>{impResult.itemsCreated}</b> · مُرقّاة من الطابور: <b>{impResult.itemsPromoted}</b> ·
+                  مربوطة: <b>{impResult.itemsLinked}</b> · أسعار محدّثة: <b>{impResult.itemsPriceUpdated}</b> ·
+                  متخطّاة: <b>{impResult.skipped}</b>
+                  {impResult.errors?.length > 0 && (
+                    <div style={{ marginTop: 8, color: '#b91c1c' }}>
+                      <b>أخطاء ({impResult.errors.length}):</b>
+                      <ul style={{ margin: '4px 0 0', paddingInlineStart: 18 }}>
+                        {impResult.errors.slice(0, 10).map((e: string, i: number) => <li key={i}>{e}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {impPlan && (
+                <>
+                  <div style={{ position: 'sticky', top: 0, zIndex: 5, background: '#fff', padding: '10px 0', borderBottom: '1px solid #e8edf5', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button onClick={commitImport} disabled={impBusy || pendingCount > 0} style={{ ...btnStyle(pendingCount > 0 ? '#94a3b8' : '#059669'), cursor: pendingCount > 0 ? 'not-allowed' : 'pointer' }}>
+                      {impBusy ? '⏳ جاري التطبيق...' : '✅ تطبيق الخطة'}
+                    </button>
+                    {pendingCount > 0
+                      ? <span style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>⚠️ {pendingCount} قرار بانتظارك قبل التطبيق</span>
+                      : <span style={{ fontSize: 13, color: '#059669' }}>كل القرارات مكتملة</span>}
+                    <button onClick={() => { setImpPlan(null); setImpTotals(null); setImpFileName(''); }} style={{ ...btnStyle('#94a3b8', true), marginRight: 'auto' }}>إلغاء</button>
+                  </div>
+
+                  {impPlan.map((c, ci) => {
+                    const needsDecision = !c.decision || (c.decision === 'use' && !c.decisionCompanyId);
+                    const cm = CONF_META[c.confidence] || CONF_META.none;
+                    return (
+                      <div key={c.extractedName + ci} style={{ border: `1px solid ${needsDecision ? '#fcd34d' : '#e8edf5'}`, background: needsDecision ? '#fffbeb' : '#fff', borderRadius: 12, padding: 14 }}>
+                        {/* ترويسة الشركة */}
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+                          <span style={{ fontWeight: 800, fontSize: 15, color: '#1e293b' }}>🏢 {c.extractedName}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: cm.color, background: cm.bg, padding: '2px 10px', borderRadius: 20 }}>{cm.label}</span>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{c.itemCount} ايتم</span>
+
+                          <select
+                            value={c.decision === 'create' ? '__new__' : c.decision === 'skip' ? '__skip__' : (c.decisionCompanyId ?? '')}
+                            onChange={e => {
+                              const v = e.target.value;
+                              if (v === '__new__')       setCompanyDecision(ci, { decision: 'create', decisionCompanyId: null });
+                              else if (v === '__skip__') setCompanyDecision(ci, { decision: 'skip',   decisionCompanyId: null });
+                              else if (v === '')         setCompanyDecision(ci, { decision: undefined, decisionCompanyId: null });
+                              else                       setCompanyDecision(ci, { decision: 'use', decisionCompanyId: parseInt(v) });
+                            }}
+                            style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 12, minWidth: 200 }}
+                          >
+                            <option value="">— اختر الوجهة —</option>
+                            <option value="__new__">➕ إنشاء شركة جديدة باسم «{c.extractedName}»</option>
+                            <option value="__skip__">⏭ تخطّي هذه الشركة وايتماتها</option>
+                            {companies.map(co => <option key={co.id} value={co.id}>🏢 {co.name}</option>)}
+                          </select>
+
+                          {c.decision === 'use' && c.decisionCompanyId && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', cursor: 'pointer' }}
+                              title="يحفظ أن هذا الاسم في الملف يعني هذه الشركة، فتُطابَق تلقائياً في كل رفع لاحق">
+                              <input type="checkbox" checked={!!c.rememberAlias} onChange={e => setCompanyDecision(ci, { rememberAlias: e.target.checked })} />
+                              تذكّر هذا الربط
+                            </label>
+                          )}
+                        </div>
+
+                        {/* ايتمات الشركة */}
+                        {c.decision !== 'skip' && (
+                          <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #eef2f7', borderRadius: 8 }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                              <thead>
+                                <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                                  <th style={{ padding: 8, textAlign: 'right' }}>الايتم</th>
+                                  <th style={{ padding: 8, textAlign: 'right', width: 150 }}>الإجراء</th>
+                                  <th style={{ padding: 8, textAlign: 'right', width: 130 }}>السعر</th>
+                                  <th style={{ padding: 8, textAlign: 'right', width: 220 }}>المطابقة</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {c.items.map((it, ii) => {
+                                  const am = ACT_META[it.action] || ACT_META['item-create'];
+                                  const unresolved = it.action === 'item-confirm' && !it.targetItemId;
+                                  return (
+                                    <tr key={it.name + ii} style={{ borderTop: '1px solid #f1f5f9', background: unresolved ? '#fffbeb' : '#fff' }}>
+                                      <td style={{ padding: 8, fontWeight: 600, color: '#1e293b' }}>{it.name}</td>
+                                      <td style={{ padding: 8 }}>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: am.color, background: am.bg, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>{am.label}</span>
+                                      </td>
+                                      <td style={{ padding: 8, color: '#475569', whiteSpace: 'nowrap' }}>
+                                        {it.price == null ? '—' : it.price.toLocaleString('ar-IQ')}
+                                        {it.priceChanged && it.currentPrice != null && (
+                                          <span style={{ color: '#b45309', fontSize: 10 }}> (كان {it.currentPrice.toLocaleString('ar-IQ')})</span>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: 8 }}>
+                                        {it.action === 'item-confirm' ? (
+                                          <select
+                                            value={it.targetItemId ?? ''}
+                                            onChange={e => setItemDecision(ci, ii, {
+                                              targetItemId: e.target.value === '__new__' ? null : parseInt(e.target.value),
+                                              action: e.target.value === '__new__' ? 'item-create' : 'item-confirm',
+                                            })}
+                                            style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${unresolved ? '#f59e0b' : '#e2e8f0'}`, fontSize: 11, width: '100%' }}
+                                          >
+                                            <option value="">— اختر المطابق —</option>
+                                            {it.suggestions.map(s => <option key={s.id} value={s.id}>🔗 {s.name} ({Math.round(s.sim * 100)}%)</option>)}
+                                            <option value="__new__">➕ إنشاؤه كايتم جديد</option>
+                                          </select>
+                                        ) : it.matchedName ? (
+                                          <span style={{ color: '#64748b' }}>🔗 {it.matchedName}</span>
+                                        ) : it.action === 'item-promote' ? (
+                                          <span style={{ color: '#7c3aed' }}>
+                                            من الطابور
+                                            {it.tempCandidates[0]?.salesCount ? ` · ${it.tempCandidates[0].salesCount} مبيعة` : ''}
+                                          </span>
+                                        ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </div>
           )}
         </>

@@ -940,7 +940,9 @@ model ScientificOffice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  companies           ScientificCompany[]
+  companies ScientificCompany[]
+
+  companyAliases      CompanyAlias[]
   users               User[]
   areas               Area[]                     @relation("OfficeAreas")
   surveyHiddenOffices MasterSurveyHiddenOffice[] @relation("SurveyHiddenOffice")
@@ -963,6 +965,7 @@ model ScientificCompany {
   lines                  ProductLine[]
   userCompanyAssignments UserCompanyAssignment[]
   itemAliases            ItemMergeRule[]         @relation("CompanyAliases")
+  nameAliases            CompanyAlias[]
 
   @@unique([name, officeId])
   @@index([officeId])
@@ -1844,4 +1847,26 @@ model PharmacyAlertLog {
   @@index([ownerUserId])
   @@index([notifiedAt])
   @@map("pharmacy_alert_logs")
+}
+
+// ─── ذاكرة قرارات مطابقة الشركات (استيراد الكتالوج من إكسل) ──
+// ملفات الإكسل تكتب اسم الشركة بصيغة مختلفة عمّا في النظام، وبعض الفروق لا
+// تُطابَق بأي خوارزمية (ALBALSAM مقابل «البلسم» — لاتيني مقابل عربي). يربطها
+// المدير مرة واحدة في شاشة الاستيراد، فتُحفظ هنا وتُطابَق تلقائياً لاحقاً.
+// نظير ItemMergeRule لكن للشركات: مفتاح ذاك [scientificCompanyId, fromKey]
+// ولا يصلح لتعيين شركة ← شركة.
+model CompanyAlias {
+  id        Int      @id @default(autoincrement())
+  officeId  Int
+  fromKey   String // normalizeItemKey لاسم الشركة كما ورد في الملف
+  fromName  String // الاسم الخام للعرض
+  companyId Int
+  createdAt DateTime @default(now())
+
+  office  ScientificOffice  @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  company ScientificCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([officeId, fromKey])
+  @@index([companyId])
+  @@map("company_aliases")
 }

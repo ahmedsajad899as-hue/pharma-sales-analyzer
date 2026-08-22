@@ -43,6 +43,7 @@ import superAdminRoutes         from './modules/super-admin/super-admin.routes.j
 import surveyAdminRoutes        from './modules/super-admin/survey-admin.routes.js';
 import officesRoutes            from './modules/offices/offices.routes.js';
 import companiesRoutes          from './modules/companies/companies.routes.js';
+import catalogImportRoutes      from './modules/companies/catalog-import.routes.js';
 import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
@@ -145,6 +146,7 @@ app.use('/api/super-admin',         superAdminRoutes);
 app.use('/api/super-admin/surveys', surveyAdminRoutes);
 app.use('/api/sa/offices',        officesRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
+app.use('/api/sa/catalog-import', catalogImportRoutes);
 app.use('/api/sa/users',          adminUsersRoutes);
 
 // ── SA reference lookups (items + areas for user assignments) ─
