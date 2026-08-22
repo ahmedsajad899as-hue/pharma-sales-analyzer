@@ -107,6 +107,7 @@ model User {
   // reports always, and from the overall analysis for transferred-file recipients)
   blockedCommercialReps BlockedCommercialRep[]
   blockedAreas          BlockedArea[]
+  blockedPharmacies     BlockedPharmacy[]
   blockedItems          BlockedItem[]
 
   @@index([officeId])
@@ -633,6 +634,22 @@ model BlockedItem {
 
   @@unique([userId, name])
   @@map("blocked_items")
+}
+
+// Globally-blocked pharmacies (customers): same as BlockedArea/BlockedItem but
+// keyed on the customer/pharmacy name. Sales and returns of a blocked pharmacy
+// are hidden from every scientific-rep report and from the overall analysis of
+// users a file was transferred to.
+model BlockedPharmacy {
+  id        Int      @id @default(autoincrement())
+  name      String
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("blocked_pharmacies")
 }
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────

@@ -42,11 +42,12 @@ type AreaViewMode = 'flat' | 'byRep';
 interface CommercialWithAreas { id: number; name: string; areas: NamedItem[]; }
 
 // ─── Global block panel — kinds a manager can hide from scientific-rep reports ──
-type BlockKind = 'commercial' | 'area' | 'item';
+type BlockKind = 'commercial' | 'area' | 'item' | 'pharmacy';
 const BLOCK_KIND_CONFIG: Record<BlockKind, { label: string; icon: string; placeholder: string; endpoint: string }> = {
   commercial: { label: 'مندوب تجاري', icon: '👤', placeholder: 'اكتب اسم مندوب تجاري…', endpoint: 'blocked-commercials' },
   area:       { label: 'منطقة',       icon: '📍', placeholder: 'اكتب اسم منطقة…',        endpoint: 'blocked/area' },
   item:       { label: 'آيتم',        icon: '💊', placeholder: 'اكتب اسم آيتم…',          endpoint: 'blocked/item' },
+  pharmacy:   { label: 'صيدلية',      icon: '🏥', placeholder: 'اكتب اسم صيدلية…',        endpoint: 'blocked/pharmacy' },
 };
 
 export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
@@ -103,11 +104,11 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   // analysis). Collapsed behind a small icon by default.
   const [blockPanelOpen, setBlockPanelOpen] = useState(false);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
-  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string }[]>>({ commercial: [], area: [], item: [] });
+  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string }[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
   const [blockInput, setBlockInput]         = useState('');
   const [blockSaving, setBlockSaving]       = useState(false);
   const [blockError, setBlockError]         = useState('');
-  const [blockSuggestSources, setBlockSuggestSources] = useState<Record<BlockKind, string[]>>({ commercial: [], area: [], item: [] });
+  const [blockSuggestSources, setBlockSuggestSources] = useState<Record<BlockKind, string[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
   const [showBlockSuggest, setShowBlockSuggest] = useState(false);
   const blockSuggestRef                     = useRef<HTMLDivElement>(null);
   // ─── Load ──────────────────────────────────────────────────
@@ -138,24 +139,30 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         const j = await r.json().catch(() => ({}));
         return r.ok && Array.isArray(j.data) ? j.data : [];
       };
-      const [bComm, bArea, bItem, cRes, aRes, iRes] = await Promise.all([
+      const [bComm, bArea, bItem, bPharm, cRes, aRes, iRes, pRes] = await Promise.all([
         fetch(`${API}/api/scientific-reps/blocked-commercials`, { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/area`,        { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/item`,        { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/pharmacy`,    { headers: authH() }),
         fetch(`${API}/api/representatives`,                     { headers: authH() }),
         fetch(`${API}/api/areas`,                                { headers: authH() }),
         fetch(`${API}/api/items`,                                { headers: authH() }),
+        fetch(`${API}/api/customers`,                            { headers: authH() }),
       ]);
-      const [commList, areaBlockList, itemBlockList] = await Promise.all([parseList(bComm), parseList(bArea), parseList(bItem)]);
-      setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList });
+      const [commList, areaBlockList, itemBlockList, pharmBlockList] = await Promise.all([
+        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm),
+      ]);
+      setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList, pharmacy: pharmBlockList });
 
       const namesOf = async (r: Response) => {
         const j = await r.json().catch(() => ({}));
         const list = Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
         return [...new Set(list.map((x: any) => x.name).filter(Boolean))] as string[];
       };
-      const [commNames, areaNames, itemNames] = await Promise.all([namesOf(cRes), namesOf(aRes), namesOf(iRes)]);
-      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames });
+      const [commNames, areaNames, itemNames, pharmNames] = await Promise.all([
+        namesOf(cRes), namesOf(aRes), namesOf(iRes), namesOf(pRes),
+      ]);
+      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames, pharmacy: pharmNames });
     } catch { /* non-fatal */ }
   }, [token]);
   useEffect(() => { loadBlocked(); }, [loadBlocked]);

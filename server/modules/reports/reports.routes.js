@@ -64,10 +64,11 @@ router.get('/overall', async (req, res) => {
 
         const ownerIds = [...new Set(sharedFiles.map(f => f.userId).filter(Boolean))];
         if (ownerIds.length > 0) {
-          const [blockedRepRows, blockedAreaRows, blockedItemRows] = await Promise.all([
+          const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
             prisma.blockedCommercialRep.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
             prisma.blockedArea.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
             prisma.blockedItem.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+            prisma.blockedPharmacy.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
           ]);
 
           const blockedRepNorms = new Set(blockedRepRows.map(b => normalizeArabic(b.name)).filter(Boolean));
@@ -89,6 +90,15 @@ router.get('/overall', async (req, res) => {
             const allItemsForBlock = await prisma.item.findMany({ select: { id: true, name: true } });
             const blockedItemIds = allItemsForBlock.filter(i => blockedItemNorms.has(normalizeArabic(i.name))).map(i => i.id);
             if (blockedItemIds.length > 0) blockFilterConditions.push({ NOT: { itemId: { in: blockedItemIds } } });
+          }
+
+          // الصيدلية = Customer على صف المبيعة (مطابقة بالاسم المطبَّع لأن نفس
+          // الصيدلية تتكرر كصفوف Customer متعددة عبر الملفات).
+          const blockedPharmNorms = new Set(blockedPharmRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+          if (blockedPharmNorms.size > 0) {
+            const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
+            const blockedCustomerIds = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
+            if (blockedCustomerIds.length > 0) blockFilterConditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
           }
         }
       }

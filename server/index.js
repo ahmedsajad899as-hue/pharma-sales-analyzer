@@ -1041,6 +1041,32 @@ app.get('/api/areas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/customers — أسماء الصيدليات/الزبائن لاقتراحات الإكمال التلقائي
+// (تُستعمل في لوحة الحجب). مقيّدة بملفات المستخدم كي لا تتسرّب أسماء حسابات أخرى.
+app.get('/api/customers', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const rows = await prisma.customer.findMany({
+      where:  userId ? { OR: [{ userId }, { sales: { some: { userId } } }] } : {},
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+      take: 3000,
+    });
+    // نفس الصيدلية تتكرر كصفوف Customer متعددة عبر الملفات — نوحّدها بالاسم
+    const seen = new Set();
+    const data = [];
+    for (const c of rows) {
+      const k = normalizeArabic(c.name || '');
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      data.push({ id: c.id, name: c.name });
+    }
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[customers-list]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.post('/api/areas', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;

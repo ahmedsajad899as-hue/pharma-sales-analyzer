@@ -468,6 +468,7 @@ export async function removeBlockedCommercial(userId, blockId) {
 const BLOCK_MODELS = {
   area: prisma.blockedArea,
   item: prisma.blockedItem,
+  pharmacy: prisma.blockedPharmacy,
 };
 
 function blockModel(kind) {
@@ -584,6 +585,7 @@ async function resolveSciRepSales(id, query = {}, select) {
   // Arabic name so spelling/id variants across uploads all collapse.
   let blockedAreaIds = [];
   let blockedItemIds = [];
+  let blockedCustomerIds = [];
   if (fileIds && fileIds.length > 0) {
     const fileOwners = await prisma.uploadedFile.findMany({
       where: { id: { in: fileIds } },
@@ -591,10 +593,11 @@ async function resolveSciRepSales(id, query = {}, select) {
     });
     const ownerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
     if (ownerIds.length > 0) {
-      const [blockedRepRows, blockedAreaRows, blockedItemRows] = await Promise.all([
+      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
         prisma.blockedCommercialRep.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
         prisma.blockedArea.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
         prisma.blockedItem.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+        prisma.blockedPharmacy.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
       ]);
 
       const blockedNorms = new Set(blockedRepRows.map(b => _normalizeAr(b.name)).filter(Boolean));
@@ -619,6 +622,14 @@ async function resolveSciRepSales(id, query = {}, select) {
       if (blockedItemNorms.size > 0) {
         const allItemsForBlock = await prisma.item.findMany({ select: { id: true, name: true } });
         blockedItemIds = allItemsForBlock.filter(i => blockedItemNorms.has(normalizeArabic(i.name))).map(i => i.id);
+      }
+
+      // الصيدلية = Customer على صف المبيعة. نطابق بالاسم المطبَّع لأن نفس
+      // الصيدلية تتكرر كصفوف Customer متعددة عبر الملفات والحسابات.
+      const blockedPharmNorms = new Set(blockedPharmRows.map(b => normalizeArabic(b.name)).filter(Boolean));
+      if (blockedPharmNorms.size > 0) {
+        const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
+        blockedCustomerIds = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
       }
     }
   }
@@ -720,6 +731,7 @@ async function resolveSciRepSales(id, query = {}, select) {
     // of which commercial rep the sale/return belongs to.
     if (blockedAreaIds.length) conditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
     if (blockedItemIds.length) conditions.push({ NOT: { itemId: { in: blockedItemIds } } });
+    if (blockedCustomerIds.length) conditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 
