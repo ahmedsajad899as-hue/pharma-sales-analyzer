@@ -10,6 +10,7 @@ import { COLUMN_ALIASES } from '../sales/sales.service.js';
 import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
+import { buildItemScopeFilter } from '../../lib/itemScope.js';
 
 const router = Router();
 
@@ -37,6 +38,9 @@ router.get('/overall', async (req, res) => {
     // ── Area filter: when the current user is viewing a file shared WITH them
     //    (not owned by them), restrict results to their assigned areas only ──
     let areaFilter = {};
+    // نطاق ايتمات المستخدم (تبويب «الايتمات»): إن حُدِّدت ايتمات فالمبيع
+    // والإرجاع يُحسبان عليها فقط. فارغة = بلا تقييد.
+    const itemScopeFilter = await buildItemScopeFilter(userId);
     // ── Block filter: names the file owner (manager) has globally blocked
     //    (BlockedArea/BlockedItem/BlockedCommercialRep) must stay hidden from
     //    anyone the file is transferred to — same lists used by the
@@ -145,6 +149,7 @@ router.get('/overall', async (req, res) => {
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
+      ...itemScopeFilter,
       ...(blockFilterConditions.length > 0 ? { AND: blockFilterConditions } : {}),
       // No explicit dates → per-file garbage exclusion; otherwise the explicit range.
       ...(noDateFileFilter

@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
+import { buildItemScopeFilter } from '../../lib/itemScope.js';
 
 // Normalise Arabic text for fuzzy matching
 function norm(s = '') {
@@ -35,11 +36,12 @@ function toIQD(value, uploadedFile) {
 export async function listPharmacies(req, res, next) {
   try {
     const userId  = req.user.id;
+    const itemScope = await buildItemScopeFilter(userId);
     const fileIds = req.query.fileIds || null;
     const search  = req.query.search ? norm(req.query.search) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
+      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         id: true,
         quantity: true,
@@ -155,12 +157,14 @@ export async function listPharmacies(req, res, next) {
 export async function pharmacyDetail(req, res, next) {
   try {
     const userId      = req.user.id;
+    // ايتمات المستخدم المعيّنة (فارغة = الكل) — تُقيّد المبيع والإرجاع المعروضين
+    const itemScope   = await buildItemScopeFilter(userId);
     const pharmaQuery = norm(req.params.name);
     const fileIds     = req.query.fileIds || null;
     const itemFilter  = req.query.item ? norm(req.query.item) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
+      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
         customer:     { select: { id: true, name: true } },
@@ -239,11 +243,12 @@ export async function pharmacyDetail(req, res, next) {
 export async function listItems(req, res, next) {
   try {
     const userId  = req.user.id;
+    const itemScope = await buildItemScopeFilter(userId);
     const fileIds = req.query.fileIds || null;
     const search  = req.query.search ? norm(req.query.search) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
+      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         quantity: true, totalValue: true, saleDate: true,
         item:         { select: { id: true, name: true } },
@@ -310,9 +315,10 @@ export async function itemDetail(req, res, next) {
     const userId     = req.user.id;
     const itemQuery  = norm(req.params.name);
     const fileIds    = req.query.fileIds || null;
+    const itemScope  = await buildItemScopeFilter(userId);
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds) },
+      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
         item:           { select: { id: true, name: true } },

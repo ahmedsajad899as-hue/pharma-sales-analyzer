@@ -7,6 +7,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
+import { buildItemScopeFilter } from '../../lib/itemScope.js';
 
 /** تطبيع عربي للمطابقة الضبابية (نفس قواعد بقية الموديول). */
 export function norm(s = '') {
@@ -45,8 +46,12 @@ function buildFileFilter(fileIds) {
 export async function computePharmacyAlerts(userId, opts = {}) {
   const { fileIds = null, thresholdDays = 30 } = opts;
 
+  // ايتمات المستخدم المعيّنة تُقيّد التنبيهات أيضاً — وإلا نبّهنا على ايتمات
+  // لا يعمل عليها أصلاً.
+  const itemScope = await buildItemScopeFilter(userId);
+
   const sales = await prisma.sale.findMany({
-    where: { ...(userId ? { userId } : {}), ...buildFileFilter(fileIds) },
+    where: { ...(userId ? { userId } : {}), ...buildFileFilter(fileIds), ...itemScope },
     select: {
       quantity: true, totalValue: true, saleDate: true,
       item:     { select: { name: true } },

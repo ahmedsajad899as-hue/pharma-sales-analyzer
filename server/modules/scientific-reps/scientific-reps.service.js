@@ -3,6 +3,7 @@ import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesFor
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces } from '../../lib/areaScope.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -676,6 +677,21 @@ async function resolveSciRepSales(id, query = {}, select) {
       select: { id: true },
     });
     itemIds = [...new Set([...directItemIds, ...allMatchingItems.map(i => i.id)])];
+  }
+
+  // قائمة ايتمات المستخدم المرتبط بالمندوب (تبويب «الايتمات» في صفحة المستخدم).
+  // تُقاطَع مع ScientificRepItem لا تُضاف إليها: التبويب يَعِد بأن المستخدم يعمل
+  // على المعيَّن له «فقط»، فهي تضييق لا توسيع. وإن كان أحدهما فارغاً يحكم الآخر
+  // وحده، وإن كانا فارغين فلا تقييد على الايتمات إطلاقاً.
+  if (repUsers.length) {
+    const perUserIds = await Promise.all(repUsers.map(u => resolveEffectiveItemIds(u.id)));
+    const union = perUserIds.some(x => x === null)
+      ? null
+      : [...new Set(perUserIds.flat())];
+    if (union) {
+      const allowed = new Set(union);
+      itemIds = itemIds ? itemIds.filter(id => allowed.has(id)) : union;
+    }
   }
 
   const hasAreas = areaIds && areaIds.length > 0;

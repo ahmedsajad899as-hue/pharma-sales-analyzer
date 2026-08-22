@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 
@@ -105,8 +106,10 @@ export async function listItems(req, res, next) {
     const fileIds = req.query.fileIds || null;
 
     // Use items that actually appear in user's sales (limited by file selection)
+    // مقيّدة أيضاً بايتمات المستخدم المعيّنة (فارغة = الكل)
+    const itemScope = await buildItemScopeFilter(userId);
     const sales = await prisma.sale.findMany({
-      where: { userId, ...buildFileFilter(fileIds) },
+      where: { userId, ...buildFileFilter(fileIds), ...itemScope },
       select: { itemId: true },
       distinct: ['itemId'],
     });
@@ -303,7 +306,9 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 2. Sales (filtered by uploadedFileId + userId + itemId) ──
-    const salesWhere = { userId, itemId, ...buildFileFilter(fileIds) };
+    const itemScope = await buildItemScopeFilter(userId);
+    // itemId مطلوب أصلاً؛ نطاق المستخدم يمنع تحليل ايتم غير معيَّن له
+    const salesWhere = { userId, itemId, ...buildFileFilter(fileIds), ...itemScope };
     if (sciRep) {
       // Scientific rep: filter sales by their assigned areas
       if (sciRep.areaIds.length > 0) {
