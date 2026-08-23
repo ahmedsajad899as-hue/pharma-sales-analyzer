@@ -513,6 +513,61 @@ export async function removeBlockedEntity(kind, userId, blockId) {
  * Arabic-normalized area matching), which made its totals come out lower
  * than the report's.
  */
+/**
+ * نطاق ايتمات مندوب علمي — مصدر واحد يخدم تقرير المبيعات وصفحة التارگت.
+ *
+ * كان التارگت يقرأ ScientificRepItem وحده، فإن كان فارغاً يعرض كل ايتمات
+ * المكتب — بينما التقرير يحسب على ايتمات المستخدم المعيّنة. فتظهر أهداف
+ * لايتمات لا تُحتسب مبيعاتها أصلاً ويبقى إنجازها صفراً أبداً.
+ *
+ * القاعدة: ScientificRepItem ∩ ايتمات المستخدم المرتبط. أيّهما فارغ يحكم
+ * الآخر وحده، وإن كانا فارغين فلا تقييد (null = كل الايتمات).
+ *
+ * @returns {Promise<number[]|null>} null = بلا تقييد
+ */
+export async function resolveSciRepItemIds(id, repUsersArg = null) {
+  const repUsers = repUsersArg ?? await prisma.user.findMany({
+    where: { linkedRepId: id }, select: { id: true },
+  });
+
+  const itemLinks = await prisma.scientificRepItem.findMany({
+    where: { scientificRepId: id },
+    select: { itemId: true, item: { select: { id: true, name: true } } },
+  });
+  let itemIds = null;
+  if (itemLinks.length) {
+    // Always keep the directly-linked item IDs; also expand by name.
+    const directItemIds = itemLinks.map(l => l.itemId);
+    const itemNames = itemLinks.map(l => l.item.name);
+    const allMatchingItems = await prisma.item.findMany({
+      where: { name: { in: itemNames } },
+      select: { id: true },
+    });
+    itemIds = [...new Set([...directItemIds, ...allMatchingItems.map(i => i.id)])];
+  }
+
+  if (repUsers.length) {
+    const perUserIds = await Promise.all(repUsers.map(u => resolveEffectiveItemIds(u.id)));
+    const union = perUserIds.some(x => x === null) ? null : [...new Set(perUserIds.flat())];
+    if (union) {
+      const allowed = new Set(union);
+      itemIds = itemIds ? itemIds.filter(id => allowed.has(id)) : union;
+    }
+  }
+  return itemIds;
+}
+/**
+ * سجلات الايتمات ضمن نطاق المندوب — لصفحة التارگت الشهري.
+ * الايتمات المؤقتة مستبعدة: ليست ايتمات كتالوج ولا يُوضع لها هدف.
+ */
+export async function getSciRepEffectiveItems(id) {
+  const itemIds = await resolveSciRepItemIds(id);
+  const where = itemIds ? { id: { in: itemIds }, isTemp: false } : { isTemp: false };
+  const items = await prisma.item.findMany({
+    where, select: { id: true, name: true }, orderBy: { name: 'asc' },
+  });
+  return { items, restricted: itemIds !== null };
+}
 async function resolveSciRepSales(id, query = {}, select) {
   const rep = await assertExists(id);
 
@@ -674,36 +729,7 @@ async function resolveSciRepSales(id, query = {}, select) {
     areaIds = [...new Set([...directAreaIds, ...matchingIds])];
   }
 
-  const itemLinks = await prisma.scientificRepItem.findMany({
-    where: { scientificRepId: id },
-    select: { itemId: true, item: { select: { id: true, name: true } } },
-  });
-  let itemIds = null;
-  if (itemLinks.length) {
-    // Always keep the directly-linked item IDs; also expand by name.
-    const directItemIds = itemLinks.map(l => l.itemId);
-    const itemNames = itemLinks.map(l => l.item.name);
-    const allMatchingItems = await prisma.item.findMany({
-      where: { name: { in: itemNames } },
-      select: { id: true },
-    });
-    itemIds = [...new Set([...directItemIds, ...allMatchingItems.map(i => i.id)])];
-  }
-
-  // قائمة ايتمات المستخدم المرتبط بالمندوب (تبويب «الايتمات» في صفحة المستخدم).
-  // تُقاطَع مع ScientificRepItem لا تُضاف إليها: التبويب يَعِد بأن المستخدم يعمل
-  // على المعيَّن له «فقط»، فهي تضييق لا توسيع. وإن كان أحدهما فارغاً يحكم الآخر
-  // وحده، وإن كانا فارغين فلا تقييد على الايتمات إطلاقاً.
-  if (repUsers.length) {
-    const perUserIds = await Promise.all(repUsers.map(u => resolveEffectiveItemIds(u.id)));
-    const union = perUserIds.some(x => x === null)
-      ? null
-      : [...new Set(perUserIds.flat())];
-    if (union) {
-      const allowed = new Set(union);
-      itemIds = itemIds ? itemIds.filter(id => allowed.has(id)) : union;
-    }
-  }
+  const itemIds = await resolveSciRepItemIds(id, repUsers);
 
   const hasAreas = areaIds && areaIds.length > 0;
   const hasItems = itemIds && itemIds.length > 0;

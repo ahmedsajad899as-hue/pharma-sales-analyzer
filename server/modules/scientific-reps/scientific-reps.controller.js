@@ -177,6 +177,15 @@ export async function removeBlockedEntity(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── ايتمات المندوب الفعلية (تُستعمل في التارگت الشهري) ─────────────────────
+export async function getEffectiveItems(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const { items, restricted } = await svc.getSciRepEffectiveItems(id);
+    res.json({ success: true, data: items, restricted });
+  } catch (err) { next(err); }
+}
 export async function getRepReport(req, res, next) {
   try {
     const id = +req.params.id;

@@ -17,6 +17,7 @@ router.get('/blocked-commercials',        ctrl.listBlockedCommercials);
 router.post('/blocked-commercials',       ctrl.addBlockedCommercial);
 router.delete('/blocked-commercials/:blockId', ctrl.removeBlockedCommercial);
 
+router.get('/:id/effective-items',  ctrl.getEffectiveItems);
 router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item
 router.post('/blocked/:kind',       ctrl.addBlockedEntity);
 router.delete('/blocked/:kind/:blockId', ctrl.removeBlockedEntity);

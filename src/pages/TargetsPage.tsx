@@ -119,11 +119,22 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       // Get items for this rep
       let items: NamedItem[] = [];
       if (repType === 'scientific') {
-        const rep = sciReps.find(r => r.id === parseInt(selRepId));
-        items = rep?.items ?? [];
-        // If no items explicitly assigned, treat all items as assigned automatically
+        // نطاق ايتمات المندوب من السيرفر — نفس الدالة التي يحسب بها تقرير
+        // مبيعاته (ScientificRepItem ∩ ايتمات المستخدم المعيّنة). كانت الصفحة
+        // تقرأ ScientificRepItem وحده، وهو فارغ لأغلب المناديب لأن تعيين
+        // الايتمات يتم من تبويب «الايتمات» في صفحة المستخدم (UserItemAssignment)،
+        // فتسقط إلى «كل ايتمات المكتب» وتُظهر أهدافاً لايتمات لا تُحتسب مبيعاتها.
+        try {
+          const r = await fetch(`${API}/api/scientific-reps/${selRepId}/effective-items`, { headers: H() });
+          const j = await r.json();
+          items = Array.isArray(j.data) ? j.data : [];
+        } catch {
+          items = [];
+        }
         if (items.length === 0) {
-          items = allItems.filter(i => !i.name.includes('(مؤقت)'));
+          // تعذّر الجلب أو لا ايتمات ضمن نطاقه — نرجع للسلوك القديم بدل جدول فارغ
+          const rep = sciReps.find(r => r.id === parseInt(selRepId));
+          items = rep?.items ?? allItems.filter(i => !i.name.includes('(مؤقت)'));
         }
       } else {
         // For commercial: use all items
