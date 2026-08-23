@@ -180,7 +180,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     setBlockingEnabled(next); // optimistic
     try {
       const r = await fetch(`${API}/api/scientific-reps/blocking-enabled`, {
-        method: 'PATCH', headers: authH(), body: JSON.stringify({ enabled: next }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
       });
       if (!r.ok) throw new Error('فشل');
     } catch { setBlockingEnabled(!next); }
