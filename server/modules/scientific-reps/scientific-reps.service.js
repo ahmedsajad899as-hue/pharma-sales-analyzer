@@ -461,6 +461,19 @@ export async function removeBlockedCommercial(userId, blockId) {
   return { ok: true };
 }
 
+// ─── Master on/off switch for a manager's whole block feature ─────────────────
+// When disabled, the block lists are kept but not applied (every consumer filters
+// blocked rows only for owners whose `blockingEnabled` is true).
+export async function getBlockingEnabled(userId) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { blockingEnabled: true } });
+  return u?.blockingEnabled ?? true;
+}
+
+export async function setBlockingEnabled(userId, enabled) {
+  await prisma.user.update({ where: { id: userId }, data: { blockingEnabled: !!enabled } });
+  return { enabled: !!enabled };
+}
+
 // ─── Globally-blocked areas / items ───────────────────────────
 // Same idea as blocked commercial reps, but for whole areas or items: any sale/
 // return in a blocked area (or of a blocked item) is hidden from every
@@ -523,7 +536,7 @@ export async function removeBlockedEntity(kind, userId, blockId) {
  * القاعدة: ScientificRepItem ∩ ايتمات المستخدم المرتبط. أيّهما فارغ يحكم
  * الآخر وحده، وإن كانا فارغين فلا تقييد (null = كل الايتمات).
  *
- * @returns {Promise<number[]|null>} null = بلا تقييد
+ * @returns {Promise<{ itemIds: number[]|null, itemLinks: Array }>} itemIds=null → بلا تقييد
  */
 export async function resolveSciRepItemIds(id, repUsersArg = null) {
   const repUsers = repUsersArg ?? await prisma.user.findMany({
@@ -554,14 +567,14 @@ export async function resolveSciRepItemIds(id, repUsersArg = null) {
       itemIds = itemIds ? itemIds.filter(id => allowed.has(id)) : union;
     }
   }
-  return itemIds;
+  return { itemIds, itemLinks };
 }
 /**
  * سجلات الايتمات ضمن نطاق المندوب — لصفحة التارگت الشهري.
  * الايتمات المؤقتة مستبعدة: ليست ايتمات كتالوج ولا يُوضع لها هدف.
  */
 export async function getSciRepEffectiveItems(id) {
-  const itemIds = await resolveSciRepItemIds(id);
+  const { itemIds } = await resolveSciRepItemIds(id);
   const where = itemIds ? { id: { in: itemIds }, isTemp: false } : { isTemp: false };
   const items = await prisma.item.findMany({
     where, select: { id: true, name: true }, orderBy: { name: 'asc' },
@@ -648,11 +661,13 @@ async function resolveSciRepSales(id, query = {}, select) {
     });
     const ownerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
     if (ownerIds.length > 0) {
+      // Only apply block lists of owners who have blocking ENABLED (master switch).
+      const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true } };
       const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
-        prisma.blockedCommercialRep.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
-        prisma.blockedArea.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
-        prisma.blockedItem.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
-        prisma.blockedPharmacy.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+        prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
+        prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
+        prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
+        prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
       ]);
 
       const blockedNorms = new Set(blockedRepRows.map(b => _normalizeAr(b.name)).filter(Boolean));
@@ -729,7 +744,7 @@ async function resolveSciRepSales(id, query = {}, select) {
     areaIds = [...new Set([...directAreaIds, ...matchingIds])];
   }
 
-  const itemIds = await resolveSciRepItemIds(id, repUsers);
+  const { itemIds, itemLinks } = await resolveSciRepItemIds(id, repUsers);
 
   const hasAreas = areaIds && areaIds.length > 0;
   const hasItems = itemIds && itemIds.length > 0;

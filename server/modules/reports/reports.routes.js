@@ -80,11 +80,13 @@ router.get('/overall', async (req, res) => {
 
         const ownerIds = [...new Set(sharedFiles.map(f => f.userId).filter(Boolean))];
         if (ownerIds.length > 0) {
+          // Only apply block lists of owners who have blocking ENABLED (master switch).
+          const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true } };
           const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
-            prisma.blockedCommercialRep.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
-            prisma.blockedArea.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
-            prisma.blockedItem.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
-            prisma.blockedPharmacy.findMany({ where: { userId: { in: ownerIds } }, select: { name: true } }),
+            prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
+            prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
+            prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
+            prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
           ]);
 
           const blockedRepNorms = new Set(blockedRepRows.map(b => normalizeArabic(b.name)).filter(Boolean));

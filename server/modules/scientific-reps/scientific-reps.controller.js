@@ -121,6 +121,21 @@ export async function assignCommercialReps(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Master on/off switch for the block feature ──────────────────────────────
+export async function getBlockingEnabled(req, res, next) {
+  try {
+    const enabled = await svc.getBlockingEnabled(req.user.id);
+    res.json({ success: true, data: { enabled } });
+  } catch (err) { next(err); }
+}
+
+export async function setBlockingEnabled(req, res, next) {
+  try {
+    const result = await svc.setBlockingEnabled(req.user.id, !!req.body?.enabled);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+}
+
 // ── Globally-blocked commercial reps ────────────────────────────────────────
 export async function listBlockedCommercials(req, res, next) {
   try {

@@ -13,6 +13,10 @@ router.post('/sync-commercials-by-file', ctrl.syncCommercialsByFile); // must be
 
 // Globally-blocked commercial reps / areas / items (hidden from sci-rep reports
 // only) — before /:id
+// Master on/off switch for the whole block feature (kept lists apply only when on)
+router.get('/blocking-enabled',           ctrl.getBlockingEnabled);
+router.patch('/blocking-enabled',         ctrl.setBlockingEnabled);
+
 router.get('/blocked-commercials',        ctrl.listBlockedCommercials);
 router.post('/blocked-commercials',       ctrl.addBlockedCommercial);
 router.delete('/blocked-commercials/:blockId', ctrl.removeBlockedCommercial);

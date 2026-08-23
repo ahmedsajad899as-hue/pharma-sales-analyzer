@@ -123,6 +123,9 @@ model User {
   blockedAreas          BlockedArea[]
   blockedPharmacies     BlockedPharmacy[]
   blockedItems          BlockedItem[]
+  // Master on/off for this manager's block lists. When false the names are kept
+  // but no blocking is applied anywhere. Default on (natural state is enabled).
+  blockingEnabled       Boolean @default(true)
 
   @@index([officeId])
   @@map("users")

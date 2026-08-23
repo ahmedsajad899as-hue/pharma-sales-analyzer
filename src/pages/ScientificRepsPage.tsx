@@ -103,6 +103,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   // are hidden from ALL scientific-rep reports (but stay visible in the overall
   // analysis). Collapsed behind a small icon by default.
   const [blockPanelOpen, setBlockPanelOpen] = useState(false);
+  const [blockingEnabled, setBlockingEnabled] = useState(true); // master on/off (natural state = on)
+  const [blockingToggling, setBlockingToggling] = useState(false);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
   const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string }[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
   const [blockInput, setBlockInput]         = useState('');
@@ -154,6 +156,11 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       ]);
       setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList, pharmacy: pharmBlockList });
 
+      // master on/off state
+      fetch(`${API}/api/scientific-reps/blocking-enabled`, { headers: authH() })
+        .then(r => r.json()).then(j => { if (typeof j?.data?.enabled === 'boolean') setBlockingEnabled(j.data.enabled); })
+        .catch(() => {});
+
       const namesOf = async (r: Response) => {
         const j = await r.json().catch(() => ({}));
         const list = Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
@@ -166,6 +173,19 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     } catch { /* non-fatal */ }
   }, [token]);
   useEffect(() => { loadBlocked(); }, [loadBlocked]);
+
+  const toggleBlocking = async () => {
+    const next = !blockingEnabled;
+    setBlockingToggling(true);
+    setBlockingEnabled(next); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocking-enabled`, {
+        method: 'PATCH', headers: authH(), body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) throw new Error('فشل');
+    } catch { setBlockingEnabled(!next); }
+    finally { setBlockingToggling(false); }
+  };
 
   const addBlock = async (rawName: string) => {
     const name = rawName.trim();
@@ -521,12 +541,27 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     <span style={{ fontSize: 18 }}>🚫</span>
                     <span style={{ fontWeight: 800, fontSize: 14, color: '#b91c1c' }}>حجب عن تقارير المندوبين العلميين</span>
                   </div>
-                  <button
-                    onClick={() => setBlockPanelOpen(false)}
-                    title="طي"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, fontWeight: 800, padding: 2, lineHeight: 1 }}
-                  >✕</button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {/* Master on/off toggle — keeps the names but turns blocking on/off */}
+                    <button onClick={toggleBlocking} disabled={blockingToggling}
+                      title={blockingEnabled ? 'الحجب مُفعّل — اضغط للإيقاف (تبقى الأسماء محفوظة)' : 'الحجب متوقّف — اضغط للتفعيل'}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, cursor: blockingToggling ? 'default' : 'pointer', fontSize: 12, fontWeight: 700,
+                        border: `1.5px solid ${blockingEnabled ? '#16a34a' : '#cbd5e1'}`, background: blockingEnabled ? '#dcfce7' : '#f1f5f9', color: blockingEnabled ? '#166534' : '#64748b', opacity: blockingToggling ? 0.6 : 1 }}>
+                      <span style={{ width: 30, height: 16, borderRadius: 10, background: blockingEnabled ? '#16a34a' : '#cbd5e1', position: 'relative', flexShrink: 0 }}>
+                        <span style={{ position: 'absolute', top: 2, left: blockingEnabled ? 16 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+                      </span>
+                      {blockingEnabled ? 'الحجب مُفعّل' : 'الحجب متوقّف'}
+                    </button>
+                    <button onClick={() => setBlockPanelOpen(false)} title="طي"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, fontWeight: 800, padding: 2, lineHeight: 1 }}>✕</button>
+                  </div>
                 </div>
+
+                {!blockingEnabled && (
+                  <div style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px', marginBottom: 10, direction: 'rtl' }}>
+                    ⏸️ الحجب متوقّف حالياً — الأسماء محفوظة لكنها لا تُطبّق على التقارير. فعّله من الزر أعلاه.
+                  </div>
+                )}
 
                 {/* Kind tabs */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
