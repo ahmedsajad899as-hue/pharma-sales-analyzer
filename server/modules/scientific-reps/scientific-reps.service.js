@@ -400,23 +400,20 @@ export async function assignCompanies(id, companyIds) {
 /**
  * Assign commercial reps by ID array.
  *
- * Reps that were previously assigned and are missing from the new list were
- * explicitly removed by the company manager — that removal is recorded as a
- * persistent exclusion so the area-based auto-resync
- * (syncCommercialsByActiveFiles) won't silently re-add them. Reps present in
- * the new list have any prior exclusion cleared, since the manager just
- * re-confirmed them.
+ * ربط المندوبين التجاريين تلقائي بالكامل: يُشتق من تقاطع مناطق المندوب العلمي
+ * مع مبيعات الملف/الملفات المفعّلة (syncCommercialsByActiveFiles).
+ *
+ * لا نسجّل استثناءات دائمة عند إلغاء تأشير مندوب هنا. كان إلغاء التأشير يكتب
+ * صفاً في ScientificRepCommercialExclusion يمنع إعادة ربطه إلى الأبد — بلا أي
+ * واجهة لعرض تلك الاستثناءات أو إلغائها، فتختفي مبيعات مندوب تجاري من التقرير
+ * بلا سبب ظاهر. لإخفاء مندوب نهائياً تُستعمل قائمة «الحجب» وهي ظاهرة وقابلة
+ * للتراجع. أي إلغاء تأشير هنا يبقى سارياً حتى إعادة الاشتقاق التالية فقط.
  */
 export async function assignCommercialReps(id, commercialRepIds) {
   await assertExists(id);
   const uniqueNew = [...new Set(commercialRepIds)];
-  const currentIds = await repo.getCommercialRepIds(id);
-  const newSet = new Set(uniqueNew);
-
-  const newlyExcludedIds = currentIds.filter(cid => !newSet.has(cid));
-  const reincludedIds = uniqueNew;
-
-  await repo.setCommercialReps(id, uniqueNew, { newlyExcludedIds, reincludedIds });
+  // نمسح أي استثناء قديم لهؤلاء كي لا تبقى بقايا تمنع الاشتقاق التلقائي
+  await repo.setCommercialReps(id, uniqueNew, { newlyExcludedIds: [], reincludedIds: uniqueNew });
   return getById(id);
 }
 
