@@ -2138,6 +2138,17 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ايتم «يتيم» = بقايا رفعٍ لم يعد له أي مبيعة. لا يشمل ايتمات الكتالوج:
+// كان الشرط «بلا مبيعات» وحده يحذف ايتم كتالوج بسعره لمجرد أنه لم تُسجَّل له
+// مبيعة بعد — فمسح حذفُ ملفٍ واحد عشرات ايتمات الكتالوج المستوردة.
+const CATALOG_SAFE_ORPHAN = {
+  sales:               { none: {} },
+  scientificReps:      { none: {} },
+  planEntryItems:      { none: {} },
+  userItemAssignments: { none: {} },  // مُعيَّن لمستخدم = مقصود، لا بقايا
+  scientificCompanyId: null,          // في كتالوج شركة = مقصود
+  price:               null,          // يحمل سعراً = بيانات كتالوج
+};
 // ── Cleanup orphan areas & items (not referenced by any sale) ─
 app.post('/api/cleanup-orphans', async (req, res) => {
   try {
@@ -2148,7 +2159,7 @@ app.post('/api/cleanup-orphans', async (req, res) => {
         select: { id: true, name: true },
       }),
       prisma.item.findMany({
-        where: { sales: { none: {} }, scientificReps: { none: {} }, planEntryItems: { none: {} } },
+        where: CATALOG_SAFE_ORPHAN,
         select: { id: true, name: true },
       }),
     ]);
@@ -2615,11 +2626,7 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
         select: { id: true },
       }),
       prisma.item.findMany({
-        where: {
-          sales:          { none: {} },  // no sales remain
-          scientificReps: { none: {} }, // NOT assigned to any scientific rep
-          planEntryItems: { none: {} }, // NOT referenced in any monthly plan
-        },
+        where: CATALOG_SAFE_ORPHAN,
         select: { id: true },
       }),
     ]);
