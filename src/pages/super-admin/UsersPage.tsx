@@ -711,7 +711,20 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       `لن يمكن التراجع عن هذا الإجراء.`
     )) return;
     try {
-      const res = await fetch(`/api/sa/users/${u.id}`, { method: 'DELETE', headers: H() });
+      let res = await fetch(`/api/sa/users/${u.id}`, { method: 'DELETE', headers: H() });
+      // If activity data blocks the delete, offer a force delete that removes it too.
+      if (res.status === 409) {
+        const j = await res.json().catch(() => ({}));
+        if (j.code === 'HAS_DEPENDENCIES') {
+          if (!confirm(
+            'لهذا المستخدم بيانات مرتبطة (بلان يومي، فواتير تجارية، كشوفات استحصال، إعجابات/تعليقات على الزيارات).\n\n' +
+            '⚠️ الحذف النهائي سيحذف هذه البيانات نهائياً ولا يمكن التراجع.\n' +
+            '(المبيعات والملفات والكيانات المشتركة — الأطباء/الصيدليات/الايتمات/المناطق — تبقى دون نسبتها له.)\n\n' +
+            'هل تريد الحذف النهائي مع كل بياناته؟'
+          )) return;
+          res = await fetch(`/api/sa/users/${u.id}?force=1`, { method: 'DELETE', headers: H() });
+        }
+      }
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(`❌ ${json.error || 'تعذّر حذف المستخدم'}`, '#dc2626');
