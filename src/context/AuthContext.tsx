@@ -72,34 +72,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return existing;
   });
 
-  // On load: verify token and refresh user data from server
+  // Verify token and refresh user data (esp. permissions) from the server — on
+  // load, whenever the tab regains focus/visibility, and periodically. This makes
+  // an admin's change to a user's features take effect on the user's side within
+  // ~a minute (or instantly when they return to the tab) without a manual reload
+  // or re-login. Throttled so rapid focus events don't spam the server.
   useEffect(() => {
-    if (_isImp()) return; // skip verification for impersonation sessions
-    const storedToken = localStorage.getItem('auth_token');
-    if (!storedToken) return;
-    fetch('/api/auth/me', {
-      headers: { Authorization: `Bearer ${storedToken}` },
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.user) {
-          localStorage.setItem('auth_user', JSON.stringify(data.user));
-          setUser(data.user);
-          // Keep saved account entry in sync with latest user data
-          setSavedAccounts(prev => {
-            const updated = prev.map(a => a.user.id === data.user.id ? { ...a, user: data.user } : a);
-            persistSavedAccounts(updated);
-            return updated;
-          });
-        } else {
-          // Token invalid — clear session
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('auth_user');
-          setToken(null);
-          setUser(null);
-        }
-      })
-      .catch(() => {/* server offline — keep stored data */});
+    if (_isImp()) return; // impersonation sessions keep their snapshot
+    let lastRun = 0;
+    const refresh = () => {
+      const storedToken = localStorage.getItem('auth_token');
+      if (!storedToken) return;
+      const now = Date.now();
+      if (now - lastRun < 15000) return; // at most once / 15s
+      lastRun = now;
+      fetch('/api/auth/me', { headers: { Authorization: `Bearer ${storedToken}` } })
+        .then(r => r.json())
+        .then(data => {
+          if (data.user) {
+            localStorage.setItem('auth_user', JSON.stringify(data.user));
+            setUser(data.user);
+            setSavedAccounts(prev => {
+              const updated = prev.map(a => a.user.id === data.user.id ? { ...a, user: data.user } : a);
+              persistSavedAccounts(updated);
+              return updated;
+            });
+          } else {
+            // Token invalid — clear session
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_user');
+            setToken(null);
+            setUser(null);
+          }
+        })
+        .catch(() => {/* server offline — keep stored data */});
+    };
+    refresh(); // on load
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', refresh);
+    const interval = setInterval(refresh, 60000); // periodic (throttle keeps it cheap)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', refresh);
+      clearInterval(interval);
+    };
   }, []);
 
   const login = async (username: string, password: string) => {
