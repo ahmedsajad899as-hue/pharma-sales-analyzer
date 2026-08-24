@@ -178,8 +178,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   useEffect(load, []);
 
+  // المعرّف المحفوظ يُقرأ أثناء الرندر — أي قبل تشغيل أي useEffect. تأثير
+  // الحفظ أدناه يعمل عند أول تركيب و detail = null فيمسح المفتاح، وكان ذلك
+  // يسبق تأثير الاستعادة فيقرأ قيمة ممسوحة — فيعود المستخدم لقائمة المستخدمين
+  // بعد كل تحديث للصفحة بدل البقاء في صفحة تعييناته.
+  const initialDetailIdRef = useRef<string | null>(
+    typeof window !== 'undefined' ? localStorage.getItem('sa_user_detail_id') : null,
+  );
+
   // Persist detail user + tab to localStorage
+  const persistedOnce = useRef(false);
   useEffect(() => {
+    // لا تمسح المفتاح في أول تشغيل — الاستعادة لم تحدث بعد
+    if (!persistedOnce.current) { persistedOnce.current = true; if (!detail) return; }
     if (detail) localStorage.setItem('sa_user_detail_id', String(detail.id));
     else localStorage.removeItem('sa_user_detail_id');
   }, [detail?.id]);
@@ -188,7 +199,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   // Restore detail view on mount (page refresh)
   useEffect(() => {
-    const savedId = localStorage.getItem('sa_user_detail_id');
+    const savedId = initialDetailIdRef.current;
     if (savedId && !jumpUserId) {
       const id = parseInt(savedId);
       if (id > 0) {
