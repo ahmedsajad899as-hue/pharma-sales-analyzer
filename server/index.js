@@ -1316,9 +1316,14 @@ app.get('/api/items', async (req, res) => {
           });
         }
       }
-      // Deduplicate and sort (catalog scoped by the item whitelist)
+      // Deduplicate and sort. The item whitelist scopes BOTH the company catalog
+      // AND the user's own items — so when a manager has picked specific items,
+      // stale owned items left over from deleted files (owned but no longer in any
+      // sale) don't leak in. Explicit assignments (UserItemAssignment / rep-link /
+      // plan) are NOT filtered, so the picked items always show. Empty whitelist =
+      // show everything (unchanged).
       const seen = new Set();
-      items = [...scopeCatalog(catalogItems), ...ownedItems, ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
+      items = [...scopeCatalog(catalogItems), ...scopeCatalog(ownedItems), ...assignedItems, ...linkedRepItems, ...planEntryItems].filter(i => {
         if (seen.has(i.id)) return false;
         seen.add(i.id); return true;
       }).sort((a, b) => a.name.localeCompare(b.name));
