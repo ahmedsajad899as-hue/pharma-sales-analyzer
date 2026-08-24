@@ -197,12 +197,23 @@ export default function UsersPage() {
 
   const deleteUser = async (id: number) => {
     if (!confirm('هل أنت متأكد من حذف هذا المستخدم وجميع بياناته؟')) return;
-    const r = await fetch(`/api/admin/users/${id}`, {
-      method: 'DELETE',
-      headers: authH(),
-    });
+    let r = await fetch(`/api/admin/users/${id}`, { method: 'DELETE', headers: authH() });
+    // If the user has activity data that blocks a normal delete, offer a force delete.
+    if (r.status === 409) {
+      const j = await r.json().catch(() => ({}));
+      if (j.code === 'HAS_DEPENDENCIES') {
+        const ok = confirm(
+          'لهذا المستخدم بيانات مرتبطة (بلان يومي، فواتير تجارية، كشوفات استحصال، إعجابات/تعليقات على الزيارات).\n\n' +
+          '⚠️ الحذف النهائي سيحذف هذه البيانات نهائياً ولا يمكن التراجع.\n' +
+          '(المبيعات والملفات والكيانات المشتركة — الأطباء/الصيدليات/الايتمات/المناطق — تبقى في النظام دون نسبتها له.)\n\n' +
+          'هل تريد الحذف النهائي مع كل بياناته؟'
+        );
+        if (!ok) return;
+        r = await fetch(`/api/admin/users/${id}?force=1`, { method: 'DELETE', headers: authH() });
+      }
+    }
     if (!r.ok) {
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       setError(j.error || 'فشل الحذف');
       return;
     }

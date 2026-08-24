@@ -203,7 +203,31 @@ export async function getUserCompanyItems(req, res) {
 // ── Delete user ───────────────────────────────────────────────────────────
 export async function deleteUser(req, res) {
   const id = parseInt(req.params.id);
+  const force = req.query.force === '1' || req.query.force === 'true';
   try {
+    if (force) {
+      // Force delete: remove the user's activity data that blocks deletion at the DB
+      // level (the RESTRICT relations named in the error below), then the user.
+      // Their CASCADE children (plan entries/comments, invoice items, collections,
+      // visit likes/comments…) go automatically. SET NULL relations (sales, uploaded
+      // files, and shared/reference entities like items/doctors/pharmacies/areas) are
+      // auto-nulled by the DB — kept intact so other users' reports aren't broken.
+      // Order matters: rows that point AT the user directly first, then the parents
+      // the user owns (whose remaining cascade-children then clear).
+      await prisma.$transaction([
+        prisma.visitLike.deleteMany({ where: { userId: id } }),
+        prisma.visitComment.deleteMany({ where: { userId: id } }),
+        prisma.pharmacyVisitLike.deleteMany({ where: { userId: id } }),
+        prisma.dailyPlanComment.deleteMany({ where: { userId: id } }),
+        prisma.dailyPlanSettings.deleteMany({ where: { userId: id } }),
+        prisma.collectionRecord.deleteMany({ where: { collectedById: id } }),
+        prisma.commercialInvoice.deleteMany({ where: { OR: [{ createdByUserId: id }, { assignedRepId: id }] } }),
+        prisma.invoiceSheet.deleteMany({ where: { repId: id } }),
+        prisma.dailyPlan.deleteMany({ where: { userId: id } }),
+        prisma.user.delete({ where: { id } }),
+      ]);
+      return res.json({ success: true, forced: true });
+    }
     await prisma.user.delete({ where: { id } });
     res.json({ success: true });
   } catch (err) {
