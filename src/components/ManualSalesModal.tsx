@@ -281,7 +281,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       setExtracting(false);
       if (imgInputRef.current) imgInputRef.current.value = '';
     }
-  }, [token]);
+  }, [token, onlyAssignedItems]);
 
   // ── Save ──
   const onSave = async () => {
