@@ -49,6 +49,8 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
   const [selEnd, setSelEnd]         = useState<{ r: number; c: number } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const dragMovedRef = useRef(false);
+  const gridRef       = useRef<HTMLDivElement | null>(null);
+  const autoScrollRef = useRef(0); // 1 = للأسفل، -1 = للأعلى، 0 = ثابت
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const load = () => {
@@ -94,11 +96,41 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
    * التقريب لخانتين ثم إسقاط الأصفار الزائدة.
    */
   const fmtVal = (v: any): string => {
-    if (v === null || v === undefined || v === '') return '';
-    const n = typeof v === 'number' ? v : (/^-?d*.?d+$/.test(String(v).trim()) ? Number(v) : NaN);
+    if (v === null || v === undefined || String(v).trim() === '') return '';
+    const n = typeof v === 'number' ? v : Number(String(v).trim().replace(/,/g, ''));
     if (!Number.isFinite(n)) return String(v);
     return String(Number(n.toFixed(2)));
   };
+
+  const numOf = (v: any): number => {
+    const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  /**
+   * إشارة الإرجاع.
+   *
+   * قاعدة البيانات تخزّن الكمية والقيمة موجبةً دائماً والإشارة تعيش في
+   * recordType (نفس اصطلاح محلّل الرفع). لكن المحرّر يعرضها بالسالب كي
+   * يصير تحديد مبيع + إرجاع معاً = مبيع ناقص إرجاع مباشرةً، بلا حساب يدوي.
+   */
+  const SIGNED_FIELDS = new Set(['quantity', 'totalValue']);
+  const isReturnType = (rt: any) => String(rt ?? '').trim().toLowerCase() === 'return';
+  /** القيمة الرقمية بإشارتها الصحيحة — تُستخدم في الفرز والمجاميع والتحديد. */
+  const signedOf = (raw: any, recType: any, field: string): number => {
+    const n = numOf(raw);
+    return (SIGNED_FIELDS.has(field) && isReturnType(recType)) ? -Math.abs(n) : n;
+  };
+  /** قيمة الخلية كما تُعرض — الإرجاع بالسالب. */
+  const dispVal = (row: Row, field: string): string => {
+    const v = getValue(row, field);
+    if (!SIGNED_FIELDS.has(field) || !isReturnType(getValue(row, 'recordType'))) return fmtVal(v);
+    if (v === null || v === undefined || String(v).trim() === '') return '';
+    const n = Number(String(v).trim().replace(/,/g, ''));
+    return Number.isFinite(n) ? fmtVal(-Math.abs(n)) : fmtVal(v);
+  };
+  /** نفس المنطق لصف جديد لم يُحفظ بعد. */
+  const newRowSigned = (nr: any, field: string) => signedOf(nr[field], nr.recordType, field);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -116,8 +148,11 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     arr.sort((a, b) => {
       const av = getValue(a, sortCol);
       const bv = getValue(b, sortCol);
-      const an = Number(av), bn = Number(bv);
-      const bothNumeric = av !== '' && bv !== '' && Number.isFinite(an) && Number.isFinite(bn);
+      const an = signedOf(av, getValue(a, 'recordType'), sortCol);
+      const bn = signedOf(bv, getValue(b, 'recordType'), sortCol);
+      const bothNumeric = av !== '' && bv !== ''
+        && Number.isFinite(Number(String(av).replace(/,/g, '')))
+        && Number.isFinite(Number(String(bv).replace(/,/g, '')));
       // الأعمدة الرقمية تُرتَّب رقمياً — الترتيب النصي يضع 100 قبل 9
       if (bothNumeric) return an - bn;
       return String(av ?? '').localeCompare(String(bv ?? ''), 'ar');
@@ -125,10 +160,6 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     return arr;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, sortCol, pending]);
-  const numOf = (v: any): number => {
-    const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  };
 
   /**
    * المجاميع الحيّة: تُحسب من الصفوف الظاهرة فعلاً بعد الحذف والإضافة
@@ -139,10 +170,11 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     const out: Record<string, number> = {};
     for (const c of numericCols) out[c.key] = 0;
     for (const row of sortedRows) {
-      for (const c of numericCols) out[c.key] += numOf(getValue(row, c.key));
+      const rt = getValue(row, 'recordType');
+      for (const c of numericCols) out[c.key] += signedOf(getValue(row, c.key), rt, c.key);
     }
     for (const nr of newRows) {
-      for (const c of numericCols) out[c.key] += numOf(nr[c.key]);
+      for (const c of numericCols) out[c.key] += newRowSigned(nr, c.key);
     }
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,14 +194,62 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
         if (!col) continue;
         cells++;
         const raw = getValue(row, col.key);
-        const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/,/g, ''));
-        if (String(raw ?? '').trim() !== '' && Number.isFinite(n)) { sum += n; numeric++; }
+        const n = Number(String(raw ?? '').replace(/,/g, ''));
+        if (String(raw ?? '').trim() !== '' && Number.isFinite(n)) {
+          sum += signedOf(raw, getValue(row, 'recordType'), col.key);
+          numeric++;
+        }
       }
     }
     return { sum, numeric, cells };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selStart, selEnd, sortedRows, visibleCols, pending]);
 
+  /**
+   * التمرير التلقائي أثناء السحب.
+   *
+   * عند سحب التحديد نحو حافة الجدول (العليا أو السفلى) نمرّر المحتوى
+   * ونمدّد التحديد صفاً صفاً، فيستمر التحديد إلى ما بعد الشاشة الواحدة.
+   * المستمعان على window لا على الحاوية: أثناء السحب قد يخرج المؤشر من
+   * الجدول تماماً، ولو اعتمدنا على أحداث الحاوية لتجمّد التمرير هناك.
+   */
+  useEffect(() => {
+    if (!isSelecting) { autoScrollRef.current = 0; return; }
+    const EDGE = 48;   // عرض الشريط الحسّاس عند كل حافة
+    const STEP = 26;   // بكسلات لكل نبضة
+
+    const onMove = (e: MouseEvent) => {
+      const el = gridRef.current;
+      if (!el) return;
+      const box = el.getBoundingClientRect();
+      autoScrollRef.current =
+        e.clientY > box.bottom - EDGE ?  1 :
+        e.clientY < box.top    + EDGE ? -1 : 0;
+    };
+    const onUp = () => setIsSelecting(false);
+
+    const timer = window.setInterval(() => {
+      const dir = autoScrollRef.current;
+      const el  = gridRef.current;
+      if (!dir || !el) return;
+      const before = el.scrollTop;
+      el.scrollTop = before + dir * STEP;
+      if (el.scrollTop === before) return; // بلغنا الحافة — لا تمدّد بلا تمرير
+      dragMovedRef.current = true;         // هذا سحب لا نقرة
+      setSelEnd(prev => (prev
+        ? { ...prev, r: Math.max(0, Math.min(sortedRows.length - 1, prev.r + dir)) }
+        : prev));
+    }, 60);
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.clearInterval(timer);
+      autoScrollRef.current = 0;
+    };
+  }, [isSelecting, sortedRows.length]);
   const inSel = (r: number, c: number) => {
     if (!selStart || !selEnd) return false;
     return r >= Math.min(selStart.r, selEnd.r) && r <= Math.max(selStart.r, selEnd.r)
@@ -291,15 +371,14 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
             </button>
           )}
           <span style={{ fontSize: 11, color: '#94a3b8', marginInlineStart: 'auto' }}>
-            انقر على أي خلية لتعديلها · التعديل ينعكس في التقارير والتصدير بعد الحفظ
+            انقر على خلية لتعديلها · اسحب لتحديد عدة خلايا (يتابع التمرير عند الحافة) · الإرجاع يظهر بالسالب فيُطرح من المبيع
           </span>
         </div>
 
         {err && <div style={{ padding: '8px 16px', background: '#fef2f2', color: '#b91c1c', fontSize: 12 }}>⚠️ {err}</div>}
 
-        <div style={{ flex: 1, overflow: 'auto' }}
-          onMouseUp={() => setIsSelecting(false)}
-          onMouseLeave={() => setIsSelecting(false)}>
+        <div ref={gridRef} style={{ flex: 1, overflow: 'auto' }}
+          onMouseUp={() => setIsSelecting(false)}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>⏳ جاري تحميل الصفوف...</div>
           ) : (
@@ -358,8 +437,8 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                     {visibleCols.map(({ key: field }, ci) => {
                       const k = cellKey(row.id, field);
                       const changed = pending.has(k);
-                      const val = getValue(row, field);
                       const selected = inSel(idx, ci);
+                      const negative = SIGNED_FIELDS.has(field) && isReturnType(getValue(row, 'recordType'));
                       return (
                         <td key={field}
                           onMouseDown={() => {
@@ -386,9 +465,10 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                           style={{ ...TD, userSelect: 'none', cursor: 'cell',
                             background: changed ? '#ecfdf5' : selected ? '#dbeafe' : undefined,
                             outline: selected ? '1px solid #93c5fd' : undefined,
-                            fontWeight: changed ? 700 : 400 }}>
+                            color: negative ? '#dc2626' : undefined,
+                            fontWeight: changed || negative ? 700 : 400 }}>
                           {editingCell === k ? (
-                            <input ref={inputRef} defaultValue={fmtVal(val)}
+                            <input ref={inputRef} defaultValue={dispVal(row, field)}
                               onBlur={e => { setValue(row.id, field, e.target.value); setEditingCell(null); }}
                               onKeyDown={e => {
                                 if (e.key === 'Enter') { setValue(row.id, field, (e.target as HTMLInputElement).value); setEditingCell(null); }
@@ -396,7 +476,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                               }}
                               style={{ width: '100%', minWidth: 90, border: '1px solid #6366f1', borderRadius: 4, padding: '2px 4px', fontSize: 12, direction: 'rtl' }} />
                           ) : (
-                            fmtVal(val)
+                            dispVal(row, field)
                           )}
                         </td>
                       );
@@ -419,8 +499,8 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
 
           {liveTotals.totalValue !== undefined && (
             <span style={{ fontWeight: 800, color: '#0f172a' }}>
-              المجموع الكلي للمبلغ:{' '}
-              <span style={{ color: '#059669', fontSize: 14 }}>
+              الصافي (مبيع − إرجاع):{' '}
+              <span style={{ color: liveTotals.totalValue < 0 ? '#dc2626' : '#059669', fontSize: 14 }}>
                 {Number(liveTotals.totalValue.toFixed(2)).toLocaleString('en-US')}
               </span>
             </span>
@@ -428,8 +508,8 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
 
           {liveTotals.quantity !== undefined && (
             <span style={{ fontWeight: 700, color: '#475569' }}>
-              مجموع الكمية:{' '}
-              <span style={{ color: '#7c3aed' }}>
+              صافي الكمية:{' '}
+              <span style={{ color: liveTotals.quantity < 0 ? '#dc2626' : '#7c3aed' }}>
                 {Number(liveTotals.quantity.toFixed(2)).toLocaleString('en-US')}
               </span>
             </span>
@@ -441,7 +521,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
               borderRadius: 8, padding: '4px 12px', fontWeight: 800, color: '#1e40af',
             }}>
               🖱️ المحدَّد: {selection.cells} خلية · {selection.numeric} رقمية · المجموع{' '}
-              <span style={{ fontSize: 14 }}>
+              <span style={{ fontSize: 14, color: selection.sum < 0 ? '#b91c1c' : undefined }}>
                 {Number(selection.sum.toFixed(2)).toLocaleString('en-US')}
               </span>
               <button onClick={() => { setSelStart(null); setSelEnd(null); }}

@@ -240,7 +240,8 @@ export async function saveFileRows(req, res) {
     for (const [saleId, edits] of byRow) {
       try {
         const sale = await prisma.sale.findFirst({
-          where: { id: saleId, uploadedFileId: fileId }, select: { id: true, rawData: true },
+          where: { id: saleId, uploadedFileId: fileId },
+          select: { id: true, rawData: true, recordType: true, quantity: true, totalValue: true },
         });
         if (!sale) { summary.errors.push(`صف ${saleId} غير موجود في هذا الملف`); continue; }
 
@@ -279,6 +280,35 @@ export async function saveFileRows(req, res) {
             raw[field] = value;
             rawTouched = true;
           }
+        }
+
+        // الإشارة تعيش في recordType لا في الرقم — نفس اصطلاح محلّل الرفع
+        // (يخزّن القيمة المطلقة ويجعل السالب «ارجاع»). المحرّر يعرض الإرجاع
+        // بالسالب، فلو كتب المستخدم رقماً سالباً صار الصف إرجاعاً، وتُخزَّن
+        // القيمة موجبة دائماً كي لا تنقلب الحسابات مرتين.
+        const typedNegative =
+          (data.quantity !== undefined && data.quantity < 0) ||
+          (data.totalValue !== undefined && data.totalValue < 0);
+        if (typedNegative && data.recordType === undefined) data.recordType = 'return';
+        const effType = data.recordType ?? sale.recordType;
+        if (data.quantity !== undefined) data.quantity = Math.abs(data.quantity);
+        if (data.totalValue !== undefined) data.totalValue = Math.abs(data.totalValue);
+
+        // rawData يحاكي الملف الأصلي، وفيه الإرجاع سالب (هكذا اكتشفه المحلّل
+        // عند الرفع). فبدل تخزين ما كُتب حرفياً، نعيد كتابة العمودين الرقميين
+        // بالإشارة الموافقة للنوع — وإلا خرج التصدير بإشارة تخالف السجل، ولا
+        // سيّما عند تغيير النوع وحده دون لمس الأرقام.
+        const isRet = effType === 'return';
+        const signMayHaveChanged = data.quantity !== undefined
+          || data.totalValue !== undefined || data.recordType !== undefined;
+        for (const numField of signMayHaveChanged ? ['quantity', 'totalValue'] : []) {
+          const rk = keyMap[numField];
+          if (!rk) continue;
+          const magnitude = data[numField] !== undefined
+            ? data[numField]
+            : Math.abs(Number(sale[numField]) || 0);
+          raw[rk] = isRet ? -Math.abs(magnitude) : magnitude;
+          rawTouched = true;
         }
 
         if (rawTouched) data.rawData = JSON.stringify(raw);
@@ -330,8 +360,12 @@ export async function saveFileRows(req, res) {
         ]);
         const custName = String(nr.customerName ?? '').trim();
         const customer = custName ? await findOrCreateCustomer(custName, userId) : null;
-        const qty = Number(nr.quantity);
-        const val = Number(nr.totalValue);
+        const qtyRaw = Number(nr.quantity);
+        const valRaw = Number(nr.totalValue);
+        // رقم سالب في صف جديد = إرجاع، والقيمة تُخزَّن موجبة
+        const negative = (Number.isFinite(qtyRaw) && qtyRaw < 0) || (Number.isFinite(valRaw) && valRaw < 0);
+        const qty = Math.abs(qtyRaw);
+        const val = Math.abs(valRaw);
         const d = nr.saleDate ? new Date(nr.saleDate) : null;
 
         const raw = {};
@@ -350,7 +384,7 @@ export async function saveFileRows(req, res) {
             quantity: Number.isFinite(qty) ? Math.trunc(qty) : 0,
             totalValue: Number.isFinite(val) ? val : 0,
             saleDate: d && !isNaN(d.getTime()) ? d : new Date(),
-            recordType: nr.recordType === 'return' ? 'return' : 'sale',
+            recordType: (nr.recordType === 'return' || negative) ? 'return' : 'sale',
             rawData: JSON.stringify(raw),
           },
         });
