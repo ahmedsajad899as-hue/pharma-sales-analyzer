@@ -259,7 +259,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
         boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
       }));
-      setRows(rs => (rs.length === 1 && !rowHasData(rs[0]) ? mapped : [...rs, ...mapped]));
+      // الصفوف الفارغة تُستبدل بالمستخرَج بدل أن تتراكم فوقه؛ وإن كان الجدول
+      // كلّه فارغاً صار المستخرَج هو محتواه.
+      setRows(rs => {
+        const kept = rs.filter(rowHasData);
+        return [...kept, ...mapped];
+      });
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
     } catch (e: any) {
       setError(e.message || 'تعذّر تحليل الصورة');
@@ -556,7 +561,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
 
 // ── small helpers ──
 const str = (v: any) => (v == null ? '' : String(v)).trim();
-const rowHasData = (r: Row) => Object.entries(r).some(([k, v]) => k !== 'imageIndex' && String(v).trim() !== '');
+/**
+ * حقول وصفية لا يكتبها المستخدم (مرجع الصورة وإحداثيات التأشير) — لا تُحتسب
+ * بيانات. كانت قيمها null تمرّ عبر String() فتصير النص "null"، فيبدو الصف
+ * الفارغ مملوءاً ويبقى فوق صفوف الفاتورة المستخرَجة بدل أن تحلّ مكانه.
+ */
+const META_KEYS = new Set(['imageIndex', 'box', 'boxCustomer', 'boxHeader']);
+const rowHasData = (r: Row) =>
+  Object.entries(r).some(([k, v]) => !META_KEYS.has(k) && v != null && String(v).trim() !== '');
 const normDate = (v: any): string => {
   const s = String(v ?? '').trim();
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
