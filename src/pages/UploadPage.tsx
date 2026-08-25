@@ -126,7 +126,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       if (newFileId && !activeFileIds.includes(newFileId)) onFileActivated(newFileId);
       await loadFiles();
       // Suggest merging any newly-created near-duplicate items (confirmation modal)
-      checkSimilarItemsRef.current();
+      checkSimilarItemsRef.current(unknownItems);
     } catch (err: any) {
       setError(err.message || t.upload.error);
     } finally {
@@ -353,7 +353,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   // After an upload, look for newly-created items that are near-duplicates of
   // existing ones and pop a confirmation modal so the user can merge them.
-  const checkSimilarItems = async () => {
+  // scopeNames = اسماء الايتمات الجديدة (غير المعروفة) التي أنشأها هذا الرفع تحديداً —
+  // /api/dedup-names يفحص كل ايتمات الحساب (كل الملفات السابقة)، فبدون هذا الفلتر
+  // كان يقترح دمج ايتمات قديمة لا علاقة لها بالملف المرفوع للتو، وهذا مربك للمستخدم.
+  const checkSimilarItems = async (scopeNames: string[] = []) => {
     // 1. Auto-apply any remembered merge rules silently (no confirmation) when the
     //    feature is enabled. This handles re-uploaded files whose items were merged
     //    before, so the user isn't asked to confirm the same merge again.
@@ -380,7 +383,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       });
       const json = await res.json();
       if (!res.ok) return;
-      const items: DedupEntry[] = (json.normalizations ?? []).filter((e: DedupEntry) => e.entityType === 'item');
+      const scopeSet = new Set(scopeNames);
+      const items: DedupEntry[] = (json.normalizations ?? []).filter((e: DedupEntry) =>
+        e.entityType === 'item' && (scopeSet.has(e.from) || scopeSet.has(e.to))
+      );
       if (items.length > 0) { setAutoDedup(items); setAutoDedupSel(new Set(items.map((_, i) => i))); }
     } catch { /* non-fatal — skip the suggestion */ }
   };
