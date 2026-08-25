@@ -44,6 +44,11 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
   const [deletedCols, setDeletedCols] = useState<Set<string>>(new Set());
   const [newRows, setNewRows]       = useState<any[]>([]);
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  // تحديد مستطيل من الخلايا لمعرفة مجموعها (مثل الإكسل)
+  const [selStart, setSelStart]     = useState<{ r: number; c: number } | null>(null);
+  const [selEnd, setSelEnd]         = useState<{ r: number; c: number } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const dragMovedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const load = () => {
@@ -120,6 +125,56 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     return arr;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, sortCol, pending]);
+  const numOf = (v: any): number => {
+    const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  /**
+   * المجاميع الحيّة: تُحسب من الصفوف الظاهرة فعلاً بعد الحذف والإضافة
+   * والتعديلات المعلّقة — فليست رقماً جامداً من وقت التحميل.
+   */
+  const liveTotals = useMemo(() => {
+    const numericCols = visibleCols.filter(c => c.key === 'totalValue' || c.key === 'quantity');
+    const out: Record<string, number> = {};
+    for (const c of numericCols) out[c.key] = 0;
+    for (const row of sortedRows) {
+      for (const c of numericCols) out[c.key] += numOf(getValue(row, c.key));
+    }
+    for (const nr of newRows) {
+      for (const c of numericCols) out[c.key] += numOf(nr[c.key]);
+    }
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedRows, newRows, visibleCols, pending]);
+
+  // مجموع الخلايا المحدَّدة — القيم غير الرقمية تُتجاهل
+  const selection = useMemo(() => {
+    if (!selStart || !selEnd) return null;
+    const r1 = Math.min(selStart.r, selEnd.r), r2 = Math.max(selStart.r, selEnd.r);
+    const c1 = Math.min(selStart.c, selEnd.c), c2 = Math.max(selStart.c, selEnd.c);
+    let sum = 0, numeric = 0, cells = 0;
+    for (let r = r1; r <= r2; r++) {
+      const row = sortedRows[r];
+      if (!row) continue;
+      for (let c = c1; c <= c2; c++) {
+        const col = visibleCols[c];
+        if (!col) continue;
+        cells++;
+        const raw = getValue(row, col.key);
+        const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/,/g, ''));
+        if (String(raw ?? '').trim() !== '' && Number.isFinite(n)) { sum += n; numeric++; }
+      }
+    }
+    return { sum, numeric, cells };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selStart, selEnd, sortedRows, visibleCols, pending]);
+
+  const inSel = (r: number, c: number) => {
+    if (!selStart || !selEnd) return false;
+    return r >= Math.min(selStart.r, selEnd.r) && r <= Math.max(selStart.r, selEnd.r)
+        && c >= Math.min(selStart.c, selEnd.c) && c <= Math.max(selStart.c, selEnd.c);
+  };
   const save = async () => {
     if (!dirty) return;
     setSaving(true); setErr('');
@@ -242,7 +297,9 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
 
         {err && <div style={{ padding: '8px 16px', background: '#fef2f2', color: '#b91c1c', fontSize: 12 }}>⚠️ {err}</div>}
 
-        <div style={{ flex: 1, overflow: 'auto' }}>
+        <div style={{ flex: 1, overflow: 'auto' }}
+          onMouseUp={() => setIsSelecting(false)}
+          onMouseLeave={() => setIsSelecting(false)}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>⏳ جاري تحميل الصفوف...</div>
           ) : (
@@ -298,14 +355,38 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                         title="حذف هذا الصف" style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
                     </td>
                     <td style={{ ...TD, color: '#94a3b8' }}>{idx + 1}</td>
-                    {visibleCols.map(({ key: field }) => {
+                    {visibleCols.map(({ key: field }, ci) => {
                       const k = cellKey(row.id, field);
                       const changed = pending.has(k);
                       const val = getValue(row, field);
+                      const selected = inSel(idx, ci);
                       return (
                         <td key={field}
-                          onClick={() => { setEditingCell(k); requestAnimationFrame(() => inputRef.current?.focus()); }}
-                          style={{ ...TD, background: changed ? '#ecfdf5' : undefined, fontWeight: changed ? 700 : 400 }}>
+                          onMouseDown={() => {
+                            // بداية تحديد محتمل — نميّز النقرة عن السحب في mouseUp
+                            dragMovedRef.current = false;
+                            setIsSelecting(true);
+                            setSelStart({ r: idx, c: ci });
+                            setSelEnd({ r: idx, c: ci });
+                          }}
+                          onMouseEnter={() => {
+                            if (!isSelecting) return;
+                            dragMovedRef.current = true;
+                            setSelEnd({ r: idx, c: ci });
+                          }}
+                          onMouseUp={() => {
+                            setIsSelecting(false);
+                            // نقرة بلا سحب = تعديل الخلية، والسحب = تحديد فقط
+                            if (!dragMovedRef.current) {
+                              setSelStart(null); setSelEnd(null);
+                              setEditingCell(k);
+                              requestAnimationFrame(() => inputRef.current?.focus());
+                            }
+                          }}
+                          style={{ ...TD, userSelect: 'none', cursor: 'cell',
+                            background: changed ? '#ecfdf5' : selected ? '#dbeafe' : undefined,
+                            outline: selected ? '1px solid #93c5fd' : undefined,
+                            fontWeight: changed ? 700 : 400 }}>
                           {editingCell === k ? (
                             <input ref={inputRef} defaultValue={fmtVal(val)}
                               onBlur={e => { setValue(row.id, field, e.target.value); setEditingCell(null); }}
@@ -324,6 +405,55 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+
+        {/* ── شريط المجاميع — يتغيّر مع كل حذف/إضافة/تعديل ── */}
+        <div style={{
+          borderTop: '2px solid #e2e8f0', background: '#f8fafc', padding: '8px 16px',
+          display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', fontSize: 12,
+        }}>
+          <span style={{ fontWeight: 800, color: '#0f172a' }}>
+            📊 الصفوف: <span style={{ color: '#2563eb' }}>{sortedRows.length + newRows.length}</span>
+          </span>
+
+          {liveTotals.totalValue !== undefined && (
+            <span style={{ fontWeight: 800, color: '#0f172a' }}>
+              المجموع الكلي للمبلغ:{' '}
+              <span style={{ color: '#059669', fontSize: 14 }}>
+                {Number(liveTotals.totalValue.toFixed(2)).toLocaleString('en-US')}
+              </span>
+            </span>
+          )}
+
+          {liveTotals.quantity !== undefined && (
+            <span style={{ fontWeight: 700, color: '#475569' }}>
+              مجموع الكمية:{' '}
+              <span style={{ color: '#7c3aed' }}>
+                {Number(liveTotals.quantity.toFixed(2)).toLocaleString('en-US')}
+              </span>
+            </span>
+          )}
+
+          {selection && selection.cells > 1 && (
+            <span style={{
+              marginInlineStart: 'auto', background: '#dbeafe', border: '1px solid #93c5fd',
+              borderRadius: 8, padding: '4px 12px', fontWeight: 800, color: '#1e40af',
+            }}>
+              🖱️ المحدَّد: {selection.cells} خلية · {selection.numeric} رقمية · المجموع{' '}
+              <span style={{ fontSize: 14 }}>
+                {Number(selection.sum.toFixed(2)).toLocaleString('en-US')}
+              </span>
+              <button onClick={() => { setSelStart(null); setSelEnd(null); }}
+                title="إلغاء التحديد"
+                style={{ marginInlineStart: 8, border: 'none', background: 'none', color: '#1e40af', cursor: 'pointer', fontWeight: 800 }}>✕</button>
+            </span>
+          )}
+
+          {(!selection || selection.cells <= 1) && (
+            <span style={{ marginInlineStart: 'auto', color: '#94a3b8', fontSize: 11 }}>
+              اسحب بالماوس فوق الخلايا لمعرفة مجموعها
+            </span>
           )}
         </div>
       </div>
