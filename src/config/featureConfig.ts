@@ -66,6 +66,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   account_builder:    'account-builder',
   commercial_page:    'commercial',
   org_structure:      'org-structure',
+  aqdar_export:       'aqdar-export',
 };
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات

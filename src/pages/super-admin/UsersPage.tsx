@@ -1768,19 +1768,36 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               return 'partial';
             };
 
-            const MiniToggle = ({ fKey, size = 'md' }: { fKey: string; size?: 'sm' | 'md' | 'lg' }) => {
-              const off = draftDisabledFeats.includes(fKey);
+            // كل مفاتيح ميزة (الأم + الفرعية المرئية لدور هذا المستخدم) — تُستخدم لزر
+            // «التشغيل/الإيقاف الكلي» حتى يعطّل/يفعّل الميزة وكل ميزاتها الفرعية دفعة
+            // واحدة بدل ترك حالة "جزئي" غامضة (نقطة برتقالية) بعد تعطيل الأم فقط.
+            const nodeAllKeys = (node: FeatureNode): string[] => {
+              const keys: string[] = [];
+              if (node.key) keys.push(node.key);
+              for (const c of node.children ?? []) {
+                if (c.key && (!c.onlyRoles || c.onlyRoles.includes(detail.role))) keys.push(c.key);
+              }
+              return keys;
+            };
+
+            // fKeys بدل مفتاح واحد: يسمح لنفس المكوّن بأن يكون تبديلاً لمفتاح فرعي واحد
+            // أو زر تشغيل/إيقاف كلي يضبط عدة مفاتيح معاً (الأم + كل الفرعية) بضغطة واحدة.
+            const MiniToggle = ({ fKeys, size = 'md' }: { fKeys: string[]; size?: 'sm' | 'md' | 'lg' }) => {
+              const allOn = fKeys.length > 0 && fKeys.every(k => !draftDisabledFeats.includes(k));
               const dims = size === 'lg' ? { w: 56, h: 30, ball: 22 } : size === 'sm' ? { w: 38, h: 22, ball: 16 } : { w: 46, h: 26, ball: 20 };
               return (
-                <label style={{ position: 'relative', display: 'inline-block', width: dims.w, height: dims.h, cursor: 'pointer', flexShrink: 0 }}>
-                  <input type="checkbox" checked={!off}
+                <label
+                  onClick={e => e.stopPropagation()}
+                  title={fKeys.length > 1 ? (allOn ? 'إيقاف الميزة وكل ميزاتها الفرعية بالكامل' : 'تفعيل الميزة وكل ميزاتها الفرعية بالكامل') : undefined}
+                  style={{ position: 'relative', display: 'inline-block', width: dims.w, height: dims.h, cursor: 'pointer', flexShrink: 0 }}>
+                  <input type="checkbox" checked={allOn}
                     onChange={e => {
-                      if (e.target.checked) setDraftDisabledFeats(p => p.filter(k => k !== fKey));
-                      else setDraftDisabledFeats(p => [...p, fKey]);
+                      if (e.target.checked) setDraftDisabledFeats(p => p.filter(k => !fKeys.includes(k)));
+                      else setDraftDisabledFeats(p => Array.from(new Set([...p, ...fKeys])));
                     }}
                     style={{ opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ position: 'absolute', inset: 0, background: off ? '#e2e8f0' : '#22c55e', borderRadius: dims.h, transition: 'background 0.2s' }} />
-                  <span style={{ position: 'absolute', top: (dims.h - dims.ball) / 2, left: off ? (dims.h - dims.ball) / 2 : dims.w - dims.ball - (dims.h - dims.ball) / 2, width: dims.ball, height: dims.ball, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+                  <span style={{ position: 'absolute', inset: 0, background: allOn ? '#22c55e' : '#e2e8f0', borderRadius: dims.h, transition: 'background 0.2s' }} />
+                  <span style={{ position: 'absolute', top: (dims.h - dims.ball) / 2, left: allOn ? dims.w - dims.ball - (dims.h - dims.ball) / 2 : (dims.h - dims.ball) / 2, width: dims.ball, height: dims.ball, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
                 </label>
               );
             };
@@ -1795,20 +1812,31 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
             const DOT_COLOR: Record<string, string> = { on: '#22c55e', partial: '#f59e0b', off: '#ef4444' };
 
-            const SidebarBtn = ({ id, icon, label, dot }: { id: string; icon: string; label: string; dot?: { color: string } | null }) => (
-              <button
-                onClick={() => setFeatSection(id)}
-                className={`sidebar-nav-item${featSection === id ? ' sidebar-nav-item--active' : ''}`}
-                style={{ marginBottom: 2 }}
-              >
-                <span className="sidebar-nav-icon">{icon}</span>
-                <span className="sidebar-nav-label">{label}</span>
-                {dot
-                  ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
-                  : <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>
-                }
-              </button>
-            );
+            // node (اختياري): عند تمريره، يظهر بجانب الاسم زر تشغيل/إيقاف كلي للميزة
+            // (وكل ميزاتها الفرعية) دون الحاجة لفتحها أولاً. عنصر <div role="button">
+            // بدل <button> لأن التبديل هو input متداخل داخل الصف، والمتصفح لا يسمح
+            // بعنصر تفاعلي (input) داخل <button> فعلياً.
+            const SidebarBtn = ({ id, icon, label, dot, node }: { id: string; icon: string; label: string; dot?: { color: string } | null; node?: FeatureNode }) => {
+              const keys = node ? nodeAllKeys(node) : [];
+              return (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setFeatSection(id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFeatSection(id); } }}
+                  className={`sidebar-nav-item${featSection === id ? ' sidebar-nav-item--active' : ''}`}
+                  style={{ marginBottom: 2 }}
+                >
+                  <span className="sidebar-nav-icon">{icon}</span>
+                  <span className="sidebar-nav-label">{label}</span>
+                  {dot
+                    ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
+                    : (!node && <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>)
+                  }
+                  {keys.length > 0 && <MiniToggle fKeys={keys} size="sm" />}
+                </div>
+              );
+            };
 
             const SectionLabel = ({ text }: { text: string }) => (
               <div style={{ fontSize: 9, fontWeight: 800, color: '#4b5d7c', padding: '4px 8px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>{text}</div>
@@ -1862,6 +1890,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             icon={node.icon}
                             label={node.label}
                             dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
+                            node={node}
                           />
                         );
                       })}
@@ -1885,6 +1914,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                 icon={node.icon}
                                 label={node.label}
                                 dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
+                                node={node}
                               />
                             );
                           })}
@@ -2052,8 +2082,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             {activeNode.desc && <div style={{ fontSize: 12, color: '#64748b' }}>{activeNode.desc}</div>}
                             {parentOff && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: 600 }}>⛔ هذه الصفحة / الميزة معطّلة بالكامل</div>}
                           </div>
-                          {activeNode.key
-                            ? <MiniToggle fKey={activeNode.key} size="lg" />
+                          {nodeAllKeys(activeNode).length > 0
+                            ? <MiniToggle fKeys={nodeAllKeys(activeNode)} size="lg" />
                             : <span style={{ background: '#e2e8f0', color: '#475569', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700 }}>دائماً متاح</span>
                           }
                         </div>
@@ -2081,7 +2111,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                     <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{child.label}</div>
                                     {child.desc && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{child.desc}</div>}
                                   </div>
-                                  {child.key && <MiniToggle fKey={child.key} size="sm" />}
+                                  {child.key && <MiniToggle fKeys={[child.key]} size="sm" />}
                                 </div>
                               );
                             })}
