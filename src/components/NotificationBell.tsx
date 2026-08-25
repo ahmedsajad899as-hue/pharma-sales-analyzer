@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -63,7 +64,29 @@ export default function NotificationBell({ compact = false }: { compact?: boolea
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // القائمة كانت absolute داخل حاويتها فتُقصّ عند ظهورها من مكان له overflow
+  // محدود (مثل نافذة «تبديل الحساب» الصغيرة) — الآن تُرسم عبر portal في
+  // document.body بموضع fixed محسوب من مكان الجرس، فتُعرض كاملة ومكبّرة دائماً
+  // بصرف النظر عن الحاوية التي استُدعيت منها.
+  const computePos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const width = Math.min(480, window.innerWidth - 16);
+    const spaceBelow = window.innerHeight - rect.bottom - 16;
+    const spaceAbove = rect.top - 16;
+    const openBelow = spaceBelow >= 260 || spaceBelow >= spaceAbove;
+    const maxHeight = Math.max(200, Math.min(640, openBelow ? spaceBelow : spaceAbove));
+    const top = openBelow ? rect.bottom + 6 : Math.max(8, rect.top - 6 - maxHeight);
+    let left = rect.right - width;
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    setPos({ top, left, width, maxHeight });
+  }, []);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -81,15 +104,23 @@ export default function NotificationBell({ compact = false }: { compact?: boolea
     return () => clearInterval(t);
   }, [load]);
 
-  // إغلاق عند النقر خارج القائمة
+  // إغلاق عند النقر خارج الزر أو القائمة (القائمة الآن في portal منفصل عن boxRef)
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (boxRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t)) return;
+      setOpen(false);
     };
+    const onResize = () => computePos();
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open, computePos]);
 
   const markRead = async (id: number | 'all') => {
     try {
@@ -117,7 +148,12 @@ export default function NotificationBell({ compact = false }: { compact?: boolea
   return (
     <div ref={boxRef} style={{ position: 'relative' }}>
       <button
-        onClick={() => { setOpen(o => !o); if (!open) load(); }}
+        ref={btnRef}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next) { load(); computePos(); }
+        }}
         title="الإشعارات"
         style={{
           position: 'relative', background: 'none', border: 'none', cursor: 'pointer',
@@ -133,12 +169,12 @@ export default function NotificationBell({ compact = false }: { compact?: boolea
         )}
       </button>
 
-      {open && (
-        <div style={{
-          position: 'absolute', insetInlineEnd: 0, top: '110%', width: 'min(400px, 92vw)',
+      {open && pos && createPortal(
+        <div ref={panelRef} style={{
+          position: 'fixed', top: pos.top, left: pos.left, width: pos.width,
           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
-          boxShadow: '0 18px 40px rgba(15,23,42,0.18)', zIndex: 3000, direction: 'rtl',
-          maxHeight: 460, overflowY: 'auto',
+          boxShadow: '0 18px 40px rgba(15,23,42,0.25)', zIndex: 100000, direction: 'rtl',
+          maxHeight: pos.maxHeight, overflowY: 'auto',
         }}>
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -218,7 +254,8 @@ export default function NotificationBell({ compact = false }: { compact?: boolea
               </div>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
