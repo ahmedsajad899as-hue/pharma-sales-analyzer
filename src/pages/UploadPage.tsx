@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useCallback, useEffect } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
+import FileRowsEditor from '../components/FileRowsEditor';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import ManualSalesModal from '../components/ManualSalesModal';
 import { useAuth } from '../context/AuthContext';
@@ -172,6 +173,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [menuOpenUp, setMenuOpenUp] = useState(false);
+  // محرّر صفوف الملف — يعدّل بيانات الملف نفسها فتنعكس في التقارير والتصدير
+  const [editorFile, setEditorFile] = useState<{ id: number; name: string } | null>(null);
   const [expandedSharesId, setExpandedSharesId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [syncDone, setSyncDone] = useState<number | null>(null);
@@ -1000,6 +1003,13 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                             🤖 تحليل الملف
                           </button>
 
+                          {/* تعديل الملف — للمالك فقط */}
+                          {f.userId === user?.id && (
+                            <button onClick={() => { setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
+                              📝 تعديل الملف
+                            </button>
+                          )}
+
                           {/* Currency convert */}
                           {hasFeature('currency_convert') && (
                             <button onClick={() => { openCurrencyModal(f); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
@@ -1709,6 +1719,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* محرّر صفوف الملف — التعديلات تُطبَّق على بيانات الملف فتظهر في التقارير والتصدير */}
+      {editorFile && (
+        <FileRowsEditor
+          fileId={editorFile.id}
+          fileName={editorFile.name}
+          onClose={() => setEditorFile(null)}
+          onSaved={() => { loadFiles(); }}
+        />
       )}
     </div>
   );

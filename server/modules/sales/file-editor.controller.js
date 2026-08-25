@@ -89,6 +89,9 @@ async function ensureSnapshot(fileId) {
       quantity: true, totalValue: true, saleDate: true, recordType: true,
       rawData: true, userId: true,
     },
+    // الترتيب ضروري: الاسترجاع يعيد الإدراج بترتيب المصفوفة، وبدونه تعود
+    // الصفوف بترتيب مختلف عن الملف الأصلي.
+    orderBy: { id: 'asc' },
   });
   await prisma.fileEditSnapshot.create({
     data: { fileId, rowCount: rows.length, payload: JSON.stringify(rows) },
