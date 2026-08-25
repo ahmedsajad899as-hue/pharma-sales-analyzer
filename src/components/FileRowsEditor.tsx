@@ -80,10 +80,22 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     return row.extra?.[field] ?? '';
   };
 
+  /**
+   * تسجيل تعديل خلية.
+   *
+   * الإغلاق (blur) يستدعي هذه الدالة حتى لو فتح المستخدم الخلية ثم خرج منها
+   * بلا كتابة — فكانت الخلية تُلوَّن كمعدَّلة لمجرّد النقر عليها. لذا نقارن
+   * بالنص الأصلي المعروض: إن تطابق نحذف التعديل بدل تسجيله، فيبقى التلوين
+   * (وحالة «توجد تغييرات») حكراً على ما تغيّر فعلاً — ويشمل ذلك إرجاع القيمة
+   * يدوياً إلى ما كانت عليه.
+   */
   const setValue = (id: number, field: string, value: any) => {
+    const row = rows.find(r => r.id === id);
     setPending(prev => {
       const next = new Map(prev);
-      next.set(cellKey(id, field), { id, field, value });
+      const key = cellKey(id, field);
+      if (row && String(value ?? '').trim() === origDisp(row, field)) next.delete(key);
+      else next.set(key, { id, field, value });
       return next;
     });
   };
@@ -121,14 +133,22 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     const n = numOf(raw);
     return (SIGNED_FIELDS.has(field) && isReturnType(recType)) ? -Math.abs(n) : n;
   };
-  /** قيمة الخلية كما تُعرض — الإرجاع بالسالب. */
-  const dispVal = (row: Row, field: string): string => {
-    const v = getValue(row, field);
-    if (!SIGNED_FIELDS.has(field) || !isReturnType(getValue(row, 'recordType'))) return fmtVal(v);
+  /** نص الخلية انطلاقاً من قيمة خام ونوع سجل — الإرجاع بالسالب. */
+  const dispOf = (v: any, recType: any, field: string): string => {
+    if (!SIGNED_FIELDS.has(field) || !isReturnType(recType)) return fmtVal(v);
     if (v === null || v === undefined || String(v).trim() === '') return '';
     const n = Number(String(v).trim().replace(/,/g, ''));
     return Number.isFinite(n) ? fmtVal(-Math.abs(n)) : fmtVal(v);
   };
+  /** قيمة الخلية كما تُعرض الآن — تشمل التعديلات المعلّقة. */
+  const dispVal = (row: Row, field: string) =>
+    dispOf(getValue(row, field), getValue(row, 'recordType'), field);
+  /** القيمة الخام كما وصلت من الخادم، بتجاهل أي تعديل معلّق. */
+  const rawOf = (row: Row, field: string) =>
+    (field in row ? (row as any)[field] : (row.extra?.[field] ?? ''));
+  /** نص الخلية قبل أي تعديل — مرجع المقارنة لمعرفة هل تغيّرت فعلاً. */
+  const origDisp = (row: Row, field: string) =>
+    dispOf(rawOf(row, field), rawOf(row, 'recordType'), field);
   /** نفس المنطق لصف جديد لم يُحفظ بعد. */
   const newRowSigned = (nr: any, field: string) => signedOf(nr[field], nr.recordType, field);
 
