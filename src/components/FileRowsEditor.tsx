@@ -7,6 +7,7 @@ interface Row {
   id: number;
   repName: string; areaName: string; itemName: string; customerName: string;
   quantity: number; totalValue: number; saleDate: string; recordType: string;
+  isManual?: boolean;
   extra: Record<string, any>;
 }
 interface Col { key: string; label: string; kind: 'core' | 'extra' }
@@ -370,6 +371,11 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
               مُعدَّل — نسخة أصلية محفوظة
             </span>
           )}
+          {rows.some(r => r.isManual) && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', borderRadius: 20, padding: '2px 8px' }}>
+              📷 الصفوف الخضراء أُضيفت من تحليل صور الفواتير
+            </span>
+          )}
           <button onClick={onClose} style={{ marginInlineStart: 'auto', background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#64748b' }}>✕</button>
         </div>
 
@@ -448,12 +454,14 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                   </tr>
                 ))}
                 {sortedRows.map((row, idx) => (
-                  <tr key={row.id} style={{ background: idx % 2 ? '#fafbfc' : '#fff' }}>
+                  <tr key={row.id} style={{ background: row.isManual ? '#dcfce7' : (idx % 2 ? '#fafbfc' : '#fff') }}>
                     <td style={{ ...TD, textAlign: 'center' }}>
                       <button onClick={() => setDeletedIds(p => new Set(p).add(row.id))}
                         title="حذف هذا الصف" style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
                     </td>
-                    <td style={{ ...TD, color: '#94a3b8' }}>{idx + 1}</td>
+                    <td style={{ ...TD, color: row.isManual ? '#15803d' : '#94a3b8' }} title={row.isManual ? 'أُضيف من تحليل صورة فاتورة' : undefined}>
+                      {idx + 1}{row.isManual ? ' 📷' : ''}
+                    </td>
                     {visibleCols.map(({ key: field }, ci) => {
                       const k = cellKey(row.id, field);
                       const changed = pending.has(k);

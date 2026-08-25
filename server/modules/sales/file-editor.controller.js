@@ -67,6 +67,42 @@ function buildRawKeyMap(sampleRaw) {
 }
 
 /**
+ * نسخة من buildRawKeyMap تفحص مفاتيح كل صفوف الملف (allKeys) بدل عيّنة صف
+ * واحد، وتُرجع كل التهجئات المطابقة لكل حقل أساسي (مصفوفة لا مفتاحاً واحداً).
+ * ملف واحد قد يخلط تهجئتين لنفس الحقل بين قسم المبيعات وقسم الإرجاعات (مثال
+ * فعلي: «الايتم» في قسم و«المادة» في آخر، وكلاهما ضمن COLUMN_ALIASES.item) —
+ * بعيّنة صف واحد كانت تهجئة القسم الآخر تسرّب كعمود «إضافي» يتيم منفصل بدل أن
+ * تندمج في نفس عمود الحقل الأساسي. تُستعمل في القراءة (getFileRows) فقط —
+ * الحفظ (saveFileRows) يبقى على buildRawKeyMap القديمة عمداً حتى لا تتغيّر
+ * آلية كتابة تعديلات الحقول الأساسية على rawData.
+ */
+function buildRawKeyMapMulti(allKeys) {
+  const byLower = new Map();
+  for (const k of allKeys) {
+    const norm = String(k).toLowerCase().trim();
+    if (!byLower.has(norm)) byLower.set(norm, []);
+    byLower.get(norm).push(k);
+  }
+  const pickAll = (aliases) => {
+    const found = [];
+    for (const a of aliases) {
+      const ks = byLower.get(String(a).toLowerCase().trim());
+      if (ks) found.push(...ks);
+    }
+    return found;
+  };
+  return {
+    repName:      pickAll(COLUMN_ALIASES.repName),
+    areaName:     pickAll(COLUMN_ALIASES.area),
+    itemName:     pickAll(COLUMN_ALIASES.item),
+    customerName: pickAll(COLUMN_ALIASES.customer),
+    quantity:     pickAll(COLUMN_ALIASES.quantity),
+    totalValue:   pickAll(COLUMN_ALIASES.totalValue),
+    saleDate:     pickAll(COLUMN_ALIASES.date),
+  };
+}
+
+/**
  * مبيعات الفواتير المصوّرة/اليدوية (ManualSalesModal) تُخزّن rawData بمفاتيح
  * إنجليزية حرفية (invoiceNumber/warehouse/unitPrice/bonus/company) بينما بقية
  * صفوف الملف (من الإكسل) تحمل ترويسات عربية — فبدون هذا التحويل كانت هذه
@@ -115,6 +151,16 @@ function groupOfExtra(key) {
   const norm = String(key).trim().toLowerCase();
   return EXTRA_ALIAS_GROUPS.find(g => g.some(a => a.toLowerCase() === norm)) ?? null;
 }
+
+/**
+ * «رقم المادة» يحمل كود الشركة في بعض الملفات على صفوف الإرجاعات تحديداً
+ * (حيث عمود «الشركة» نفسه فارغ) — نفس الملاحظة والمعالجة الموجودة أصلاً في
+ * تصدير التقارير (ReportsPage.tsx buildSheet/buildMergedSheet: "رقم المادة
+ * carries the company code on rows where الشركة is blank"). هنا نطبّق نفس
+ * المنطق على شبكة تعديل الملف: قيمة رقم المادة تُنقَل لعمود الشركة عندما
+ * تكون الشركة فارغة لذلك الصف تحديداً، والعمود نفسه لا يظهر بعدها منفصلاً.
+ */
+const ITEM_CODE_KEY_RE = /^رقم\s*الماد[ةه]$/;
 
 /** يتحقق أن المستخدم يملك الملف (التعديل مسموح للمالك فقط). */
 async function assertOwner(fileId, userId) {
@@ -175,26 +221,28 @@ export async function getFileRows(req, res) {
     // الإكسل كما قرأها المحلّل، فنمشي عليها بالترتيب بدل تجميع الأساسية أولاً.
     const orderedKeys = [];
     const seenKeys = new Set();
-    let sampleRaw = null;
     const parsed = sales.map(s => {
       let raw = {};
       try { if (s.rawData) raw = JSON.parse(s.rawData); } catch { /* صف بلا rawData صالح */ }
+      const isManual = raw?.source === 'manual-invoice';
       raw = translateManualInvoiceRaw(raw);
-      if (!sampleRaw && Object.keys(raw).length) sampleRaw = raw;
       for (const k of Object.keys(raw)) if (!seenKeys.has(k)) { seenKeys.add(k); orderedKeys.push(k); }
-      return { s, raw };
+      return { s, raw, isManual };
     });
-    const keyMap = buildRawKeyMap(sampleRaw || {});
+    // كل التهجئات الممكنة لكل حقل أساسي عبر كل صفوف الملف (لا عيّنة صف واحد)
+    const keyMapMulti = buildRawKeyMapMulti(orderedKeys);
     const HIDDEN_KEYS = new Set(['_sheetName', '_addedInEditor']);
     // مفتاح rawData ← الحقل الأساسي الذي يمثّله
     const rawToCore = new Map();
-    for (const [field, rk] of Object.entries(keyMap)) if (rk) rawToCore.set(rk, field);
+    for (const [field, rks] of Object.entries(keyMapMulti)) for (const rk of rks) rawToCore.set(rk, field);
+    // «رقم المادة» يُعالَج بعد الحلقة (يندمج داخل عمود الشركة)، لا يظهر عموداً مستقلاً
+    const itemCodeKey = orderedKeys.find(k => ITEM_CODE_KEY_RE.test(k)) ?? null;
 
     const orderedColumns = [];
     const placedCore = new Set();
     const extraGroupPlaced = new Map(); // مجموعة ترادف ← عمودها الموحّد بالفعل
     for (const k of orderedKeys) {
-      if (HIDDEN_KEYS.has(k)) continue;
+      if (HIDDEN_KEYS.has(k) || k === itemCodeKey) continue;
       const core = rawToCore.get(k);
       if (core) {
         if (placedCore.has(core)) continue;
@@ -214,13 +262,25 @@ export async function getFileRows(req, res) {
       }
       orderedColumns.push({ key: k, label: k, kind: 'extra' });
     }
+    // رقم المادة يحمل كود الشركة على صفوف الشركة فيها فارغة — يُضاف كبديل أخير
+    // (أضعف أولوية) لعمود الشركة إن وُجد، أو يُنشئ عمود شركة له وحده إن لم يوجد
+    if (itemCodeKey) {
+      const companyGrp = groupOfExtra('الشركة');
+      let companyDef = orderedColumns.find(c => c.kind === 'extra' && groupOfExtra(c.key) === companyGrp);
+      if (companyDef) {
+        if (!companyDef.aliases) companyDef.aliases = [companyDef.key];
+        companyDef.aliases.push(itemCodeKey);
+      } else {
+        orderedColumns.push({ key: 'الشركة', label: 'الشركة', kind: 'extra', aliases: [itemCodeKey] });
+      }
+    }
     // حقول أساسية لا عمود لها في الملف (مثل «النوع») تُلحق في النهاية
     for (const [field, label] of Object.entries(CORE_LABELS)) {
       if (!placedCore.has(field)) orderedColumns.push({ key: field, label, kind: 'core' });
     }
     const extraDefs = orderedColumns.filter(c => c.kind === 'extra');
 
-    const rows = parsed.map(({ s, raw }) => {
+    const rows = parsed.map(({ s, raw, isManual }) => {
       const extra = {};
       for (const def of extraDefs) {
         if (def.aliases) {
@@ -243,6 +303,7 @@ export async function getFileRows(req, res) {
         totalValue:   s.totalValue,
         saleDate:     s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '',
         recordType:   s.recordType,
+        isManual,
         extra,
       };
     });
