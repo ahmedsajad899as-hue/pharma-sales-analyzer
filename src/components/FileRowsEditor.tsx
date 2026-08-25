@@ -9,7 +9,7 @@ interface Row {
   quantity: number; totalValue: number; saleDate: string; recordType: string;
   extra: Record<string, any>;
 }
-interface CoreCol { key: string; label: string }
+interface Col { key: string; label: string; kind: 'core' | 'extra' }
 
 type Edit = { id: number; field: string; value: any };
 
@@ -30,8 +30,10 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
   const [saving, setSaving]     = useState(false);
   const [err, setErr]           = useState('');
   const [rows, setRows]         = useState<Row[]>([]);
-  const [coreCols, setCoreCols] = useState<CoreCol[]>([]);
-  const [extraCols, setExtraCols] = useState<string[]>([]);
+  // ترتيب الأعمدة يأتي من السيرفر مطابقاً لترتيب الملف الأصلي
+  const [columns, setColumns] = useState<Col[]>([]);
+  // الترتيب الأبجدي: ضغطة على الترويسة ترتّب، وضغطة ثانية تُرجع ترتيب الملف
+  const [sortCol, setSortCol] = useState<string | null>(null);
   const [edited, setEdited]     = useState(false);
   const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
   const [search, setSearch]     = useState('');
@@ -51,8 +53,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
       .then(j => {
         if (!j.success) throw new Error(j.error || 'تعذّر تحميل الصفوف');
         setRows(j.data.rows || []);
-        setCoreCols(j.data.coreColumns || []);
-        setExtraCols(j.data.extraColumns || []);
+        setColumns(j.data.columns || []);
         setEdited(!!j.data.edited);
         setSnapshotAt(j.data.snapshotAt ?? null);
       })
@@ -80,7 +81,19 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     });
   };
 
-  const visibleExtra = useMemo(() => extraCols.filter(c => !deletedCols.has(c)), [extraCols, deletedCols]);
+  const visibleCols = useMemo(() => columns.filter(c => !deletedCols.has(c.key)), [columns, deletedCols]);
+
+  /**
+   * تنظيف ضجيج الفاصلة العشرية الناتج عن تحويل العملة:
+   * 121140.0000000001 ← 121140 و 71579.99999999999 ← 71580.
+   * التقريب لخانتين ثم إسقاط الأصفار الزائدة.
+   */
+  const fmtVal = (v: any): string => {
+    if (v === null || v === undefined || v === '') return '';
+    const n = typeof v === 'number' ? v : (/^-?d*.?d+$/.test(String(v).trim()) ? Number(v) : NaN);
+    if (!Number.isFinite(n)) return String(v);
+    return String(Number(n.toFixed(2)));
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -92,6 +105,21 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     );
   }, [rows, deletedIds, search]);
 
+  const sortedRows = useMemo(() => {
+    if (!sortCol) return filtered; // بلا فرز = ترتيب الملف كما رُفع
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const av = getValue(a, sortCol);
+      const bv = getValue(b, sortCol);
+      const an = Number(av), bn = Number(bv);
+      const bothNumeric = av !== '' && bv !== '' && Number.isFinite(an) && Number.isFinite(bn);
+      // الأعمدة الرقمية تُرتَّب رقمياً — الترتيب النصي يضع 100 قبل 9
+      if (bothNumeric) return an - bn;
+      return String(av ?? '').localeCompare(String(bv ?? ''), 'ar');
+    });
+    return arr;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, sortCol, pending]);
   const save = async () => {
     if (!dirty) return;
     setSaving(true); setErr('');
@@ -144,7 +172,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
       quantity: 0, totalValue: 0,
       saleDate: new Date().toISOString().slice(0, 10),
       recordType: 'sale',
-      extra: Object.fromEntries(visibleExtra.map(c => [c, ''])),
+      extra: Object.fromEntries(visibleCols.filter(c => c.kind === 'extra').map(c => [c.key, ''])),
     };
     setNewRows(prev => [...prev, blank]);
   };
@@ -223,16 +251,23 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                 <tr>
                   <th style={{ ...TH, width: 34 }} />
                   <th style={{ ...TH, width: 46 }}>#</th>
-                  {coreCols.map(c => <th key={c.key} style={TH}>{c.label}</th>)}
-                  {visibleExtra.map(c => (
-                    <th key={c} style={TH}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        {c}
+                  {visibleCols.map(c => (
+                    <th key={c.key} style={TH}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         <button
-                          onClick={() => { if (confirm('حذف عمود «' + c + '» من كل صفوف الملف؟')) setDeletedCols(p => new Set(p).add(c)); }}
-                          title="حذف هذا العمود من كل الصفوف"
-                          style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 11, padding: 0 }}
-                        >✕</button>
+                          onClick={() => setSortCol(prev => (prev === c.key ? null : c.key))}
+                          title={sortCol === c.key ? 'إلغاء الترتيب — رجوع لترتيب الملف' : 'ترتيب حسب هذا العمود'}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 800, color: sortCol === c.key ? '#4f46e5' : '#0f172a', padding: 0, fontFamily: 'inherit' }}
+                        >
+                          {c.label}{sortCol === c.key ? ' ▲' : ''}
+                        </button>
+                        {c.kind === 'extra' && (
+                          <button
+                            onClick={() => { if (confirm('حذف عمود «' + c.label + '» من كل صفوف الملف؟')) setDeletedCols(p => new Set(p).add(c.key)); }}
+                            title="حذف هذا العمود من كل الصفوف"
+                            style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 11, padding: 0 }}
+                          >✕</button>
+                        )}
                       </span>
                     </th>
                   ))}
@@ -246,28 +281,24 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                         title="إزالة الصف الجديد" style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
                     </td>
                     <td style={{ ...TD, color: '#7c3aed', fontWeight: 700 }}>جديد {i + 1}</td>
-                    {coreCols.map(c => (
+                    {visibleCols.map(c => (
                       <td key={c.key} style={TD}>
-                        <input value={nr[c.key] ?? ''} onChange={e => setNewVal(nr._tmp, c.key, e.target.value)}
-                          style={{ width: '100%', minWidth: 90, border: '1px solid #ddd6fe', borderRadius: 4, padding: '2px 4px', fontSize: 12, direction: 'rtl' }} />
-                      </td>
-                    ))}
-                    {visibleExtra.map(c => (
-                      <td key={c} style={TD}>
-                        <input value={nr.extra?.[c] ?? ''} onChange={e => setNewVal(nr._tmp, c, e.target.value)}
+                        <input
+                          value={(c.kind === 'core' ? nr[c.key] : nr.extra?.[c.key]) ?? ''}
+                          onChange={e => setNewVal(nr._tmp, c.key, e.target.value)}
                           style={{ width: '100%', minWidth: 90, border: '1px solid #ddd6fe', borderRadius: 4, padding: '2px 4px', fontSize: 12, direction: 'rtl' }} />
                       </td>
                     ))}
                   </tr>
                 ))}
-                {filtered.map((row, idx) => (
+                {sortedRows.map((row, idx) => (
                   <tr key={row.id} style={{ background: idx % 2 ? '#fafbfc' : '#fff' }}>
                     <td style={{ ...TD, textAlign: 'center' }}>
                       <button onClick={() => setDeletedIds(p => new Set(p).add(row.id))}
                         title="حذف هذا الصف" style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
                     </td>
                     <td style={{ ...TD, color: '#94a3b8' }}>{idx + 1}</td>
-                    {[...coreCols.map(c => c.key), ...visibleExtra].map(field => {
+                    {visibleCols.map(({ key: field }) => {
                       const k = cellKey(row.id, field);
                       const changed = pending.has(k);
                       const val = getValue(row, field);
@@ -276,7 +307,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                           onClick={() => { setEditingCell(k); requestAnimationFrame(() => inputRef.current?.focus()); }}
                           style={{ ...TD, background: changed ? '#ecfdf5' : undefined, fontWeight: changed ? 700 : 400 }}>
                           {editingCell === k ? (
-                            <input ref={inputRef} defaultValue={val ?? ''}
+                            <input ref={inputRef} defaultValue={fmtVal(val)}
                               onBlur={e => { setValue(row.id, field, e.target.value); setEditingCell(null); }}
                               onKeyDown={e => {
                                 if (e.key === 'Enter') { setValue(row.id, field, (e.target as HTMLInputElement).value); setEditingCell(null); }
@@ -284,7 +315,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                               }}
                               style={{ width: '100%', minWidth: 90, border: '1px solid #6366f1', borderRadius: 4, padding: '2px 4px', fontSize: 12, direction: 'rtl' }} />
                           ) : (
-                            String(val ?? '')
+                            fmtVal(val)
                           )}
                         </td>
                       );

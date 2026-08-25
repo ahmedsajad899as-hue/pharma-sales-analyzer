@@ -121,21 +121,43 @@ export async function getFileRows(req, res) {
       orderBy: { id: 'asc' },
     });
 
-    // أعمدة rawData الإضافية = كل مفاتيح rawData عبر كل الصفوف، ناقص المفاتيح
-    // التي تمثّل حقلاً أساسياً (تُعرض مرة واحدة كعمود أساسي لا مكرَّرة).
-    const extraKeys = new Set();
+    // ترتيب الأعمدة يتبع ترتيب الملف الأصلي: مفاتيح rawData تحفظ ترتيب أعمدة
+    // الإكسل كما قرأها المحلّل، فنمشي عليها بالترتيب بدل تجميع الأساسية أولاً.
+    const orderedKeys = [];
+    const seenKeys = new Set();
     let sampleRaw = null;
     const parsed = sales.map(s => {
       let raw = {};
       try { if (s.rawData) raw = JSON.parse(s.rawData); } catch { /* صف بلا rawData صالح */ }
       if (!sampleRaw && Object.keys(raw).length) sampleRaw = raw;
-      for (const k of Object.keys(raw)) extraKeys.add(k);
+      for (const k of Object.keys(raw)) if (!seenKeys.has(k)) { seenKeys.add(k); orderedKeys.push(k); }
       return { s, raw };
     });
     const keyMap = buildRawKeyMap(sampleRaw || {});
-    const usedByCore = new Set(Object.values(keyMap).filter(Boolean));
-    usedByCore.add('_sheetName');
-    const extraColumns = [...extraKeys].filter(k => !usedByCore.has(k));
+    const HIDDEN_KEYS = new Set(['_sheetName', '_addedInEditor']);
+    // مفتاح rawData ← الحقل الأساسي الذي يمثّله
+    const rawToCore = new Map();
+    for (const [field, rk] of Object.entries(keyMap)) if (rk) rawToCore.set(rk, field);
+
+    const orderedColumns = [];
+    const placedCore = new Set();
+    for (const k of orderedKeys) {
+      if (HIDDEN_KEYS.has(k)) continue;
+      const core = rawToCore.get(k);
+      if (core) {
+        if (placedCore.has(core)) continue;
+        placedCore.add(core);
+        // نُبقي ترويسة الملف الأصلية كعنوان للعمود بدل التسمية العامة
+        orderedColumns.push({ key: core, label: k, kind: 'core' });
+      } else {
+        orderedColumns.push({ key: k, label: k, kind: 'extra' });
+      }
+    }
+    // حقول أساسية لا عمود لها في الملف (مثل «النوع») تُلحق في النهاية
+    for (const [field, label] of Object.entries(CORE_LABELS)) {
+      if (!placedCore.has(field)) orderedColumns.push({ key: field, label, kind: 'core' });
+    }
+    const extraColumns = orderedColumns.filter(c => c.kind === 'extra').map(c => c.key);
 
     const rows = parsed.map(({ s, raw }) => ({
       id: s.id,
@@ -159,6 +181,7 @@ export async function getFileRows(req, res) {
       data: {
         fileId,
         fileName: guard.file.originalName,
+        columns: orderedColumns,
         coreColumns: Object.keys(CORE_LABELS).map(k => ({ key: k, label: CORE_LABELS[k] })),
         extraColumns,
         rows,
