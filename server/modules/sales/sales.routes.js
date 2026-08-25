@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, extractInvoice, addManualSales } from './sales.controller.js';
+import { uploadSales, extractInvoice, addManualSales, checkNames } from './sales.controller.js';
 import { getFileRows, saveFileRows, restoreFileRows } from './file-editor.controller.js';
 
 const router = Router();
@@ -65,6 +65,12 @@ router.post('/sales/extract-invoice', imageUpload.array('images', 10), extractIn
  * Persists reviewed rows as Sale records.
  */
 router.post('/sales/manual', addManualSales);
+
+/**
+ * POST /api/sales/check-names
+ * JSON: { rows: [{ item, company }] }. يُرجع الأسماء المتشابهة التي تحتاج تأكيداً.
+ */
+router.post('/sales/check-names', checkNames);
 
 /**
  * محرّر الملف المرفوع — تعديل صفوف الإكسل بعد رفعه.

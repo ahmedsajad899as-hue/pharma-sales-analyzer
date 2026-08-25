@@ -4,7 +4,8 @@
  * Delegates all business logic to the service layer.
  */
 
-import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales } from './sales.service.js';
+import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
+  checkManualNames } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
 /**
@@ -99,7 +100,7 @@ export async function extractInvoice(req, res, next) {
  */
 export async function addManualSales(req, res, next) {
   try {
-    const { rows, target } = req.body || {};
+    const { rows, target, rememberItems } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new AppError('لا توجد صفوف للحفظ.', 400, 'NO_ROWS');
     }
@@ -108,8 +109,27 @@ export async function addManualSales(req, res, next) {
       target:     target || {},
       userId:     req.user?.id ?? null,
       uploadedBy: req.user?.username || null,
+      rememberItems: Array.isArray(rememberItems) ? rememberItems : [],
     });
     return res.status(201).json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sales/check-names
+ * يفحص أسماء الايتمات والشركات في الصفوف قبل حفظها ويُرجع ما يحتاج تأكيد
+ * المستخدم. قراءة فقط — لا يُنشئ ولا يُعدّل شيئاً.
+ *
+ * Body: { rows: [{ item, company }] }
+ * 200: { success, data: { items, companies, scope } }
+ */
+export async function checkNames(req, res, next) {
+  try {
+    const { rows } = req.body || {};
+    const data = await checkManualNames({ rows, userId: req.user?.id ?? null });
+    return res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

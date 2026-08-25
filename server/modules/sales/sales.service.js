@@ -18,10 +18,10 @@ import {
   createUploadedFile,
   getAllCompanies,
 } from './sales.repository.js';
-import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
+import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
-import { loadResolutionContext, resolveItemName } from '../../lib/itemResolver.js';
+import { loadResolutionContext, resolveItemName, normalizeItemKey } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -1217,6 +1217,81 @@ export async function filterRowsToAssignedItems(rows, userId) {
 }
 
 /**
+ * فحص أسماء الايتمات والشركات قبل حفظ صفوف الإدخال اليدوي / فاتورة الصورة.
+ *
+ * لا يكتب شيئاً — يُرجع لكل اسم حالته كي تسأل الواجهة المستخدم عند الشك بدل أن
+ * يقرّر النظام صامتاً. الحالات:
+ *   exact : تطابق تام أو قاعدة توحيد محفوظة → يُوحَّد الاسم بلا سؤال
+ *   ask   : تشابه غير قاطع (مرشّح واحد أو أكثر) → يؤكّد المستخدم
+ *   new   : لا شبيه → يُضاف كاسم جديد بلا سؤال
+ *
+ * ملاحظة على «مرشّح واحد»: مسار رفع الإكسل يربطه تلقائياً (ثقة high)، لكن هنا
+ * نسأل عنه أيضاً — فأسماء الفواتير تأتي من قراءة صورة وقد تُخطئ حرفاً، والسؤال
+ * مرة واحدة أرخص من مبيعات تُنسب لايتم خاطئ.
+ *
+ * نطاق مطابقة الايتمات: الايتمات المعيَّنة للمستخدم إن وُجدت (وهي ما يعنيه
+ * المستخدم بـ«ايتماته»)، وإلا كتالوج شركاته العلمية — نفس اصطلاح
+ * resolveEffectiveItemIds: تعيين فارغ لا يعني صفر ايتمات.
+ *
+ * @param {object}   opts
+ * @param {object[]} opts.rows   صفوف فيها { item, company }
+ * @param {number|null} opts.userId
+ * @returns {Promise<{ items: object[], companies: object[], scope: string }>}
+ */
+export async function checkManualNames({ rows, userId = null }) {
+  const list = Array.isArray(rows) ? rows : [];
+  const uniq = key => [...new Set(list.map(r => String(r?.[key] ?? '').trim()).filter(Boolean))];
+  const itemNames    = uniq('item');
+  const companyNames = uniq('company');
+
+  // ── سياق الايتمات ──
+  let ctx = null;
+  let scope = 'none';
+  const assigned = await getAssignedItemsCatalog(userId);
+  if (assigned && assigned.length > 0) {
+    ctx = { catalog: assigned, catalogById: new Map(assigned.map(c => [c.id, c])), aliasMap: new Map() };
+    scope = 'assigned';
+  } else if (userId) {
+    const ua = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    const ids = ua.map(c => c.companyId).filter(Boolean);
+    ctx = await loadResolutionContext({ scientificCompanyIds: ids, userId });
+    scope = ids.length > 0 ? 'catalog' : 'user-items';
+  }
+
+  const items = [];
+  for (const raw of itemNames) {
+    if (!ctx || ctx.catalog.length === 0) { items.push({ raw, status: 'new', suggestions: [] }); continue; }
+    const r = await resolveItemName(raw, ctx);
+    if (r.confidence === 'alias' || r.confidence === 'exact') {
+      items.push({ raw, status: 'exact', canonical: r.canonicalItem, suggestions: [] });
+    } else if (r.suggestions.length > 0) {
+      items.push({ raw, status: 'ask', suggestions: r.suggestions.slice(0, 5) });
+    } else {
+      items.push({ raw, status: 'new', suggestions: [] });
+    }
+  }
+
+  // ── الشركات: تُطابَق مع شركات المستخدم القائمة (نموذج Company لا الكتالوج العلمي) ──
+  const existingCompanies = userId ? await getAllCompanies(userId) : [];
+  const companies = [];
+  for (const raw of companyNames) {
+    const key = normalizeItemKey(raw);
+    const exact = existingCompanies.find(c => normalizeItemKey(c.name) === key);
+    if (exact) {
+      companies.push({ raw, status: 'exact', canonical: { id: exact.id, name: exact.name }, suggestions: [] });
+      continue;
+    }
+    const cands = existingCompanies
+      .filter(c => areSimilar(raw, c.name))
+      .map(c => ({ id: c.id, name: c.name, sim: similarity(key, normalizeItemKey(c.name)) }))
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, 5);
+    companies.push({ raw, status: cands.length > 0 ? 'ask' : 'new', suggestions: cands });
+  }
+
+  return { items, companies, scope };
+}
+/**
  * Persist manual / invoice-extracted sale rows as Sale records — merged into an
  * existing UploadedFile or into a new one. Reuses the same normalization,
  * entity-resolution and rep auto-assignment as the Excel upload path.
@@ -1227,7 +1302,7 @@ export async function filterRowsToAssignedItems(rows, userId) {
  * @param {number|null} opts.userId
  * @param {string|null} opts.uploadedBy
  */
-export async function insertManualSales({ rows, target = {}, userId = null, uploadedBy = null }) {
+export async function insertManualSales({ rows, target = {}, userId = null, uploadedBy = null, rememberItems = [] }) {
   const normalizeAr = s => String(s ?? '')
     .trim()
     .replace(/[أإآٱ]/g, 'ا')
@@ -1389,10 +1464,34 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       .catch(() => {});
   }
 
+  // ── 8. حفظ قرارات التوحيد التي أكّدها المستخدم ──
+  // «هذا الاسم هو نفسه ذاك» يُسأل مرة واحدة فقط: القاعدة تُخزَّن بنطاق الشركة
+  // العلمية للايتم الهدف، فتصير المطابقة تالياً بثقة alias بلا سؤال — في هذا
+  // المسار وفي رفع الإكسل معاً.
+  let rememberedCount = 0;
+  for (const link of (Array.isArray(rememberItems) ? rememberItems : [])) {
+    const toItemId = Number(link?.toItemId);
+    const fromKey  = normalizeItemKey(link?.from ?? '');
+    if (!fromKey || !Number.isFinite(toItemId)) continue;
+    const target = await prisma.item.findUnique({
+      where: { id: toItemId }, select: { id: true, name: true, scientificCompanyId: true },
+    });
+    // بلا شركة علمية لا نطاق للقاعدة — نتخطّاها بدل كتابة قاعدة عامة تخصّ الجميع
+    if (!target?.scientificCompanyId) continue;
+    if (normalizeItemKey(target.name) === fromKey) continue; // الاسمان متطابقان أصلاً
+    await prisma.itemMergeRule.upsert({
+      where:  { scientificCompanyId_fromKey: { scientificCompanyId: target.scientificCompanyId, fromKey } },
+      update: { fromName: String(link.from), toName: target.name, toItemId: target.id },
+      create: { scientificCompanyId: target.scientificCompanyId, fromKey, fromName: String(link.from), toName: target.name, toItemId: target.id, userId },
+    }).catch(() => {}); // تذكّر القرار رفاهية — لا يُفشل حفظ المبيعات
+    rememberedCount++;
+  }
+
   return {
     addedCount:   validRows.length,
     merged,
     unknownItems,
+    rememberedCount,
     uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName },
   };
 }

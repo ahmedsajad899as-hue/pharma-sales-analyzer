@@ -41,6 +41,15 @@ interface Props {
   onSaved: (msg: string) => void;
 }
 
+/** نتيجة فحص اسم واحد كما يُرجعها /api/sales/check-names. */
+type NameCheck = {
+  raw: string;
+  status: 'exact' | 'ask' | 'new';
+  canonical?: { id: number; name: string };
+  suggestions: { id: number; name: string; sim: number }[];
+};
+type NameAsk = { items: NameCheck[]; companies: NameCheck[]; rows: any[] };
+
 const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
@@ -187,6 +196,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const [onlyAssignedItems, setOnlyAssignedItems] = useState(false); // فلترة الاستخراج على ايتمات المستخدم المعيّنة فقط
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [nameAsk, setNameAsk]   = useState<NameAsk | null>(null);
+  const [choice, setChoice]     = useState<Record<string, string>>({});
   const [error, setError]       = useState('');
   const [info, setInfo]         = useState('');
   const imgInputRef = useRef<HTMLInputElement>(null);
@@ -284,6 +296,37 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   }, [token, onlyAssignedItems]);
 
   // ── Save ──
+  /**
+   * الحفظ الفعلي. يُستدعى مباشرةً حين لا يوجد اسم ملتبس، أو بعد أن يبتّ
+   * المستخدم في نافذة التأكيد.
+   */
+  const doSave = async (payloadRows: any[], rememberItems: { from: string; toItemId: number }[]) => {
+    if (destMode === 'existing' && !destFileId) { setError('اختر ملفاً للدمج فيه.'); return; }
+    if (destMode === 'new' && !newFileName.trim()) { setError('اكتب اسماً للملف الجديد.'); return; }
+    const target = destMode === 'existing'
+      ? { fileId: destFileId }
+      : { newFileName: newFileName.trim(), sourceCurrency: newCurrency };
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/api/sales/manual`, {
+        method: 'POST',
+        headers: { ...authH, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: payloadRows, target, rememberItems }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
+      const added = j.data?.addedCount ?? payloadRows.length;
+      const remembered = j.data?.rememberedCount ?? 0;
+      onSaved(`تمت إضافة ${added} عملية بيع${j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}.`
+        + (remembered > 0 ? ` وحُفظ ${remembered} ربط اسم فلن يُسأل عنه مرة أخرى.` : ''));
+    } catch (e: any) {
+      setError(e.message || 'تعذّر الحفظ');
+    } finally {
+      setSaving(false);
+      setNameAsk(null);
+    }
+  };
+
   const onSave = async () => {
     setError(''); setInfo('');
     const payloadRows = rows
@@ -307,26 +350,82 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     if (destMode === 'existing' && !destFileId) { setError('اختر ملفاً للدمج فيه.'); return; }
     if (destMode === 'new' && !newFileName.trim()) { setError('اكتب اسماً للملف الجديد.'); return; }
 
-    const target = destMode === 'existing'
-      ? { fileId: destFileId }
-      : { newFileName: newFileName.trim(), sourceCurrency: newCurrency };
-
-    setSaving(true);
+    // ── فحص الأسماء قبل الحفظ ──
+    // التطابق التام يُوحَّد صامتاً؛ المتشابه غير القاطع يُعرَض للتأكيد؛ وتعذُّر
+    // الفحص لا يمنع الحفظ (نمضي بالأسماء كما كُتبت) كي لا يضيع عمل المستخدم.
+    setChecking(true);
+    let check: { items: NameCheck[]; companies: NameCheck[] } | null = null;
     try {
-      const res = await fetch(`${API}/api/sales/manual`, {
+      const res = await fetch(`${API}/api/sales/check-names`, {
         method: 'POST',
         headers: { ...authH, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: payloadRows, target }),
+        body: JSON.stringify({ rows: payloadRows.map(r => ({ item: r.item, company: r.company })) }),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
-      const added = j.data?.addedCount ?? payloadRows.length;
-      onSaved(`تمت إضافة ${added} عملية بيع${j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}.`);
-    } catch (e: any) {
-      setError(e.message || 'تعذّر الحفظ');
-    } finally {
-      setSaving(false);
+      if (res.ok) check = (await res.json()).data ?? null;
+    } catch { /* الفحص رفاهية — نكمل بلا توحيد */ }
+    setChecking(false);
+
+    const asks = check
+      ? [...check.items, ...check.companies].filter(e => e.status === 'ask')
+      : [];
+    if (asks.length > 0) {
+      setChoice({});
+      setNameAsk({ items: check!.items, companies: check!.companies, rows: payloadRows });
+      return; // ننتظر قرار المستخدم
     }
+
+    // لا التباس — وحّد ما تطابق تماماً ثم احفظ
+    const unified = check ? applyUnification(payloadRows, check.items, check.companies, {}).rows : payloadRows;
+    await doSave(unified, []);
+  };
+
+  /**
+   * يطبّق قرارات التوحيد على الصفوف.
+   *   exact → يُعتمد الاسم القانوني بلا سؤال
+   *   ask   → يُعتمد ما اختاره المستخدم؛ و«اسم جديد» يُبقي ما كتبه كما هو
+   * ويجمع روابط الايتمات المؤكَّدة كي يحفظها الخادم فلا يُسأل عنها ثانيةً.
+   */
+  const applyUnification = (
+    payloadRows: any[], items: NameCheck[], companies: NameCheck[], picks: Record<string, string>,
+  ) => {
+    const remember: { from: string; toItemId: number }[] = [];
+    const build = (list: NameCheck[], prefix: string, track: boolean) => {
+      const map = new Map<string, string>();
+      for (const e of list) {
+        if (e.status === 'exact' && e.canonical) { map.set(e.raw, e.canonical.name); continue; }
+        if (e.status !== 'ask') continue;
+        const pick = picks[prefix + e.raw];
+        if (!pick || pick === 'new') continue;   // اسم جديد → يبقى كما كُتب
+        const s = e.suggestions.find(x => String(x.id) === pick);
+        if (!s) continue;
+        map.set(e.raw, s.name);
+        if (track) remember.push({ from: e.raw, toItemId: s.id });
+      }
+      return map;
+    };
+    const itemMap = build(items, 'i|', true);
+    const compMap = build(companies, 'c|', false);
+    const out = payloadRows.map(r => ({
+      ...r,
+      item:    itemMap.get(r.item) ?? r.item,
+      company: r.company ? (compMap.get(r.company) ?? r.company) : r.company,
+    }));
+    return { rows: out, remember, itemMap, compMap };
+  };
+
+  /** تأكيد نافذة الأسماء: يوحّد، يعكس الأسماء في الجدول، ثم يحفظ. */
+  const confirmNames = async () => {
+    if (!nameAsk) return;
+    const { rows: finalRows, remember, itemMap, compMap } = applyUnification(
+      nameAsk.rows, nameAsk.items, nameAsk.companies, choice,
+    );
+    // يرى المستخدم الأسماء الموحَّدة في الجدول لا أسماءه الأصلية
+    setRows(rs => rs.map(r => ({
+      ...r,
+      item:    itemMap.get(r.item.trim()) ?? r.item,
+      company: compMap.get(r.company.trim()) ?? r.company,
+    })));
+    await doSave(finalRows, remember);
   };
 
   // ── Smart-confirm mode: walk each field, auto-zoom the image to it, and
@@ -408,8 +507,79 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     { key: 'area',          label: 'المنطقة',      w: 120 },
   ];
 
+  const askList = nameAsk
+    ? [
+        ...nameAsk.items.filter(e => e.status === 'ask').map(e => ({ e, kind: 'i' as const })),
+        ...nameAsk.companies.filter(e => e.status === 'ask').map(e => ({ e, kind: 'c' as const })),
+      ]
+    : [];
+  const allAnswered = askList.every(({ e, kind }) => choice[kind + '|' + e.raw]);
+
   return (
     <div style={overlay}>
+      {nameAsk && (
+        <div style={askOverlay} dir="rtl">
+          <div style={askPanel}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 800, color: '#1e293b' }}>
+              ⚠️ أسماء متشابهة — تأكيد قبل الإضافة
+            </h3>
+            <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
+              وجدنا أسماء قريبة مما هو مسجَّل عندك ولم نجزم أنها نفسها. أكّد لكل اسم:
+              هل هو نفس الموجود (فيُوحَّد معه) أم اسم جديد يُضاف كما هو؟ ما تؤكّده
+              للمواد يُحفظ فلا نسألك عنه مرة أخرى.
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button style={bulkBtn} onClick={() => setChoice(Object.fromEntries(
+                askList.map(({ e, kind }) => [kind + '|' + e.raw, String(e.suggestions[0]?.id ?? 'new')])))}>
+                ✅ الكل: نفس المقترح الأول
+              </button>
+              <button style={bulkBtn} onClick={() => setChoice(Object.fromEntries(
+                askList.map(({ e, kind }) => [kind + '|' + e.raw, 'new'])))}>
+                🆕 الكل: أسماء جديدة
+              </button>
+            </div>
+
+            <div style={{ maxHeight: '52vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {askList.map(({ e, kind }) => {
+                const key = kind + '|' + e.raw;
+                return (
+                  <div key={key} style={askCard}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                      {kind === 'i' ? '💊 مادة' : '🏭 شركة'} في فاتورتك:
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>{e.raw}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {e.suggestions.map(s => (
+                        <label key={s.id} style={{ ...askOpt, ...(choice[key] === String(s.id) ? askOptOn : null) }}>
+                          <input type="radio" name={key} checked={choice[key] === String(s.id)}
+                            onChange={() => setChoice(p => ({ ...p, [key]: String(s.id) }))} />
+                          <span>نعم، هو نفسه: <b>{s.name}</b></span>
+                          <span style={{ marginInlineStart: 'auto', fontSize: 11, color: '#94a3b8' }}>
+                            تشابه {Math.round(s.sim * 100)}%
+                          </span>
+                        </label>
+                      ))}
+                      <label style={{ ...askOpt, ...(choice[key] === 'new' ? askOptNew : null) }}>
+                        <input type="radio" name={key} checked={choice[key] === 'new'}
+                          onChange={() => setChoice(p => ({ ...p, [key]: 'new' }))} />
+                        <span>لا، اسم مختلف — أضِفه كما هو</span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+              <button onClick={() => setNameAsk(null)} disabled={saving} style={askCancel}>رجوع للتعديل</button>
+              <button onClick={confirmNames} disabled={!allAnswered || saving} style={{ ...askOk, opacity: allAnswered && !saving ? 1 : 0.5 }}>
+                {saving ? '⏳ جاري الحفظ…' : `تأكيد وحفظ (${askList.length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={panel} dir="rtl">
         <div style={header}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>➕ إضافة مبيعات من فاتورة / يدوياً</h3>
@@ -558,8 +728,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         {info && <div style={infoBox}>{info}</div>}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
-          <button onClick={onSave} disabled={saving || extracting} style={saveBtn}>
-            {saving ? '⏳ جاري الحفظ…' : '💾 حفظ المبيعات'}
+          <button onClick={onSave} disabled={saving || extracting || checking} style={saveBtn}>
+            {checking ? '🔎 جاري فحص الأسماء…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ المبيعات'}
           </button>
           <button onClick={onClose} style={cancelBtn}>إلغاء</button>
         </div>
@@ -593,6 +763,15 @@ const normDate = (v: any): string => {
 };
 
 // ── styles ──
+const askOverlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10050, padding: 16 };
+const askPanel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 620, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' };
+const askCard: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, background: '#f8fafc' };
+const askOpt: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 10px', cursor: 'pointer' };
+const askOptOn: React.CSSProperties = { borderColor: '#6366f1', background: '#eef2ff', fontWeight: 700 };
+const askOptNew: React.CSSProperties = { borderColor: '#f59e0b', background: '#fffbeb', fontWeight: 700 };
+const bulkBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#334155', cursor: 'pointer', fontFamily: 'inherit' };
+const askCancel: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' };
+const askOk: React.CSSProperties = { border: 'none', background: '#4f46e5', color: '#fff', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' };
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 9999, padding: '24px 12px', overflowY: 'auto' };
 const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 1120, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
 const header: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 };
