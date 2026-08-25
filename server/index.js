@@ -46,6 +46,7 @@ import companiesRoutes          from './modules/companies/companies.routes.js';
 import catalogImportRoutes      from './modules/companies/catalog-import.routes.js';
 import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
+import { GEMINI_DEFAULT_MODEL } from './modules/ai-assistant/ai-assistant.controller.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
 import trackingRoutes             from './modules/tracking/tracking.routes.js';
 import masterSurveyRoutes        from './modules/master-survey/master-survey.routes.js';
@@ -2612,11 +2613,16 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
     await prisma.uploadedFile.delete({ where: { id } });
 
     // 6. Remove physical file from disk if it still exists
-    const excelDir   = path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads', 'excel-files');
-    const legacyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads', file.filename);
-    const excelPath  = path.join(excelDir, file.filename);
-    if (fs.existsSync(excelPath)) fs.unlinkSync(excelPath);
-    else if (fs.existsSync(legacyPath)) fs.unlinkSync(legacyPath);
+    // نفس المواضع الأربعة التي يبحث فيها التحميل — وإلا بقيت ملفات يتيمة
+    const __sd = path.dirname(fileURLToPath(import.meta.url));
+    for (const candidate of [
+      path.join(__sd,             'uploads', 'excel-files', file.filename),
+      path.join(__sd, '..',       'uploads', 'excel-files', file.filename),
+      path.join(__sd,             'uploads', file.filename),
+      path.join(__sd, '..',       'uploads', file.filename),
+    ]) {
+      if (fs.existsSync(candidate)) { try { fs.unlinkSync(candidate); } catch { /* ignore */ } }
+    }
 
     // 7. Clean up orphan areas and items (no longer referenced by any sale)
     //    IMPORTANT: Do NOT delete areas/items that are still assigned to a scientific rep —
@@ -2666,10 +2672,17 @@ app.get('/api/files/:id/download', requireAuth, async (req, res) => {
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
 
     // Try disk first (excel-files subfolder, then legacy root)
-    const excelDir  = path.join(__serverDir, 'uploads', 'excel-files');
-    const legacyDir = path.join(__serverDir, 'uploads');
-    let filePath = path.join(excelDir, file.filename);
-    if (!fs.existsSync(filePath)) filePath = path.join(legacyDir, file.filename);
+    // الرافع يكتب في <root>/uploads/excel-files بينما القارئ كان يقرأ من
+    // <root>/server/uploads/excel-files — مجلدان مختلفان، فلم يُعثر على شيء.
+    // نبحث في الاثنين (والقديم) كي تعمل الملفات القديمة والجديدة معاً.
+    const rootDir   = path.join(__serverDir, '..');
+    const candidates = [
+      path.join(__serverDir, 'uploads', 'excel-files', file.filename),
+      path.join(rootDir,     'uploads', 'excel-files', file.filename),
+      path.join(__serverDir, 'uploads', file.filename),
+      path.join(rootDir,     'uploads', file.filename),
+    ];
+    let filePath = candidates.find(p => fs.existsSync(p)) || candidates[0];
 
     if (fs.existsSync(filePath)) {
       return res.download(filePath, file.originalName || file.filename);
@@ -3089,7 +3102,7 @@ app.get('/api/dashboard/active-stats', async (req, res) => {
 
 // ── Legacy AI Analysis Routes ────────────────────────────────
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GOOGLE_API_KEY || '');
-const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+const geminiModel = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
 
 // رفع الملف وقراءة البيانات
 app.post('/api/upload', upload.single('file'), async (req, res) => {
@@ -3892,7 +3905,7 @@ ${itemNames || '(لا توجد أيتمات)'}
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI  = new GoogleGenerativeAI(apiKey);
-    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model  = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
     const result = await model.generateContent([
       { inlineData: { mimeType, data: audioBase64 } },
       prompt,
@@ -3997,7 +4010,7 @@ ${areaNames}
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const genAI  = new GoogleGenerativeAI(apiKey);
-    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model  = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
     const result = await model.generateContent([
       { inlineData: { mimeType, data: audioBase64 } },
       prompt,

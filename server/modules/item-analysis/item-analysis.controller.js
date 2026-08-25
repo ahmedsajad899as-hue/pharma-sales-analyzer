@@ -1122,7 +1122,10 @@ ${hasRep ? `
 const AI_BATCH_SIZE = 40;
 // Faster models first — this is bulk structured extraction, not chat; flash-lite
 // answers a 40-item batch in seconds, so we rarely fall through to 2.5-flash.
-const AI_SURVEY_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash'];
+// سلّم حسّاس للزمن (تقرير الايتم ضخم وسبق أن تجاوز مهلة 55s): الأخفّ أولاً.
+// gemini-2.0-flash تقاعد. 2.5-flash-lite سجّل 12/12 في قياس دقّة هذا المجال،
+// فهو الأسرع والأدقّ معاً هنا. راجع GEMINI_MODELS في ai-assistant.controller.js.
+const AI_SURVEY_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
 function buildSurveyAnalysisPrompt(entries) {
   const entryList = entries.map(e => ({

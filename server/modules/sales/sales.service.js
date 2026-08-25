@@ -493,7 +493,12 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
   const savedFilename = `${Date.now()}_${safeOriginalName}`;
   const savedFilePath = path.join(EXCEL_UPLOADS_DIR, savedFilename);
   try {
-    writeFileSync(savedFilePath, fileBuffer);
+    // كان يشير إلى fileBuffer غير الموجود في هذا النطاق، فترمي ReferenceError
+    // ويبتلعها catch — فلم يُحفَظ أي ملف أصلي على القرص منذ ذلك الحين، وصار
+    // «تحميل الملف الأصلي» يرجّع 404. نشتقّ البايتات هنا كما في بقية المسارات.
+    const originalBytes = file.buffer || (file.path ? readFileSync(file.path) : null);
+    if (!originalBytes) throw new Error('لا توجد بايتات للملف (لا buffer ولا path)');
+    writeFileSync(savedFilePath, originalBytes);
   } catch (e) {
     console.warn('[upload] could not save original file to disk:', e.message);
   }

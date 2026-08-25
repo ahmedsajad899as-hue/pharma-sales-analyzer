@@ -2304,9 +2304,29 @@ function getNextApiKey() {
   _keyIndex = (_keyIndex + 1) % keys.length;
   return key;
 }
-// Models tried in order; each has its own quota pool, so falling back gives more headroom.
-// NOTE: gemini-1.5-flash was RETIRED by Google (returns 404 Not Found) → replaced with gemini-2.0-flash.
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+// النماذج تُجرَّب بالترتيب؛ لكل واحد حصّته، فالتراجع يوسّع الهامش.
+//
+// تاريخ التقاعد: gemini-1.5-flash ثم gemini-2.0-flash تقاعدا (404 Not Found).
+// لذا لا يُكتب اسم نموذج في أي مكان آخر — الكل يشير إلى هذه الثوابت.
+//
+// لماذا 2.5 قبل 3.x رغم أنها أحدث؟ قِسنا النماذج على مهام هذا التطبيق نفسه
+// (تمييز هوية الايتم، حساب الصافي بعد المرتجعات، قراءة فاتورة عربية، عدم
+// اختلاق بيانات) — 12 محاولة لكل نموذج:
+//   gemini-2.5-flash-lite  12/12   gemini-2.5-flash  11/12
+//   gemini-3.1-flash-lite   9/12   gemini-3.5-flash   6/12
+//   gemini-3.7-flash        1/12  ← يخلط AIRTIDE 100 بـ AIRTIDE 500
+// النماذج الأحدث تدمج جرعتين مختلفتين كمادة واحدة — وهو الخطأ الذي يحرسه
+// hasDifferentCoreNumbers في fuzzyMatch.js. وهي أبطأ ٣–٤ أضعاف أيضاً.
+// أعِد القياس قبل أي ترقية؛ لا ترقِّ لمجرّد أن الرقم أكبر.
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+
+// النموذج الافتراضي للنداءات المباشرة (التي لا تمرّ بسلّم التراجع).
+export const GEMINI_DEFAULT_MODEL = GEMINI_MODELS[0];
+
+// نماذج تقبل generationConfig.thinkingConfig. مقيسة فعلياً: gemini-3.6-flash
+// يرفضها ويرمي خطأً، ولو أُرسلت له لفشل النداء كلياً — لذا قائمة بيضاء لا سوداء.
+const THINKING_OK = ['gemini-2.5', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash'];
+const acceptsThinking = name => THINKING_OK.some(prefix => name.startsWith(prefix));
 
 // Default per-call timeout. Heavy callers (e.g. the item-analysis report, whose prompt is huge)
 // pass a larger `timeoutMs` via callGeminiSmart options — Nginx allows 300s so there is headroom.
@@ -2334,7 +2354,7 @@ export async function callGeminiSmart(parts, opts = {}) {
     // thinkingBudget: 0 disables the gemini-2.5 "thinking" phase, which otherwise
     // burns many seconds before any output — the main latency source on large
     // prompts (the item-analysis report). Null = leave the model default. Only
-    // applied to gemini-2.5* models; 2.0-flash rejects the field, so we omit it there.
+    // applied to النماذج التي تقبله (acceptsThinking) — غيرها يرفضه ويفشل النداء.
     thinkingBudget = null,
   } = opts;
   const keys = getAllApiKeys();
@@ -2349,7 +2369,7 @@ export async function callGeminiSmart(parts, opts = {}) {
       const key = keys[(_keyIndex + i) % keys.length];
       try {
         const modelParams = { model: modelName };
-        if (thinkingBudget != null && modelName.startsWith('gemini-2.5')) {
+        if (thinkingBudget != null && acceptsThinking(modelName)) {
           // Passed straight through to the REST API as generationConfig.thinkingConfig
           // (the SDK JSON-stringifies generationConfig verbatim, so unknown-to-the-typings
           // fields still reach the API).

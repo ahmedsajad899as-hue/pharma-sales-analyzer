@@ -4,6 +4,7 @@ import XLSX from 'xlsx';
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { GEMINI_DEFAULT_MODEL } from '../ai-assistant/ai-assistant.controller.js';
 
 // ── Helper: pick best available Gemini API key ──────────────
 function getGeminiApiKey() {
@@ -463,7 +464,7 @@ export async function suggest(req, res, next) {
         if (apiKey) {
           const { GoogleGenerativeAI } = await import('@google/generative-ai');
           const genAI = new GoogleGenerativeAI(apiKey);
-          const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+          const model = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
           const prompt = `أنت مساعد لبناء خطة زيارات شهرية لمندوب طبي.
 المستخدم كتب التعليمات التالية:
 "${noteText}"
@@ -1972,7 +1973,7 @@ export async function parseVoice(req, res, next) {
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
 
@@ -2190,7 +2191,7 @@ ${itemNames || '(لا توجد أيتمات)'}
     if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
 
     const genAI  = new GoogleGenerativeAI(apiKey);
-    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model  = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
     const result = await model.generateContent([
       { inlineData: { mimeType, data: audioBase64 } },
       prompt,
