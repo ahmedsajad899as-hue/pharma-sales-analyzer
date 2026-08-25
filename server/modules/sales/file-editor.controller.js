@@ -66,6 +66,56 @@ function buildRawKeyMap(sampleRaw) {
   };
 }
 
+/**
+ * مبيعات الفواتير المصوّرة/اليدوية (ManualSalesModal) تُخزّن rawData بمفاتيح
+ * إنجليزية حرفية (invoiceNumber/warehouse/unitPrice/bonus/company) بينما بقية
+ * صفوف الملف (من الإكسل) تحمل ترويسات عربية — فبدون هذا التحويل كانت هذه
+ * الحقول تظهر كأعمدة إنجليزية منفصلة بدل أن تنزل تحت نفس أعمدة «رقم الفاتورة/
+ * الشركة/سعر الوحدة/الكمية المجانية» الموجودة أصلاً في الملف، فتبدو فارغة.
+ * pharmacy تُحذَف لأنها مكرّرة مع عمود «الصيدلية» الأساسي (customerName)،
+ * وsource علامة داخلية لا تهم المستخدم.
+ * لا تُكتب القيمة إن كان المفتاح العربي موجوداً بالفعل (تعديل يدوي سابق) حتى
+ * لا يُستبدَل تعديل حديث بقيمة إنجليزية أقدم.
+ */
+function translateManualInvoiceRaw(raw) {
+  if (!raw || raw.source !== 'manual-invoice') return raw;
+  const out = { ...raw };
+  const move = (from, to) => {
+    if (out[from] === undefined) return;
+    if (out[to] === undefined && out[from] !== '' && out[from] !== null) out[to] = out[from];
+    delete out[from];
+  };
+  move('invoiceNumber', 'رقم الفاتورة');
+  move('warehouse',     'المذخر');
+  move('unitPrice',     'سعر الوحدة');
+  move('bonus',         'الكمية المجانية');
+  move('company',       'الشركة');
+  delete out.pharmacy;
+  delete out.source;
+  return out;
+}
+
+/**
+ * أعمدة إضافية (بلا FK) قد تحمل تهجئات مختلفة لنفس الحقل المنطقي بين أقسام/
+ * ملفات مختلفة (مثال شائع: قسم المبيعات وقسم الإرجاعات في نفس الملف يسمّيان
+ * عمود الشركة باسمين مختلفين) — بدون دمجها تظهر أعمدة شبه مكررة، نصفها فارغ
+ * حسب أي قسم يخصّ الصف. نفس مجموعات الترادف المستعملة في تصدير التقارير
+ * (ReportsPage.tsx buildSheet) لكن هنا فقط للحقول الإضافية غير الأساسية.
+ */
+const EXTRA_ALIAS_GROUPS = [
+  ['الشركة', 'الشركه', 'اسم الشركة', 'اسم الشركه'],
+  ['رقم الفاتورة', 'رقم الفاتوره', 'رقم طلبية المذخر', 'رقم طلبيه المذخر',
+   'رقم الطلبية', 'رقم الطلبيه', 'رقم الطلب'],
+  ['سعر الوحدة', 'سعر الوحده', 'السعر', 'سعر'],
+  ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
+   'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
+  ['المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'],
+];
+function groupOfExtra(key) {
+  const norm = String(key).trim().toLowerCase();
+  return EXTRA_ALIAS_GROUPS.find(g => g.some(a => a.toLowerCase() === norm)) ?? null;
+}
+
 /** يتحقق أن المستخدم يملك الملف (التعديل مسموح للمالك فقط). */
 async function assertOwner(fileId, userId) {
   const file = await prisma.uploadedFile.findUnique({
@@ -129,6 +179,7 @@ export async function getFileRows(req, res) {
     const parsed = sales.map(s => {
       let raw = {};
       try { if (s.rawData) raw = JSON.parse(s.rawData); } catch { /* صف بلا rawData صالح */ }
+      raw = translateManualInvoiceRaw(raw);
       if (!sampleRaw && Object.keys(raw).length) sampleRaw = raw;
       for (const k of Object.keys(raw)) if (!seenKeys.has(k)) { seenKeys.add(k); orderedKeys.push(k); }
       return { s, raw };
@@ -141,6 +192,7 @@ export async function getFileRows(req, res) {
 
     const orderedColumns = [];
     const placedCore = new Set();
+    const extraGroupPlaced = new Map(); // مجموعة ترادف ← عمودها الموحّد بالفعل
     for (const k of orderedKeys) {
       if (HIDDEN_KEYS.has(k)) continue;
       const core = rawToCore.get(k);
@@ -149,28 +201,51 @@ export async function getFileRows(req, res) {
         placedCore.add(core);
         // نُبقي ترويسة الملف الأصلية كعنوان للعمود بدل التسمية العامة
         orderedColumns.push({ key: core, label: k, kind: 'core' });
-      } else {
-        orderedColumns.push({ key: k, label: k, kind: 'extra' });
+        continue;
       }
+      const grp = groupOfExtra(k);
+      if (grp) {
+        if (extraGroupPlaced.has(grp)) continue; // قسم آخر بنفس الملف بتهجئة مختلفة — يندمج هنا
+        // المفتاح نفسه أولاً في قائمة البحث حتى يفوز تعديل حديث تحته على قيمة قديمة بتهجئة أخرى
+        const aliases = [k, ...grp.filter(a => a !== k)];
+        extraGroupPlaced.set(grp, aliases);
+        orderedColumns.push({ key: k, label: k, kind: 'extra', aliases });
+        continue;
+      }
+      orderedColumns.push({ key: k, label: k, kind: 'extra' });
     }
     // حقول أساسية لا عمود لها في الملف (مثل «النوع») تُلحق في النهاية
     for (const [field, label] of Object.entries(CORE_LABELS)) {
       if (!placedCore.has(field)) orderedColumns.push({ key: field, label, kind: 'core' });
     }
-    const extraColumns = orderedColumns.filter(c => c.kind === 'extra').map(c => c.key);
+    const extraDefs = orderedColumns.filter(c => c.kind === 'extra');
 
-    const rows = parsed.map(({ s, raw }) => ({
-      id: s.id,
-      repName:      s.representative?.name ?? '',
-      areaName:     s.area?.name ?? '',
-      itemName:     s.item?.name ?? '',
-      customerName: s.customer?.name ?? '',
-      quantity:     s.quantity,
-      totalValue:   s.totalValue,
-      saleDate:     s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '',
-      recordType:   s.recordType,
-      extra: Object.fromEntries(extraColumns.map(k => [k, raw[k] ?? ''])),
-    }));
+    const rows = parsed.map(({ s, raw }) => {
+      const extra = {};
+      for (const def of extraDefs) {
+        if (def.aliases) {
+          let v = '';
+          for (const a of def.aliases) {
+            if (raw[a] !== undefined && raw[a] !== null && raw[a] !== '') { v = raw[a]; break; }
+          }
+          extra[def.key] = v;
+        } else {
+          extra[def.key] = raw[def.key] ?? '';
+        }
+      }
+      return {
+        id: s.id,
+        repName:      s.representative?.name ?? '',
+        areaName:     s.area?.name ?? '',
+        itemName:     s.item?.name ?? '',
+        customerName: s.customer?.name ?? '',
+        quantity:     s.quantity,
+        totalValue:   s.totalValue,
+        saleDate:     s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '',
+        recordType:   s.recordType,
+        extra,
+      };
+    });
 
     const snapshot = await prisma.fileEditSnapshot.findUnique({
       where: { fileId }, select: { createdAt: true, rowCount: true },
@@ -183,7 +258,7 @@ export async function getFileRows(req, res) {
         fileName: guard.file.originalName,
         columns: orderedColumns,
         coreColumns: Object.keys(CORE_LABELS).map(k => ({ key: k, label: CORE_LABELS[k] })),
-        extraColumns,
+        extraColumns: extraDefs.map(c => c.key),
         rows,
         edited: !!snapshot,
         snapshotAt: snapshot?.createdAt ?? null,
