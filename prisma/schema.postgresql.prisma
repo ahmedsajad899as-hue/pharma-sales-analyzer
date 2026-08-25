@@ -125,7 +125,7 @@ model User {
   blockedItems          BlockedItem[]
   // Master on/off for this manager's block lists. When false the names are kept
   // but no blocking is applied anywhere. Default on (natural state is enabled).
-  blockingEnabled       Boolean @default(true)
+  blockingEnabled       Boolean                @default(true)
 
   @@index([officeId])
   @@map("users")
@@ -360,6 +360,8 @@ model UploadedFile {
   fileShares FileUserShare[]
 
   sales Sale[]
+
+  editSnapshot FileEditSnapshot?
 
   @@index([userId])
   @@index([sharedWithRepId])
@@ -1902,4 +1904,20 @@ model CompanyAlias {
   @@unique([officeId, fromKey])
   @@index([companyId])
   @@map("company_aliases")
+}
+
+// ─── لقطة الملف قبل أول تعديل يدوي ───────────────────────────
+// محرّر الملف يعدّل صفوف Sale مباشرةً (لأن التقارير تُبنى عليها لا على ملف
+// الإكسل — بايتات الملف الأصلي لا تُحفظ لملفات المبيعات). لذلك نأخذ لقطة
+// كاملة قبل أول تعديل كي يبقى «استرجاع الملف كما رُفع» ممكناً.
+model FileEditSnapshot {
+  id        Int      @id @default(autoincrement())
+  fileId    Int      @unique
+  payload   String // JSON: كل صفوف الملف كما كانت وقت اللقطة
+  rowCount  Int
+  createdAt DateTime @default(now())
+
+  file UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("file_edit_snapshots")
 }

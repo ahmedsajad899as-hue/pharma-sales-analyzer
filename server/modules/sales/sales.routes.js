@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { uploadSales, extractInvoice, addManualSales } from './sales.controller.js';
+import { getFileRows, saveFileRows, restoreFileRows } from './file-editor.controller.js';
 
 const router = Router();
 
@@ -64,5 +65,13 @@ router.post('/sales/extract-invoice', imageUpload.array('images', 10), extractIn
  * Persists reviewed rows as Sale records.
  */
 router.post('/sales/manual', addManualSales);
+
+/**
+ * محرّر الملف المرفوع — تعديل صفوف الإكسل بعد رفعه.
+ * التعديلات تُطبَّق على صفوف Sale مباشرةً فتنعكس في التقارير والتصدير فوراً.
+ */
+router.get('/files/:id/rows',     getFileRows);
+router.put('/files/:id/rows',     saveFileRows);
+router.post('/files/:id/restore', restoreFileRows);
 
 export default router;
