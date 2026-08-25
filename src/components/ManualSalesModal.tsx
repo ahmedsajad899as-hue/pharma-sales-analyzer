@@ -184,6 +184,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
   const [newCurrency, setNewCurrency] = useState<'IQD' | 'USD'>('IQD');
 
   const [reps, setReps]         = useState<Rep[]>([]);
+  const [onlyAssignedItems, setOnlyAssignedItems] = useState(false); // فلترة الاستخراج على ايتمات المستخدم المعيّنة فقط
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState('');
@@ -237,11 +238,18 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     try {
       const fd = new FormData();
       Array.from(fileList).forEach(f => fd.append('images', f));
+      if (onlyAssignedItems) fd.append('onlyAssignedItems', 'true');
       const res = await fetch(`${API}/api/sales/extract-invoice`, { method: 'POST', body: fd, headers: authH });
       const j = await res.json();
       if (!res.ok) throw new Error(j.message || j.error || 'فشل تحليل الصورة');
       const extracted: any[] = j.data?.rows ?? [];
-      if (extracted.length === 0) { setInfo('لم يتم استخراج أي صف من الصورة. جرّب صورة أوضح أو أدخل يدوياً.'); return; }
+      const droppedCount: number = j.data?.droppedCount ?? 0;
+      if (extracted.length === 0) {
+        setInfo(droppedCount > 0
+          ? `لم يُستخرج أي ايتم معيّن لك من هذه الصورة (تم تجاهل ${droppedCount} ايتم غير معيّن). جرّب تعطيل «ايتماتي فقط» إن أردت رؤيتها.`
+          : 'لم يتم استخراج أي صف من الصورة. جرّب صورة أوضح أو أدخل يدوياً.');
+        return;
+      }
       const mapped: Row[] = extracted.map(r => ({
         warehouse:     str(r.warehouse),
         invoiceNumber: str(r.invoiceNumber),
@@ -265,7 +273,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         const kept = rs.filter(rowHasData);
         return [...kept, ...mapped];
       });
-      setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`);
+      setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`
+        + (droppedCount > 0 ? ` (تم تجاهل ${droppedCount} ايتم غير معيّن لك)` : ''));
     } catch (e: any) {
       setError(e.message || 'تعذّر تحليل الصورة');
     } finally {
@@ -420,6 +429,11 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
               {extracting ? '⏳ جاري التحليل…' : '📷 رفع صورة فاتورة (تحليل ذكي)'}
             </button>
             <span style={{ fontSize: 11.5, color: '#94a3b8' }}>يفهم نماذج مختلفة · عدة صور (كل فاتورة بتفاصيلها)</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155', cursor: 'pointer', marginTop: 4 }}
+              title="عند التفعيل: تُستخرج فقط الايتمات المعيّنة لك، وباقي ايتمات الصورة تُهمَل ولا تُعرض. اسم الايتم يُوحَّد تلقائياً مع اسمه المعيّن.">
+              <input type="checkbox" checked={onlyAssignedItems} onChange={e => setOnlyAssignedItems(e.target.checked)} />
+              🎯 استخراج ايتماتي المعيّنة فقط
+            </label>
           </div>
           <label style={lbl}>المندوب*
             <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}

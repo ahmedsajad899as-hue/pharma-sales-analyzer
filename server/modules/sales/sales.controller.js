@@ -4,7 +4,7 @@
  * Delegates all business logic to the service layer.
  */
 
-import { processUploadedFile, extractInvoiceRows, insertManualSales } from './sales.service.js';
+import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
 /**
@@ -60,7 +60,12 @@ export async function uploadSales(req, res, next) {
  * Accepts one or more invoice IMAGES (multipart, field "images") and returns
  * AI-extracted sale rows for review. Does NOT save anything.
  *
- * Response 200: { success, data: { rows: [...] } }
+ * Body field "onlyAssignedItems" (optional, string 'true'/'1'): when set, rows
+ * whose item doesn't confidently match one of the user's assigned items
+ * (UserItemAssignment) are dropped, and kept rows' item names are rewritten to
+ * the assigned item's canonical name.
+ *
+ * Response 200: { success, data: { rows: [...], droppedCount } }
  */
 export async function extractInvoice(req, res, next) {
   try {
@@ -69,8 +74,13 @@ export async function extractInvoice(req, res, next) {
       throw new AppError('لم يتم إرسال أي صورة. أرسل ملفات الصور في الحقل "images".', 400, 'NO_IMAGES');
     }
     const images = files.map(f => ({ mimeType: f.mimetype, base64: f.buffer.toString('base64') }));
-    const rows = await extractInvoiceRows(images);
-    return res.json({ success: true, data: { rows } });
+    let rows = await extractInvoiceRows(images);
+    let droppedCount = 0;
+    const onlyAssigned = req.body?.onlyAssignedItems === 'true' || req.body?.onlyAssignedItems === '1';
+    if (onlyAssigned) {
+      ({ rows, droppedCount } = await filterRowsToAssignedItems(rows, req.user?.id ?? null));
+    }
+    return res.json({ success: true, data: { rows, droppedCount } });
   } catch (err) {
     next(err);
   }

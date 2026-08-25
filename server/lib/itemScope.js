@@ -58,3 +58,40 @@ export async function buildItemScopeFilter(userId) {
   // فالمقصود «لا شيء» لا «الكل».
   return { itemId: { in: ids } };
 }
+
+/**
+ * كتالوج ايتمات المستخدم المسموح بها (UserItemAssignment) — نفس التوسيع
+ * بالاسم القانوني المستعمل في resolveEffectiveItemIds، لكن يُرجع {id,name}[]
+ * كاملة بدل معرّفات فقط، لاستعمالها كـ«كتالوج» مطابقة (resolveItemName) عند
+ * تصفية/توحيد الايتمات المستخرجة من صور الفواتير على ايتمات المستخدم فقط.
+ *
+ * فارغة = بلا تقييد (نفس اصطلاح resolveEffectiveItemIds — تعيين فارغ لا يعني
+ * صفر ايتمات).
+ *
+ * @param {number|null} userId
+ * @returns {Promise<{id:number,name:string}[]|null>} null = بلا تقييد
+ */
+export async function getAssignedItemsCatalog(userId) {
+  if (!userId) return null;
+  const assigned = await prisma.userItemAssignment.findMany({
+    where:  { userId },
+    select: { item: { select: { id: true, name: true } } },
+  });
+  if (assigned.length === 0) return null;
+
+  const directItems = assigned.map(a => a.item).filter(Boolean);
+  const wantedKeys = new Set(directItems.map(i => normalizeItemKey(i.name || '')).filter(Boolean));
+  const allItems = wantedKeys.size > 0
+    ? await prisma.item.findMany({ where: { isTemp: false }, select: { id: true, name: true } })
+    : [];
+
+  const seen = new Set();
+  const catalog = [];
+  for (const it of [...directItems, ...allItems.filter(i => wantedKeys.has(normalizeItemKey(i.name || '')))]) {
+    const k = normalizeItemKey(it.name || '');
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    catalog.push(it);
+  }
+  return catalog;
+}

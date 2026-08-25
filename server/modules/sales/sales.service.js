@@ -21,7 +21,8 @@ import {
 import { buildNormalizationMap } from '../../lib/fuzzyMatch.js';
 import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
-import { loadResolutionContext } from '../../lib/itemResolver.js';
+import { loadResolutionContext, resolveItemName } from '../../lib/itemResolver.js';
+import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
@@ -1178,6 +1179,41 @@ export async function extractInvoiceRows(images) {
     throw new AppError('تعذّر تحليل الفاتورة عبر الذكاء الاصطناعي. جرّب صورة أوضح أو أدخل البيانات يدوياً.', 502, 'AI_EXTRACT_FAILED');
   }
   return allRows;
+}
+
+/**
+ * ميزة "استخراج ايتماتي المعينة فقط": تُبقي فقط صفوف الاستخراج التي تطابق
+ * (تطابقاً واثقاً — alias/تام/ضبابي وحيد لا لبس فيه) أحد ايتمات المستخدم
+ * المعيّنة له (UserItemAssignment)، وتُهمِل الباقي (لا تُعرض في شبكة المراجعة
+ * أصلاً). كل صف مُبقًى تُعاد كتابة اسم مادته إلى الاسم القانوني لذلك الايتم
+ * المعيّن مباشرة، فتظهر موحّدة في المراجعة قبل الحفظ، ويحفظها insertManualSales
+ * لاحقاً بنفس الاسم بلا التباس أو تكرار في التقارير.
+ *
+ * بلا تعيينات محفوظة للمستخدم = بلا تقييد (كل الصفوف تُبقى كما استُخرجت)، نفس
+ * اصطلاح resolveEffectiveItemIds — تعيين فارغ لا يعني "صفر ايتمات".
+ *
+ * @param {object[]} rows نتيجة extractInvoiceRows
+ * @param {number|null} userId
+ * @returns {Promise<{ rows: object[], droppedCount: number }>}
+ */
+export async function filterRowsToAssignedItems(rows, userId) {
+  const catalog = await getAssignedItemsCatalog(userId);
+  if (!catalog) return { rows, droppedCount: 0 }; // بلا تعيينات = بلا تقييد
+  const catalogById = new Map(catalog.map(c => [c.id, c]));
+  const ctx = { catalog, catalogById, aliasMap: new Map() };
+
+  const kept = [];
+  for (const row of rows) {
+    const name = String(row.item ?? '').trim();
+    if (!name) continue;
+    const r = await resolveItemName(name, ctx);
+    if (r.canonicalItem) {
+      row.item = r.canonicalItem.name; // توحيد الاسم مع الايتم المعيّن مباشرة
+      kept.push(row);
+    }
+    // else: لا تطابق واثق مع ايتمات المستخدم المعيّنة → يُهمَل
+  }
+  return { rows: kept, droppedCount: rows.length - kept.length };
 }
 
 /**
