@@ -11,6 +11,8 @@ import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
+import { extractCompanyFromCode } from '../../lib/companyResolver.js';
+import { normalizeItemKey } from '../../lib/itemResolver.js';
 
 const router = Router();
 
@@ -252,7 +254,20 @@ router.get('/overall', async (req, res) => {
     const itemMap     = new Map();
     const areaMap     = new Map();
     const areaItemMap = new Map(); // key: "areaName::itemName"
-    const companyMap  = new Map(); // key: companyName
+    const companyMap  = new Map(); // key: مفتاح موحَّد (طبّع + قُطعت لاحقة الدولة)
+    // اسم عرض واحد لكل شركة موحَّدة — أول صيغة تُصادَف تصير العرض الثابت لبقية
+    // الصفوف. بدونها: نفس الشركة تظهر DevaTurkeyN/A و deva و DEVA في 3 صفوف
+    // منفصلة، لأن رقم المادة الخام وحقل «الشركة» يُكتَبان بصيغ مختلفة صفاً
+    // بصف — والتجميع بالنص الحرفي لا يرى أنها نفس الشركة.
+    const companyDisplayByKey = new Map();
+    const canonicalCompany = (raw) => {
+      if (!raw) return null;
+      const stripped = extractCompanyFromCode(raw) || raw;
+      const key = normalizeItemKey(stripped);
+      if (!key) return null;
+      if (!companyDisplayByKey.has(key)) companyDisplayByKey.set(key, stripped);
+      return { key, display: companyDisplayByKey.get(key) };
+    };
     let totalQuantity = 0;
     let totalValue    = 0;
     let minDate = null;
@@ -273,16 +288,18 @@ router.get('/overall', async (req, res) => {
       if (s.item) {
         const key = s.item.id;
         // Priority: DB company relation → scientificCompany relation → rawData column
-        const companyName = s.item.company?.name ?? s.item.scientificCompany?.name ?? extractCompanyFromRaw(s.rawData) ?? null;
+        const rawCompanyName = s.item.company?.name ?? s.item.scientificCompany?.name ?? extractCompanyFromRaw(s.rawData) ?? null;
+        const company = canonicalCompany(rawCompanyName);
+        const companyName = company?.display ?? null;
         if (!itemMap.has(key)) itemMap.set(key, { itemName: s.item.name, companyName, totalQuantity: 0, totalValue: 0 });
         else if (!itemMap.get(key).companyName && companyName) itemMap.get(key).companyName = companyName;
         const r = itemMap.get(key);
         r.totalQuantity += qty;
         r.totalValue    += val;
-        // company aggregation
-        if (companyName) {
-          if (!companyMap.has(companyName)) companyMap.set(companyName, { companyName, totalQuantity: 0, totalValue: 0 });
-          const cr = companyMap.get(companyName);
+        // company aggregation — مفتاح موحَّد لا الاسم الخام
+        if (company) {
+          if (!companyMap.has(company.key)) companyMap.set(company.key, { companyName: company.display, totalQuantity: 0, totalValue: 0 });
+          const cr = companyMap.get(company.key);
           cr.totalQuantity += qty;
           cr.totalValue    += val;
         }

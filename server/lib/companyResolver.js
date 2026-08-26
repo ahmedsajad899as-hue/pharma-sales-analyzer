@@ -54,13 +54,23 @@ export function extractCompanyFromCode(code) {
   s = s.replace(/\s*N\s*[^A-Za-z0-9]?\s*A\s*$/i, '').trim();
 
   // 2) لاحقة الدولة (مرة واحدة — أطول تطابق أولاً)
+  //
+  // نجرّب أيضاً «الدولة + N» و«الدولة + A» — مسار المصفوفة القديم في
+  // sales.service.js يستخرج اسم الشركة بأخذ أول تسلسل حروف قبل أول رمز
+  // غير أبجدي، فيبتلع حرف N من «N/A» قبل الشرطة («DevaTurkeyN/A» يصير
+  // Company.name = «DevaTurkeyN» فعلياً في قاعدة البيانات — لا مجرّد نص
+  // خام). فشل الخطوة 1 أعلاه (لا شرطة، لا حرف A) يترك «N» شاردة ملتصقة
+  // باسم الدولة، وبدون هذا التجاوز تبقى «DevaTurkeyN» و«Deva» شركتين
+  // منفصلتين. لا تُعدَّل sales.service.js نفسها — هذا الملف مستقل عنها.
   const upper = s.toUpperCase();
+  let matchLen = 0;
   for (const c of COUNTRY_SUFFIXES) {
-    if (upper.endsWith(c) && upper.length > c.length) {
-      s = s.slice(0, s.length - c.length);
-      break;
+    for (const suffix of [c, c + 'N', c + 'A']) {
+      if (upper.endsWith(suffix) && upper.length > suffix.length) { matchLen = suffix.length; break; }
     }
+    if (matchLen) break;
   }
+  if (matchLen) s = s.slice(0, s.length - matchLen);
 
   // 3) فواصل زائدة على الطرفين
   return s.replace(/[-_\/\s]+$/, '').replace(/^[-_\/\s]+/, '').trim();
