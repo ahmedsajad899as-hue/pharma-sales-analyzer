@@ -379,6 +379,63 @@ export async function syncCommercialsByActiveFiles(fileIds) {
 }
 
 /**
+ * إضافة روابط مندوب-تجاري↔مندوب-علمي الناتجة عن صفوف مبيعات جديدة — بلا حذف
+ * أي رابط قائم (خلافاً لـ syncCommercialsByActiveFiles الذي يعيد الحساب من
+ * الصفر لقائمة ملفات بعينها).
+ *
+ * لماذا لا نستدعي syncCommercialsByActiveFiles مباشرة: «الملفات المفعّلة»
+ * مفهوم في متصفح المستخدم فقط (localStorage)، لا يملك الخادم رؤية عليه. لو
+ * أعدنا الحساب من صفر بملف واحد فقط لضاعت الروابط المشتقة من ملفات أخرى
+ * مفعّلة حالياً في المتصفح. الإضافة فقط آمنة أياً كانت تلك المجموعة: كل
+ * رابط نضيفه هنا صحيح بذاته (تقاطع منطقة فعلي)، فلا يمكن أن يُفسِد شيئاً.
+ *
+ * تُستدعى بعد إضافة مبيعات يدوية/فاتورة إلى ملف قد يكون مفعّلاً أصلاً — وهي
+ * الحالة التي كانت تُفلِت من المزامنة تماماً لأن toggleFileActive (الذي
+ * يُطلق المزامنة الكاملة في App.tsx) لا يتغيّر عند مجرّد إضافة صفوف لملف
+ * نشط أصلاً.
+ *
+ * @param {{areaId:number, representativeId:number}[]} pairs
+ * @returns {Promise<{added:number}>}
+ */
+export async function syncCommercialsForNewSales(pairs) {
+  const clean = (pairs || []).filter(p => p?.areaId && p?.representativeId);
+  if (clean.length === 0) return { added: 0 };
+
+  const areaIds = [...new Set(clean.map(p => p.areaId))];
+  const areas = await prisma.area.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true } });
+  const areaNormById = new Map(areas.map(a => [a.id, normalizeArabic(a.name)]));
+
+  const reps = await prisma.scientificRepresentative.findMany({
+    select: { id: true, areas: { select: { area: { select: { name: true } } } } },
+  });
+
+  const exclusionRows = await prisma.scientificRepCommercialExclusion.findMany({
+    select: { scientificRepId: true, commercialRepId: true },
+  });
+  const exclusionsByRep = new Map();
+  for (const e of exclusionRows) {
+    if (!exclusionsByRep.has(e.scientificRepId)) exclusionsByRep.set(e.scientificRepId, new Set());
+    exclusionsByRep.get(e.scientificRepId).add(e.commercialRepId);
+  }
+
+  const toCreate = [];
+  for (const sr of reps) {
+    const assignedNorms = new Set(sr.areas.map(a => normalizeArabic(a.area?.name)).filter(Boolean));
+    if (assignedNorms.size === 0) continue;
+    const excluded = exclusionsByRep.get(sr.id);
+    for (const pair of clean) {
+      const norm = areaNormById.get(pair.areaId);
+      if (!norm || !assignedNorms.has(norm)) continue;
+      if (excluded?.has(pair.representativeId)) continue;
+      toCreate.push({ scientificRepId: sr.id, commercialRepId: pair.representativeId });
+    }
+  }
+  if (toCreate.length === 0) return { added: 0 };
+  const result = await prisma.scientificRepCommercial.createMany({ data: toCreate, skipDuplicates: true });
+  return { added: result.count };
+}
+
+/**
  * Assign items by NAME (creates if missing), then set.
  */
 export async function assignItemsByName(id, itemNames, userId = null) {

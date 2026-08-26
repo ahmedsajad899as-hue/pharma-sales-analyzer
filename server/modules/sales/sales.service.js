@@ -23,6 +23,7 @@ import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from 
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { loadResolutionContext, resolveItemName, normalizeItemKey } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
+import { syncCommercialsForNewSales } from '../scientific-reps/scientific-reps.service.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
@@ -1469,6 +1470,12 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     ...repAreaPairs.map(p => prisma.representativeArea.upsert({ where: { representativeId_areaId: p }, update: {}, create: p })),
     ...repItemPairs.map(p => prisma.representativeItem.upsert({ where: { representativeId_itemId: p }, update: {}, create: p })),
   ]);
+
+  // ── 7ب. ربط المندوبين التجاريين الجدد بأي مندوب علمي مناطقه تتقاطع معهم ──
+  // بلا هذا، صفوف تُضاف إلى ملف مفعّل أصلاً تبقى غائبة عن «تحليل المندوبين
+  // العلميين» حتى يُعاد تفعيل/تعطيل ملف ما (وهو ما يُطلق المزامنة الكاملة
+  // في الواجهة) — إضافة فقط، لا تحذف أي رابط قائم.
+  await syncCommercialsForNewSales(repAreaPairs).catch(() => {}); // لا يُفشل الحفظ لو تعذّرت المزامنة
 
   // Merging into an existing file → keep its rowCount accurate
   if (merged) {
