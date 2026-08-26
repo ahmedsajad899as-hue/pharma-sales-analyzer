@@ -2533,7 +2533,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {overallFileIds.length === 0
                     ? '-- اختر ملف(ات) --'
                     : overallFileIds.length === 1
-                      ? (availableFiles.find(f => f.id === overallFileIds[0])?.filename ?? `ملف ${overallFileIds[0]}`)
+                      ? (() => {
+                          // نفس اسم الإكسل قد يتكرر لملفات مختلفة (رفع نفس
+                          // الملف أكثر من مرة) — الاسم وحده لا يميّز، فنضيف
+                          // عدد الصفوف والتاريخ كما في قائمة التحديد أدناه.
+                          const sel = availableFiles.find(f => f.id === overallFileIds[0]);
+                          if (!sel) return `ملف ${overallFileIds[0]}`;
+                          const meta = [sel.rowCount != null ? `${sel.rowCount} صف` : '', sel.uploadedAt ? new Date(sel.uploadedAt).toLocaleDateString('ar-IQ') : '']
+                            .filter(Boolean).join(' — ');
+                          return meta ? `${sel.filename} (${meta})` : sel.filename;
+                        })()
                       : `${overallFileIds.length} ملفات مختارة`}
                 </span>
               </button>

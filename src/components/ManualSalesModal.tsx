@@ -13,7 +13,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 
 const API = '';
 
-interface FileOpt { id: number; originalName: string; detectedCurrency?: string; }
+interface FileOpt { id: number; originalName: string; detectedCurrency?: string; rowCount?: number; uploadedAt?: string; }
 interface Rep { id: number; name: string; }
 
 interface Row {
@@ -38,7 +38,7 @@ interface Props {
   token: string;
   files: FileOpt[];
   onClose: () => void;
-  onSaved: (msg: string) => void;
+  onSaved: (msg: string, fileId?: number) => void;
 }
 
 /** نتيجة فحص اسم واحد كما يُرجعها /api/sales/check-names. */
@@ -318,7 +318,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       const added = j.data?.addedCount ?? payloadRows.length;
       const remembered = j.data?.rememberedCount ?? 0;
       onSaved(`تمت إضافة ${added} عملية بيع${j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}.`
-        + (remembered > 0 ? ` وحُفظ ${remembered} ربط اسم فلن يُسأل عنه مرة أخرى.` : ''));
+        + (remembered > 0 ? ` وحُفظ ${remembered} ربط اسم فلن يُسأل عنه مرة أخرى.` : ''),
+        j.data?.uploadedFile?.id);
     } catch (e: any) {
       setError(e.message || 'تعذّر الحفظ');
     } finally {
@@ -708,8 +709,16 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
           </div>
           {destMode === 'existing' ? (
             <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: 240 }}>
-                {files.map(f => <option key={f.id} value={f.id}>{f.originalName}</option>)}
+              <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: 280 }}>
+                {files.map(f => (
+                  <option key={f.id} value={f.id}>
+                    {f.originalName}
+                    {/* ملفات بنفس الاسم كثيرة هنا (نفس الإكسل يُرفع أكثر من مرة) — بلا
+                       هذا التمييز لا سبيل لمعرفة أي ملف هو المقصود فعلاً */}
+                    {f.rowCount != null ? ` — ${f.rowCount} صف` : ''}
+                    {f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
+                  </option>
+                ))}
               </select>
               <span style={{ fontSize: 12, color: '#64748b' }}>العملة: <b>{destCurrency}</b> — أدخل القيم بهذه العملة</span>
             </div>

@@ -798,11 +798,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       {showManualModal && (
         <ManualSalesModal
           token={token ?? ''}
-          files={files.map(f => ({ id: f.id, originalName: f.originalName, detectedCurrency: f.detectedCurrency }))}
+          files={files.map(f => ({ id: f.id, originalName: f.originalName, detectedCurrency: f.detectedCurrency, rowCount: f.rowCount, uploadedAt: f.uploadedAt }))}
           onClose={() => setShowManualModal(false)}
-          onSaved={async (msg) => {
+          onSaved={async (msg, fileId) => {
             setShowManualModal(false);
             setManualMsg(msg);
+            // بلا هذا يبقى ملف الفواتير اليدوية خارج «الملفات المفعّلة»، فتغيب
+            // مبيعاته عن كل تقرير يعتمد عليها (الشامل، العلمي، لوحة التحكم) —
+            // بخلاف الرفع العادي الذي يُفعّل ملفه الجديد تلقائياً (أعلاه).
+            if (fileId && !activeFileIds.includes(fileId)) onFileActivated(fileId);
             await loadFiles();
             setTimeout(() => setManualMsg(''), 12000);
           }}
