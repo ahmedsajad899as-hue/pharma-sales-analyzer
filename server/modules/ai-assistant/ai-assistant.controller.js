@@ -2312,13 +2312,13 @@ function getNextApiKey() {
 // لماذا 2.5 قبل 3.x رغم أنها أحدث؟ قِسنا النماذج على مهام هذا التطبيق نفسه
 // (تمييز هوية الايتم، حساب الصافي بعد المرتجعات، قراءة فاتورة عربية، عدم
 // اختلاق بيانات) — 12 محاولة لكل نموذج:
-//   gemini-2.5-flash-lite  12/12   gemini-2.5-flash  11/12
+//   gemini-2.5-flash-lite  12/12  ← الأول (الأدق والأسرع معاً)   gemini-2.5-flash  11/12
 //   gemini-3.1-flash-lite   9/12   gemini-3.5-flash   6/12
 //   gemini-3.7-flash        1/12  ← يخلط AIRTIDE 100 بـ AIRTIDE 500
 // النماذج الأحدث تدمج جرعتين مختلفتين كمادة واحدة — وهو الخطأ الذي يحرسه
 // hasDifferentCoreNumbers في fuzzyMatch.js. وهي أبطأ ٣–٤ أضعاف أيضاً.
 // أعِد القياس قبل أي ترقية؛ لا ترقِّ لمجرّد أن الرقم أكبر.
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
 // النموذج الافتراضي للنداءات المباشرة (التي لا تمرّ بسلّم التراجع).
 export const GEMINI_DEFAULT_MODEL = GEMINI_MODELS[0];
