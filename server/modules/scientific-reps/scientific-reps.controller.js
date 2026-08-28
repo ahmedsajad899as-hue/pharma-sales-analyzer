@@ -208,6 +208,29 @@ export async function setBlockedEntityEnabled(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── مطابقة أسماء المندوبين في ملفات ميركاتو ─────────────────────────────────
+export async function checkRepNames(req, res, next) {
+  try {
+    const fileIds = parseFileIds(req.query.fileIds);
+    const data = await svc.checkMercatoRepNames({ fileIds, user: req.user ?? null });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
+
+export async function saveRepNames(req, res, next) {
+  try {
+    const result = await svc.saveRepNameLinks(req.user?.id ?? null, req.body?.links);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+}
+
+export async function deleteRepNameLink(req, res, next) {
+  try {
+    await svc.removeRepNameLink(req.user?.id ?? null, req.params.fromKey);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 // ── حجب جزئي: مناطق محددة لمندوب تجاري محدد ─────────────────────────────────
 export async function listBlockedRepAreas(req, res, next) {
   try {

@@ -3,6 +3,7 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import FileRowsEditor from '../components/FileRowsEditor';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import ManualSalesModal from '../components/ManualSalesModal';
+import RepNameMatchModal from '../components/RepNameMatchModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -65,6 +66,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
   // Manual / invoice-image sales entry
   const [showManualModal, setShowManualModal] = useState(false);
+  // مطابقة أسماء المندوبين لملف ميركاتو — يحمل معرّفات الملفات المراد فحصها
+  const [repNameFileIds, setRepNameFileIds] = useState<number[] | null>(null);
   const [manualMsg, setManualMsg]             = useState('');
 
   // Use a ref so loadFiles doesn't re-run when activeFileIds changes (avoids re-fetch on toggle)
@@ -129,6 +132,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       await loadFiles();
       // Suggest merging any newly-created near-duplicate items (confirmation modal)
       checkSimilarItemsRef.current(unknownItems);
+      // ملف ميركاتو: افتح مطابقة أسماء المندوبين فوراً — بدونها تُنسب مبيعات
+      // المندوب المكتوب اسمه مختصراً إلى لا أحد.
+      const uploadedSource = data.data?.uploadedFile?.sourceSystem ?? data.uploadedFile?.sourceSystem;
+      if (newFileId && uploadedSource === 'mercato') setRepNameFileIds([newFileId]);
     } catch (err: any) {
       setError(err.message || t.upload.error);
     } finally {
@@ -324,6 +331,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
   // Back button: close open overlays in priority order
   useBackHandler([
     [catalogModal !== null, () => setCatalogModal(null)],
+    [repNameFileIds !== null, () => setRepNameFileIds(null)],
     [autoDedup !== null,    () => setAutoDedup(null)],
     [shareModalFile !== null, () => setShareModalFile(null)],
     [currencyModal !== null, () => setCurrencyModal(null)],
@@ -815,6 +823,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         />
       )}
 
+      {repNameFileIds && (
+        <RepNameMatchModal
+          token={token ?? ''}
+          fileIds={repNameFileIds}
+          onClose={() => setRepNameFileIds(null)}
+          onSaved={msg => { setManualMsg(msg); setTimeout(() => setManualMsg(''), 12000); }}
+        />
+      )}
+
       {progress > 0 && (
         <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, marginBottom: 8, overflow: 'hidden' }}>
           <div style={{ height: '100%', background: '#1e40af', width: `${progress}%`, transition: 'width 0.2s', borderRadius: 2 }} />
@@ -1070,10 +1087,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     </span>
                     <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
                     {f.sourceSystem === 'mercato' && (
-                      <span
-                        style={BADGE('#fff7ed', '#c2410c', '#fdba74')}
-                        title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. تُنسب مبيعاته للمندوب العلمي بمطابقة اسمه في الملف مباشرةً."
-                      >🏬 ميركاتو</span>
+                      <button
+                        onClick={() => setRepNameFileIds([f.id])}
+                        style={{ ...BADGE('#fff7ed', '#c2410c', '#fdba74'), cursor: 'pointer' }}
+                        title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
+                      >🏬 ميركاتو · مطابقة الأسماء</button>
                     )}
                     {isActive && <span style={BADGE('#dcfce7', '#15803d', '#86efac')}>✓ {t.upload.statusActive}</span>}
                     {isSharedByMe && (

@@ -22,6 +22,11 @@ router.post('/blocked-commercials',       ctrl.addBlockedCommercial);
 router.patch('/blocked-commercials/:blockId',  ctrl.setBlockedCommercialEnabled); // {enabled} — تعليق/استئناف بلا حذف
 router.delete('/blocked-commercials/:blockId', ctrl.removeBlockedCommercial);
 
+// مطابقة أسماء المندوبين في ملفات ميركاتو مع سجلات المندوبين العلميين — قبل /:id
+router.get('/rep-names/check',          ctrl.checkRepNames);   // ?fileIds=1,2
+router.post('/rep-names',               ctrl.saveRepNames);    // { links:[{fromName, scientificRepId|null}] }
+router.delete('/rep-names/:fromKey',    ctrl.deleteRepNameLink);
+
 // حجب جزئي: مناطق محددة لمندوب تجاري محدد — قبل /:id
 router.get('/blocked-rep-areas',        ctrl.listBlockedRepAreas);
 router.post('/blocked-rep-areas',       ctrl.addBlockedRepArea);       // { repName, areaName }

@@ -693,17 +693,155 @@ export async function getSciRepEffectiveItems(id) {
   });
   return { items, restricted: itemIds !== null };
 }
+/**
+ * تطبيع اسم شخص للمطابقة: توحيد الألف والتاء المربوطة، حذف التطويل والتشكيل،
+ * وطيّ المسافات. مصدر واحد للحقيقة يستعمله كل من مطابقة الأسماء المخزَّنة
+ * (SciRepNameLink.fromKey) ومطابقة صفوف المبيعات، فلا ينفرط المفتاحان.
+ * مطابق حرفياً لِما كان مضمَّناً داخل resolveSciRepSales قبلاً — لا تغيّره وحده.
+ */
+export const normalizeRepName = s => String(s ?? '').trim()
+  .replace(/[أإآٱ]/g, 'ا')
+  .replace(/ة/g, 'ه')
+  .replace(/ـ/g, '')
+  .replace(/[ً-ٟ]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/**
+ * درجة تشابه اسمَي شخص (0..1) على أساس الكلمات المشتركة لا الحروف:
+ * «محمد باقر» ⊂ «محمد باقر مرتضى» → احتواء تام. نشترط كلمتين مشتركتين على
+ * الأقل، وإلا لطابق كل «محمد» كل «محمد» آخر.
+ * @returns {number} 0 = لا تشابه يُعتد به
+ */
+export function repNameScore(a, b) {
+  const na = normalizeRepName(a), nb = normalizeRepName(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  const ta = na.split(' ').filter(Boolean);
+  const tb = nb.split(' ').filter(Boolean);
+  const setB = new Set(tb);
+  const shared = ta.filter(t => setB.has(t)).length;
+  if (shared < 2) return 0; // كلمة واحدة مشتركة (اسم أول شائع) ليست دليلاً
+  const containment = shared / Math.min(ta.length, tb.length); // 1 = الأقصر داخل الأطول
+  const overall     = shared / Math.max(ta.length, tb.length);
+  return containment * 0.7 + overall * 0.3;
+}
+
+/**
+ * يفحص أسماء المندوبين الواردة في ملفات ميركاتو المفعّلة ويصنّفها مقابل سجلات
+ * المندوبين العلميين. قراءة فقط — لا يُنشئ ولا يربط شيئاً.
+ *
+ * التصنيف:
+ *   linked → سبق أن أكّده المستخدم (أو استبعده) فلا يُسأل عنه
+ *   exact  → تطابق تام بعد التطبيع → يُربط تلقائياً بلا سؤال
+ *   ask    → مرشّحون متشابهون لكن بلا قطع → يُعرض للتأكيد
+ *   none   → بلا مرشّح — يبقى للمستخدم ربطه يدوياً إن شاء
+ *
+ * @param {{ fileIds:number[]|null, user:object }} opts
+ */
+export async function checkMercatoRepNames({ fileIds = null, user = null } = {}) {
+  const ids = Array.isArray(fileIds) ? fileIds.filter(Number.isInteger) : [];
+  if (ids.length === 0) return { entries: [], mercatoFileCount: 0, reps: [] };
+
+  // نقتصر على ملفات ميركاتو: في ملفات المكتب «اسم المندوب» مندوب تجاري لا علمي.
+  const files = await prisma.uploadedFile.findMany({
+    where:  { id: { in: ids } },
+    select: { id: true, sourceSystem: true },
+  });
+  const mercatoIds = files.filter(f => f.sourceSystem === 'mercato').map(f => f.id);
+  if (mercatoIds.length === 0) return { entries: [], mercatoFileCount: 0, reps: [] };
+
+  // أسماء المندوبين الفعلية داخل تلك الملفات
+  const rows = await prisma.sale.findMany({
+    where:    { uploadedFileId: { in: mercatoIds } },
+    select:   { representative: { select: { name: true } } },
+    distinct: ['representativeId'],
+  });
+  const fileNames = [...new Set(rows.map(r => r.representative?.name).filter(Boolean))];
+
+  // سجلات المندوبين العلميين كما يراها هذا المستخدم (نفس نطاق صفحة المندوبين)
+  const repList = await list({}, user ?? null, {});
+  const reps = repList
+    .map(r => ({ id: r.id, name: r.name }))
+    .filter(r => Number.isInteger(r.id) && r.name);
+
+  const userId = user?.id ?? null;
+  const linkRows = userId
+    ? await prisma.sciRepNameLink.findMany({
+        where:  { userId },
+        select: { fromKey: true, scientificRepId: true, scientificRep: { select: { id: true, name: true } } },
+      })
+    : [];
+  const linkByKey = new Map(linkRows.map(l => [l.fromKey, l]));
+  const repByKey  = new Map();
+  for (const r of reps) {
+    const k = normalizeRepName(r.name);
+    if (k && !repByKey.has(k)) repByKey.set(k, r);
+  }
+
+  const entries = fileNames.map(raw => {
+    const key = normalizeRepName(raw);
+    const link = linkByKey.get(key);
+    if (link) {
+      return {
+        raw, key, status: 'linked',
+        rep: link.scientificRep ? { id: link.scientificRep.id, name: link.scientificRep.name } : null,
+        suggestions: [],
+      };
+    }
+    const exact = repByKey.get(key);
+    if (exact) return { raw, key, status: 'exact', rep: exact, suggestions: [] };
+
+    const suggestions = reps
+      .map(r => ({ id: r.id, name: r.name, score: repNameScore(raw, r.name) }))
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    return { raw, key, status: suggestions.length > 0 ? 'ask' : 'none', rep: null, suggestions };
+  });
+
+  // الأكثر إلحاحاً أولاً: ما يحتاج قراراً، ثم غير المطابق، ثم المحسوم
+  const rank = { ask: 0, none: 1, linked: 2, exact: 3 };
+  entries.sort((a, b) => (rank[a.status] - rank[b.status]) || a.raw.localeCompare(b.raw, 'ar'));
+
+  return { entries, mercatoFileCount: mercatoIds.length, reps };
+}
+
+/**
+ * يحفظ قرارات المستخدم في مطابقة الأسماء. scientificRepId = null يعني «ليس
+ * أحد مندوبينا» ويُحفظ أيضاً كي لا يتكرّر السؤال عنه.
+ * @param {number} userId
+ * @param {{fromName:string, scientificRepId:number|null}[]} links
+ */
+export async function saveRepNameLinks(userId, links) {
+  if (!userId) throw new AppError('غير مصرح', 401, 'UNAUTHORIZED');
+  let saved = 0;
+  for (const l of (Array.isArray(links) ? links : [])) {
+    const fromName = String(l?.fromName ?? '').trim();
+    const fromKey  = normalizeRepName(fromName);
+    if (!fromKey) continue;
+    const repId = Number.isInteger(l?.scientificRepId) ? l.scientificRepId : null;
+    await prisma.sciRepNameLink.upsert({
+      where:  { userId_fromKey: { userId, fromKey } },
+      update: { fromName, scientificRepId: repId },
+      create: { userId, fromKey, fromName, scientificRepId: repId },
+    });
+    saved++;
+  }
+  return { saved };
+}
+
+/** يحذف ربط اسم محفوظاً — يعود الاسم ليُسأل عنه من جديد. */
+export async function removeRepNameLink(userId, fromKey) {
+  await prisma.sciRepNameLink.deleteMany({ where: { userId, fromKey: String(fromKey ?? '') } });
+  return { ok: true };
+}
+
 async function resolveSciRepSales(id, query = {}, select) {
   const rep = await assertExists(id);
 
   // ── Arabic normalizer (unify alef variants, teh marbuta, remove diacritics) ──
-  const _normalizeAr = s => String(s).trim()
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ـ/g, '')
-    .replace(/[ً-ٟ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const _normalizeAr = normalizeRepName;
 
   // ── 1. Load explicit commercial-rep assignments ───────────────────────────
   let commercialLinks = await prisma.scientificRepCommercial.findMany({
@@ -753,9 +891,17 @@ async function resolveSciRepSales(id, query = {}, select) {
     }
   }
 
+  // أسماء بديلة أكّدها المستخدم لهذا المندوب («محمد باقر» ← «محمد باقر مرتضى»).
+  // بدونها تُسقط المطابقةُ الحرفية مبيعاتِه كلها حين يُكتب اسمه مختصراً في الملف.
+  const nameLinkRows = await prisma.sciRepNameLink.findMany({
+    where:  { scientificRepId: id },
+    select: { fromKey: true },
+  });
+  const acceptedNameKeys = new Set([normalizedSciRepName, ...nameLinkRows.map(l => l.fromKey)]);
+
   const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
   const nameMatchCandidates = allMedReps
-    .filter(r => _normalizeAr(r.name) === normalizedSciRepName)
+    .filter(r => acceptedNameKeys.has(_normalizeAr(r.name)))
     .map(r => r.id);
 
   let nameMatchIds = [];

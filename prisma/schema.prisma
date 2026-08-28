@@ -110,6 +110,7 @@ model User {
   blockedPharmacies     BlockedPharmacy[]
   blockedItems          BlockedItem[]
   blockedRepAreas       BlockedRepArea[]
+  sciRepNameLinks       SciRepNameLink[]
   // Master on/off for this manager's block lists. When false the names are kept
   // but no blocking is applied anywhere. Default on (natural state is enabled).
   blockingEnabled       Boolean                @default(true)
@@ -509,6 +510,7 @@ model ScientificRepresentative {
   linkedUsers          User[]                             @relation("UserLinkedRep")
   locationPoints       RepLocationPoint[]
   sharedFiles          UploadedFile[]                     @relation("FileSharedWithRep")
+  nameLinks            SciRepNameLink[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -667,6 +669,27 @@ model BlockedPharmacy {
 
   @@unique([userId, name])
   @@map("blocked_pharmacies")
+}
+
+// مطابقة أسماء المندوبين في ملفات ميركاتو مع سجلات المندوبين العلميين.
+// الاسم في الملف قد يكون مختصراً («محمد باقر») عن الاسم المسجّل في التطبيق
+// («محمد باقر مرتضى»)، فالمطابقة الحرفية وحدها تُسقط مبيعاته. نسأل المستخدم مرة
+// واحدة عن كل اسم غير قاطع ثم نحفظ قراره هنا فلا يُسأل عنه ثانيةً.
+// scientificRepId = null يعني «ليس أحد مندوبينا» — يُحفظ أيضاً كي لا يتكرّر السؤال.
+model SciRepNameLink {
+  id              Int      @id @default(autoincrement())
+  fromKey         String // الاسم كما في الملف بعد التطبيع — مفتاح المطابقة
+  fromName        String // الاسم كما كُتب في الملف (للعرض)
+  scientificRepId Int?
+  userId          Int
+  createdAt       DateTime @default(now())
+
+  scientificRep ScientificRepresentative? @relation(fields: [scientificRepId], references: [id], onDelete: Cascade)
+  user          User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromKey])
+  @@index([scientificRepId])
+  @@map("sci_rep_name_links")
 }
 
 // حجب جزئي: منطقة محددة لمندوب تجاري محدد (لا المندوب كاملاً ولا المنطقة لكل
