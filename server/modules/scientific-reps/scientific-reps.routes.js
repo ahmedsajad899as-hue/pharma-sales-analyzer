@@ -19,11 +19,19 @@ router.patch('/blocking-enabled',         ctrl.setBlockingEnabled);
 
 router.get('/blocked-commercials',        ctrl.listBlockedCommercials);
 router.post('/blocked-commercials',       ctrl.addBlockedCommercial);
+router.patch('/blocked-commercials/:blockId',  ctrl.setBlockedCommercialEnabled); // {enabled} — تعليق/استئناف بلا حذف
 router.delete('/blocked-commercials/:blockId', ctrl.removeBlockedCommercial);
 
+// حجب جزئي: مناطق محددة لمندوب تجاري محدد — قبل /:id
+router.get('/blocked-rep-areas',        ctrl.listBlockedRepAreas);
+router.post('/blocked-rep-areas',       ctrl.addBlockedRepArea);       // { repName, areaName }
+router.patch('/blocked-rep-areas/:blockId',  ctrl.setBlockedRepAreaEnabled); // {enabled}
+router.delete('/blocked-rep-areas/:blockId', ctrl.removeBlockedRepArea);
+
 router.get('/:id/effective-items',  ctrl.getEffectiveItems);
-router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item
+router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item | pharmacy
 router.post('/blocked/:kind',       ctrl.addBlockedEntity);
+router.patch('/blocked/:kind/:blockId',  ctrl.setBlockedEntityEnabled); // {enabled} — تعليق/استئناف بلا حذف
 router.delete('/blocked/:kind/:blockId', ctrl.removeBlockedEntity);
 
 router.get('/:id',        ctrl.getRep);

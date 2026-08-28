@@ -160,6 +160,13 @@ export async function removeBlockedCommercial(req, res, next) {
   } catch (err) { next(err); }
 }
 
+export async function setBlockedCommercialEnabled(req, res, next) {
+  try {
+    await svc.setBlockedCommercialEnabled(req.user.id, +req.params.blockId, !!req.body?.enabled);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 // ── Globally-blocked areas / items ──────────────────────────────────────────
 const BLOCK_KINDS = new Set(['area', 'item', 'pharmacy']);
 
@@ -188,6 +195,47 @@ export async function removeBlockedEntity(req, res, next) {
     const kind = req.params.kind;
     if (!BLOCK_KINDS.has(kind)) return res.status(400).json({ error: 'نوع غير معروف' });
     await svc.removeBlockedEntity(kind, req.user.id, +req.params.blockId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+export async function setBlockedEntityEnabled(req, res, next) {
+  try {
+    const kind = req.params.kind;
+    if (!BLOCK_KINDS.has(kind)) return res.status(400).json({ error: 'نوع غير معروف' });
+    await svc.setBlockedEntityEnabled(kind, req.user.id, +req.params.blockId, !!req.body?.enabled);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+// ── حجب جزئي: مناطق محددة لمندوب تجاري محدد ─────────────────────────────────
+export async function listBlockedRepAreas(req, res, next) {
+  try {
+    const rows = await svc.listBlockedRepAreas(req.user.id);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+}
+
+export async function addBlockedRepArea(req, res, next) {
+  try {
+    const repName  = String(req.body?.repName || '').trim();
+    const areaName = String(req.body?.areaName || '').trim();
+    if (!repName || !areaName) return res.status(400).json({ error: 'اسم المندوب والمنطقة مطلوبان' });
+    const row = await svc.addBlockedRepArea(req.user.id, repName, areaName);
+    res.status(201).json({ success: true, data: row });
+  } catch (err) { next(err); }
+}
+
+export async function removeBlockedRepArea(req, res, next) {
+  try {
+    await svc.removeBlockedRepArea(req.user.id, +req.params.blockId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+export async function setBlockedRepAreaEnabled(req, res, next) {
+  try {
+    await svc.setBlockedRepAreaEnabled(req.user.id, +req.params.blockId, !!req.body?.enabled);
     res.json({ success: true });
   } catch (err) { next(err); }
 }

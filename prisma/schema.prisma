@@ -109,6 +109,7 @@ model User {
   blockedAreas          BlockedArea[]
   blockedPharmacies     BlockedPharmacy[]
   blockedItems          BlockedItem[]
+  blockedRepAreas       BlockedRepArea[]
   // Master on/off for this manager's block lists. When false the names are kept
   // but no blocking is applied anywhere. Default on (natural state is enabled).
   blockingEnabled       Boolean                @default(true)
@@ -600,9 +601,12 @@ model ScientificRepCommercialExclusion {
 // /overall) — but NOT from the owning manager's own overall-analysis view.
 // Scoped per manager (the user who owns the uploaded files) and matched to the
 // reps found in the files by NORMALIZED Arabic name.
+// enabled: تعليق مؤقت بلا حذف — يبقى الاسم محفوظاً في القائمة (لإعادة تفعيله لاحقاً
+// بلا كتابته من جديد) لكن لا يُطبَّق طالما enabled=false. الحذف الفعلي يبقى بالـ✕.
 model BlockedCommercialRep {
   id        Int      @id @default(autoincrement())
   name      String
+  enabled   Boolean  @default(true)
   userId    Int
   createdAt DateTime @default(now())
 
@@ -619,6 +623,7 @@ model BlockedCommercialRep {
 model BlockedArea {
   id        Int      @id @default(autoincrement())
   name      String
+  enabled   Boolean  @default(true)
   userId    Int
   createdAt DateTime @default(now())
 
@@ -632,6 +637,7 @@ model BlockedArea {
 model BlockedItem {
   id        Int      @id @default(autoincrement())
   name      String
+  enabled   Boolean  @default(true)
   userId    Int
   createdAt DateTime @default(now())
 
@@ -648,6 +654,7 @@ model BlockedItem {
 model BlockedPharmacy {
   id        Int      @id @default(autoincrement())
   name      String
+  enabled   Boolean  @default(true)
   userId    Int
   createdAt DateTime @default(now())
 
@@ -655,6 +662,24 @@ model BlockedPharmacy {
 
   @@unique([userId, name])
   @@map("blocked_pharmacies")
+}
+
+// حجب جزئي: منطقة محددة لمندوب تجاري محدد (لا المندوب كاملاً ولا المنطقة لكل
+// المندوبين) — مثال: حجب مندوب "أحمد" في منطقة "الكرادة" فقط، بينما تبقى بقية
+// مناطقه ومناطق باقي المندوبين ظاهرة. مطابقة بالاسم المطبَّع (نفس أسلوب بقية
+// نماذج الحجب) لأن كليهما نص حر لا FK.
+model BlockedRepArea {
+  id                Int      @id @default(autoincrement())
+  commercialRepName String
+  areaName          String
+  enabled           Boolean  @default(true)
+  userId            Int
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commercialRepName, areaName])
+  @@map("blocked_rep_areas")
 }
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────

@@ -82,13 +82,15 @@ router.get('/overall', async (req, res) => {
 
         const ownerIds = [...new Set(sharedFiles.map(f => f.userId).filter(Boolean))];
         if (ownerIds.length > 0) {
-          // Only apply block lists of owners who have blocking ENABLED (master switch).
-          const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true } };
-          const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
+          // Only apply block lists of owners who have blocking ENABLED (master switch)
+          // AND the block row itself isn't temporarily paused (enabled=false).
+          const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
+          const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows] = await Promise.all([
             prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
             prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
             prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
             prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
+            prisma.blockedRepArea.findMany({ where: blockWhere, select: { commercialRepName: true, areaName: true } }),
           ]);
 
           const blockedRepNorms = new Set(blockedRepRows.map(b => normalizeArabic(b.name)).filter(Boolean));
@@ -119,6 +121,28 @@ router.get('/overall', async (req, res) => {
             const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
             const blockedCustomerIds = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
             if (blockedCustomerIds.length > 0) blockFilterConditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
+          }
+
+          // حجب جزئي: مندوب تجاري محدد في مجموعة مناطق محددة له فقط (لا كل المندوب
+          // ولا كل المنطقة) — نفس المنطق المطبَّق في resolveSciRepSales.
+          if (blockedRepAreaRows.length > 0) {
+            const allMedRepsForBlock  = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
+            const allAreasForRepBlock = await prisma.area.findMany({ select: { id: true, name: true } });
+            const areasByRepNorm = new Map();
+            for (const row of blockedRepAreaRows) {
+              const rk = normalizeArabic(row.commercialRepName);
+              if (!areasByRepNorm.has(rk)) areasByRepNorm.set(rk, new Set());
+              areasByRepNorm.get(rk).add(normalizeArabic(row.areaName));
+            }
+            const repAreaConds = [];
+            for (const [repNorm, areaNormsSet] of areasByRepNorm) {
+              const repIdsForBlock  = allMedRepsForBlock.filter(r => normalizeArabic(r.name) === repNorm).map(r => r.id);
+              const areaIdsForBlock = allAreasForRepBlock.filter(a => areaNormsSet.has(normalizeArabic(a.name))).map(a => a.id);
+              if (repIdsForBlock.length > 0 && areaIdsForBlock.length > 0) {
+                repAreaConds.push({ representativeId: { in: repIdsForBlock }, areaId: { in: areaIdsForBlock } });
+              }
+            }
+            if (repAreaConds.length > 0) blockFilterConditions.push({ NOT: { OR: repAreaConds } });
           }
         }
       }

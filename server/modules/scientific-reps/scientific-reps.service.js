@@ -495,23 +495,33 @@ export async function listBlockedCommercials(userId) {
   return prisma.blockedCommercialRep.findMany({
     where: { userId },
     orderBy: { name: 'asc' },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, enabled: true, createdAt: true },
   });
 }
 
 export async function addBlockedCommercial(userId, name) {
   // Idempotent: @@unique([userId, name]) — return the existing row if already blocked.
+  // Re-adding a paused (enabled=false) name re-enables it, matching "أضِف هذا الاسم"
+  // intent rather than silently no-op-ing on an invisible paused row.
   return prisma.blockedCommercialRep.upsert({
     where: { userId_name: { userId, name } },
-    update: {},
+    update: { enabled: true },
     create: { userId, name },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, enabled: true, createdAt: true },
   });
 }
 
 export async function removeBlockedCommercial(userId, blockId) {
   // Scope the delete to the owner so one manager can't remove another's block.
   await prisma.blockedCommercialRep.deleteMany({ where: { id: blockId, userId } });
+  return { ok: true };
+}
+
+// تعليق/استئناف حجب اسم مؤقتاً بلا حذفه من القائمة — يبقى محفوظاً ويمكن إعادة
+// تفعيله لاحقاً بضغطة، بدل حذفه وكتابته من جديد إن احتاجه المستخدم لاحقاً في
+// ملف آخر بينما يريد إظهاره الآن.
+export async function setBlockedCommercialEnabled(userId, blockId, enabled) {
+  await prisma.blockedCommercialRep.updateMany({ where: { id: blockId, userId }, data: { enabled: !!enabled } });
   return { ok: true };
 }
 
@@ -548,21 +558,59 @@ export async function listBlockedEntities(kind, userId) {
   return blockModel(kind).findMany({
     where: { userId },
     orderBy: { name: 'asc' },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, enabled: true, createdAt: true },
   });
 }
 
 export async function addBlockedEntity(kind, userId, name) {
+  // إعادة إضافة اسم مُعلَّق (enabled=false) تُعيد تفعيله بدل تجاهل الطلب صامتاً.
   return blockModel(kind).upsert({
     where: { userId_name: { userId, name } },
-    update: {},
+    update: { enabled: true },
     create: { userId, name },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, enabled: true, createdAt: true },
   });
 }
 
 export async function removeBlockedEntity(kind, userId, blockId) {
   await blockModel(kind).deleteMany({ where: { id: blockId, userId } });
+  return { ok: true };
+}
+
+// تعليق/استئناف مؤقت بلا حذف — راجع setBlockedCommercialEnabled أعلاه لنفس المنطق.
+export async function setBlockedEntityEnabled(kind, userId, blockId, enabled) {
+  await blockModel(kind).updateMany({ where: { id: blockId, userId }, data: { enabled: !!enabled } });
+  return { ok: true };
+}
+
+// ─── حجب جزئي: منطقة محددة لمندوب تجاري محدد ───────────────────────────────
+// نموذج مختلف عن BLOCK_MODELS (مفتاحان لا واحد)، فدوال مستقلة بدل توسيع
+// blockModel(). commercialRepName/areaName نص حر يُطابَق بالاسم المطبَّع وقت
+// التطبيق (resolveSciRepSales)، تماماً كبقية أنواع الحجب.
+export async function listBlockedRepAreas(userId) {
+  return prisma.blockedRepArea.findMany({
+    where: { userId },
+    orderBy: [{ commercialRepName: 'asc' }, { areaName: 'asc' }],
+    select: { id: true, commercialRepName: true, areaName: true, enabled: true, createdAt: true },
+  });
+}
+
+export async function addBlockedRepArea(userId, commercialRepName, areaName) {
+  return prisma.blockedRepArea.upsert({
+    where: { userId_commercialRepName_areaName: { userId, commercialRepName, areaName } },
+    update: { enabled: true },
+    create: { userId, commercialRepName, areaName },
+    select: { id: true, commercialRepName: true, areaName: true, enabled: true, createdAt: true },
+  });
+}
+
+export async function removeBlockedRepArea(userId, blockId) {
+  await prisma.blockedRepArea.deleteMany({ where: { id: blockId, userId } });
+  return { ok: true };
+}
+
+export async function setBlockedRepAreaEnabled(userId, blockId, enabled) {
+  await prisma.blockedRepArea.updateMany({ where: { id: blockId, userId }, data: { enabled: !!enabled } });
   return { ok: true };
 }
 
@@ -708,6 +756,9 @@ async function resolveSciRepSales(id, query = {}, select) {
   let blockedAreaIds = [];
   let blockedItemIds = [];
   let blockedCustomerIds = [];
+  // حجب جزئي: [{representativeId:{in:[...]}, areaId:{in:[...]}}, ...] — كل عنصر
+  // يمثّل مندوباً تجارياً محجوباً في مجموعة مناطق محددة له فقط، لا كل المناطق.
+  let blockedRepAreaConds = [];
   if (fileIds && fileIds.length > 0) {
     const fileOwners = await prisma.uploadedFile.findMany({
       where: { id: { in: fileIds } },
@@ -715,13 +766,15 @@ async function resolveSciRepSales(id, query = {}, select) {
     });
     const ownerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
     if (ownerIds.length > 0) {
-      // Only apply block lists of owners who have blocking ENABLED (master switch).
-      const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true } };
-      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
+      // Only apply block lists of owners who have blocking ENABLED (master switch)
+      // AND the block row itself isn't temporarily paused (enabled=false).
+      const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
+      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows] = await Promise.all([
         prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
+        prisma.blockedRepArea.findMany({ where: blockWhere, select: { commercialRepName: true, areaName: true } }),
       ]);
 
       const blockedNorms = new Set(blockedRepRows.map(b => _normalizeAr(b.name)).filter(Boolean));
@@ -754,6 +807,25 @@ async function resolveSciRepSales(id, query = {}, select) {
       if (blockedPharmNorms.size > 0) {
         const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
         blockedCustomerIds = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
+      }
+
+      // حجب جزئي (مندوب × منطقة): نجمع مناطق كل مندوب محجوب جزئياً معاً، فتصير
+      // شرطاً واحداً لكل مندوب بدل شرط منفصل لكل زوج (مندوب، منطقة).
+      if (blockedRepAreaRows.length > 0) {
+        const allAreasForRepBlock = await prisma.area.findMany({ select: { id: true, name: true } });
+        const areasByRepNorm = new Map(); // اسم المندوب المطبَّع → Set(اسم المنطقة المطبَّع)
+        for (const row of blockedRepAreaRows) {
+          const rk = _normalizeAr(row.commercialRepName);
+          if (!areasByRepNorm.has(rk)) areasByRepNorm.set(rk, new Set());
+          areasByRepNorm.get(rk).add(normalizeArabic(row.areaName));
+        }
+        for (const [repNorm, areaNormsSet] of areasByRepNorm) {
+          const repIdsForBlock = allMedReps.filter(r => _normalizeAr(r.name) === repNorm).map(r => r.id);
+          const areaIdsForBlock = allAreasForRepBlock.filter(a => areaNormsSet.has(normalizeArabic(a.name))).map(a => a.id);
+          if (repIdsForBlock.length > 0 && areaIdsForBlock.length > 0) {
+            blockedRepAreaConds.push({ representativeId: { in: repIdsForBlock }, areaId: { in: areaIdsForBlock } });
+          }
+        }
       }
     }
   }
@@ -827,6 +899,9 @@ async function resolveSciRepSales(id, query = {}, select) {
     if (blockedAreaIds.length) conditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
     if (blockedItemIds.length) conditions.push({ NOT: { itemId: { in: blockedItemIds } } });
     if (blockedCustomerIds.length) conditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
+    // حجب جزئي: يستبعد فقط صفوف (هذا المندوب AND إحدى مناطقه المحجوبة) معاً —
+    // بقية مناطقه، وبقية المندوبين في نفس المناطق، يبقون ظاهرين.
+    if (blockedRepAreaConds.length) conditions.push({ NOT: { OR: blockedRepAreaConds } });
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 

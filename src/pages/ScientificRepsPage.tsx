@@ -106,7 +106,10 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [blockingEnabled, setBlockingEnabled] = useState(true); // master on/off (natural state = on)
   const [blockingToggling, setBlockingToggling] = useState(false);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
-  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string }[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
+  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string; enabled: boolean }[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
+  // حجب جزئي: مناطق محددة لمندوب تجاري محدد (لا المندوب كاملاً)
+  const [blockedRepAreas, setBlockedRepAreas] = useState<{ id: number; commercialRepName: string; areaName: string; enabled: boolean }[]>([]);
+  const [repAreaPickerRepId, setRepAreaPickerRepId] = useState<number | ''>('');
   const [blockInput, setBlockInput]         = useState('');
   const [blockSaving, setBlockSaving]       = useState(false);
   const [blockError, setBlockError]         = useState('');
@@ -141,20 +144,22 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         const j = await r.json().catch(() => ({}));
         return r.ok && Array.isArray(j.data) ? j.data : [];
       };
-      const [bComm, bArea, bItem, bPharm, cRes, aRes, iRes, pRes] = await Promise.all([
+      const [bComm, bArea, bItem, bPharm, bRepArea, cRes, aRes, iRes, pRes] = await Promise.all([
         fetch(`${API}/api/scientific-reps/blocked-commercials`, { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/area`,        { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/item`,        { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/pharmacy`,    { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked-rep-areas`,   { headers: authH() }),
         fetch(`${API}/api/representatives`,                     { headers: authH() }),
         fetch(`${API}/api/areas`,                                { headers: authH() }),
         fetch(`${API}/api/items`,                                { headers: authH() }),
         fetch(`${API}/api/customers`,                            { headers: authH() }),
       ]);
-      const [commList, areaBlockList, itemBlockList, pharmBlockList] = await Promise.all([
-        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm),
+      const [commList, areaBlockList, itemBlockList, pharmBlockList, repAreaList] = await Promise.all([
+        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm), parseList(bRepArea),
       ]);
       setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList, pharmacy: pharmBlockList });
+      setBlockedRepAreas(repAreaList);
 
       // master on/off state
       fetch(`${API}/api/scientific-reps/blocking-enabled`, { headers: authH() })
@@ -213,6 +218,49 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     try {
       const r = await fetch(`${API}/api/scientific-reps/${BLOCK_KIND_CONFIG[kind].endpoint}/${id}`, { method: 'DELETE', headers: authH() });
       if (!r.ok) loadBlocked(); // resync on failure
+    } catch { loadBlocked(); }
+  };
+
+  // تعليق/استئناف حجب اسم مؤقتاً بلا حذفه من القائمة — للحالات التي يحتاج فيها
+  // المستخدم إظهار اسم محجوب في ملف معيّن دون فقدانه من قائمة الحجب كلياً.
+  const toggleBlockEnabled = async (kind: BlockKind, id: number, next: boolean) => {
+    setBlockedLists(prev => ({ ...prev, [kind]: prev[kind].map(b => (b.id === id ? { ...b, enabled: next } : b)) })); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/${BLOCK_KIND_CONFIG[kind].endpoint}/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) loadBlocked();
+    } catch { loadBlocked(); }
+  };
+
+  // ─── حجب جزئي: مناطق محددة لمندوب تجاري محدد ───────────────────────────────
+  const addBlockedRepArea = async (repName: string, areaName: string) => {
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-rep-areas`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+        body: JSON.stringify({ repName, areaName }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.data) setBlockedRepAreas(prev => (prev.some(b => b.id === j.data.id) ? prev : [...prev, j.data]));
+      else loadBlocked();
+    } catch { loadBlocked(); }
+  };
+
+  const removeBlockedRepArea = async (id: number) => {
+    setBlockedRepAreas(prev => prev.filter(b => b.id !== id)); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-rep-areas/${id}`, { method: 'DELETE', headers: authH() });
+      if (!r.ok) loadBlocked();
+    } catch { loadBlocked(); }
+  };
+
+  const toggleBlockedRepArea = async (id: number, next: boolean) => {
+    setBlockedRepAreas(prev => prev.map(b => (b.id === id ? { ...b, enabled: next } : b))); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-rep-areas/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) loadBlocked();
     } catch { loadBlocked(); }
   };
 
@@ -519,7 +567,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
             const totalBlocked = blockedLists.commercial.length + blockedLists.area.length + blockedLists.item.length;
             return !blockPanelOpen ? (
               <button
-                onClick={() => setBlockPanelOpen(true)}
+                onClick={() => { setBlockPanelOpen(true); if (allCommercialWithAreas.length === 0) loadAllOptions(); }}
                 title="حجب مندوب تجاري / منطقة / آيتم عن تقارير المندوبين العلميين، وعن التحليل الشامل للملفات المحوّلة لهم"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 7,
@@ -634,13 +682,107 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                 {blockedLists[blockKind].length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
                     {blockedLists[blockKind].map(b => (
-                      <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>
-                        {BLOCK_KIND_CONFIG[blockKind].icon} {b.name}
-                        <button onClick={() => removeBlock(blockKind, b.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', padding: 0, lineHeight: 1, fontSize: 13, fontWeight: 800 }}>✕</button>
+                      <span key={b.id} title={b.enabled ? 'اضغط على الاسم لتعليق الحجب مؤقتاً (يبقى بالقائمة)' : 'مُعلَّق — اضغط على الاسم لإعادة تفعيل الحجب'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700,
+                          background: b.enabled ? '#fef2f2' : '#f8fafc',
+                          color: b.enabled ? '#991b1b' : '#94a3b8',
+                          border: `1px solid ${b.enabled ? '#fecaca' : '#e2e8f0'}`,
+                        }}>
+                        <span onClick={() => toggleBlockEnabled(blockKind, b.id, !b.enabled)}
+                          style={{ cursor: 'pointer', textDecoration: b.enabled ? 'none' : 'line-through' }}>
+                          {b.enabled ? BLOCK_KIND_CONFIG[blockKind].icon : '⏸️'} {b.name}
+                        </span>
+                        <button onClick={() => removeBlock(blockKind, b.id)} title="حذف نهائي من القائمة"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: 13, fontWeight: 800, opacity: 0.7 }}>✕</button>
                       </span>
                     ))}
                   </div>
                 )}
+
+                {/* ── حجب جزئي: مناطق محددة لمندوب تجاري محدد (بدل حجبه بالكامل) ── */}
+                {blockKind === 'commercial' && (
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed #fecaca' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: '#9a3412', marginBottom: 8 }}>
+                      🧩 أو حجب مناطق محددة لمندوب فقط (بدل حجبه بالكامل)
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select className="form-input" style={{ fontSize: 13, minWidth: 200 }}
+                        value={repAreaPickerRepId}
+                        onChange={e => setRepAreaPickerRepId(e.target.value ? Number(e.target.value) : '')}>
+                        <option value="">اختر مندوباً تجارياً…</option>
+                        {allCommercialWithAreas.map(r => (
+                          <option key={r.id} value={r.id}>{r.name} ({r.areas.length} منطقة)</option>
+                        ))}
+                      </select>
+                    </div>
+                    {repAreaPickerRepId !== '' && (() => {
+                      const rep = allCommercialWithAreas.find(r => r.id === repAreaPickerRepId);
+                      if (!rep) return null;
+                      const repNorm = normalizeAr(rep.name);
+                      const rowByAreaNorm = new Map(
+                        blockedRepAreas.filter(b => normalizeAr(b.commercialRepName) === repNorm).map(b => [normalizeAr(b.areaName), b]),
+                      );
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                          {rep.areas.map(a => {
+                            const row = rowByAreaNorm.get(normalizeAr(a.name));
+                            const blocked = !!row;
+                            return (
+                              <label key={a.id}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                  background: blocked ? '#fff7ed' : '#fff',
+                                  color: blocked ? '#9a3412' : '#475569',
+                                  border: `1px solid ${blocked ? '#fdba74' : '#e2e8f0'}`,
+                                }}>
+                                <input type="checkbox" checked={blocked}
+                                  onChange={() => (row ? removeBlockedRepArea(row.id) : addBlockedRepArea(rep.name, a.name))}
+                                  style={{ margin: 0 }} />
+                                📍 {a.name}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    {blockedRepAreas.length > 0 && (() => {
+                      const byRep = new Map<string, typeof blockedRepAreas>();
+                      for (const b of blockedRepAreas) {
+                        const key = b.commercialRepName;
+                        if (!byRep.has(key)) byRep.set(key, []);
+                        byRep.get(key)!.push(b);
+                      }
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                          {[...byRep.entries()].map(([repName, list]) => (
+                            <div key={repName} style={{ fontSize: 12, color: '#334155', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                              <strong>👤 {repName}:</strong>
+                              {list.map(b => (
+                                <span key={b.id} title={b.enabled ? 'اضغط لتعليق حجب هذه المنطقة مؤقتاً' : 'مُعلَّق — اضغط لإعادة التفعيل'}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 700,
+                                    background: b.enabled ? '#fff7ed' : '#f8fafc',
+                                    color: b.enabled ? '#9a3412' : '#94a3b8',
+                                    border: `1px solid ${b.enabled ? '#fdba74' : '#e2e8f0'}`,
+                                  }}>
+                                  <span onClick={() => toggleBlockedRepArea(b.id, !b.enabled)}
+                                    style={{ cursor: 'pointer', textDecoration: b.enabled ? 'none' : 'line-through' }}>
+                                    {b.enabled ? '📍' : '⏸️'} {b.areaName}
+                                  </span>
+                                  <button onClick={() => removeBlockedRepArea(b.id)} title="حذف نهائي"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: 12, fontWeight: 800, opacity: 0.7 }}>✕</button>
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 <p style={{ fontSize: 11.5, color: '#94a3b8', margin: '8px 0 0', lineHeight: 1.6 }}>
                   مبيعات وارجاعات العنصر المحجوب تُخفى من <strong>تقارير المندوبين العلميين</strong> دائماً، ومن <strong>التحليل الشامل</strong> أيضاً عند عرضه من قبل مندوب أو تيم ليدر تم تحويل الملف له — وتبقى ظاهرة فقط في تحليلك الشامل الخاص كمدير.
                 </p>
