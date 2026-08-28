@@ -345,6 +345,11 @@ model UploadedFile {
   uploadedAt       DateTime @default(now())
   uploadedBy       String?
   fileType         String   @default("sales") // "sales" | "returns"
+  // نظام مصدر الملف: 'mercato' = ملف تطبيق ميركاتو (طلبيات يرسلها المندوب العلمي
+  // إلى المذاخر العامة)، وفيه «اسم المندوب» هو المندوب العلمي نفسه فتُنسب مبيعاته
+  // بمطابقة الاسم مباشرة لا عبر المندوبين التجاريين/المناطق.
+  // null = ملف سستم المكتب العلمي (طلبيات مباشرة، «اسم المندوب» = مندوب تجاري).
+  sourceSystem     String?
   currencyMode     String   @default("IQD") // "IQD" | "USD" — display preference
   exchangeRate     Float    @default(1470) // دينار لكل دولار
   detectedCurrency String   @default("IQD") // auto-detected from file values on upload

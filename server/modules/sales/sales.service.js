@@ -222,6 +222,7 @@ export async function processUploadedFile(file, options = {}) {
   // Collect all raw rows with their sheet-level return flag + per-sheet colMap
   const allRawEntries = [];
   let totalRows = 0;
+  let isMercatoFile = false;   // أي ورقة بتوقيع ميركاتو تجعل الملف كله ميركاتو
   for (const { sheetName, forceReturn } of sheetsToProcess) {
     const ws = workbook.Sheets[sheetName];
     // Skip leading title/metadata rows: start parsing from the detected header row.
@@ -231,6 +232,16 @@ export async function processUploadedFile(file, options = {}) {
     // Resolve columns independently per sheet (each sheet may have different header names)
     const sheetHeaders = Object.keys(rows[0]);
     const sheetColMap  = resolveColumns(sheetHeaders, columnMapping);
+    // ميركاتو: نفرض خريطته الصريحة فوق المطابقة العامة (تُخطئ في المادة/الشركة/
+    // الزبون هنا) — مع إبقاء أي override صريح من المستخدم فوق الجميع.
+    if (detectMercatoFormat(sheetHeaders)) {
+      isMercatoFile = true;
+      for (const [field, col] of Object.entries(mercatoColumnMap(sheetHeaders))) {
+        if (columnMapping[field] && sheetHeaders.includes(columnMapping[field])) continue;
+        sheetColMap[field] = col;
+      }
+      console.log(`[upload] Sheet "${sheetName}" detected as MERCATO — using explicit column map.`);
+    }
     console.log(`[upload] Sheet: "${sheetName}" | forceReturn=${forceReturn} | rows=${rows.length} | cols:`, sheetColMap);
     for (const row of rows) allRawEntries.push({ raw: { ...row, _sheetName: sheetName }, forceReturn, colMap: sheetColMap });
     totalRows += rows.length;
@@ -339,13 +350,13 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 3b–7. Shared finishing logic ─────────────────────────
-  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency });
+  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null });
 }
 
 // ─── _finishProcessing ─────────────────────────────────────────────────────────
 // Everything from fuzzy normalisation to bulk insert — shared by both the
 // standard tabular path and the matrix (cross-tabular) path.
-async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency }) {
+async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null }) {
   const validRows = [...salesRows, ...returnsRows];
 
   // ── 3b. Fuzzy-name normalisation ─────────────────────────────────────────────
@@ -511,6 +522,7 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     uploadedBy:       uploadedBy || null,
     userId,
     fileType:         storedFileType,
+    sourceSystem,
     detectedCurrency: detectedCurrency,
     currencyMode:     detectedCurrency,
   });
@@ -871,6 +883,63 @@ function parseMatrixSheet(ws) {
   );
 
   return flatRows;
+}
+
+// ─── ميركاتو: ملفات تطبيق الطلبيات عبر المذاخر العامة ────────────────────────
+// نوعا ملفات المبيعات مختلفان جوهرياً:
+//   • ملف سستم المكتب العلمي — طلبيات مباشرة من المكتب/الشركة بلا مذاخر،
+//     و«اسم المندوب» فيه مندوب تجاري.
+//   • ملف ميركاتو — المندوب العلمي يرسل الطلبية إلى مذخر عام يجهّزها، و«اسم
+//     المندوب» فيه هو المندوب العلمي نفسه.
+//
+// ولملف ميركاتو معانٍ مختلفة لنفس الترويسات، فالمطابقة العامة تُخطئ فيه ثلاث
+// مرات (تحقّق فعلي على ملف إنتاج):
+//   «الصنف» → يُقرأ كمادة فتصير كل الأدوية باسم الشركة (Deva…)
+//   «اسم الشركة» → يُقرأ كشركة وهو في الحقيقة اسم الصيدلية
+//   «اسم المذخر» → يُقرأ كزبون وهو المذخر المجهِّز لا المشتري
+// لذلك نكتشفه بتوقيع أعمدته ونفرض عليه خريطة صريحة.
+const _mNorm = s => String(s ?? '').toLowerCase().trim()
+  .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+  .replace(/ـ/g, '').replace(/[ً-ٟ]/g, '').replace(/\s+/g, ' ');
+/** هل تحتوي الترويسة كل هذه الأجزاء (بعد التطبيع)؟ */
+const _mHas = (header, ...parts) => {
+  const h = _mNorm(header);
+  return parts.every(p => h.includes(_mNorm(p)));
+};
+
+/**
+ * توقيع ملف ميركاتو: عمود «اسم المذخر» + عمود «رقم طلبية المذخر» معاً.
+ * وجود «اسم المذخر» وحده لا يكفي — فهو alias زبون في ملفات أخرى.
+ */
+export function detectMercatoFormat(headers) {
+  const hasWarehouse = headers.some(h => _mHas(h, 'اسم', 'مذخر'));
+  const hasOrderNum  = headers.some(h => _mHas(h, 'رقم', 'طلبيه', 'مذخر'));
+  return hasWarehouse && hasOrderNum;
+}
+
+/**
+ * خريطة أعمدة ميركاتو الصريحة. تُرجع الحقول التي عُثر عليها فقط، فما لم يُعثر
+ * عليه يبقى على نتيجة المطابقة العامة.
+ */
+export function mercatoColumnMap(headers) {
+  const pick = pred => headers.find(pred);
+  const map = {};
+  const set = (field, col) => { if (col) map[field] = col; };
+
+  set('repName',    pick(h => _mHas(h, 'مندوب')));
+  set('area',       pick(h => _mHas(h, 'منطق')));
+  set('province',   pick(h => _mHas(h, 'مدين')));
+  // «اسم المادة بالمكتب» — نستبعد «حالة المادة بطلبية المذخر» (تحوي «المادة» أيضاً)
+  set('item',       pick(h => _mHas(h, 'ماده') && !_mHas(h, 'حال') && !_mHas(h, 'رقم')));
+  // «الصنف» في ميركاتو = الشركة المصنّعة (Deva / HUMANIS)
+  set('company',    pick(h => ['الصنف', 'صنف'].includes(_mNorm(h))));
+  // «اسم الشركة» في ميركاتو = الصيدلية المشترية (الزبون)
+  set('customer',   pick(h => _mHas(h, 'شرك') && !_mHas(h, 'مذخر')));
+  set('quantity',   pick(h => _mHas(h, 'كميه') && !_mHas(h, 'بونص')));
+  set('unitPrice',  pick(h => ['السعر', 'سعر'].includes(_mNorm(h))));
+  set('totalValue', pick(h => _mHas(h, 'مجموع')));
+  set('date',       pick(h => _mHas(h, 'بتاريخ') || ['التاريخ', 'تاريخ'].includes(_mNorm(h))));
+  return map;
 }
 
 /**

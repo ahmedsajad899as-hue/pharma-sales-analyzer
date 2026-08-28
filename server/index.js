@@ -1705,6 +1705,7 @@ app.get('/api/files', async (req, res) => {
       orderBy: { uploadedAt: 'desc' },
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
+        sourceSystem: true, // 'mercato' → شارة تمييز في قائمة الملفات
         currencyMode: true, exchangeRate: true, detectedCurrency: true,
         userId: true,
         sharedWithRepId: true,

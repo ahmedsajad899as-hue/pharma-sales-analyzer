@@ -12,6 +12,8 @@ interface UploadedFile {
   rowCount: number;
   uploadedAt: string;
   fileType?: string;
+  /** 'mercato' = ملف تطبيق ميركاتو (طلبيات عبر المذاخر، المندوب فيه علمي) */
+  sourceSystem?: string | null;
   currencyMode?: string;
   exchangeRate?: number;
   detectedCurrency?: string;
@@ -1067,6 +1069,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       {f.originalName}
                     </span>
                     <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
+                    {f.sourceSystem === 'mercato' && (
+                      <span
+                        style={BADGE('#fff7ed', '#c2410c', '#fdba74')}
+                        title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. تُنسب مبيعاته للمندوب العلمي بمطابقة اسمه في الملف مباشرةً."
+                      >🏬 ميركاتو</span>
+                    )}
                     {isActive && <span style={BADGE('#dcfce7', '#15803d', '#86efac')}>✓ {t.upload.statusActive}</span>}
                     {isSharedByMe && (
                       <button

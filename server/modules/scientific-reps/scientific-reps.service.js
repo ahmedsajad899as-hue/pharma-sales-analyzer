@@ -312,6 +312,16 @@ export async function assignAreasByName(id, areaNames, userId = null) {
 export async function syncCommercialsByActiveFiles(fileIds) {
   if (!Array.isArray(fileIds) || fileIds.length === 0) return { updated: 0, reason: 'no-files' };
 
+  // ملفات ميركاتو مستثناة من الاشتقاق: «اسم المندوب» فيها مندوب علمي لا تجاري،
+  // فاشتقاق روابط تجارية منها كان يربط المندوبين العلميين ببعضهم عبر تقاطع
+  // المناطق — وهو تحديداً ما يجعل مبيعات مندوب تُحتسب لزميله في نفس المنطقة.
+  const activeFiles = await prisma.uploadedFile.findMany({
+    where:  { id: { in: fileIds } },
+    select: { id: true, sourceSystem: true },
+  });
+  const derivableFileIds = activeFiles.filter(f => f.sourceSystem !== 'mercato').map(f => f.id);
+  if (derivableFileIds.length === 0) return { updated: 0, reason: 'mercato-only' };
+
   const reps = await prisma.scientificRepresentative.findMany({
     select: { id: true, areas: { select: { area: { select: { name: true } } } } },
   });
@@ -338,7 +348,7 @@ export async function syncCommercialsByActiveFiles(fileIds) {
 
   // distinct (areaId, representativeId) appearing in the active files (sales + returns)
   const pairs = await prisma.sale.findMany({
-    where: { uploadedFileId: { in: fileIds } }, // Sale.areaId is required → no null filter
+    where: { uploadedFileId: { in: derivableFileIds } }, // Sale.areaId is required → no null filter
     select: { areaId: true, representativeId: true },
     distinct: ['areaId', 'representativeId'],
   });
@@ -723,6 +733,26 @@ async function resolveSciRepSales(id, query = {}, select) {
   // Parse fileIds early — needed for the name-match scoping below.
   const fileIds = query.fileIds ?? null;
 
+  // ── ملفات ميركاتو مقابل ملفات سستم المكتب ────────────────────────────────
+  // في ملف ميركاتو «اسم المندوب» هو المندوب العلمي نفسه (هو من أرسل الطلبية إلى
+  // المذخر)، فتُنسب صفوفه بمطابقة اسمه مباشرةً — بلا توسيع بالمندوبين التجاريين
+  // وبلا تقييد بالمناطق. هذا ما يمنع احتساب مبيعات نفس المنطقة المسجّلة باسم
+  // مندوب علمي آخر ضمن الملف. أما ملفات المكتب فتبقى على منطقها القائم.
+  // التقسيم في JS لا في الاستعلام: شرط Prisma `NOT: {sourceSystem:'mercato'}`
+  // يستبعد الصفوف ذات القيمة NULL أيضاً (SQL `<> ` لا يطابق NULL) — وهي الغالبية.
+  let mercatoFileIds = [];
+  let officeFileIds  = [];
+  if (fileIds && fileIds.length > 0) {
+    const fileRows = await prisma.uploadedFile.findMany({
+      where:  { id: { in: fileIds } },
+      select: { id: true, sourceSystem: true },
+    });
+    for (const f of fileRows) {
+      if (f.sourceSystem === 'mercato') mercatoFileIds.push(f.id);
+      else officeFileIds.push(f.id);
+    }
+  }
+
   const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
   const nameMatchCandidates = allMedReps
     .filter(r => _normalizeAr(r.name) === normalizedSciRepName)
@@ -889,10 +919,27 @@ async function resolveSciRepSales(id, query = {}, select) {
         ? { representativeId: { in: nameMatchIds } }
         : null;
 
-    if (!repFilter) return null; // no rep info → return nothing
+    // مصدر النسب: فرعان يُجمعان بـ OR حسب نوع الملف.
+    const sourceConds = [];
 
-    const conditions = [repFilter];
-    if (hasAreas) conditions.push({ areaId: { in: areaIds } });
+    // (أ) ملفات سستم المكتب — المنطق القائم: مندوبون تجاريون ∩ المناطق.
+    if (repFilter && (mercatoFileIds.length === 0 || officeFileIds.length > 0)) {
+      const office = [repFilter];
+      if (hasAreas) office.push({ areaId: { in: areaIds } });
+      // لا نضيف قيد الملف إلا عند وجود ملف ميركاتو فعلاً، حفاظاً على السلوك
+      // السابق حرفياً حين تكون كل الملفات من المكتب.
+      if (mercatoFileIds.length > 0) office.push({ uploadedFileId: { in: officeFileIds } });
+      sourceConds.push(office.length === 1 ? office[0] : { AND: office });
+    }
+
+    // (ب) ملفات ميركاتو — مطابقة اسم المندوب العلمي وحدها.
+    if (mercatoFileIds.length > 0 && nameMatchIds.length > 0) {
+      sourceConds.push({ uploadedFileId: { in: mercatoFileIds }, representativeId: { in: nameMatchIds } });
+    }
+
+    if (sourceConds.length === 0) return null; // no rep info → return nothing
+
+    const conditions = [sourceConds.length === 1 ? sourceConds[0] : { OR: sourceConds }];
     if (hasItems) conditions.push({ itemId: { in: itemIds } });
     // Globally-blocked areas/items narrow the scope further — excluded regardless
     // of which commercial rep the sale/return belongs to.
