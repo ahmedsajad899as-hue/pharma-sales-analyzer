@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
+import DoctorNameMatchesTab from './DoctorNameMatchesTab';
 
 interface DoctorChange {
   id: number;
@@ -16,10 +17,13 @@ interface DoctorChange {
 }
 
 type Filter = 'all' | 'update' | 'create';
+type Mode = 'log' | 'matches';
 
 export default function DoctorChangesPage() {
   const { token } = useSuperAdmin();
   const H = { Authorization: `Bearer ${token}` };
+
+  const [mode, setMode] = useState<Mode>('log');
 
   const [rows,    setRows]    = useState<DoctorChange[]>([]);
   const [total,   setTotal]   = useState(0);
@@ -55,7 +59,7 @@ export default function DoctorChangesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { load(1, filter); /* eslint-disable-next-line */ }, [filter]);
+  useEffect(() => { if (mode === 'log') load(1, filter); /* eslint-disable-next-line */ }, [filter, mode]);
 
   const fmtDate = (iso: string) => {
     try {
@@ -76,16 +80,41 @@ export default function DoctorChangesPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#1e1b4b' }}>🔔 سجل تغييرات الأطباء</h2>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#1e1b4b' }}>🔔 سجل ومطابقة الأطباء</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-            تعديلات وإضافات المندوبين والمدراء على قوائم الأطباء المشتركة
+            تعديلات المندوبين والمدراء على قوائم الأطباء المشتركة، ومطابقات أسماء فيها نسبة شك تحتاج تحققاً
           </p>
         </div>
-        <div style={{ fontSize: 13, color: '#6366f1', fontWeight: 700, background: '#eef2ff', padding: '6px 14px', borderRadius: 10 }}>
-          {total.toLocaleString('ar-IQ')} حركة
-        </div>
+        {mode === 'log' && (
+          <div style={{ fontSize: 13, color: '#6366f1', fontWeight: 700, background: '#eef2ff', padding: '6px 14px', borderRadius: 10 }}>
+            {total.toLocaleString('ar-IQ')} حركة
+          </div>
+        )}
       </div>
 
+      {/* Mode switcher */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {([
+          { id: 'log' as Mode,     label: 'سجل التغييرات',        icon: '🔔' },
+          { id: 'matches' as Mode, label: 'مراجعة تطابق الأسماء', icon: '🔍' },
+        ]).map(t => {
+          const active = mode === t.id;
+          return (
+            <button key={t.id} onClick={() => setMode(t.id)} style={{
+              padding: '9px 18px', borderRadius: 11, cursor: 'pointer', fontFamily: 'inherit',
+              fontSize: 13.5, fontWeight: 800, border: '1.5px solid',
+              borderColor: active ? '#4f46e5' : '#e2e8f0',
+              background: active ? '#4f46e5' : '#fff',
+              color: active ? '#fff' : '#475569', transition: 'all .15s',
+            }}>{t.icon} {t.label}</button>
+          );
+        })}
+      </div>
+
+      {mode === 'matches' && <DoctorNameMatchesTab token={token} />}
+
+      {mode === 'log' && (
+      <>
       {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
         {filterTabs.map(t => {
@@ -176,6 +205,8 @@ export default function DoctorChangesPage() {
           <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>{page} / {pages}</span>
           <button disabled={page >= pages} onClick={() => load(page + 1, filter)} style={pgBtn(page >= pages)}>→</button>
         </div>
+      )}
+      </>
       )}
     </div>
   );

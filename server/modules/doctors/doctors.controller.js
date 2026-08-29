@@ -1007,10 +1007,11 @@ export async function extractVisitsImport(req, res, next) {
 }
 
 // ── POST /visits/import-commit — حفظ الصفوف بعد مراجعة المستخدم ──────────────
-// body: { doctorRows?: [...], pharmacyRows?: [...], rememberRepLinks?: [{fromName, scientificRepId|null}] }
+// body: { doctorRows?: [...], pharmacyRows?: [...], rememberRepLinks?: [{fromName, scientificRepId|null}],
+//         rememberDoctorLinks?: [{fromName, areaName|null, doctorId|null}] }
 export async function commitVisitsImport(req, res, next) {
   try {
-    const { doctorRows, pharmacyRows, rememberRepLinks } = req.body || {};
+    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks } = req.body || {};
     const dRows = Array.isArray(doctorRows) ? doctorRows : [];
     const pRows = Array.isArray(pharmacyRows) ? pharmacyRows : [];
     if (dRows.length === 0 && pRows.length === 0) {
@@ -1020,6 +1021,7 @@ export async function commitVisitsImport(req, res, next) {
       doctorRows: dRows,
       pharmacyRows: pRows,
       rememberRepLinks: Array.isArray(rememberRepLinks) ? rememberRepLinks : [],
+      rememberDoctorLinks: Array.isArray(rememberDoctorLinks) ? rememberDoctorLinks : [],
       user: req.user,
     });
     res.json({ success: true, data: result });

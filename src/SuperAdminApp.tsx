@@ -67,16 +67,20 @@ const NAV: { id: Page; label: string; icon: string; color: string; glow: string;
   { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', color: '#eab308', glow: 'rgba(234,179,8,0.35)', masterOnly: true },
 ];
 
-// جرس إشعارات تغييرات الأطباء — يظهر للماستر أدمن فقط
+// جرس إشعارات تغييرات الأطباء + تطابقات الأسماء بحاجة مراجعة — يظهر للماستر أدمن فقط
 function NotificationBell({ token, refreshKey, onOpen }: { token: string; refreshKey: string; onOpen: () => void }) {
   const [count, setCount] = useState(0);
   useEffect(() => {
     let alive = true;
     const fetchCount = () => {
-      fetch('/api/super-admin/doctor-changes/unread-count', { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.json())
-        .then(d => { if (alive && d.success) setCount(d.count); })
-        .catch(() => {});
+      const H = { Authorization: `Bearer ${token}` };
+      Promise.all([
+        fetch('/api/super-admin/doctor-changes/unread-count', { headers: H }).then(r => r.json()).catch(() => null),
+        fetch('/api/super-admin/doctor-name-matches/count',   { headers: H }).then(r => r.json()).catch(() => null),
+      ]).then(([a, b]) => {
+        if (!alive) return;
+        setCount((a?.success ? a.count : 0) + (b?.success ? b.count : 0));
+      });
     };
     fetchCount();
     const iv = setInterval(fetchCount, 60000); // كل دقيقة
@@ -84,7 +88,7 @@ function NotificationBell({ token, refreshKey, onOpen }: { token: string; refres
   }, [token, refreshKey]);
 
   return (
-    <button onClick={onOpen} title="سجل تغييرات الأطباء" style={{
+    <button onClick={onOpen} title="سجل تغييرات الأطباء ومطابقة الأسماء" style={{
       position: 'relative', width: 40, height: 40, borderRadius: 11,
       background: '#fffbeb', border: '1.5px solid #fde68a', cursor: 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,

@@ -15,10 +15,12 @@ const API = import.meta.env.VITE_API_URL || '';
 
 interface RepOpt { id: number; name: string }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; score: number }[] }
+interface DoctorSuggestion { id: number; name: string; score: number; areaName: string | null; specialty: string | null; pharmacyName: string | null }
+interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; suggestions: DoctorSuggestion[] }
 interface DoctorRow {
   _row: number;
   repName: string; repId: number | null;
-  doctorName: string; doctorId: number | null;
+  doctorName: string; doctorId: number | null; doctorKey?: string;
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
@@ -67,6 +69,13 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
   const [nameApplied, setNameApplied] = useState(false);
   const [rememberChoices, setRememberChoices] = useState(true);
 
+  // مطابقة أسماء الأطباء المشكوك بها (خطوة ثانية بعد حسم أسماء المندوبين)
+  const [pendingDoctorNames, setPendingDoctorNames] = useState<DoctorNameEntry[]>([]);
+  // اختيار المستخدم لكل اسم طبيب غير محسوم: معرّف الطبيب، أو 'new'
+  const [doctorChoice, setDoctorChoice] = useState<Record<string, string>>({});
+  const [doctorNamesApplied, setDoctorNamesApplied] = useState(false);
+  const [rememberDoctorChoices, setRememberDoctorChoices] = useState(true);
+
   const totalRows = docRows.length + pharmRows.length;
 
   /** يبني ملف إكسل نموذجي بالأعمدة والصيغة المتوقّعة + صفوف مثال + ورقة تعليمات. */
@@ -108,7 +117,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
     const file = fileList?.[0];
     if (!file) return;
     setError(''); setInfo(''); setExtracting(true);
-    setDocRows([]); setPharmRows([]); setNameApplied(false);
+    setDocRows([]); setPharmRows([]); setNameApplied(false); setDoctorNamesApplied(false);
+    setNameChoice({}); setDoctorChoice({});
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -124,6 +134,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       setReps(data.repNames?.reps ?? []);
       setPendingNames(data.repNames?.pending ?? []);
       setUnrelatedNames(data.repNames?.unrelated ?? []);
+      setPendingDoctorNames(data.doctorNames?.pending ?? []);
       if (dRows.length === 0 && pRows.length === 0) {
         setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
       } else if (pRows.length > 0) {
@@ -132,6 +143,9 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       // لا حاجة لمطابقة إضافية إن لم تكن هناك أسماء غير محسومة
       if ((data.repNames?.pending ?? []).length === 0 && (data.repNames?.unrelated ?? []).length === 0) {
         setNameApplied(true);
+      }
+      if ((data.doctorNames?.pending ?? []).length === 0) {
+        setDoctorNamesApplied(true);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذّرت قراءة الملف');
@@ -167,6 +181,24 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
     setNameApplied(true);
   };
 
+  const doctorDecidedCount = pendingDoctorNames.filter(e => doctorChoice[e.key]).length;
+  const countForDoctorName = (key: string) => docRows.filter(r => r.doctorKey === key).length;
+
+  /** يطبّق قرارات مطابقة أسماء الأطباء على صفوف الأطباء (لا صلة لها بالصيدليات). */
+  const applyDoctorMatching = () => {
+    const choiceByKey = new Map<string, number | null>();
+    for (const e of pendingDoctorNames) {
+      const c = doctorChoice[e.key];
+      if (!c) continue;
+      choiceByKey.set(e.key, c === 'new' ? null : Number(c));
+    }
+    setDocRows(rs => rs.map(r => {
+      if (!r.doctorKey || !choiceByKey.has(r.doctorKey)) return r;
+      return { ...r, doctorId: choiceByKey.get(r.doctorKey) ?? null };
+    }));
+    setDoctorNamesApplied(true);
+  };
+
   const setDocCell = (i: number, patch: Partial<DoctorRow>) => setDocRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const removeDocRow = (i: number) => setDocRows(rs => rs.filter((_, idx) => idx !== i));
   const setPharmCell = (i: number, patch: Partial<PharmacyRow>) => setPharmRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -187,9 +219,16 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
             scientificRepId: nameChoice[e.key] === 'none' ? null : Number(nameChoice[e.key]),
           }))
         : [];
+      const rememberDoctorLinks = rememberDoctorChoices
+        ? pendingDoctorNames.filter(e => doctorChoice[e.key]).map(e => ({
+            fromName: e.raw,
+            areaName: e.areaName || null,
+            doctorId: doctorChoice[e.key] === 'new' ? null : Number(doctorChoice[e.key]),
+          }))
+        : [];
       const res = await fetch(`${API}/api/doctors/visits/import-commit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authH },
-        body: JSON.stringify({ doctorRows: docRows, pharmacyRows: pharmRows, rememberRepLinks }),
+        body: JSON.stringify({ doctorRows: docRows, pharmacyRows: pharmRows, rememberRepLinks, rememberDoctorLinks }),
       });
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || j.message || 'فشل الحفظ');
@@ -277,12 +316,83 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
           </div>
         )}
 
-        {totalRows > 0 && nameApplied && (
+        {totalRows > 0 && nameApplied && !doctorNamesApplied && pendingDoctorNames.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
+              🩺 تأكيد أسماء أطباء مشابهة ({doctorDecidedCount}/{pendingDoctorNames.length})
+            </div>
+            <p style={{ margin: '0 0 8px', fontSize: 11.5, color: '#78716c' }}>
+              الاسم في الملف يشبه طبيباً (أو أكثر) مسجَّلاً مسبقاً — قارن المنطقة/الاختصاص/الصيدلية أدناه لتأكيد أنه نفس الشخص، أو اختر إنشاء طبيب جديد إن لم يكن كذلك.
+            </p>
+            <div style={{ maxHeight: '42vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {pendingDoctorNames.map(e => {
+                const count = countForDoctorName(e.key);
+                return (
+                  <div key={e.key} style={card}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>{e.raw}</div>
+                      <span style={{ fontSize: 10.5, color: '#94a3b8' }}>({count} صف)</span>
+                    </div>
+                    {(e.areaName || e.specialty || e.pharmacyName) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, fontSize: 11 }}>
+                        {e.areaName && <span style={chipMuted}>📍 {e.areaName}</span>}
+                        {e.specialty && <span style={chipMuted}>🩺 {e.specialty}</span>}
+                        {e.pharmacyName && <span style={chipMuted}>🏪 {e.pharmacyName}</span>}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {e.suggestions.map(s => {
+                        const selected = doctorChoice[e.key] === String(s.id);
+                        return (
+                          <label key={s.id} style={{ ...candidateRow, ...(selected ? candidateRowOn : {}) }}>
+                            <input type="radio" name={`doc-${e.key}`} checked={selected}
+                              onChange={() => setDoctorChoice(p => ({ ...p, [e.key]: String(s.id) }))} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>
+                                {s.name} <span style={{ fontWeight: 600, color: '#6366f1' }}>(تشابه {Math.round(s.score * 100)}%)</span>
+                              </div>
+                              {(s.areaName || s.specialty || s.pharmacyName) && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 3, fontSize: 10.5, color: '#64748b' }}>
+                                  {s.areaName && <span>📍 {s.areaName}</span>}
+                                  {s.specialty && <span>🩺 {s.specialty}</span>}
+                                  {s.pharmacyName && <span>🏪 {s.pharmacyName}</span>}
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                      <label style={{ ...candidateRow, ...(doctorChoice[e.key] === 'new' ? candidateRowOn : {}) }}>
+                        <input type="radio" name={`doc-${e.key}`} checked={doctorChoice[e.key] === 'new'}
+                          onChange={() => setDoctorChoice(p => ({ ...p, [e.key]: 'new' }))} />
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>🆕 ليس أياً منهم — أنشئ طبيباً جديداً بهذا الاسم</span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#334155', cursor: 'pointer' }}>
+                <input type="checkbox" checked={rememberDoctorChoices} onChange={e => setRememberDoctorChoices(e.target.checked)} />
+                تذكّر هذه المطابقة لملفات لاحقة بنفس الاسم (حتى لو كُتب بصيغة مختلفة قليلاً)
+              </label>
+              <button onClick={applyDoctorMatching} disabled={doctorDecidedCount === 0} style={{ ...applyBtn, opacity: doctorDecidedCount === 0 ? 0.5 : 1, marginInlineStart: 'auto' }}>
+                تطبيق المطابقة على الجدول ({doctorDecidedCount})
+              </button>
+            </div>
+          </div>
+        )}
+
+        {totalRows > 0 && nameApplied && doctorNamesApplied && (
           <>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>✅ {readyCount} صف جاهز</span>
               {missingRepCount > 0 && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>⚠️ {missingRepCount} صف بلا مندوب — صحّحه أدناه أو سيُتجاهل</span>
+              )}
+              {pendingDoctorNames.length > 0 && (
+                <button onClick={() => setDoctorNamesApplied(false)} style={bulkBtn}>🩺 إعادة مطابقة أسماء الأطباء</button>
               )}
               <button onClick={() => setNameApplied(false)} style={{ ...bulkBtn, marginInlineStart: 'auto' }}>🔗 إعادة مطابقة الأسماء</button>
             </div>
@@ -377,7 +487,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
         )}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
-          {totalRows > 0 && nameApplied && (
+          {totalRows > 0 && nameApplied && doctorNamesApplied && (
             <button onClick={save} disabled={saving || readyCount === 0} style={{ ...saveBtn, opacity: saving || readyCount === 0 ? 0.6 : 1 }}>
               {saving ? '⏳ جاري الحفظ…' : `💾 حفظ ${readyCount} زيارة`}
             </button>
@@ -408,6 +518,9 @@ const dropZone: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'c
 const imgBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
 const templateBtn: React.CSSProperties = { padding: '9px 18px', background: '#fff', color: '#4338ca', border: '1.5px solid #c7d2fe', borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' };
 const card: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#f8fafc' };
+const chipMuted: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px', color: '#475569', fontWeight: 500 };
+const candidateRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer' };
+const candidateRowOn: React.CSSProperties = { borderColor: '#6366f1', background: '#eef2ff' };
 const th: React.CSSProperties = { padding: '7px 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap', borderBottom: '2px solid #e2e8f0' };
 const td: React.CSSProperties = { padding: '3px 4px', borderBottom: '1px solid #f1f5f9' };
 const cellInp: React.CSSProperties = { width: '100%', padding: '5px 7px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };

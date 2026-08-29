@@ -518,3 +518,73 @@ export async function markDoctorChangesSeen(req, res) {
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// طابور مراجعة تطابق أسماء الأطباء — DoctorNameLink حيث needsReview=true.
+// هذه روابط أُنشئت من تشابه اسم (لا تطابق نصي تام) — إما تلقائياً بثقة عالية
+// عند الحفظ، أو باختيار المستخدم لمرشّح لم يكن مؤكَّداً 100% أثناء استيراد
+// زيارات من إكسل. تُعرَض هنا كي يتحقّق منها السوبر أدمن لاحقاً.
+// ════════════════════════════════════════════════════════════════════════════
+export async function listDoctorNameMatches(req, res) {
+  try {
+    const page  = Math.max(1, parseInt(req.query.page  ?? '1'));
+    const limit = Math.min(100, parseInt(req.query.limit ?? '50'));
+    const where = { needsReview: true };
+
+    const [rows, total] = await Promise.all([
+      prisma.doctorNameLink.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit, take: limit,
+        include: {
+          doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } } },
+          user:   { select: { id: true, username: true, displayName: true } },
+        },
+      }),
+      prisma.doctorNameLink.count({ where }),
+    ]);
+
+    const data = rows.map(r => ({
+      id:         r.id,
+      fromName:   r.fromName,
+      areaName:   r.areaName,
+      confidence: r.confidence,
+      createdAt:  r.createdAt,
+      owner:      r.user ? (r.user.displayName || r.user.username) : 'غير معروف',
+      doctor: r.doctor ? {
+        id: r.doctor.id, name: r.doctor.name, specialty: r.doctor.specialty,
+        pharmacyName: r.doctor.pharmacyName, areaName: r.doctor.area?.name ?? null,
+      } : null,
+    }));
+
+    res.json({ success: true, data, total, page, limit });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+export async function doctorNameMatchesCount(req, res) {
+  try {
+    const count = await prisma.doctorNameLink.count({ where: { needsReview: true } });
+    res.json({ success: true, count });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+/** action: 'confirm' يزيل علامة الحاجة للمراجعة (السوبر أدمن تحقّق وهو صحيح)،
+ *  'unlink' يحذف الرابط كلياً (خطأ — يُسأل عنه من جديد في الاستيراد القادم). */
+export async function resolveDoctorNameMatch(req, res) {
+  try {
+    const id = parseInt(req.params.id);
+    const { action } = req.body || {};
+    const link = await prisma.doctorNameLink.findUnique({ where: { id } });
+    if (!link) return res.status(404).json({ error: 'الرابط غير موجود' });
+
+    if (action === 'confirm') {
+      await prisma.doctorNameLink.update({ where: { id }, data: { needsReview: false } });
+      return res.json({ success: true, action: 'confirm' });
+    }
+    if (action === 'unlink') {
+      await prisma.doctorNameLink.delete({ where: { id } });
+      return res.json({ success: true, action: 'unlink' });
+    }
+    return res.status(400).json({ error: 'action غير معروف' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}

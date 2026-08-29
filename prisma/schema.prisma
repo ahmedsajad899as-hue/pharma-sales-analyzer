@@ -111,6 +111,7 @@ model User {
   blockedItems          BlockedItem[]
   blockedRepAreas       BlockedRepArea[]
   sciRepNameLinks       SciRepNameLink[]
+  doctorNameLinks       DoctorNameLink[]
   // Master on/off for this manager's block lists. When false the names are kept
   // but no blocking is applied anywhere. Default on (natural state is enabled).
   blockingEnabled       Boolean                @default(true)
@@ -692,6 +693,36 @@ model SciRepNameLink {
   @@map("sci_rep_name_links")
 }
 
+// مطابقة أسماء الأطباء بين ملفات الاستيراد الخارجية وسجلات Doctor الموجودة —
+// نفس فكرة SciRepNameLink أعلاه لكن لأسماء الأطباء، مع سياق إضافي (المنطقة/
+// الاختصاص/الصيدلية) يُستخدم لترجيح المطابقة عند الشك في مجرد الاسم. المفتاح
+// يشمل المنطقة (fromKey = الاسم المطبَّع + '|' + المنطقة المطبَّعة) لأن نفس
+// الاسم قد يخصّ طبيبين مختلفين في منطقتين مختلفتين.
+// doctorId = null يعني «تأكَّد أنه ليس أياً من المرشَّحين» — يُحفظ أيضاً كي لا
+// يتكرّر السؤال، وينشأ طبيب جديد دائماً لهذا الاسم لاحقاً.
+// needsReview: أي رابط لم ينشأ من تطابق نصي تام (confidence='fuzzy' تلقائي
+// عند الحفظ، أو 'confirmed' من اختيار المستخدم لمرشّح غير مؤكَّد 100%) يُعرض
+// في طابور مراجعة السوبر أدمن للتحقّق لاحقاً — تطابق تام لا يُنشئ رابطاً أصلاً.
+model DoctorNameLink {
+  id          Int      @id @default(autoincrement())
+  fromKey     String
+  fromName    String
+  areaName    String?
+  doctorId    Int?
+  confidence  String   @default("confirmed") // 'fuzzy' | 'confirmed'
+  needsReview Boolean  @default(true)
+  userId      Int
+  createdAt   DateTime @default(now())
+
+  doctor Doctor? @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromKey])
+  @@index([doctorId])
+  @@index([needsReview])
+  @@map("doctor_name_links")
+}
+
 // حجب جزئي: منطقة محددة لمندوب تجاري محدد (لا المندوب كاملاً ولا المنطقة لكل
 // المندوبين) — مثال: حجب مندوب "أحمد" في منطقة "الكرادة" فقط، بينما تبقى بقية
 // مناطقه ومناطق باقي المندوبين ظاهرة. مطابقة بالاسم المطبَّع (نفس أسلوب بقية
@@ -735,6 +766,7 @@ model Doctor {
   visits           DoctorVisit[]
   wishlists        DoctorWishlist[]
   dailyPlanEntries DailyPlanEntry[]
+  nameLinks        DoctorNameLink[]
 
   @@index([userId])
   @@index([areaId])

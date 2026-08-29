@@ -23,6 +23,9 @@ import {
   listDoctorChanges,
   doctorChangesUnreadCount,
   markDoctorChangesSeen,
+  listDoctorNameMatches,
+  doctorNameMatchesCount,
+  resolveDoctorNameMatch,
 } from './super-admin.controller.js';
 import { requireSuperAdmin, requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 
@@ -65,6 +68,11 @@ router.post('/activity-logging',      requireMasterAdmin, setActivityLoggingStat
 router.get('/doctor-changes',              requireMasterAdmin, listDoctorChanges);
 router.get('/doctor-changes/unread-count', requireMasterAdmin, doctorChangesUnreadCount);
 router.post('/doctor-changes/mark-seen',   requireMasterAdmin, markDoctorChangesSeen);
+
+// Doctor name-match review queue (تطابقات أسماء أطباء فيها نسبة شك) — master only
+router.get('/doctor-name-matches',                requireMasterAdmin, listDoctorNameMatches);
+router.get('/doctor-name-matches/count',           requireMasterAdmin, doctorNameMatchesCount);
+router.post('/doctor-name-matches/:id/resolve',    requireMasterAdmin, resolveDoctorNameMatch);
 
 // Any super admin can impersonate a user
 router.post('/impersonate/:userId', requireSuperAdmin, impersonateUser);

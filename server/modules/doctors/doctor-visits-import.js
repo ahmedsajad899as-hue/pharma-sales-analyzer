@@ -26,7 +26,7 @@ import XLSX from 'xlsx';
 import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
-import { classifyRepNamesForUser, normalizeRepName, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
+import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
 import { createSurveyDoctor } from '../../lib/surveyDoctors.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
@@ -144,7 +144,7 @@ function cleanDoctorName(name) {
 }
 
 /** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
-function extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors }) {
+function extractCrmRows({ rows, headers, repByKey, allAreas }) {
   const col = {
     taskTo:      findCol(headers, ['task-to']),
     client:      findCol(headers, ['client']),
@@ -199,14 +199,12 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors }) 
       // افتراضياً لتبقى قابلة للمراجعة بدل إسقاطها صامتة.
       // "عيادة الدكتور فلان" → "فلان": الاسم الصافي هو ما يُطابَق ويُخزَّن، وإلا
       // أُنشئ طبيب مكرَّر بلا صلة بالسجل الصافي الموجود أصلاً لنفس الشخص.
+      // المطابقة الفعلية (تامة/تشابه/سؤال المستخدم) تتم لاحقاً دفعة واحدة عبر
+      // classifyDoctorRows — هنا فقط تنظيف الاسم.
       const doctorName = cleanDoctorName(clientName);
-      const sameNameDoctors = existingDoctors.filter(d => d.name.trim().toLowerCase() === doctorName.toLowerCase());
-      const existingDoctor = area
-        ? (sameNameDoctors.find(d => d.areaId === area.id) ?? sameNameDoctors[0] ?? null)
-        : (sameNameDoctors[0] ?? null);
       doctorRows.push({
         _row, repName, repId: rep?.id ?? null,
-        doctorName, doctorId: existingDoctor?.id ?? null,
+        doctorName, doctorId: null,
         specialty: get(row, 'subcategory'),
         areaName: areaRaw, areaId: area?.id ?? null,
         pharmacyName: get(row, 'associated'),
@@ -220,6 +218,165 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors }) 
   });
 
   return { doctorRows, pharmacyRows };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// مطابقة أسماء الأطباء (مشتركة بين الصيغتين) — تُجرى دفعة واحدة على كل صفوف
+// الأطباء المستخرجة، بعد بنائها، تماماً كمطابقة أسماء المندوبين. الفكرة:
+// الاسم وحده قد لا يكفي لحسم الهوية (نفس الاسم لطبيبين مختلفين، أو نفس الطبيب
+// بتهجئة مختلفة قليلاً) — فنستعين بالمنطقة/الاختصاص/الصيدلية كأدلة إضافية.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** مفتاح تصنيف موحّد للاسم — نفس المفتاح يُستخدم عند القراءة وعند حفظ الرابط لاحقاً. */
+function doctorLinkKey(name, areaName) {
+  return `${normalizeRepName(cleanDoctorName(name))}|${normalizeAreaName(areaName || '')}`;
+}
+
+/**
+ * درجة تطابق طبيب واحدة (0..1): الاسم هو الأساس (نفس محرك تشابه أسماء
+ * المندوبين — كلمتان مشتركتان على الأقل)، وتُضاف نقاط ترجيح عند تطابق
+ * المنطقة/الاختصاص/الصيدلية أيضاً — هذه هي "تفاصيل الاسم الإضافية" التي تساعد
+ * على تأكيد المطابقة عند الشك في الاسم وحده.
+ */
+function doctorMatchScore(cand, target) {
+  const nameScore = repNameScore(cand.name, target.name);
+  if (nameScore === 0) return 0; // بلا كلمتين مشتركتين على الأقل — ليسا نفس الشخص مهما تشابهت باقي الحقول
+  let bonus = 0;
+  if (cand.areaName && target.areaName && normalizeAreaName(cand.areaName) === normalizeAreaName(target.areaName)) bonus += 0.12;
+  if (cand.specialty && target.specialty && normalizeRepName(cand.specialty) === normalizeRepName(target.specialty)) bonus += 0.08;
+  if (cand.pharmacyName && target.pharmacyName && normalizeRepName(cand.pharmacyName) === normalizeRepName(target.pharmacyName)) bonus += 0.05;
+  return Math.min(1, nameScore + bonus);
+}
+
+const DOCTOR_ASK_FLOOR = 0.45; // أدنى نقاط يُعتَد بها كمرشَّح يُعرض للمستخدم — أقل من هذا لا صلة له بالاسم أصلاً
+
+/**
+ * تصنّف كل أسماء الأطباء في doctorRows دفعة واحدة (مجموعة واحدة لكل اسم+منطقة
+ * مختلفين، لا لكل صف) مقابل أطباء هذا المالك + الروابط المحفوظة مسبقاً، وتملأ
+ * doctorId مباشرة في الصفوف عند الحسم. لا تُنشئ ولا تحفظ شيئاً — قراءة فقط.
+ *
+ * التصنيف (يطابق فلسفة classifyRepNamesForUser تماماً):
+ *   linked → رابط محفوظ مسبقاً لنفس الاسم (بما فيها "ليس أياً منهم" → null) → بلا سؤال
+ *   exact  → اسم مطابق تماماً بعد التنظيف، ولطبيب واحد لا لبس فيه → بلا سؤال
+ *   ask    → مرشّحون بدرجة معتد بها لكن بلا حسم (أو أكثر من مطابقة تامة بلا تمييز) → يُعرض للمستخدم مع كل تفاصيله
+ *   none   → لا مرشّح على الإطلاق → طبيب جديد بلا سؤال
+ */
+async function classifyDoctorRows(doctorRows, ownerUserId) {
+  const rowsWithName = (doctorRows || []).filter(r => String(r?.doctorName ?? '').trim());
+  if (rowsWithName.length === 0) return { doctorNames: { pending: [], resolved: [], unrelated: [] } };
+
+  const [links, existingDoctorsFull] = await Promise.all([
+    prisma.doctorNameLink.findMany({
+      where: { userId: ownerUserId },
+      select: { fromKey: true, doctorId: true, doctor: { select: { id: true, name: true } } },
+    }),
+    prisma.doctor.findMany({
+      where: { userId: ownerUserId },
+      select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } },
+    }),
+  ]);
+  const linkByKey = new Map(links.map(l => [l.fromKey, l]));
+  const candidates = existingDoctorsFull.map(d => ({
+    id: d.id, name: d.name, specialty: d.specialty, pharmacyName: d.pharmacyName, areaName: d.area?.name ?? null,
+  }));
+
+  // تجميع الصفوف حسب مفتاح التصنيف — يكفي تصنيف كل اسم مختلف مرة واحدة، ثم تُطبَّق
+  // النتيجة على كل صفوفه دفعة واحدة (تماماً كتجميع أسماء المندوبين في الواجهة).
+  const groups = new Map();
+  for (const r of rowsWithName) {
+    const key = doctorLinkKey(r.doctorName, r.areaName);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key, raw: r.doctorName, cleanedName: cleanDoctorName(r.doctorName),
+        areaName: r.areaName || '', specialty: r.specialty || '', pharmacyName: r.pharmacyName || '',
+        rows: [],
+      });
+    }
+    groups.get(key).rows.push(r);
+  }
+
+  const pending = [], resolved = [], unrelated = [];
+
+  for (const g of groups.values()) {
+    // تُلصَق بكل صفوف المجموعة بصرف النظر عن نتيجة التصنيف — الواجهة تستعملها
+    // لتجميع/تطبيق قرار المستخدم على صفوفها دون إعادة تنفيذ منطق التطبيع محلياً.
+    for (const r of g.rows) r.doctorKey = g.key;
+
+    const link = linkByKey.get(g.key);
+    if (link) {
+      for (const r of g.rows) r.doctorId = link.doctorId ?? null;
+      resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
+      continue;
+    }
+
+    const cleanNorm = normalizeRepName(g.cleanedName);
+    const exactMatches = candidates.filter(c => normalizeRepName(c.name) === cleanNorm);
+    let exact = null;
+    if (exactMatches.length === 1) exact = exactMatches[0];
+    else if (exactMatches.length > 1 && g.areaName) {
+      const areaMatches = exactMatches.filter(c => c.areaName && normalizeAreaName(c.areaName) === normalizeAreaName(g.areaName));
+      if (areaMatches.length === 1) exact = areaMatches[0];
+    }
+    if (exact) {
+      for (const r of g.rows) r.doctorId = exact.id;
+      resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: { id: exact.id, name: exact.name } });
+      continue;
+    }
+
+    // اسم متطابق تماماً لكن أكثر من طبيب بالاسم نفسه بالضبط ولا يمكن حسم الفرق
+    // بالمنطقة — نعرضه للمستخدم بدل التخمين بينهم (بثقة 100% لكل مرشّح).
+    const scored = exactMatches.length > 1
+      ? exactMatches.map(c => ({ ...c, score: 1 }))
+      : candidates
+          .map(c => ({ ...c, score: doctorMatchScore({ name: g.cleanedName, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName }, c) }))
+          .filter(c => c.score >= DOCTOR_ASK_FLOOR)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+
+    for (const r of g.rows) r.doctorId = null;
+    if (scored.length === 0) {
+      unrelated.push({ raw: g.raw, key: g.key });
+    } else {
+      pending.push({
+        raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName,
+        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName })),
+      });
+    }
+  }
+
+  const byName = (a, b) => a.raw.localeCompare(b.raw, 'ar');
+  return {
+    doctorNames: {
+      pending: pending.sort(byName),
+      resolved: resolved.sort(byName),
+      unrelated: unrelated.sort(byName),
+    },
+  };
+}
+
+/**
+ * يحفظ قرارات المستخدم في مطابقة أسماء الأطباء — نفس فلسفة saveRepNameLinks.
+ * doctorId = null يعني «تأكَّد المستخدم أنه ليس أياً من المرشَّحين» فيُحفظ أيضاً
+ * كي لا يتكرّر السؤال، وسيُنشأ طبيب جديد لهذا الاسم دائماً. needsReview يُضبَط
+ * فقط عند الإنشاء لأول مرة (لا يُعاد ضبطه عند إعادة استخدام رابط سبق مراجعته)،
+ * لأن هذا بالتحديد "تطابق فيه شك ولو بسيط" الذي طلب المستخدم عرضه على الماستر
+ * أدمن — رابط برفض المرشّحين (doctorId=null) ليس فيه تطابق أصلاً فلا يحتاج مراجعة.
+ */
+export async function saveDoctorNameLinks(userId, links) {
+  let saved = 0;
+  for (const l of (Array.isArray(links) ? links : [])) {
+    const fromName = String(l?.fromName ?? '').trim();
+    const fromKey = doctorLinkKey(fromName, l?.areaName);
+    if (!fromName || !normalizeRepName(cleanDoctorName(fromName))) continue;
+    const doctorId = Number.isInteger(l?.doctorId) ? l.doctorId : null;
+    await prisma.doctorNameLink.upsert({
+      where:  { userId_fromKey: { userId, fromKey } },
+      update: { fromName, areaName: l?.areaName || null },
+      create: { userId, fromKey, fromName, areaName: l?.areaName || null, doctorId, confidence: 'confirmed', needsReview: doctorId != null },
+    });
+    saved++;
+  }
+  return { saved };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -238,7 +395,12 @@ export async function extractVisitsFromExcel(file, user) {
   const rows     = XLSX.utils.sheet_to_json(sheet, { defval: '' });
   fs.unlink(file.path, () => {});
 
-  const EMPTY = { doctorRows: [], pharmacyRows: [], repNames: { pending: [], resolved: [], unrelated: [], reps: [] }, format: 'template', columnsDetected: {} };
+  const EMPTY = {
+    doctorRows: [], pharmacyRows: [],
+    repNames: { pending: [], resolved: [], unrelated: [], reps: [] },
+    doctorNames: { pending: [], resolved: [], unrelated: [] },
+    format: 'template', columnsDetected: {},
+  };
   if (rows.length === 0) return EMPTY;
 
   const headers = Object.keys(rows[0]);
@@ -267,15 +429,15 @@ export async function extractVisitsFromExcel(file, user) {
     if (e.rep) repByKey.set(e.key, e.rep);
   }
 
-  const [allAreas, allItems, existingDoctors] = await Promise.all([
+  const [allAreas, allItems] = await Promise.all([
     prisma.area.findMany({ select: { id: true, name: true } }),
     prisma.item.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true } }),
-    prisma.doctor.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true, areaId: true } }),
   ]);
 
   if (isCrm) {
-    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors });
-    return { doctorRows, pharmacyRows, repNames: repClassification, format: 'crm', columnsDetected: {} };
+    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas });
+    const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
+    return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, format: 'crm', columnsDetected: {} };
   }
 
   const doctorRows = rows.map((row, i) => {
@@ -289,13 +451,6 @@ export async function extractVisitsFromExcel(file, user) {
     const areaName   = get('area');
     const area = findByName(allAreas, areaName);
 
-    const sameNameDoctors = doctorName
-      ? existingDoctors.filter(d => d.name.trim().toLowerCase() === doctorName.toLowerCase())
-      : [];
-    const existingDoctor = area
-      ? (sameNameDoctors.find(d => d.areaId === area.id) ?? sameNameDoctors[0] ?? null)
-      : (sameNameDoctors[0] ?? null);
-
     const itemName = get('item');
     const item = findByName(allItems, itemName);
     const { lat, lng } = parseLocation(row, colMap);
@@ -304,7 +459,7 @@ export async function extractVisitsFromExcel(file, user) {
     return {
       _row: i + 2, // رقم صف الإكسل (1 = الترويسة)
       repName: repRaw, repId: rep?.id ?? null,
-      doctorName, doctorId: existingDoctor?.id ?? null,
+      doctorName, doctorId: null,
       specialty: get('specialty'),
       areaName, areaId: area?.id ?? null,
       pharmacyName: get('pharmacy'),
@@ -316,7 +471,8 @@ export async function extractVisitsFromExcel(file, user) {
     };
   }).filter(r => r.doctorName); // صف بلا اسم طبيب لا معنى لاستيراده كزيارة
 
-  return { doctorRows, pharmacyRows: [], repNames: repClassification, format: 'template', columnsDetected: colMap };
+  const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
+  return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, format: 'template', columnsDetected: colMap };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -361,49 +517,46 @@ async function commitDoctorRows(rows, ownerUserId, user) {
   const surveyDoctorsAll = visibleSurveys.length
     ? await prisma.masterSurveyDoctor.findMany({
         where: { surveyId: { in: visibleSurveys.map(s => s.id) } },
-        select: { id: true, name: true, areaName: true },
+        select: { id: true, name: true, areaName: true, specialty: true, pharmacyName: true },
       })
     : [];
   // عتبة تشابه مرتفعة عمداً (خطأ إملائي/مسافة بسيطة فقط) — هذا الربط تلقائي بلا
-  // سؤال المستخدم، فلا نخمّن عند أدنى التباس حقيقي؛ يبقى إنشاء طبيب جديد أأمن
-  // من دمج شخصين مختلفين خطأً.
+  // سؤال المستخدم (صف تجاوز مرحلة المطابقة التفاعلية بلا حسم — مثلاً تعديل يدوي
+  // لاسم الطبيب في شبكة المراجعة)، فلا نخمّن عند أدنى التباس حقيقي؛ يبقى إنشاء
+  // طبيب جديد أأمن من دمج شخصين مختلفين خطأً. يستعين بنفس محرك التطابق متعدد
+  // الحقول (doctorMatchScore) المستخدم في المطابقة التفاعلية — الاسم أساساً،
+  // والمنطقة/الاختصاص/الصيدلية ترجيحاً إضافياً.
   const FUZZY_THRESHOLD = 0.92;
-  /** أفضل مرشّح تشابه اسم من قائمة (name normalizer + repNameScore، نفس محرك مطابقة أسماء المندوبين). */
-  const bestFuzzyMatch = (name, candidates, getName) => {
+  /** أفضل مرشّح من قائمة حسب doctorMatchScore، مع سياق الصف (منطقة/اختصاص/صيدلية) للترجيح. */
+  const bestFuzzyMatch = (name, ctx, candidates, toFields) => {
     let best = null, bestScore = 0;
     for (const c of candidates) {
-      const score = repNameScore(name, getName(c));
+      const score = doctorMatchScore({ name, ...ctx }, toFields(c));
       if (score > bestScore) { bestScore = score; best = c; }
     }
-    return bestScore >= FUZZY_THRESHOLD ? best : null;
+    return bestScore >= FUZZY_THRESHOLD ? { match: best, fuzzy: true } : { match: null, fuzzy: false };
   };
 
-  const findSurveyDoctor = (name, areaNameLocal) => {
+  const findSurveyDoctor = (name, ctx) => {
     const nameNorm = name.trim().toLowerCase();
     let cands = surveyDoctorsAll.filter(d => d.name.trim().toLowerCase() === nameNorm);
-    if (cands.length === 0) {
-      const fuzzy = bestFuzzyMatch(name, surveyDoctorsAll, d => d.name);
-      return fuzzy ?? null;
-    }
-    if (cands.length === 1) return cands[0];
-    const areaN = normalizeAreaName(areaNameLocal || '');
-    return cands.find(d => normalizeAreaName(d.areaName ?? '') === areaN) ?? cands[0];
+    if (cands.length === 0) return bestFuzzyMatch(name, ctx, surveyDoctorsAll, d => ({ name: d.name, areaName: d.areaName, specialty: d.specialty, pharmacyName: d.pharmacyName }));
+    if (cands.length === 1) return { match: cands[0], fuzzy: false };
+    const areaN = normalizeAreaName(ctx.areaName || '');
+    return { match: cands.find(d => normalizeAreaName(d.areaName ?? '') === areaN) ?? cands[0], fuzzy: false };
   };
 
   // Doctor الموجودون أصلاً تحت هذا المالك — لتفادي إنشاء طبيب مكرّر لصف لاحق بنفس الاسم.
   const existingDoctors = await prisma.doctor.findMany({
     where: { userId: ownerUserId },
-    select: { id: true, name: true, areaId: true, masterSurveyDoctorId: true },
+    select: { id: true, name: true, areaId: true, specialty: true, pharmacyName: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
   });
-  const findExistingDoctor = (name, areaIdLocal) => {
+  const findExistingDoctor = (name, areaIdLocal, ctx) => {
     const nameNorm = name.trim().toLowerCase();
     let cands = existingDoctors.filter(d => d.name.trim().toLowerCase() === nameNorm);
-    if (cands.length === 0) {
-      const fuzzy = bestFuzzyMatch(name, existingDoctors, d => d.name);
-      return fuzzy ?? null;
-    }
-    if (areaIdLocal) return cands.find(d => d.areaId === areaIdLocal) ?? cands[0];
-    return cands[0];
+    if (cands.length === 0) return bestFuzzyMatch(name, ctx, existingDoctors, d => ({ name: d.name, areaName: d.area?.name ?? null, specialty: d.specialty, pharmacyName: d.pharmacyName }));
+    if (areaIdLocal) return { match: cands.find(d => d.areaId === areaIdLocal) ?? cands[0], fuzzy: false };
+    return { match: cands[0], fuzzy: false };
   };
 
   let imported = 0, skipped = 0;
@@ -434,14 +587,28 @@ async function commitDoctorRows(rows, ownerUserId, user) {
       if (!doctorId) doctorId = doctorCache.get(cacheKey) ?? null;
 
       if (!doctorId) {
-        const matchedDoctor = findExistingDoctor(doctorName, areaId);
+        const ctx = { areaName: areaName || null, specialty: r.specialty || '', pharmacyName: r.pharmacyName || '' };
+        const { match: matchedDoctor, fuzzy: matchedByFuzzy } = findExistingDoctor(doctorName, areaId, ctx);
 
         if (matchedDoctor) {
           doctorId = matchedDoctor.id;
+          // مطابقة تشابه لا تطابق تام — لم يُتَح للمستخدم تأكيدها تفاعلياً (مثلاً
+          // اسم عُدِّل يدوياً في شبكة المراجعة بعد مرحلة المطابقة) → تُحفظ كرابط
+          // بحاجة مراجعة عند السوبر أدمن، وتُعتمد تلقائياً لملفات لاحقة بنفس الاسم.
+          if (matchedByFuzzy) {
+            await prisma.doctorNameLink.upsert({
+              where:  { userId_fromKey: { userId: ownerUserId, fromKey: doctorLinkKey(doctorName, areaName) } },
+              update: {},
+              create: {
+                userId: ownerUserId, fromKey: doctorLinkKey(doctorName, areaName), fromName: doctorName,
+                areaName: areaName || null, doctorId, confidence: 'fuzzy', needsReview: true,
+              },
+            });
+          }
           // موجود لكن غير مربوط بأي سيرفي بعد — اربطه بدل تركه يتيماً (لن يظهر
           // في شاشة الزيارات بلا هذا الربط).
           if (!matchedDoctor.masterSurveyDoctorId) {
-            const sd = findSurveyDoctor(doctorName, areaName) ?? (hostSurvey
+            const sd = findSurveyDoctor(doctorName, ctx).match ?? (hostSurvey
               ? await createSurveyDoctor(hostSurvey.id, {
                   name: doctorName, specialty: r.specialty || null,
                   areaName: areaName || null, pharmacyName: r.pharmacyName || null,
@@ -457,7 +624,7 @@ async function commitDoctorRows(rows, ownerUserId, user) {
         } else {
           // طبيب جديد بالكامل — يُنشأ عبر السيرفي أولاً كي يظهر في الزيارات/
           // الأطباء/الأرشيف، ثم صف Doctor المربوط به (نفس نمط addCustomDoctor).
-          const sd = findSurveyDoctor(doctorName, areaName) ?? (hostSurvey
+          const sd = findSurveyDoctor(doctorName, ctx).match ?? (hostSurvey
             ? await createSurveyDoctor(hostSurvey.id, {
                 name: doctorName, specialty: r.specialty || null,
                 areaName: areaName || null, pharmacyName: r.pharmacyName || null,
@@ -476,8 +643,12 @@ async function commitDoctorRows(rows, ownerUserId, user) {
             },
           });
           doctorId = created.id;
-          existingDoctors.push({ id: created.id, name: doctorName, areaId, masterSurveyDoctorId: sd?.id ?? null });
-          if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName });
+          existingDoctors.push({
+            id: created.id, name: doctorName, areaId,
+            specialty: r.specialty || null, pharmacyName: r.pharmacyName || null,
+            masterSurveyDoctorId: sd?.id ?? null, area: areaName ? { name: areaName } : null,
+          });
+          if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName, specialty: r.specialty || null, pharmacyName: r.pharmacyName || null });
         }
         doctorCache.set(cacheKey, doctorId);
       } else if (r.specialty || r.pharmacyName || areaId) {
@@ -572,14 +743,15 @@ async function commitPharmacyRows(rows, ownerUserId, user) {
 }
 
 /**
- * نقطة الحفظ الموحّدة: تحفظ روابط أسماء المندوبين المؤكَّدة أولاً (تُستعمل
- * فوراً + تُطبَّق تلقائياً في ميركاتو والاستيرادات القادمة)، ثم تستورد صفوف
+ * نقطة الحفظ الموحّدة: تحفظ روابط أسماء المندوبين وأسماء الأطباء المؤكَّدة أولاً
+ * (تُستعمل فوراً + تُطبَّق تلقائياً في الاستيرادات القادمة)، ثم تستورد صفوف
  * الأطباء والصيدليات معاً (أي منهما قد يكون فارغاً حسب صيغة الملف).
  */
-export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], user }) {
+export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], user }) {
   const ownerUserId = await resolveDocOwnerUserId(user.id);
 
   if (rememberRepLinks.length) await saveRepNameLinks(user.id, rememberRepLinks);
+  if (rememberDoctorLinks.length) await saveDoctorNameLinks(ownerUserId, rememberDoctorLinks);
 
   const [doctorResult, pharmacyResult] = await Promise.all([
     commitDoctorRows(doctorRows, ownerUserId, user),
