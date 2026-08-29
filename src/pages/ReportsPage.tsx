@@ -1591,6 +1591,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
+    // نفس مجموعة «المحافظة» أدناه في ALIAS_GROUPS — مرجع واحد كي نتعرّف على
+    // عمود المحافظة لاحقاً (groupOf(h) === PROVINCE_GROUP) ونملأ خلاياه
+    // الفارغة من s.area.province بدل تركها فارغة كما وردت حرفياً في الملف.
+    const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه'];
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
@@ -1616,7 +1620,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // المحافظة مجموعة مستقلة عن المنطقة عمداً: صارت مستوى جغرافياً أعلى
         // (Area.provinceId)، فدمجها مع المنطقة كان سيفقد أحد المستويين في
         // التصدير المدمج. المجموعة تمنع تفرّق تهجئاتها إلى أعمدة متعددة.
-        ['المحافظة', 'محافظة', 'المحافظه', 'محافظه'],
+        PROVINCE_GROUP,
         ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
          'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
          'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
@@ -1653,8 +1657,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         sourceKeysOf.get(label)!.push(k);
       }
 
-      const companyKey  = headers.find(isCompanyKey);
-      const itemCodeKey = headers.find(isItemCodeKey);
+      const companyKey    = headers.find(isCompanyKey);
+      const itemCodeKey   = headers.find(isItemCodeKey);
+      const provinceKey   = headers.find(h => groupOf(h) === PROVINCE_GROUP);
       const sciHeader  = t.reports.exportColSciRep;
       const typeHeader = t.reports.exportColRecordType;
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; sciHeader/typeHeader don't
@@ -1691,6 +1696,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               if (!merged) return '';
               const signed = isRet ? -Math.abs(merged) : Math.abs(merged);
               return Math.round(convertSaleVal(s, signed) * 100) / 100;
+            }
+            // خلية «المحافظة» فارغة في الملف الأصلي — نستنتجها من المنطقة نفسها
+            // (مطابقة اسم عبر aliases، «الفلوجة» → «الأنبار» مثلاً) بدل تركها
+            // فارغة، ما دامت لم تُكتب صراحةً في الصف.
+            if (h === provinceKey) {
+              const v = rawGet(h);
+              if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+              return s.area?.province?.name ?? '';
             }
             // "رقم المادة" carries the company code on rows where "الشركة" is blank
             // (e.g. return rows) — move it into الشركة column instead
@@ -2000,6 +2013,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
+    // نفس مجموعة «المحافظة» أدناه في ALIAS_GROUPS — مرجع واحد كي نتعرّف على
+    // عمود المحافظة لاحقاً (groupOf(h) === PROVINCE_GROUP) ونملأ خلاياه
+    // الفارغة من s.area.province بدل تركها فارغة كما وردت حرفياً في الملف.
+    const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه'];
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -2022,7 +2039,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // المحافظة مجموعة مستقلة عن المنطقة عمداً: صارت مستوى جغرافياً أعلى
         // (Area.provinceId)، فدمجها مع المنطقة كان سيفقد أحد المستويين في
         // التصدير المدمج. المجموعة تمنع تفرّق تهجئاتها إلى أعمدة متعددة.
-        ['المحافظة', 'محافظة', 'المحافظه', 'محافظه'],
+        PROVINCE_GROUP,
         ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
          'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
          'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
@@ -2081,6 +2098,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       const companyKey  = headers.find(isCompanyKey);
       const itemCodeKey = headers.find(isItemCodeKey);
+      const provinceKey = headers.find(h => groupOf(h) === PROVINCE_GROUP);
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; unrecognised columns fall
       // after «ملاحظة» instead of appearing in their original raw-file order.
       const finalHeaders = keepSourceOrder(headers);
@@ -2110,6 +2128,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             return rawGet(itemCodeKey) ?? '';
           }
           if (companyKey && itemCodeKey && k === itemCodeKey) return '';
+          // خلية «المحافظة» فارغة في الملف الأصلي — نستنتجها من المنطقة نفسها
+          // (مطابقة اسم عبر aliases، «الفلوجة» → «الأنبار» مثلاً) بدل تركها
+          // فارغة، ما دامت لم تُكتب صراحةً في الصف.
+          if (k === provinceKey) {
+            const v = rawGet(k);
+            if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+            return s.area?.province?.name ?? '';
+          }
           let v = rawGet(k);
           if (v === undefined || v === null || v === '') return '';
           if (isDateKey(k)) return formatDateUnified(v);

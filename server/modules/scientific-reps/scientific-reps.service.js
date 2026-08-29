@@ -1286,7 +1286,10 @@ export async function getReport(id, query = {}) {
 const EXPORT_SALES_SELECT = {
   quantity: true, totalValue: true, recordType: true, saleDate: true, rawData: true,
   areaId: true, itemId: true, customerId: true, uploadedFileId: true,
-  area: { select: { id: true, name: true } },
+  // province احتياط للتصدير: يملأ خلية «محافظة» الفارغة (ملف بلا العمود، أو
+  // خانات فارغة فيه) من مطابقة اسم المنطقة نفسها — «الفلوجة» → «الأنبار» مثلاً
+  // عبر aliases في provinces.js — بدل تركها فارغة كما وردت حرفياً في الملف.
+  area: { select: { id: true, name: true, province: { select: { name: true } } } },
   item: { select: { id: true, name: true } },
   representative: { select: { id: true, name: true } },
   uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },

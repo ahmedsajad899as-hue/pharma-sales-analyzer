@@ -1148,7 +1148,11 @@ app.get('/api/export/raw-sales', async (req, res) => {
       where,
       include: {
         representative: { select: { name: true } },
-        area:           { select: { name: true } },
+        // province تُستخدم كاحتياط عند رفع ملف بلا عمود «محافظة» (أو خانات
+        // فارغة فيه) — التصدير يملأ المحافظة من مطابقة اسم المنطقة نفسها
+        // (مثال: «الفلوجة» → «الأنبار» عبر aliases في provinces.js) بدل ترك
+        // الخلية فارغة كما وردت حرفياً في الملف.
+        area:           { select: { name: true, province: { select: { name: true } } } },
         item:           { select: { name: true } },
         // Needed so the export can convert each row using its OWN source file's
         // currency — active files can mix USD and IQD, so a single global rate is wrong.
