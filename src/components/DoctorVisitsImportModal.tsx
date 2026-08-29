@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 
 /**
  * استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بديل عن تسجيلها واحدة
@@ -52,6 +53,39 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
   const [nameChoice, setNameChoice] = useState<Record<string, string>>({});
   const [nameApplied, setNameApplied] = useState(false);
   const [rememberChoices, setRememberChoices] = useState(true);
+
+  /** يبني ملف إكسل نموذجي بالأعمدة والصيغة المتوقّعة + صفوف مثال + ورقة تعليمات. */
+  const downloadTemplate = () => {
+    const headers = [
+      'اسم المندوب', 'اسم الطبيب', 'الاختصاص', 'المنطقة', 'اسم الصيدلية',
+      'اسم الايتم', 'التاريخ', 'الفيدباك', 'الملاحظات', 'الموقع',
+    ];
+    const examples = [
+      ['أحمد محمد علي', 'د. سارة أحمد',  'باطنية', 'الكرادة',  'صيدلية النور',   'AMOKLAVIN BID 457MG', '2026-08-20', 'مهتم',  'طلب عينات', '33.3152,44.3661'],
+      ['أحمد محمد علي', 'د. علي حسين',   'أطفال',  'المنصور',  'صيدلية الشفاء',  'DEVIT 3',              '2026-08-21', 'كتابة', '',          ''],
+      ['حسين قحطان',    'د. مريم كاظم',  'نسائية', 'الحارثية', 'صيدلية الحياة',  'PANTACTIVE 20MG',      '21/08/2026', 'متوفر', 'زيارة ثانية', ''],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
+    ws['!cols'] = headers.map(() => ({ wch: 22 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'زيارات الأطباء');
+
+    const legend = [
+      ['ملاحظات حول تعبئة الملف'],
+      [''],
+      ['اسم المندوب: اسم المندوب العلمي كما هو مسجَّل في التطبيق (أو مقارب له — إن لم يتطابق تماماً سيُطلب تأكيده مرة واحدة عند الرفع)'],
+      ['اسم الطبيب: حقل مطلوب — أي صف بلا اسم طبيب يُتجاهل تلقائياً'],
+      ['التاريخ: بصيغة YYYY-MM-DD (مثل 2026-08-20) أو DD/MM/YYYY (مثل 20/08/2026)'],
+      ['الفيدباك: مهتم / غير مهتم / كتابة / متوفر (أو مخزّن) / غير متوفر — أي نص آخر أو خانة فارغة تُعامَل كـ"لم تُحدَّد"'],
+      ['الموقع: اختياري — يُكتب كخلية واحدة بصيغة "خط العرض,خط الطول" كما في المثال، أو استبدل هذا العمود بعمودين منفصلين بعنوان "خط العرض" و"خط الطول"'],
+      ['يمكن حذف صفوف المثال أعلاه قبل تعبئة بياناتك الفعلية.'],
+    ];
+    const wsLegend = XLSX.utils.aoa_to_sheet(legend);
+    wsLegend['!cols'] = [{ wch: 95 }];
+    XLSX.utils.book_append_sheet(wb, wsLegend, 'تعليمات');
+
+    XLSX.writeFile(wb, 'نموذج_استيراد_زيارات_الأطباء.xlsx');
+  };
 
   const onFile = async (fileList: FileList | null) => {
     const file = fileList?.[0];
@@ -158,6 +192,10 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
               onChange={e => onFile(e.target.files)} />
             <button onClick={() => fileInputRef.current?.click()} disabled={extracting} style={imgBtn}>
               {extracting ? '⏳ جاري القراءة…' : '📄 اختر ملف إكسل'}
+            </button>
+            <button onClick={downloadTemplate} title="تنزيل ملف إكسل بالأعمدة الصحيحة وصفوف مثال وورقة تعليمات"
+              style={templateBtn}>
+              ⬇️ تحميل نموذج الملف
             </button>
           </div>
         )}
@@ -290,6 +328,7 @@ const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, paddi
 const xBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize: 19, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 };
 const dropZone: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'center', padding: 22, border: '2px dashed #c7d2fe', borderRadius: 12, background: '#eef2ff' };
 const imgBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
+const templateBtn: React.CSSProperties = { padding: '9px 18px', background: '#fff', color: '#4338ca', border: '1.5px solid #c7d2fe', borderRadius: 10, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' };
 const card: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#f8fafc' };
 const th: React.CSSProperties = { padding: '7px 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap', borderBottom: '2px solid #e2e8f0' };
 const td: React.CSSProperties = { padding: '3px 4px', borderBottom: '1px solid #f1f5f9' };
