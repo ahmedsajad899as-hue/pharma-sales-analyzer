@@ -1007,15 +1007,18 @@ export async function extractVisitsImport(req, res, next) {
 }
 
 // ── POST /visits/import-commit — حفظ الصفوف بعد مراجعة المستخدم ──────────────
-// body: { rows: [...], rememberRepLinks?: [{fromName, scientificRepId|null}] }
+// body: { doctorRows?: [...], pharmacyRows?: [...], rememberRepLinks?: [{fromName, scientificRepId|null}] }
 export async function commitVisitsImport(req, res, next) {
   try {
-    const { rows, rememberRepLinks } = req.body || {};
-    if (!Array.isArray(rows) || rows.length === 0) {
+    const { doctorRows, pharmacyRows, rememberRepLinks } = req.body || {};
+    const dRows = Array.isArray(doctorRows) ? doctorRows : [];
+    const pRows = Array.isArray(pharmacyRows) ? pharmacyRows : [];
+    if (dRows.length === 0 && pRows.length === 0) {
       return res.status(400).json({ error: 'لا توجد صفوف للحفظ' });
     }
     const result = await importVisits.commitVisitsImport({
-      rows,
+      doctorRows: dRows,
+      pharmacyRows: pRows,
       rememberRepLinks: Array.isArray(rememberRepLinks) ? rememberRepLinks : [],
       user: req.user,
     });

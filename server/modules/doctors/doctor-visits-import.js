@@ -1,16 +1,24 @@
 /**
- * استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بديل عن تسجيلها يدوياً
- * واحدة تلو الأخرى من داخل التطبيق. كل صف = زيارة واحدة (طبيب + تاريخ + فيدباك).
+ * استيراد زيارات الأطباء والصيدليات بالجملة من ملف إكسل خارجي — بديل عن
+ * تسجيلها يدوياً واحدة تلو الأخرى من داخل التطبيق.
+ *
+ * يدعم صيغتين للملف (تُكتشَف تلقائياً من ترويسات الأعمدة):
+ *   • القالب البسيط (نموذجنا القابل للتحميل من داخل التطبيق) — أعمدة عربية
+ *     صريحة (اسم المندوب/اسم الطبيب/الاختصاص...) → زيارات أطباء فقط.
+ *   • تصدير CRM خارجي (task-to/client/client-category...) — ملف واحد يخلط
+ *     زيارات أطباء وصيدليات معاً، يُميَّز بينها بعمود client-category؛ يُقسَّم
+ *     هنا إلى قائمتين منفصلتين لأن DoctorVisit وPharmacyVisit نموذجان مختلفان
+ *     تماماً (لا طبيب في زيارة الصيدلية، ولا "اختصاص" لها).
  *
  * تدفّق العمل على مرحلتين (مطابق لنمط ManualSalesModal):
- *   1) extractVisitsFromExcel — يقرأ الملف، يحاول مطابقة كل حقل تلقائياً
- *      (المندوب/الطبيب/المنطقة/الايتم)، ويُعيد الصفوف للمراجعة — لا يُنشئ شيئاً.
+ *   1) extractVisitsFromExcel — يقرأ الملف، يحاول مطابقة كل حقل تلقائياً، ويُعيد
+ *      الصفوف (أطباء + صيدليات) للمراجعة — لا يُنشئ شيئاً.
  *   2) commitVisitsImport — يأخذ الصفوف بعد مراجعة المستخدم وتصحيحها، وينشئ
- *      صفوف Doctor الناقصة + DoctorVisit فعلياً.
+ *      صفوف Doctor الناقصة + DoctorVisit/PharmacyVisit فعلياً.
  *
  * مطابقة اسم المندوب تُعاد استعمالها من محرّك ميركاتو (classifyRepNamesForUser)
  * عمداً: نفس السؤال بالضبط ("هل هذا الاسم الحر هو المندوب فلان؟")، وأي رابط
- * يؤكّده المستخدم هنا يُطبَّق تلقائياً لاحقاً في ميركاتو والعكس صحيح.
+ * يؤكّده المستخدم هنا يُطبَّق تلقائياً لاحقاً في ميركاتو أو أي استيراد آخر.
  */
 
 import prisma from '../../lib/prisma.js';
@@ -18,7 +26,7 @@ import XLSX from 'xlsx';
 import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
-import { classifyRepNamesForUser, normalizeRepName } from '../scientific-reps/scientific-reps.service.js';
+import { classifyRepNamesForUser, normalizeRepName, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -98,9 +106,116 @@ function findByName(list, val) {
       || null;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// صيغة تصدير CRM خارجي (task-to/client/client-category…)
+// ════════════════════════════════════════════════════════════════════════════
+
+// توقيع الصيغة: هذه الأعمدة الثلاثة معاً لا تظهر في القالب البسيط إطلاقاً.
+const CRM_SIGNATURE = ['task-to', 'client', 'client-category'];
+function detectCrmFormat(headers) {
+  const lower = headers.map(h => String(h).trim().toLowerCase());
+  return CRM_SIGNATURE.every(c => lower.includes(c));
+}
+
+/**
+ * بعض أعمدة CRM تخلط الاسم بمعلومات إضافية بفاصل ("الاسم - المدينة" أو
+ * "الاسم / الشركة / المنطقة") — نأخذ المقطع الأول فقط قبل أول فاصل.
+ */
+function leadingSegment(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(.+?)\s*[/\-–]\s*\S.*$/);
+  return m ? m[1].trim() : s;
+}
+
+const PHARMACY_NAME_RE = /^(صيدلية|صيدليه|ص[.\s])/;
+const DOCTOR_NAME_RE   = /(دكتور|عيادة|د\.)/;
+
+/** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
+function extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors }) {
+  const col = {
+    taskTo:      findCol(headers, ['task-to']),
+    client:      findCol(headers, ['client']),
+    category:    findCol(headers, ['client-category']),
+    subcategory: findCol(headers, ['client-subcategory']),
+    address:     findCol(headers, ['client-address']),
+    city:        findCol(headers, ['client-city']),
+    associated:  findCol(headers, ['associated-client']),
+    type:        findCol(headers, ['type']),
+    created:     findCol(headers, ['created']),
+    note:        findCol(headers, ['note']),
+  };
+  const get = (row, key) => (col[key] ? String(row[col[key]] ?? '').trim() : '');
+
+  const doctorRows = [];
+  const pharmacyRows = [];
+
+  rows.forEach((row, i) => {
+    const clientRaw = get(row, 'client');
+    if (!clientRaw) return; // صفوف مثل Check-Out بلا عميل — لا معنى لاستيرادها
+
+    const repName = leadingSegment(get(row, 'taskTo'));
+    const repKey  = repName ? normalizeRepName(repName) : '';
+    const rep     = repKey ? repByKey.get(repKey) : null;
+
+    const clientName = leadingSegment(clientRaw);
+    let category = get(row, 'category');
+    if (!category || category.toLowerCase() === 'unset') {
+      category = PHARMACY_NAME_RE.test(clientName) ? 'صيدلية'
+               : DOCTOR_NAME_RE.test(clientName)   ? 'دكتور'
+               : '';
+    }
+
+    const areaRaw = get(row, 'address') || get(row, 'city');
+    const area = findByName(allAreas, areaRaw);
+    const dateVal = parseVisitDate(get(row, 'created'));
+    const date = dateVal ? dateVal.toISOString().slice(0, 10) : '';
+    const isDoubleVisit = get(row, 'type') === 'Double Visit';
+    const notes = get(row, 'note');
+    const _row = i + 2;
+
+    if (category.includes('صيدل')) {
+      pharmacyRows.push({
+        _row, repName, repId: rep?.id ?? null,
+        pharmacyName: clientName,
+        areaName: areaRaw, areaId: area?.id ?? null,
+        date, notes, isDoubleVisit,
+        lat: null, lng: null,
+      });
+    } else {
+      // فئة غير محسومة (لا "دكتور" صريحة ولا شبه اسم صيدلية) تُعامَل كطبيب
+      // افتراضياً لتبقى قابلة للمراجعة بدل إسقاطها صامتة.
+      const sameNameDoctors = existingDoctors.filter(d => d.name.trim().toLowerCase() === clientName.toLowerCase());
+      const existingDoctor = area
+        ? (sameNameDoctors.find(d => d.areaId === area.id) ?? sameNameDoctors[0] ?? null)
+        : (sameNameDoctors[0] ?? null);
+      doctorRows.push({
+        _row, repName, repId: rep?.id ?? null,
+        doctorName: clientName, doctorId: existingDoctor?.id ?? null,
+        specialty: get(row, 'subcategory'),
+        areaName: areaRaw, areaId: area?.id ?? null,
+        pharmacyName: get(row, 'associated'),
+        itemName: '', itemId: null,
+        date,
+        feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
+        notes, isDoubleVisit,
+        lat: null, lng: null,
+      });
+    }
+  });
+
+  return { doctorRows, pharmacyRows };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EXTRACT (مشترك بين الصيغتين)
+// ════════════════════════════════════════════════════════════════════════════
+
 /**
  * قراءة الملف ومحاولة مطابقة كل حقل — بلا إنشاء أي شيء. النتيجة صفوف تُعرض
- * لمراجعة المستخدم في شبكة قابلة للتعديل قبل الحفظ الفعلي.
+ * لمراجعة المستخدم في شبكة قابلة للتعديل قبل الحفظ الفعلي. يكتشف صيغة الملف
+ * تلقائياً (قالبنا البسيط أو تصدير CRM خارجي) ويُرجع شكلاً موحّداً دائماً
+ * (doctorRows + pharmacyRows) بصرف النظر عن الصيغة.
  */
 export async function extractVisitsFromExcel(file, user) {
   const workbook = XLSX.readFile(file.path);
@@ -108,21 +223,29 @@ export async function extractVisitsFromExcel(file, user) {
   const rows     = XLSX.utils.sheet_to_json(sheet, { defval: '' });
   fs.unlink(file.path, () => {});
 
-  if (rows.length === 0) {
-    return { rows: [], repNames: { pending: [], resolved: [], unrelated: [], reps: [] }, columnsDetected: {} };
-  }
+  const EMPTY = { doctorRows: [], pharmacyRows: [], repNames: { pending: [], resolved: [], unrelated: [], reps: [] }, format: 'template', columnsDetected: {} };
+  if (rows.length === 0) return EMPTY;
 
   const headers = Object.keys(rows[0]);
-  const colMap  = {};
-  for (const [field, kws] of Object.entries(COL_KEYWORDS)) colMap[field] = findCol(headers, kws);
-
+  const isCrm = detectCrmFormat(headers);
   const ownerUserId = await resolveDocOwnerUserId(user.id);
 
-  // مطابقة أسماء المندوبين — نفس محرك ميركاتو، والروابط المحفوظة مسبقاً (من
-  // ميركاتو أو من استيراد سابق) تُطبَّق هنا تلقائياً.
-  const rawRepNames = colMap.repName
-    ? [...new Set(rows.map(r => String(r[colMap.repName] ?? '').trim()).filter(Boolean))]
-    : [];
+  // استخراج أسماء المندوبين حسب الصيغة (قبل التصنيف) — مشترك بين قائمتي
+  // الأطباء والصيدليات لأنه نفس عمود المندوب في الملف نفسه.
+  let colMap = {};
+  let rawRepNames = [];
+  if (isCrm) {
+    const taskToCol = findCol(headers, ['task-to']);
+    rawRepNames = taskToCol
+      ? [...new Set(rows.map(r => leadingSegment(r[taskToCol])).filter(Boolean))]
+      : [];
+  } else {
+    for (const [field, kws] of Object.entries(COL_KEYWORDS)) colMap[field] = findCol(headers, kws);
+    rawRepNames = colMap.repName
+      ? [...new Set(rows.map(r => String(r[colMap.repName] ?? '').trim()).filter(Boolean))]
+      : [];
+  }
+
   const repClassification = await classifyRepNamesForUser(rawRepNames, user);
   const repByKey = new Map();
   for (const e of [...repClassification.pending, ...repClassification.resolved]) {
@@ -135,7 +258,12 @@ export async function extractVisitsFromExcel(file, user) {
     prisma.doctor.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true, areaId: true } }),
   ]);
 
-  const outRows = rows.map((row, i) => {
+  if (isCrm) {
+    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors });
+    return { doctorRows, pharmacyRows, repNames: repClassification, format: 'crm', columnsDetected: {} };
+  }
+
+  const doctorRows = rows.map((row, i) => {
     const get = field => (colMap[field] ? String(row[colMap[field]] ?? '').trim() : '');
 
     const repRaw = get('repName');
@@ -168,35 +296,25 @@ export async function extractVisitsFromExcel(file, user) {
       itemName, itemId: item?.id ?? null,
       date: dateVal ? dateVal.toISOString().slice(0, 10) : '',
       feedback: mapFeedback(get('feedback')),
-      notes: get('notes'),
+      notes: get('notes'), isDoubleVisit: false,
       lat, lng,
     };
   }).filter(r => r.doctorName); // صف بلا اسم طبيب لا معنى لاستيراده كزيارة
 
-  return { rows: outRows, repNames: repClassification, columnsDetected: colMap };
+  return { doctorRows, pharmacyRows: [], repNames: repClassification, format: 'template', columnsDetected: colMap };
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// COMMIT
+// ════════════════════════════════════════════════════════════════════════════
+
 /**
- * يحفظ الصفوف بعد مراجعة/تصحيح المستخدم: يُنشئ Doctor الناقص (بنفس منطق تسجيل
- * الزيارة اليدوي — إكمال الحقول الفارغة فقط لا استبدال الموجود)، ثم DoctorVisit.
- * صف بلا مندوب مؤكَّد (repId) يُتجاهل ويُذكر في الأخطاء — لا نخمّن مندوباً.
+ * يحفظ صفوف زيارات الأطباء بعد مراجعة/تصحيح المستخدم: يُنشئ Doctor الناقص
+ * (بنفس منطق تسجيل الزيارة اليدوي — إكمال الحقول الفارغة فقط لا استبدال
+ * الموجود)، ثم DoctorVisit. صف بلا مندوب مؤكَّد (repId) يُتجاهل ويُذكر في
+ * الأخطاء — لا نخمّن مندوباً.
  */
-export async function commitVisitsImport({ rows, rememberRepLinks = [], user }) {
-  const ownerUserId = await resolveDocOwnerUserId(user.id);
-
-  if (rememberRepLinks.length) {
-    for (const l of rememberRepLinks) {
-      const fromName = String(l?.fromName ?? '').trim();
-      const fromKey  = normalizeRepName(fromName);
-      if (!fromKey) continue;
-      await prisma.sciRepNameLink.upsert({
-        where:  { userId_fromKey: { userId: user.id, fromKey } },
-        update: { fromName, scientificRepId: l?.scientificRepId ?? null },
-        create: { userId: user.id, fromKey, fromName, scientificRepId: l?.scientificRepId ?? null },
-      });
-    }
-  }
-
+async function commitDoctorRows(rows, ownerUserId, user) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
 
@@ -208,7 +326,7 @@ export async function commitVisitsImport({ rows, rememberRepLinks = [], user }) 
     try {
       const doctorName = String(r?.doctorName ?? '').trim();
       if (!doctorName) { skipped++; continue; }
-      if (!r?.repId) { skipped++; errors.push(`صف ${r?._row ?? '?'}: بلا مندوب مؤكَّد (${r?.repName || doctorName})`); continue; }
+      if (!r?.repId) { skipped++; errors.push(`طبيب — صف ${r?._row ?? '?'}: بلا مندوب مؤكَّد (${r?.repName || doctorName})`); continue; }
 
       let areaId = r.areaId ?? null;
       const areaName = String(r?.areaName ?? '').trim();
@@ -258,6 +376,7 @@ export async function commitVisitsImport({ rows, rememberRepLinks = [], user }) 
           itemId: r.itemId ?? null,
           feedback: r.feedback || 'pending',
           notes: r.notes ? String(r.notes) : null,
+          isDoubleVisit: !!r.isDoubleVisit,
           latitude:  Number.isFinite(r.lat) ? r.lat : null,
           longitude: Number.isFinite(r.lng) ? r.lng : null,
           userId: user.id,
@@ -266,9 +385,84 @@ export async function commitVisitsImport({ rows, rememberRepLinks = [], user }) 
       imported++;
     } catch (e) {
       skipped++;
-      errors.push(`صف ${r?._row ?? '?'}: ${e.message}`);
+      errors.push(`طبيب — صف ${r?._row ?? '?'}: ${e.message}`);
     }
   }
 
-  return { imported, skipped, errors: errors.slice(0, 30) };
+  return { imported, skipped, errors };
+}
+
+/** نفس منطق commitDoctorRows لكن لِـ PharmacyVisit — pharmacyName نص حر بلا سجل رئيسي فيُحفظ كما هو. */
+async function commitPharmacyRows(rows, ownerUserId, user) {
+  const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+  const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
+
+  let imported = 0, skipped = 0;
+  const errors = [];
+
+  for (const r of (Array.isArray(rows) ? rows : [])) {
+    try {
+      const pharmacyName = String(r?.pharmacyName ?? '').trim();
+      if (!pharmacyName) { skipped++; continue; }
+      if (!r?.repId) { skipped++; errors.push(`صيدلية — صف ${r?._row ?? '?'}: بلا مندوب مؤكَّد (${r?.repName || pharmacyName})`); continue; }
+
+      let areaId = r.areaId ?? null;
+      const areaName = String(r?.areaName ?? '').trim();
+      if (!areaId && areaName) {
+        const norm = normalizeAreaName(areaName);
+        let found = areaByNorm.get(norm);
+        if (!found) {
+          found = await prisma.area.create({ data: { name: areaName, userId: ownerUserId } });
+          areaByNorm.set(normalizeAreaName(found.name), found);
+        }
+        areaId = found.id;
+      }
+
+      const dateVal = parseVisitDate(r.date);
+      await prisma.pharmacyVisit.create({
+        data: {
+          pharmacyName,
+          areaId,
+          areaName: areaId ? null : (areaName || null),
+          scientificRepId: r.repId,
+          visitDate: dateVal ?? new Date(),
+          notes: r.notes ? String(r.notes) : null,
+          isDoubleVisit: !!r.isDoubleVisit,
+          latitude:  Number.isFinite(r.lat) ? r.lat : null,
+          longitude: Number.isFinite(r.lng) ? r.lng : null,
+          userId: user.id,
+        },
+      });
+      imported++;
+    } catch (e) {
+      skipped++;
+      errors.push(`صيدلية — صف ${r?._row ?? '?'}: ${e.message}`);
+    }
+  }
+
+  return { imported, skipped, errors };
+}
+
+/**
+ * نقطة الحفظ الموحّدة: تحفظ روابط أسماء المندوبين المؤكَّدة أولاً (تُستعمل
+ * فوراً + تُطبَّق تلقائياً في ميركاتو والاستيرادات القادمة)، ثم تستورد صفوف
+ * الأطباء والصيدليات معاً (أي منهما قد يكون فارغاً حسب صيغة الملف).
+ */
+export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], user }) {
+  const ownerUserId = await resolveDocOwnerUserId(user.id);
+
+  if (rememberRepLinks.length) await saveRepNameLinks(user.id, rememberRepLinks);
+
+  const [doctorResult, pharmacyResult] = await Promise.all([
+    commitDoctorRows(doctorRows, ownerUserId, user),
+    commitPharmacyRows(pharmacyRows, ownerUserId, user),
+  ]);
+
+  return {
+    imported: doctorResult.imported + pharmacyResult.imported,
+    skipped:  doctorResult.skipped + pharmacyResult.skipped,
+    errors:   [...doctorResult.errors, ...pharmacyResult.errors].slice(0, 30),
+    doctor:   doctorResult,
+    pharmacy: pharmacyResult,
+  };
 }

@@ -2,23 +2,35 @@ import { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 
 /**
- * استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بديل عن تسجيلها واحدة
- * واحدة من داخل التطبيق. تدفّق العمل: رفع → مطابقة أسماء المندوبين (مرة واحدة
- * لكل اسم مختلف، وليس لكل صف) → مراجعة/تصحيح الصفوف في جدول → حفظ.
+ * استيراد زيارات الأطباء والصيدليات بالجملة من ملف إكسل خارجي — بديل عن
+ * تسجيلها واحدة واحدة من داخل التطبيق. تدفّق العمل: رفع → مطابقة أسماء
+ * المندوبين (مرة واحدة لكل اسم مختلف، وليس لكل صف) → مراجعة/تصحيح الصفوف في
+ * جدول (تبويب منفصل للأطباء وللصيدليات إن وُجد النوعان معاً) → حفظ.
+ *
+ * يدعم الخادم صيغتين للملف تُكتشَف تلقائياً: قالبنا البسيط (أطباء فقط)، أو
+ * تصدير CRM خارجي يخلط أطباء وصيدليات في ملف واحد.
  */
 
 const API = import.meta.env.VITE_API_URL || '';
 
 interface RepOpt { id: number; name: string }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; score: number }[] }
-interface Row {
+interface DoctorRow {
   _row: number;
   repName: string; repId: number | null;
   doctorName: string; doctorId: number | null;
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
-  date: string; feedback: string; notes: string;
+  date: string; feedback: string; notes: string; isDoubleVisit: boolean;
+  lat: number | null; lng: number | null;
+}
+interface PharmacyRow {
+  _row: number;
+  repName: string; repId: number | null;
+  pharmacyName: string;
+  areaName: string; areaId: number | null;
+  date: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null;
 }
 
@@ -44,15 +56,18 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
-  const [rows, setRows] = useState<Row[]>([]);
+  const [docRows, setDocRows] = useState<DoctorRow[]>([]);
+  const [pharmRows, setPharmRows] = useState<PharmacyRow[]>([]);
+  const [gridTab, setGridTab] = useState<'doctors' | 'pharmacies'>('doctors');
   const [reps, setReps] = useState<RepOpt[]>([]);
   const [pendingNames, setPendingNames] = useState<RepNameEntry[]>([]);
   const [unrelatedNames, setUnrelatedNames] = useState<{ raw: string; key: string }[]>([]);
-  const [resolvedCount, setResolvedCount] = useState(0);
   // اختيار المستخدم لكل اسم مندوب غير محسوم: معرّف المندوب، أو 'none'
   const [nameChoice, setNameChoice] = useState<Record<string, string>>({});
   const [nameApplied, setNameApplied] = useState(false);
   const [rememberChoices, setRememberChoices] = useState(true);
+
+  const totalRows = docRows.length + pharmRows.length;
 
   /** يبني ملف إكسل نموذجي بالأعمدة والصيغة المتوقّعة + صفوف مثال + ورقة تعليمات. */
   const downloadTemplate = () => {
@@ -79,6 +94,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       ['الفيدباك: مهتم / غير مهتم / كتابة / متوفر (أو مخزّن) / غير متوفر — أي نص آخر أو خانة فارغة تُعامَل كـ"لم تُحدَّد"'],
       ['الموقع: اختياري — يُكتب كخلية واحدة بصيغة "خط العرض,خط الطول" كما في المثال، أو استبدل هذا العمود بعمودين منفصلين بعنوان "خط العرض" و"خط الطول"'],
       ['يمكن حذف صفوف المثال أعلاه قبل تعبئة بياناتك الفعلية.'],
+      [''],
+      ['ملاحظة: يقبل الاستيراد أيضاً ملفات تصدير من أنظمة CRM خارجية بترويسات مختلفة (task-to/client/client-category…) وتُكتشَف تلقائياً — يفصل حينها بين زيارات الأطباء وزيارات الصيدليات تلقائياً حسب نوع العميل في الملف.'],
     ];
     const wsLegend = XLSX.utils.aoa_to_sheet(legend);
     wsLegend['!cols'] = [{ wch: 95 }];
@@ -91,7 +108,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
     const file = fileList?.[0];
     if (!file) return;
     setError(''); setInfo(''); setExtracting(true);
-    setRows([]); setNameApplied(false);
+    setDocRows([]); setPharmRows([]); setNameApplied(false);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -99,12 +116,19 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || j.message || 'فشل قراءة الملف');
       const data = j.data;
-      setRows(data.rows ?? []);
+      const dRows: DoctorRow[] = data.doctorRows ?? [];
+      const pRows: PharmacyRow[] = data.pharmacyRows ?? [];
+      setDocRows(dRows);
+      setPharmRows(pRows);
+      setGridTab(dRows.length > 0 || pRows.length === 0 ? 'doctors' : 'pharmacies');
       setReps(data.repNames?.reps ?? []);
       setPendingNames(data.repNames?.pending ?? []);
       setUnrelatedNames(data.repNames?.unrelated ?? []);
-      setResolvedCount((data.repNames?.resolved ?? []).length);
-      if ((data.rows ?? []).length === 0) setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب.');
+      if (dRows.length === 0 && pRows.length === 0) {
+        setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
+      } else if (pRows.length > 0) {
+        setInfo(`اكتُشف ملف يحتوي زيارات أطباء وصيدليات معاً — ${dRows.length} زيارة طبيب و${pRows.length} زيارة صيدلية.`);
+      }
       // لا حاجة لمطابقة إضافية إن لم تكن هناك أسماء غير محسومة
       if ((data.repNames?.pending ?? []).length === 0 && (data.repNames?.unrelated ?? []).length === 0) {
         setNameApplied(true);
@@ -120,34 +144,41 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
   const needsDecision = useMemo(() => [...pendingNames, ...unrelatedNames.map(u => ({ ...u, status: 'none', rep: null, suggestions: [] as any[] }))], [pendingNames, unrelatedNames]);
   const decidedCount = needsDecision.filter(e => nameChoice[e.key]).length;
 
-  /** يطبّق قرارات المطابقة على كل صفوف الجدول دفعة واحدة. */
+  const countForName = (key: string) =>
+    docRows.filter(r => r.repName && normalizeLocal(r.repName) === key).length
+    + pharmRows.filter(r => r.repName && normalizeLocal(r.repName) === key).length;
+
+  /** يطبّق قرارات المطابقة على صفوف الأطباء والصيدليات معاً دفعة واحدة. */
   const applyNameMatching = () => {
-    const repById = new Map(reps.map(r => [String(r.id), r]));
     const choiceByKey = new Map<string, number | null>();
     for (const e of needsDecision) {
       const c = nameChoice[e.key];
       if (!c) continue;
       choiceByKey.set(e.key, c === 'none' ? null : Number(c));
     }
-    setRows(rs => rs.map(r => {
+    const apply = <T extends { repName: string; repId: number | null }>(list: T[]): T[] => list.map(r => {
       if (r.repId) return r; // محسوم أصلاً (تطابق تام/رابط محفوظ)
       const key = r.repName ? normalizeLocal(r.repName) : '';
       if (!choiceByKey.has(key)) return r;
-      const id = choiceByKey.get(key);
-      return { ...r, repId: id ?? null };
-    }));
-    void repById;
+      return { ...r, repId: choiceByKey.get(key) ?? null };
+    });
+    setDocRows(apply);
+    setPharmRows(apply);
     setNameApplied(true);
   };
 
-  const setCell = (i: number, patch: Partial<Row>) => setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const removeRow = (i: number) => setRows(rs => rs.filter((_, idx) => idx !== i));
+  const setDocCell = (i: number, patch: Partial<DoctorRow>) => setDocRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removeDocRow = (i: number) => setDocRows(rs => rs.filter((_, idx) => idx !== i));
+  const setPharmCell = (i: number, patch: Partial<PharmacyRow>) => setPharmRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const removePharmRow = (i: number) => setPharmRows(rs => rs.filter((_, idx) => idx !== i));
 
-  const readyCount = rows.filter(r => r.repId).length;
-  const missingRepCount = rows.length - readyCount;
+  const docReady = docRows.filter(r => r.repId).length;
+  const pharmReady = pharmRows.filter(r => r.repId).length;
+  const readyCount = docReady + pharmReady;
+  const missingRepCount = totalRows - readyCount;
 
   const save = async () => {
-    if (rows.length === 0) return;
+    if (totalRows === 0) return;
     setSaving(true); setError('');
     try {
       const rememberRepLinks = rememberChoices
@@ -158,12 +189,13 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
         : [];
       const res = await fetch(`${API}/api/doctors/visits/import-commit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authH },
-        body: JSON.stringify({ rows, rememberRepLinks }),
+        body: JSON.stringify({ doctorRows: docRows, pharmacyRows: pharmRows, rememberRepLinks }),
       });
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || j.message || 'فشل الحفظ');
       const d = j.data;
-      onSaved?.(`تمت إضافة ${d.imported} زيارة${d.skipped > 0 ? ` — تم تجاهل ${d.skipped} صف` : ''}.`
+      onSaved?.(`تمت إضافة ${d.imported} زيارة (${d.doctor?.imported ?? 0} طبيب، ${d.pharmacy?.imported ?? 0} صيدلية)`
+        + `${d.skipped > 0 ? ` — تم تجاهل ${d.skipped} صف` : ''}.`
         + (d.errors?.length ? `\n${d.errors.slice(0, 5).join('\n')}` : ''));
       onClose();
     } catch (e) {
@@ -181,12 +213,11 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
           <button onClick={onClose} style={xBtn}>✕</button>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
-          ارفع ملف إكسل يحتوي زيارات الأطباء (عمود لكل من: اسم المندوب، اسم الطبيب، الاختصاص،
-          المنطقة، اسم الصيدلية، اسم الايتم، التاريخ، الفيدباك، الملاحظات، والموقع إن وُجد) —
-          سيتم ملء زيارات كل مندوب حسب اسمه في الملف. راجع النتيجة وصحّحها قبل الحفظ النهائي.
+          ارفع ملف إكسل يحتوي زيارات الأطباء (وصيدليات إن وُجدت) — سيتم ملء زيارات كل مندوب
+          حسب اسمه في الملف. راجع النتيجة وصحّحها قبل الحفظ النهائي.
         </p>
 
-        {rows.length === 0 && (
+        {totalRows === 0 && (
           <div style={dropZone}>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
               onChange={e => onFile(e.target.files)} />
@@ -203,14 +234,14 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
         {error && <div style={errBox}>⚠️ {error}</div>}
         {info && <div style={infoBox}>{info}</div>}
 
-        {rows.length > 0 && !nameApplied && needsDecision.length > 0 && (
+        {totalRows > 0 && !nameApplied && needsDecision.length > 0 && (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', marginBottom: 8 }}>
               🔗 طابِق أسماء المندوبين أولاً ({decidedCount}/{needsDecision.length}) — يُطبَّق على كل صفوف كل اسم دفعة واحدة
             </div>
             <div style={{ maxHeight: '38vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {needsDecision.map(e => {
-                const count = rows.filter(r => r.repName && normalizeLocal(r.repName) === e.key).length;
+                const count = countForName(e.key);
                 return (
                   <div key={e.key} style={card}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -246,60 +277,107 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
           </div>
         )}
 
-        {rows.length > 0 && nameApplied && (
+        {totalRows > 0 && nameApplied && (
           <>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>✅ {readyCount} صف جاهز</span>
               {missingRepCount > 0 && (
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>⚠️ {missingRepCount} صف بلا مندوب — صحّحه في الجدول أدناه أو سيُتجاهل</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>⚠️ {missingRepCount} صف بلا مندوب — صحّحه أدناه أو سيُتجاهل</span>
               )}
               <button onClick={() => setNameApplied(false)} style={{ ...bulkBtn, marginInlineStart: 'auto' }}>🔗 إعادة مطابقة الأسماء</button>
             </div>
 
-            <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10, maxHeight: '46vh', overflowY: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-                    {['المندوب', 'الطبيب', 'الاختصاص', 'المنطقة', 'الصيدلية', 'الايتم', 'التاريخ', 'الفيدباك', 'الملاحظات', ''].map(h => (
-                      <th key={h} style={th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} style={{ background: !r.repId ? '#fef2f2' : i % 2 ? '#fafbfc' : '#fff' }}>
-                      <td style={td}>
-                        <select value={r.repId ?? ''} onChange={e => setCell(i, { repId: e.target.value ? Number(e.target.value) : null })}
-                          style={{ ...cellInp, minWidth: 130, borderColor: r.repId ? '#e2e8f0' : '#fca5a5' }}>
-                          <option value="">{r.repName || '— اختر —'}</option>
-                          {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
-                        </select>
-                      </td>
-                      <td style={td}><input value={r.doctorName} onChange={e => setCell(i, { doctorName: e.target.value })} style={{ ...cellInp, minWidth: 140 }} /></td>
-                      <td style={td}><input value={r.specialty} onChange={e => setCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} /></td>
-                      <td style={td}><input value={r.areaName} onChange={e => setCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} /></td>
-                      <td style={td}><input value={r.pharmacyName} onChange={e => setCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>
-                      <td style={td}><input value={r.itemName} onChange={e => setCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
-                      <td style={td}><input type="date" value={r.date} onChange={e => setCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
-                      <td style={td}>
-                        <select value={r.feedback} onChange={e => setCell(i, { feedback: e.target.value })} style={{ ...cellInp, minWidth: 100 }}>
-                          {FEEDBACK_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </td>
-                      <td style={td}><input value={r.notes} onChange={e => setCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
-                      <td style={{ ...td, textAlign: 'center' }}>
-                        <button onClick={() => removeRow(i)} title="حذف الصف" style={delBtn}>×</button>
-                      </td>
+            {docRows.length > 0 && pharmRows.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                <button onClick={() => setGridTab('doctors')} style={gridTab === 'doctors' ? tabBtnOn : tabBtnOff}>
+                  👨‍⚕️ زيارات الأطباء ({docRows.length})
+                </button>
+                <button onClick={() => setGridTab('pharmacies')} style={gridTab === 'pharmacies' ? tabBtnOn : tabBtnOff}>
+                  🏪 زيارات الصيدليات ({pharmRows.length})
+                </button>
+              </div>
+            )}
+
+            {(gridTab === 'doctors' || pharmRows.length === 0) && docRows.length > 0 && (
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10, maxHeight: '46vh', overflowY: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                      {['المندوب', 'الطبيب', 'الاختصاص', 'المنطقة', 'الصيدلية', 'الايتم', 'التاريخ', 'الفيدباك', 'الملاحظات', ''].map(h => (
+                        <th key={h} style={th}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {docRows.map((r, i) => (
+                      <tr key={i} style={{ background: !r.repId ? '#fef2f2' : i % 2 ? '#fafbfc' : '#fff' }}>
+                        <td style={td}>
+                          <select value={r.repId ?? ''} onChange={e => setDocCell(i, { repId: e.target.value ? Number(e.target.value) : null })}
+                            style={{ ...cellInp, minWidth: 130, borderColor: r.repId ? '#e2e8f0' : '#fca5a5' }}>
+                            <option value="">{r.repName || '— اختر —'}</option>
+                            {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
+                          </select>
+                        </td>
+                        <td style={td}><input value={r.doctorName} onChange={e => setDocCell(i, { doctorName: e.target.value })} style={{ ...cellInp, minWidth: 140 }} /></td>
+                        <td style={td}><input value={r.specialty} onChange={e => setDocCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} /></td>
+                        <td style={td}><input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} /></td>
+                        <td style={td}><input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>
+                        <td style={td}><input value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
+                        <td style={td}><input type="date" value={r.date} onChange={e => setDocCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
+                        <td style={td}>
+                          <select value={r.feedback} onChange={e => setDocCell(i, { feedback: e.target.value })} style={{ ...cellInp, minWidth: 100 }}>
+                            {FEEDBACK_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                        </td>
+                        <td style={td}><input value={r.notes} onChange={e => setDocCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
+                        <td style={{ ...td, textAlign: 'center' }}>
+                          <button onClick={() => removeDocRow(i)} title="حذف الصف" style={delBtn}>×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {(gridTab === 'pharmacies' || docRows.length === 0) && pharmRows.length > 0 && (
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10, maxHeight: '46vh', overflowY: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                      {['المندوب', 'الصيدلية', 'المنطقة', 'التاريخ', 'الملاحظات', ''].map(h => (
+                        <th key={h} style={th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pharmRows.map((r, i) => (
+                      <tr key={i} style={{ background: !r.repId ? '#fef2f2' : i % 2 ? '#fafbfc' : '#fff' }}>
+                        <td style={td}>
+                          <select value={r.repId ?? ''} onChange={e => setPharmCell(i, { repId: e.target.value ? Number(e.target.value) : null })}
+                            style={{ ...cellInp, minWidth: 130, borderColor: r.repId ? '#e2e8f0' : '#fca5a5' }}>
+                            <option value="">{r.repName || '— اختر —'}</option>
+                            {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
+                          </select>
+                        </td>
+                        <td style={td}><input value={r.pharmacyName} onChange={e => setPharmCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
+                        <td style={td}><input value={r.areaName} onChange={e => setPharmCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 100 }} /></td>
+                        <td style={td}><input type="date" value={r.date} onChange={e => setPharmCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
+                        <td style={td}><input value={r.notes} onChange={e => setPharmCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
+                        <td style={{ ...td, textAlign: 'center' }}>
+                          <button onClick={() => removePharmRow(i)} title="حذف الصف" style={delBtn}>×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
-          {rows.length > 0 && nameApplied && (
+          {totalRows > 0 && nameApplied && (
             <button onClick={save} disabled={saving || readyCount === 0} style={{ ...saveBtn, opacity: saving || readyCount === 0 ? 0.6 : 1 }}>
               {saving ? '⏳ جاري الحفظ…' : `💾 حفظ ${readyCount} زيارة`}
             </button>
@@ -340,3 +418,6 @@ const errBox: React.CSSProperties = { marginTop: 10, padding: '8px 12px', backgr
 const infoBox: React.CSSProperties = { marginTop: 10, padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, color: '#1d4ed8', fontSize: 12.5 };
 const cancelBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' };
 const saveBtn: React.CSSProperties = { padding: '10px 22px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
+const tabBtnBase: React.CSSProperties = { padding: '6px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid #e2e8f0' };
+const tabBtnOn: React.CSSProperties = { ...tabBtnBase, background: '#eef2ff', color: '#4338ca', borderColor: '#6366f1' };
+const tabBtnOff: React.CSSProperties = { ...tabBtnBase, background: '#f8fafc', color: '#64748b' };
