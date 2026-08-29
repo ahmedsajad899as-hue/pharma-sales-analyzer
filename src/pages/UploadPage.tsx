@@ -133,9 +133,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       // Suggest merging any newly-created near-duplicate items (confirmation modal)
       checkSimilarItemsRef.current(unknownItems);
       // ملف ميركاتو: افتح مطابقة أسماء المندوبين فوراً — بدونها تُنسب مبيعات
-      // المندوب المكتوب اسمه مختصراً إلى لا أحد.
+      // المندوب المكتوب اسمه مختصراً إلى لا أحد. نفحص أولاً فلا تظهر نافذة
+      // فارغة حين لا يوجد اسم يحتاج قراراً.
       const uploadedSource = data.data?.uploadedFile?.sourceSystem ?? data.uploadedFile?.sourceSystem;
-      if (newFileId && uploadedSource === 'mercato') setRepNameFileIds([newFileId]);
+      if (newFileId && uploadedSource === 'mercato') {
+        try {
+          const chk = await fetch(`${API}/api/scientific-reps/rep-names/check?fileIds=${newFileId}`, { headers: { Authorization: `Bearer ${token}` } });
+          const cj = await chk.json();
+          if ((cj.data?.pending ?? []).length > 0) setRepNameFileIds([newFileId]);
+        } catch { /* غير حرج — يبقى الزر على بطاقة الملف */ }
+      }
     } catch (err: any) {
       setError(err.message || t.upload.error);
     } finally {

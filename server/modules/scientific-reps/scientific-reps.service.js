@@ -731,17 +731,22 @@ export function repNameScore(a, b) {
  * يفحص أسماء المندوبين الواردة في ملفات ميركاتو المفعّلة ويصنّفها مقابل سجلات
  * المندوبين العلميين. قراءة فقط — لا يُنشئ ولا يربط شيئاً.
  *
+ * النطاق: مندوبو هذا المدير فقط (نفس ما تُرجعه list لهذا المستخدم). الأسماء التي
+ * لا تشبه أياً منهم تُعدّ خارج نطاقه ولا يُسأل عنها إطلاقاً — ملف ميركاتو يضمّ
+ * مندوبي السوق كلهم لا مندوبي مكتب واحد.
+ *
  * التصنيف:
  *   linked → سبق أن أكّده المستخدم (أو استبعده) فلا يُسأل عنه
  *   exact  → تطابق تام بعد التطبيع → يُربط تلقائياً بلا سؤال
- *   ask    → مرشّحون متشابهون لكن بلا قطع → يُعرض للتأكيد
- *   none   → بلا مرشّح — يبقى للمستخدم ربطه يدوياً إن شاء
+ *   ask    → مرشّحون متشابهون لكن بلا قطع → يُعرض للتأكيد (هذا وحده ما يُسأل عنه)
+ *   none   → لا يشبه أياً من مندوبي المدير → خارج النطاق، للعلم فقط
  *
  * @param {{ fileIds:number[]|null, user:object }} opts
  */
 export async function checkMercatoRepNames({ fileIds = null, user = null } = {}) {
+  const EMPTY = { pending: [], resolved: [], unrelated: [], mercatoFileCount: 0, reps: [] };
   const ids = Array.isArray(fileIds) ? fileIds.filter(Number.isInteger) : [];
-  if (ids.length === 0) return { entries: [], mercatoFileCount: 0, reps: [] };
+  if (ids.length === 0) return EMPTY;
 
   // نقتصر على ملفات ميركاتو: في ملفات المكتب «اسم المندوب» مندوب تجاري لا علمي.
   const files = await prisma.uploadedFile.findMany({
@@ -749,7 +754,7 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
     select: { id: true, sourceSystem: true },
   });
   const mercatoIds = files.filter(f => f.sourceSystem === 'mercato').map(f => f.id);
-  if (mercatoIds.length === 0) return { entries: [], mercatoFileCount: 0, reps: [] };
+  if (mercatoIds.length === 0) return EMPTY;
 
   // أسماء المندوبين الفعلية داخل تلك الملفات
   const rows = await prisma.sale.findMany({
@@ -800,11 +805,17 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
     return { raw, key, status: suggestions.length > 0 ? 'ask' : 'none', rep: null, suggestions };
   });
 
-  // الأكثر إلحاحاً أولاً: ما يحتاج قراراً، ثم غير المطابق، ثم المحسوم
-  const rank = { ask: 0, none: 1, linked: 2, exact: 3 };
-  entries.sort((a, b) => (rank[a.status] - rank[b.status]) || a.raw.localeCompare(b.raw, 'ar'));
-
-  return { entries, mercatoFileCount: mercatoIds.length, reps };
+  const byName = (a, b) => a.raw.localeCompare(b.raw, 'ar');
+  return {
+    // ما يحتاج قرار المستخدم فعلاً — وهو وحده ما تعرضه النافذة للسؤال
+    pending:   entries.filter(e => e.status === 'ask').sort(byName),
+    // محسوم مسبقاً: تطابق تام أو قرار محفوظ
+    resolved:  entries.filter(e => e.status === 'linked' || e.status === 'exact').sort(byName),
+    // خارج نطاق مندوبي هذا المدير — تُعرض كعدد فقط، بلا سؤال
+    unrelated: entries.filter(e => e.status === 'none').map(e => ({ raw: e.raw, key: e.key })).sort(byName),
+    mercatoFileCount: mercatoIds.length,
+    reps,
+  };
 }
 
 /**

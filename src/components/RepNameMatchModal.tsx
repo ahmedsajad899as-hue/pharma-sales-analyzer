@@ -15,7 +15,7 @@ interface Suggestion { id: number; name: string; score: number }
 interface Entry {
   raw: string;
   key: string;
-  status: 'linked' | 'exact' | 'ask' | 'none';
+  status: 'linked' | 'exact' | 'ask';
   rep: { id: number; name: string } | null;
   suggestions: Suggestion[];
 }
@@ -32,8 +32,10 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [reps, setReps]       = useState<RepOpt[]>([]);
+  const [pending, setPending]     = useState<Entry[]>([]);
+  const [resolved, setResolved]   = useState<Entry[]>([]);
+  const [unrelated, setUnrelated] = useState<{ raw: string; key: string }[]>([]);
+  const [reps, setReps]           = useState<RepOpt[]>([]);
   // اختيار المستخدم لكل اسم: معرّف المندوب، أو 'none' = ليس أحد مندوبينا
   const [choice, setChoice]   = useState<Record<string, string>>({});
 
@@ -43,7 +45,9 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
       .then(r => r.json())
       .then(j => {
         if (!j.success) throw new Error(j.error || 'تعذّر فحص الأسماء');
-        setEntries(j.data?.entries ?? []);
+        setPending(j.data?.pending ?? []);
+        setResolved(j.data?.resolved ?? []);
+        setUnrelated(j.data?.unrelated ?? []);
         setReps(j.data?.reps ?? []);
         setChoice({});
       })
@@ -53,8 +57,6 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
   }, [token, fileIds.join(',')]);
   useEffect(load, [load]);
 
-  const pending  = entries.filter(e => e.status === 'ask' || e.status === 'none');
-  const resolved = entries.filter(e => e.status === 'linked' || e.status === 'exact');
   const answered = pending.filter(e => choice[e.key]).length;
 
   const save = async () => {
@@ -101,8 +103,9 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
           اسم المندوب في ملف ميركاتو هو المندوب العلمي نفسه، وقد يُكتب مختصراً عن
-          الاسم المسجَّل في التطبيق. أكّد لكل اسم: هل هو نفس المندوب المقترح؟ ما
-          تؤكّده يُحفظ فلا نسألك عنه مرة أخرى، وتُحتسب مبيعاته له مباشرةً.
+          الاسم المسجَّل في التطبيق. المطابقة تتم مع <b>مندوبيك أنت فقط</b> — وأي
+          اسم لا يخصّهم يُتجاهل بلا سؤال. أكّد لكل اسم أدناه: هل هو نفس المندوب
+          المقترح؟ ما تؤكّده يُحفظ فلا نسألك عنه ثانيةً، وتُحتسب مبيعاته له مباشرةً.
         </p>
 
         {loading ? (
@@ -120,7 +123,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                     {pending.length} اسم يحتاج تأكيداً · تمّ {answered}
                   </span>
                   <button style={bulkBtn} onClick={() => setChoice(Object.fromEntries(
-                    pending.map(e => [e.key, e.suggestions[0] ? String(e.suggestions[0].id) : 'none'])))}>
+                    pending.map(e => [e.key, String(e.suggestions[0].id)])))}>
                     ✅ الكل: المقترح الأول
                   </button>
                   <button style={bulkBtn} onClick={() => setChoice(Object.fromEntries(pending.map(e => [e.key, 'none'])))}>
@@ -171,6 +174,21 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                   ))}
                 </div>
               </>
+            )}
+
+            {unrelated.length > 0 && (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#64748b' }}>
+                  🚫 {unrelated.length} اسم لا يخصّ مندوبيك — تم تجاهلها بلا سؤال
+                </summary>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8, maxHeight: 150, overflowY: 'auto' }}>
+                  {unrelated.map(u => (
+                    <span key={u.key} style={{ fontSize: 11.5, color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '3px 9px' }}>
+                      {u.raw}
+                    </span>
+                  ))}
+                </div>
+              </details>
             )}
 
             {resolved.length > 0 && (
