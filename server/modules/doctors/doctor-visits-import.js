@@ -132,6 +132,17 @@ function leadingSegment(v) {
 const PHARMACY_NAME_RE = /^(صيدلية|صيدليه|ص[.\s])/;
 const DOCTOR_NAME_RE   = /(دكتور|عيادة|د\.)/;
 
+// CRM يكتب اسم الطبيب أحياناً "عيادة الدكتور فلان" بدل "فلان" وحدها — لو تُرك
+// كما هو، لا يطابق السجل الصافي الموجود أصلاً فيُنشئ طبيباً مكرَّراً بلا زيارات
+// تحت الاسم القديم، بينما الزيارة الجديدة تعلَّق على سجل جديد منفصل. نفس فكرة
+// PHARMACY_PREFIX_RE في sales.service.js لكن لأسماء الأطباء.
+const DOCTOR_PREFIX_RE = /^\s*(عيادة\s+)?(الدكتور|دكتور|د\.?)\s+/i;
+function cleanDoctorName(name) {
+  let s = String(name ?? '').trim();
+  for (let i = 0; i < 3 && DOCTOR_PREFIX_RE.test(s); i++) s = s.replace(DOCTOR_PREFIX_RE, '').trim();
+  return s;
+}
+
 /** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
 function extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors }) {
   const col = {
@@ -186,13 +197,16 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, existingDoctors }) 
     } else {
       // فئة غير محسومة (لا "دكتور" صريحة ولا شبه اسم صيدلية) تُعامَل كطبيب
       // افتراضياً لتبقى قابلة للمراجعة بدل إسقاطها صامتة.
-      const sameNameDoctors = existingDoctors.filter(d => d.name.trim().toLowerCase() === clientName.toLowerCase());
+      // "عيادة الدكتور فلان" → "فلان": الاسم الصافي هو ما يُطابَق ويُخزَّن، وإلا
+      // أُنشئ طبيب مكرَّر بلا صلة بالسجل الصافي الموجود أصلاً لنفس الشخص.
+      const doctorName = cleanDoctorName(clientName);
+      const sameNameDoctors = existingDoctors.filter(d => d.name.trim().toLowerCase() === doctorName.toLowerCase());
       const existingDoctor = area
         ? (sameNameDoctors.find(d => d.areaId === area.id) ?? sameNameDoctors[0] ?? null)
         : (sameNameDoctors[0] ?? null);
       doctorRows.push({
         _row, repName, repId: rep?.id ?? null,
-        doctorName: clientName, doctorId: existingDoctor?.id ?? null,
+        doctorName, doctorId: existingDoctor?.id ?? null,
         specialty: get(row, 'subcategory'),
         areaName: areaRaw, areaId: area?.id ?? null,
         pharmacyName: get(row, 'associated'),
@@ -350,10 +364,27 @@ async function commitDoctorRows(rows, ownerUserId, user) {
         select: { id: true, name: true, areaName: true },
       })
     : [];
+  // عتبة تشابه مرتفعة عمداً (خطأ إملائي/مسافة بسيطة فقط) — هذا الربط تلقائي بلا
+  // سؤال المستخدم، فلا نخمّن عند أدنى التباس حقيقي؛ يبقى إنشاء طبيب جديد أأمن
+  // من دمج شخصين مختلفين خطأً.
+  const FUZZY_THRESHOLD = 0.92;
+  /** أفضل مرشّح تشابه اسم من قائمة (name normalizer + repNameScore، نفس محرك مطابقة أسماء المندوبين). */
+  const bestFuzzyMatch = (name, candidates, getName) => {
+    let best = null, bestScore = 0;
+    for (const c of candidates) {
+      const score = repNameScore(name, getName(c));
+      if (score > bestScore) { bestScore = score; best = c; }
+    }
+    return bestScore >= FUZZY_THRESHOLD ? best : null;
+  };
+
   const findSurveyDoctor = (name, areaNameLocal) => {
     const nameNorm = name.trim().toLowerCase();
-    const cands = surveyDoctorsAll.filter(d => d.name.trim().toLowerCase() === nameNorm);
-    if (cands.length === 0) return null;
+    let cands = surveyDoctorsAll.filter(d => d.name.trim().toLowerCase() === nameNorm);
+    if (cands.length === 0) {
+      const fuzzy = bestFuzzyMatch(name, surveyDoctorsAll, d => d.name);
+      return fuzzy ?? null;
+    }
     if (cands.length === 1) return cands[0];
     const areaN = normalizeAreaName(areaNameLocal || '');
     return cands.find(d => normalizeAreaName(d.areaName ?? '') === areaN) ?? cands[0];
@@ -366,8 +397,11 @@ async function commitDoctorRows(rows, ownerUserId, user) {
   });
   const findExistingDoctor = (name, areaIdLocal) => {
     const nameNorm = name.trim().toLowerCase();
-    const cands = existingDoctors.filter(d => d.name.trim().toLowerCase() === nameNorm);
-    if (cands.length === 0) return null;
+    let cands = existingDoctors.filter(d => d.name.trim().toLowerCase() === nameNorm);
+    if (cands.length === 0) {
+      const fuzzy = bestFuzzyMatch(name, existingDoctors, d => d.name);
+      return fuzzy ?? null;
+    }
     if (areaIdLocal) return cands.find(d => d.areaId === areaIdLocal) ?? cands[0];
     return cands[0];
   };
