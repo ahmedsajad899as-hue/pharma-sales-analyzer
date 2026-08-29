@@ -27,6 +27,7 @@ import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
+import { createSurveyDoctor } from '../../lib/surveyDoctors.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -313,14 +314,68 @@ export async function extractVisitsFromExcel(file, user) {
  * (بنفس منطق تسجيل الزيارة اليدوي — إكمال الحقول الفارغة فقط لا استبدال
  * الموجود)، ثم DoctorVisit. صف بلا مندوب مؤكَّد (repId) يُتجاهل ويُذكر في
  * الأخطاء — لا نخمّن مندوباً.
+ *
+ * ⚠️ شاشة «الزيارات» لا تُبنى من DoctorVisit مباشرة — تُبنى من أطباء السيرفي
+ * النشط ضمن نطاق المناطق (getScopedSurveyDoctors في surveyDoctors.js)، وتُلحق
+ * بها الزيارات إن وُجدت (عبر masterSurveyDoctorId أو الاسم كبديل). فـDoctor
+ * بلا ربط سيرفي (masterSurveyDoctorId=null) قد تُنشأ زيارته بنجاح في قاعدة
+ * البيانات لكنها لن تظهر أبداً في تلك الشاشة. لذلك — تماماً كميزة «إضافة طبيب
+ * جديد» الموجودة أصلاً (addCustomDoctor) — كل طبيب جديد هنا يُنشأ عبر السيرفي
+ * أولاً (createSurveyDoctor) لا كصف Doctor مستقل.
  */
 async function commitDoctorRows(rows, ownerUserId, user) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
 
+  // نفس السيرفي المضيف الذي تستعمله addCustomDoctor — أول سيرفي نشط ظاهر لهذا المالك.
+  const hostSurvey = await prisma.masterSurvey.findFirst({
+    where: {
+      isActive: true,
+      hiddenUsers: { none: { userId: ownerUserId } },
+      ...(user?.officeId ? { hiddenOffices: { none: { officeId: user.officeId } } } : {}),
+    },
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+
+  // أطباء السيرفي المتاحون لهذا المالك — لمطابقة طبيب موجود أصلاً بدل تكراره
+  // كسجل سيرفي جديد منفصل بنفس الاسم.
+  const visibleSurveys = await prisma.masterSurvey.findMany({
+    where: { isActive: true, hiddenUsers: { none: { userId: ownerUserId } } },
+    select: { id: true },
+  });
+  const surveyDoctorsAll = visibleSurveys.length
+    ? await prisma.masterSurveyDoctor.findMany({
+        where: { surveyId: { in: visibleSurveys.map(s => s.id) } },
+        select: { id: true, name: true, areaName: true },
+      })
+    : [];
+  const findSurveyDoctor = (name, areaNameLocal) => {
+    const nameNorm = name.trim().toLowerCase();
+    const cands = surveyDoctorsAll.filter(d => d.name.trim().toLowerCase() === nameNorm);
+    if (cands.length === 0) return null;
+    if (cands.length === 1) return cands[0];
+    const areaN = normalizeAreaName(areaNameLocal || '');
+    return cands.find(d => normalizeAreaName(d.areaName ?? '') === areaN) ?? cands[0];
+  };
+
+  // Doctor الموجودون أصلاً تحت هذا المالك — لتفادي إنشاء طبيب مكرّر لصف لاحق بنفس الاسم.
+  const existingDoctors = await prisma.doctor.findMany({
+    where: { userId: ownerUserId },
+    select: { id: true, name: true, areaId: true, masterSurveyDoctorId: true },
+  });
+  const findExistingDoctor = (name, areaIdLocal) => {
+    const nameNorm = name.trim().toLowerCase();
+    const cands = existingDoctors.filter(d => d.name.trim().toLowerCase() === nameNorm);
+    if (cands.length === 0) return null;
+    if (areaIdLocal) return cands.find(d => d.areaId === areaIdLocal) ?? cands[0];
+    return cands[0];
+  };
+
   let imported = 0, skipped = 0;
   const errors = [];
   const doctorCache = new Map(); // "الاسم|areaId" → doctorId (يمنع تكرار الإنشاء لنفس الطبيب عبر صفوف الملف)
+  let unlinkedNote = false;
 
   for (const r of (Array.isArray(rows) ? rows : [])) {
     try {
@@ -345,16 +400,51 @@ async function commitDoctorRows(rows, ownerUserId, user) {
       if (!doctorId) doctorId = doctorCache.get(cacheKey) ?? null;
 
       if (!doctorId) {
-        const created = await prisma.doctor.create({
-          data: {
-            name: doctorName,
-            specialty: r.specialty || null,
-            pharmacyName: r.pharmacyName || null,
-            areaId,
-            userId: ownerUserId,
-          },
-        });
-        doctorId = created.id;
+        const matchedDoctor = findExistingDoctor(doctorName, areaId);
+
+        if (matchedDoctor) {
+          doctorId = matchedDoctor.id;
+          // موجود لكن غير مربوط بأي سيرفي بعد — اربطه بدل تركه يتيماً (لن يظهر
+          // في شاشة الزيارات بلا هذا الربط).
+          if (!matchedDoctor.masterSurveyDoctorId) {
+            const sd = findSurveyDoctor(doctorName, areaName) ?? (hostSurvey
+              ? await createSurveyDoctor(hostSurvey.id, {
+                  name: doctorName, specialty: r.specialty || null,
+                  areaName: areaName || null, pharmacyName: r.pharmacyName || null,
+                }, ownerUserId)
+              : null);
+            if (sd) {
+              await prisma.doctor.update({ where: { id: doctorId }, data: { masterSurveyDoctorId: sd.id } });
+              matchedDoctor.masterSurveyDoctorId = sd.id;
+            } else {
+              unlinkedNote = true;
+            }
+          }
+        } else {
+          // طبيب جديد بالكامل — يُنشأ عبر السيرفي أولاً كي يظهر في الزيارات/
+          // الأطباء/الأرشيف، ثم صف Doctor المربوط به (نفس نمط addCustomDoctor).
+          const sd = findSurveyDoctor(doctorName, areaName) ?? (hostSurvey
+            ? await createSurveyDoctor(hostSurvey.id, {
+                name: doctorName, specialty: r.specialty || null,
+                areaName: areaName || null, pharmacyName: r.pharmacyName || null,
+              }, ownerUserId)
+            : null);
+          if (!sd) unlinkedNote = true;
+
+          const created = await prisma.doctor.create({
+            data: {
+              name: doctorName,
+              specialty: r.specialty || null,
+              pharmacyName: r.pharmacyName || null,
+              areaId,
+              userId: ownerUserId,
+              masterSurveyDoctorId: sd?.id ?? null,
+            },
+          });
+          doctorId = created.id;
+          existingDoctors.push({ id: created.id, name: doctorName, areaId, masterSurveyDoctorId: sd?.id ?? null });
+          if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName });
+        }
         doctorCache.set(cacheKey, doctorId);
       } else if (r.specialty || r.pharmacyName || areaId) {
         const doc = await prisma.doctor.findUnique({ where: { id: doctorId }, select: { specialty: true, pharmacyName: true, areaId: true } });
@@ -387,6 +477,10 @@ async function commitDoctorRows(rows, ownerUserId, user) {
       skipped++;
       errors.push(`طبيب — صف ${r?._row ?? '?'}: ${e.message}`);
     }
+  }
+
+  if (unlinkedNote) {
+    errors.push('تنبيه: لا توجد قائمة سيرفي متاحة لهذا الحساب — بعض الأطباء الجدد أُنشئوا بلا ربط بالسيرفي ولن يظهروا في شاشة «الزيارات» حتى تُربط لاحقاً.');
   }
 
   return { imported, skipped, errors };
