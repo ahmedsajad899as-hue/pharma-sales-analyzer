@@ -7,6 +7,7 @@ import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
   ensureDoctorRowsForScope, isFieldRole,
 } from '../../lib/surveyDoctors.js';
+import * as importVisits from './doctor-visits-import.js';
 
 // Field reps never own Doctor rows under their own userId — doctors belong to
 // the rep's manager (via ScientificRepresentative.userId) or, failing that, the
@@ -993,6 +994,32 @@ export async function importExcel(req, res, next) {
     }
 
     res.json({ imported, skipped, errors, total: rows.length, colMap, detectedCols });
+  } catch (e) { next(e); }
+}
+
+// ── POST /visits/import-extract — قراءة ملف زيارات ومحاولة مطابقته، بلا حفظ ──
+export async function extractVisitsImport(req, res, next) {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'لم يتم إرسال ملف' });
+    const data = await importVisits.extractVisitsFromExcel(req.file, req.user);
+    res.json({ success: true, data });
+  } catch (e) { next(e); }
+}
+
+// ── POST /visits/import-commit — حفظ الصفوف بعد مراجعة المستخدم ──────────────
+// body: { rows: [...], rememberRepLinks?: [{fromName, scientificRepId|null}] }
+export async function commitVisitsImport(req, res, next) {
+  try {
+    const { rows, rememberRepLinks } = req.body || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'لا توجد صفوف للحفظ' });
+    }
+    const result = await importVisits.commitVisitsImport({
+      rows,
+      rememberRepLinks: Array.isArray(rememberRepLinks) ? rememberRepLinks : [],
+      user: req.user,
+    });
+    res.json({ success: true, data: result });
   } catch (e) { next(e); }
 }
 

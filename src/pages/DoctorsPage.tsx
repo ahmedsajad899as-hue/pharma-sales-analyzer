@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
+import DoctorVisitsImportModal from '../components/DoctorVisitsImportModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -200,6 +201,9 @@ export default function DoctorsPage() {
   const showMyVisits        = hasFeature('my_visits_tab');
   const showPharmacies      = hasFeature('pharmacies_tab');
   const showArchiveTab      = hasFeature('archive_tab');
+  const showVisitsImport    = hasFeature('visits_import');
+  const [showVisitsImportModal, setShowVisitsImportModal] = useState(false);
+  const [visitsImportMsg, setVisitsImportMsg] = useState('');
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
   // ── Tab ──────────────────────────────────────────────────────
@@ -1732,7 +1736,16 @@ export default function DoctorsPage() {
           )}
 
           {/* Analysis type toggle: doctors vs pharmacies */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            {!isFieldRep && showVisitsImport && (
+              <button
+                onClick={() => setShowVisitsImportModal(true)}
+                title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
+                style={{
+                  padding: '6px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                  border: '1.5px solid #c7d2fe', background: '#eef2ff', color: '#4338ca', marginInlineEnd: 4,
+                }}>📥 استيراد من إكسل</button>
+            )}
             <button
               onClick={() => setVisitAnalysisType('doctors')}
               style={{
@@ -4441,6 +4454,27 @@ export default function DoctorsPage() {
             </div>
           </div>
         </>
+      )}
+
+      {showVisitsImportModal && (
+        <DoctorVisitsImportModal
+          token={token ?? ''}
+          onClose={() => setShowVisitsImportModal(false)}
+          onSaved={msg => {
+            setVisitsImportMsg(msg);
+            loadVisits(true);
+            setTimeout(() => setVisitsImportMsg(''), 15000);
+          }}
+        />
+      )}
+      {visitsImportMsg && (
+        <div style={{
+          position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 10001, maxWidth: 380,
+          background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '10px 14px',
+          color: '#166534', fontSize: 12.5, whiteSpace: 'pre-line', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+        }}>
+          ✅ {visitsImportMsg}
+        </div>
       )}
     </div>
   );

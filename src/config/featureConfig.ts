@@ -125,6 +125,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'my_visits_tab',      label: 'زياراتي',                  icon: '📝', desc: 'تبويب زيارات المندوب التجاري', onlyRoles: COMMERCIAL_ROLES },
     { key: 'pharmacies_tab',     label: 'قائمة الصيدليات',           icon: '🏪', desc: 'تبويب قائمة الصيدليات',        onlyRoles: COMMERCIAL_ROLES },
     { key: 'doctor_fields',      label: 'الحقول التفصيلية للطبيب',  icon: '🩺', desc: 'التخصص والمنطقة والصيدلية والملاحظات'          },
+    { key: 'visits_import',      label: 'استيراد الزيارات من إكسل', icon: '📥', desc: 'استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي بدل تسجيلها واحدة تلو الأخرى' },
   ],
   'monthly-plans': [
     { key: 'wish_list', label: 'قائمة الطلبات', icon: '📋', desc: 'قائمة الأطباء المطلوب زيارتهم بالأولوية ضمن البلان الشهري' },

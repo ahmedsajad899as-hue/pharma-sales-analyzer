@@ -728,12 +728,15 @@ export function repNameScore(a, b) {
 }
 
 /**
- * يفحص أسماء المندوبين الواردة في ملفات ميركاتو المفعّلة ويصنّفها مقابل سجلات
- * المندوبين العلميين. قراءة فقط — لا يُنشئ ولا يربط شيئاً.
+ * يصنّف قائمة أسماء حرة (من أي مصدر — ملف ميركاتو، ملف زيارات مستوردة…) مقابل
+ * سجلات المندوبين العلميين لهذا المستخدم. قراءة فقط — لا يُنشئ ولا يربط شيئاً.
+ * هذا هو المحرّك المشترك خلف كل ميزات "مطابقة اسم المندوب" في التطبيق؛ رابط
+ * يؤكّده المستخدم مرة (SciRepNameLink) يُطبَّق تلقائياً في كل مكان لاحقاً —
+ * ميركاتو أو استيراد الزيارات أو أي مصدر مستقبلي — لأنه نفس السؤال بالضبط:
+ * "هل هذا النص الحر يقصد المندوب فلان؟".
  *
  * النطاق: مندوبو هذا المدير فقط (نفس ما تُرجعه list لهذا المستخدم). الأسماء التي
- * لا تشبه أياً منهم تُعدّ خارج نطاقه ولا يُسأل عنها إطلاقاً — ملف ميركاتو يضمّ
- * مندوبي السوق كلهم لا مندوبي مكتب واحد.
+ * لا تشبه أياً منهم تُعدّ خارج نطاقه ولا يُسأل عنها إطلاقاً.
  *
  * التصنيف:
  *   linked → سبق أن أكّده المستخدم (أو استبعده) فلا يُسأل عنه
@@ -741,28 +744,13 @@ export function repNameScore(a, b) {
  *   ask    → مرشّحون متشابهون لكن بلا قطع → يُعرض للتأكيد (هذا وحده ما يُسأل عنه)
  *   none   → لا يشبه أياً من مندوبي المدير → خارج النطاق، للعلم فقط
  *
- * @param {{ fileIds:number[]|null, user:object }} opts
+ * @param {string[]} names أسماء حرة (تُنظَّف وتُفرَّد داخلياً)
+ * @param {object|null} user
+ * @returns {Promise<{pending, resolved, unrelated, reps}>}
  */
-export async function checkMercatoRepNames({ fileIds = null, user = null } = {}) {
-  const EMPTY = { pending: [], resolved: [], unrelated: [], mercatoFileCount: 0, reps: [] };
-  const ids = Array.isArray(fileIds) ? fileIds.filter(Number.isInteger) : [];
-  if (ids.length === 0) return EMPTY;
-
-  // نقتصر على ملفات ميركاتو: في ملفات المكتب «اسم المندوب» مندوب تجاري لا علمي.
-  const files = await prisma.uploadedFile.findMany({
-    where:  { id: { in: ids } },
-    select: { id: true, sourceSystem: true },
-  });
-  const mercatoIds = files.filter(f => f.sourceSystem === 'mercato').map(f => f.id);
-  if (mercatoIds.length === 0) return EMPTY;
-
-  // أسماء المندوبين الفعلية داخل تلك الملفات
-  const rows = await prisma.sale.findMany({
-    where:    { uploadedFileId: { in: mercatoIds } },
-    select:   { representative: { select: { name: true } } },
-    distinct: ['representativeId'],
-  });
-  const fileNames = [...new Set(rows.map(r => r.representative?.name).filter(Boolean))];
+export async function classifyRepNamesForUser(names, user = null) {
+  const uniqueNames = [...new Set((names || []).map(n => String(n ?? '').trim()).filter(Boolean))];
+  if (uniqueNames.length === 0) return { pending: [], resolved: [], unrelated: [], reps: [] };
 
   // سجلات المندوبين العلميين كما يراها هذا المستخدم (نفس نطاق صفحة المندوبين)
   const repList = await list({}, user ?? null, {});
@@ -784,7 +772,7 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
     if (k && !repByKey.has(k)) repByKey.set(k, r);
   }
 
-  const entries = fileNames.map(raw => {
+  const entries = uniqueNames.map(raw => {
     const key = normalizeRepName(raw);
     const link = linkByKey.get(key);
     if (link) {
@@ -813,9 +801,38 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
     resolved:  entries.filter(e => e.status === 'linked' || e.status === 'exact').sort(byName),
     // خارج نطاق مندوبي هذا المدير — تُعرض كعدد فقط، بلا سؤال
     unrelated: entries.filter(e => e.status === 'none').map(e => ({ raw: e.raw, key: e.key })).sort(byName),
-    mercatoFileCount: mercatoIds.length,
     reps,
   };
+}
+
+/**
+ * يفحص أسماء المندوبين الواردة في ملفات ميركاتو المفعّلة — غلاف رقيق فوق
+ * classifyRepNamesForUser يستخرج الأسماء من صفوف المبيعات أولاً.
+ * @param {{ fileIds:number[]|null, user:object }} opts
+ */
+export async function checkMercatoRepNames({ fileIds = null, user = null } = {}) {
+  const EMPTY = { pending: [], resolved: [], unrelated: [], mercatoFileCount: 0, reps: [] };
+  const ids = Array.isArray(fileIds) ? fileIds.filter(Number.isInteger) : [];
+  if (ids.length === 0) return EMPTY;
+
+  // نقتصر على ملفات ميركاتو: في ملفات المكتب «اسم المندوب» مندوب تجاري لا علمي.
+  const files = await prisma.uploadedFile.findMany({
+    where:  { id: { in: ids } },
+    select: { id: true, sourceSystem: true },
+  });
+  const mercatoIds = files.filter(f => f.sourceSystem === 'mercato').map(f => f.id);
+  if (mercatoIds.length === 0) return EMPTY;
+
+  // أسماء المندوبين الفعلية داخل تلك الملفات
+  const rows = await prisma.sale.findMany({
+    where:    { uploadedFileId: { in: mercatoIds } },
+    select:   { representative: { select: { name: true } } },
+    distinct: ['representativeId'],
+  });
+  const fileNames = [...new Set(rows.map(r => r.representative?.name).filter(Boolean))];
+
+  const classified = await classifyRepNamesForUser(fileNames, user);
+  return { ...classified, mercatoFileCount: mercatoIds.length };
 }
 
 /**

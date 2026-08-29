@@ -20,6 +20,8 @@ router.delete('/wishlist/:doctorId',  ctrl.removeWishlist);
 router.get('/:id',               ctrl.getOne);
 router.post('/',            ctrl.create);
 router.post('/import',      upload.single('file'), ctrl.importExcel);
+router.post('/visits/import-extract', upload.single('file'), ctrl.extractVisitsImport);
+router.post('/visits/import-commit',  ctrl.commitVisitsImport);
 router.put('/:id',          ctrl.update);
 router.delete('/all',       ctrl.deleteAll);
 router.delete('/:id',       ctrl.remove);
