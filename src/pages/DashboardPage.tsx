@@ -3390,7 +3390,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
               }}
-            ><Icon name="fabCall" size={26} /></button>
+            ><Icon name="add" size={28} /></button>
           </div>
         )}
       </div>

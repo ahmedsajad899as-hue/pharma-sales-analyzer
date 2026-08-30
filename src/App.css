@@ -367,13 +367,14 @@ tr:hover {
   position: sticky;
   top: 0;
   z-index: 90;
-  height: 60px;
-  min-height: 60px;
+  height: 66px;
+  min-height: 66px;
   background: linear-gradient(180deg, #0f1e35 0%, #0a1628 100%);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 0 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
 }
 
