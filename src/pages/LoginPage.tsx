@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import OrdineLogo from '../components/OrdineLogo';
 
 export default function LoginPage() {
   const { login }        = useAuth();
@@ -47,14 +48,11 @@ export default function LoginPage() {
 
         <div className="login-logo">
           <div style={{
-            width: 72, height: 72,
-            background: 'linear-gradient(145deg, #0f1e35 0%, #1a3a6b 100%)',
-            borderRadius: 20,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             margin: '0 auto 12px',
-            boxShadow: '0 8px 24px rgba(15,30,53,0.30)',
+            filter: 'drop-shadow(0 8px 20px rgba(15,30,53,0.30))',
           }}>
-            <span style={{ fontSize: 38 }}>💊</span>
+            <OrdineLogo size={72} />
           </div>
           <h1 className="login-title">{t.login.title}</h1>
           <p className="login-subtitle">{t.login.subtitle}</p>
