@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { PageId } from '../App';
+import { Icon } from '../config/icons';
 
 interface Props {
   activePage: PageId;
@@ -650,11 +651,10 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           height: 52,
           borderRadius: '50%',
           border: 'none',
-          background: isOpen ? '#4f46e5' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+          background: isOpen ? 'var(--c-purple-hover)' : 'linear-gradient(135deg, var(--c-purple) 0%, var(--c-purple-hover) 100%)',
           color: '#fff',
-          fontSize: 22,
           cursor: 'grab',
-          boxShadow: '0 4px 16px rgba(79,70,229,0.45)',
+          boxShadow: '0 4px 16px rgba(109,40,217,0.45)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -663,7 +663,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           userSelect: 'none',
         }}
       >
-        {isOpen ? '✕' : '🤖'}
+        <Icon name={isOpen ? 'close' : 'aiBot'} size={24} />
       </button>
 
       {/* Panel */}

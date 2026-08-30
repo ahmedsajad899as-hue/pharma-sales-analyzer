@@ -6,6 +6,7 @@ import ManualSalesModal from '../components/ManualSalesModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { Icon } from '../config/icons';
 
 interface UploadedFile {
   id: number;
@@ -652,7 +653,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     padding: '12px 16px', marginBottom: 10, boxShadow: '0 1px 3px rgba(0,0,0,.04)',
   };
   const BTN_PRI: React.CSSProperties = {
-    padding: '5px 14px', border: 'none', borderRadius: 6, background: '#1e40af',
+    padding: '5px 14px', border: 'none', borderRadius: 6, background: 'var(--c-accent)',
     color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer',
   };
   const BTN_SEC: React.CSSProperties = {
@@ -679,26 +680,28 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
       {/* ── Active files bar ────────────────────────────────── */}
       {activeFiles.length > 0 ? (
-        <div style={{ ...CARD, background: '#f0fdf4', borderColor: '#bbf7d0', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '8px 14px' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap' }}>✅ نشط:</span>
+        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '8px 14px' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-success)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="checkCircle" size={14} /> نشط:
+          </span>
           {activeFiles.map(f => (
-            <span key={f.id} style={BADGE('#dcfce7', '#15803d', '#86efac')}>
-              {f.fileType === 'returns' ? '↩' : f.fileType === 'auto' ? '🔀' : '📦'} {f.originalName}
+            <span key={f.id} style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}>
+              {f.fileType === 'returns' ? <Icon name="uploadReturns" size={12} /> : f.fileType === 'auto' ? <Icon name="uploadAuto" size={12} /> : <Icon name="uploadSales" size={12} />} {f.originalName}
             </span>
           ))}
-          <span style={{ fontSize: 11, color: '#166534', marginRight: 'auto' }}>{t.upload.allReportsNote}</span>
+          <span style={{ fontSize: 11, color: 'var(--c-success)', marginRight: 'auto' }}>{t.upload.allReportsNote}</span>
         </div>
       ) : (
-        <div style={{ ...CARD, background: '#fff7ed', borderColor: '#fed7aa', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
+        <div style={{ ...CARD, background: 'var(--c-warning-bg)', borderColor: 'var(--c-warning-border)', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
           <span>⚠️</span>
-          <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{t.upload.noActiveFile}</span>
-          <span style={{ fontSize: 11, color: '#b45309' }}>— {t.upload.noActiveFileDesc}</span>
+          <span style={{ fontSize: 12, color: 'var(--c-warning)', fontWeight: 600 }}>{t.upload.noActiveFile}</span>
+          <span style={{ fontSize: 11, color: 'var(--c-warning)' }}>— {t.upload.noActiveFileDesc}</span>
         </div>
       )}
 
       {/* ── Auto-merge toggle ───────────────────────────────── */}
       <div style={{ ...CARD, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 16 }}>🔗</span>
+        <Icon name="link" size={16} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 'auto', marginRight: 0 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>الدمج التلقائي للايتمات المتشابهة</span>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>
@@ -713,21 +716,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           role="switch"
           aria-checked={autoMergeEnabled}
           title={autoMergeEnabled ? 'إيقاف الدمج التلقائي' : 'تفعيل الدمج التلقائي'}
-          style={{
-            position: 'relative', width: 46, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer',
-            background: autoMergeEnabled ? '#16a34a' : '#cbd5e1', transition: 'background 0.15s', flexShrink: 0,
-          }}
+          className={`toggle-switch${autoMergeEnabled ? ' toggle-switch--on' : ''}`}
         >
-          <span style={{
-            position: 'absolute', top: 3, left: autoMergeEnabled ? 23 : 3, width: 20, height: 20,
-            borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-          }} />
+          <span className="toggle-switch-knob" />
         </button>
       </div>
 
       {/* Auto-merge applied toast */}
       {autoMergedMsg && (
-        <div style={{ ...CARD, background: '#ecfdf5', borderColor: '#6ee7b7', padding: '8px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
+        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '8px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
           {autoMergedMsg}
         </div>
       )}
@@ -738,7 +735,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           ...CARD,
           borderStyle: dragging ? 'dashed' : 'dashed',
           borderColor: dragging ? '#93c5fd' : '#cbd5e1',
-          background: dragging ? '#eff6ff' : uploading ? '#f8fafc' : '#fafbfc',
+          background: dragging ? 'var(--c-accent-light)' : uploading ? '#f8fafc' : '#fafbfc',
           padding: '20px 16px',
           textAlign: 'center',
           cursor: 'default',
@@ -757,7 +754,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         ) : dragging ? (
           <div style={{ padding: '28px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, pointerEvents: 'none' }}>
             <span style={{ fontSize: 48 }}>📂</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#2563eb' }}>أفلت الملف هنا</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-accent)' }}>أفلت الملف هنا</span>
             <span style={{ fontSize: 12, color: '#60a5fa' }}>.xlsx · .xls · .csv</span>
           </div>
         ) : (
@@ -765,9 +762,9 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, fontWeight: 600 }}>{t.upload.chooseFileType}</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
               {([
-                { type: 'auto',    label: t.upload.typeAuto,    icon: '🔀', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
-                { type: 'returns', label: t.upload.typeReturns, icon: '↩',  color: '#dc2626', bg: '#fff1f2', border: '#fecaca' },
-                { type: 'sales',   label: t.upload.typeSales,   icon: '📦', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+                { type: 'auto',    label: t.upload.typeAuto,    icon: 'uploadAuto' as const,    color: 'var(--c-purple)', bg: 'var(--c-purple-bg)', border: 'var(--c-purple-border)' },
+                { type: 'returns', label: t.upload.typeReturns, icon: 'uploadReturns' as const, color: 'var(--c-danger)', bg: 'var(--c-danger-bg)', border: 'var(--c-danger-border)' },
+                { type: 'sales',   label: t.upload.typeSales,   icon: 'uploadSales' as const,   color: 'var(--c-accent)', bg: 'var(--c-accent-light)', border: 'var(--c-accent)' },
               ] as const).map(opt => (
                 <button key={opt.type} onClick={() => { setFileType(opt.type); setTimeout(() => fileRef.current?.click(), 0); }}
                   style={{
@@ -778,7 +775,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     minWidth: 110, transition: 'opacity 0.1s',
                   }}
                 >
-                  <span style={{ fontSize: 24 }}>{opt.icon}</span>
+                  <Icon name={opt.icon} size={24} />
                   <span>{opt.label}</span>
                 </button>
               ))}
@@ -795,19 +792,19 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       </div>
 
       {/* ── Add manual / invoice-image sales ─────────────────── */}
-      <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: '#faf5ff', borderColor: '#e9d5ff' }}>
+      <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--c-purple-bg)', borderColor: 'var(--c-purple-border)' }}>
         <div style={{ fontSize: 12.5, color: '#6b21a8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🧾</span>
           <span>مبيعات من فواتير المذاخر لا تظهر في الملفات؟ أضِفها من صورة الفاتورة أو يدوياً.</span>
         </div>
         <button onClick={() => { setManualMsg(''); setShowManualModal(true); }}
-          style={{ padding: '9px 18px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          ➕ إضافة مبيعات
+          style={{ padding: '9px 18px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="add" size={15} /> إضافة مبيعات
         </button>
       </div>
 
       {manualMsg && (
-        <div style={{ ...CARD, background: '#ecfdf5', borderColor: '#6ee7b7', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
+        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
           ✅ {manualMsg}
         </div>
       )}
@@ -841,34 +838,34 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
       {progress > 0 && (
         <div style={{ height: 3, background: '#e2e8f0', borderRadius: 2, marginBottom: 8, overflow: 'hidden' }}>
-          <div style={{ height: '100%', background: '#1e40af', width: `${progress}%`, transition: 'width 0.2s', borderRadius: 2 }} />
+          <div style={{ height: '100%', background: 'var(--c-accent)', width: `${progress}%`, transition: 'width 0.2s', borderRadius: 2 }} />
         </div>
       )}
 
       {error && (
-        <div style={{ ...CARD, background: '#fef2f2', borderColor: '#fca5a5', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>⚠️ {error}</div>
-          {errorDetail && <div style={{ fontSize: 11, color: '#b91c1c', fontFamily: 'monospace', background: '#fff', borderRadius: 4, padding: '4px 8px' }}>{errorDetail}</div>}
+        <div style={{ ...CARD, background: 'var(--c-danger-bg)', borderColor: 'var(--c-danger-border)', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--c-danger)', fontWeight: 600 }}>⚠️ {error}</div>
+          {errorDetail && <div style={{ fontSize: 11, color: 'var(--c-danger)', fontFamily: 'monospace', background: '#fff', borderRadius: 4, padding: '4px 8px' }}>{errorDetail}</div>}
         </div>
       )}
 
       {/* Upload success */}
       {uploadResult && (uploadResult.salesCount !== undefined || uploadResult.returnsCount !== undefined) && (
-        <div style={{ ...CARD, background: '#f0fdf4', borderColor: '#86efac', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
           <span>✅</span>
-          <strong style={{ color: '#15803d' }}>{t.upload.uploadSuccessTitle}</strong>
-          {uploadResult.salesCount !== undefined && uploadResult.salesCount > 0 && <span style={{ color: '#2563eb' }}>📦 {uploadResult.salesCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
-          {uploadResult.returnsCount !== undefined && uploadResult.returnsCount > 0 && <span style={{ color: '#dc2626' }}>↩ {uploadResult.returnsCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
+          <strong style={{ color: 'var(--c-success)' }}>{t.upload.uploadSuccessTitle}</strong>
+          {uploadResult.salesCount !== undefined && uploadResult.salesCount > 0 && <span style={{ color: 'var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uploadSales" size={13} /> {uploadResult.salesCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
+          {uploadResult.returnsCount !== undefined && uploadResult.returnsCount > 0 && <span style={{ color: 'var(--c-danger)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uploadReturns" size={13} /> {uploadResult.returnsCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
         </div>
       )}
 
       {/* Normalization panel */}
       {uploadResult?.normalizations && uploadResult.normalizations.length > 0 && (
-        <div style={{ ...CARD, background: '#fffbeb', borderColor: '#fcd34d', padding: 0 }}>
+        <div style={{ ...CARD, background: 'var(--c-warning-bg)', borderColor: '#fcd34d', padding: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer' }} onClick={() => setShowNorm(v => !v)}>
             <span style={{ fontSize: 14 }}>⚠️</span>
-            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>{t.upload.normCount} {uploadResult.normalizations.length} {t.upload.normSuffix}</span>
-            <span style={{ fontSize: 11, color: '#b45309', marginRight: 'auto' }}>{showNorm ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 12, color: 'var(--c-warning)', fontWeight: 600 }}>{t.upload.normCount} {uploadResult.normalizations.length} {t.upload.normSuffix}</span>
+            <span style={{ fontSize: 11, color: 'var(--c-warning)', marginRight: 'auto' }}>{showNorm ? '▲' : '▼'}</span>
           </div>
           {showNorm && (
             <div style={{ borderTop: '1px solid #fcd34d', padding: '8px 14px', overflowY: 'auto', maxHeight: 200 }}>
@@ -883,9 +880,9 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 <tbody>
                   {uploadResult.normalizations.map((n, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid #fef3c7' }}>
-                      <td style={{ padding: '3px 8px', color: '#92400e' }}>{n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}</td>
-                      <td style={{ padding: '3px 8px', color: '#dc2626', textDecoration: 'line-through' }}>{n.from}</td>
-                      <td style={{ padding: '3px 8px', color: '#15803d', fontWeight: 700 }}>{n.to}</td>
+                      <td style={{ padding: '3px 8px', color: 'var(--c-warning)' }}>{n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}</td>
+                      <td style={{ padding: '3px 8px', color: 'var(--c-danger)', textDecoration: 'line-through' }}>{n.from}</td>
+                      <td style={{ padding: '3px 8px', color: 'var(--c-success)', fontWeight: 700 }}>{n.to}</td>
                       <td style={{ padding: '3px 8px', color: '#6b7280' }}>{n.source === 'db' ? t.upload.sourceDb : t.upload.sourceFile}</td>
                     </tr>
                   ))}
@@ -911,7 +908,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {uploadResult.unknownItems.map((name, i) => (
-              <span key={i} style={BADGE('#fed7aa', '#9a3412', '#fdba74')}>{name}</span>
+              <span key={i} style={BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)')}>{name}</span>
             ))}
           </div>
         </div>
@@ -919,22 +916,22 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
       {/* Dedup result */}
       {dedupResult && showDedupDetail && dedupResult.count > 0 && (
-        <div style={{ ...CARD, background: '#eff6ff', borderColor: '#93c5fd', padding: '8px 14px' }}>
+        <div style={{ ...CARD, background: 'var(--c-accent-light)', borderColor: '#93c5fd', padding: '8px 14px' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a5f', marginBottom: 6 }}>{t.upload.dedupScanHeader} ({dedupResult.count})</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
-              <tr style={{ background: '#dbeafe' }}>
+              <tr style={{ background: 'var(--c-accent-light)' }}>
                 {[t.upload.normColType, t.upload.dedupColDuplicate, t.upload.dedupColMerge].map(h => (
-                  <th key={h} style={{ padding: '3px 8px', textAlign: 'right', borderBottom: '1px solid #93c5fd', color: '#1e40af' }}>{h}</th>
+                  <th key={h} style={{ padding: '3px 8px', textAlign: 'right', borderBottom: '1px solid #93c5fd', color: 'var(--c-accent)' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {dedupResult.normalizations.map((n: any, i: number) => (
-                <tr key={i} style={{ borderBottom: '1px solid #dbeafe' }}>
-                  <td style={{ padding: '3px 8px', color: '#1e40af' }}>{n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}</td>
-                  <td style={{ padding: '3px 8px', color: '#dc2626' }}>{n.from}</td>
-                  <td style={{ padding: '3px 8px', color: '#15803d', fontWeight: 700 }}>{n.to}</td>
+                <tr key={i} style={{ borderBottom: '1px solid var(--c-accent-light)' }}>
+                  <td style={{ padding: '3px 8px', color: 'var(--c-accent)' }}>{n.entityType === 'item' ? t.upload.entityItem : n.entityType === 'rep' ? t.upload.entityRep : t.upload.entityCompany}</td>
+                  <td style={{ padding: '3px 8px', color: 'var(--c-danger)' }}>{n.from}</td>
+                  <td style={{ padding: '3px 8px', color: 'var(--c-success)', fontWeight: 700 }}>{n.to}</td>
                 </tr>
               ))}
             </tbody>
@@ -946,13 +943,13 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       )}
 
       {cleanResult && (
-        <div style={{ ...CARD, background: '#f0fdf4', borderColor: '#86efac', padding: '7px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
+        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '7px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
           ✓ {t.upload.cleanSuccessPrefix} {cleanResult.areas} {t.upload.cleanSuccessArea} {t.upload.cleanSuccessAnd} {cleanResult.items} {t.upload.cleanSuccessItem}
         </div>
       )}
 
       {dedupResult && !showDedupDetail && (
-        <div style={{ ...CARD, background: '#eff6ff', borderColor: '#93c5fd', padding: '7px 14px', fontSize: 12, color: '#1e3a5f', fontWeight: 600, cursor: dedupResult.count > 0 ? 'pointer' : 'default' }}
+        <div style={{ ...CARD, background: 'var(--c-accent-light)', borderColor: '#93c5fd', padding: '7px 14px', fontSize: 12, color: '#1e3a5f', fontWeight: 600, cursor: dedupResult.count > 0 ? 'pointer' : 'default' }}
           onClick={() => dedupResult.count > 0 && setShowDedupDetail(v => !v)}>
           {dedupResult.count === 0 ? t.upload.dedupNoSimilar : `🔀 ${t.upload.dedupUnified} ${dedupResult.count} ${t.upload.dedupNamesUnit} — اضغط للتفاصيل ▼`}
         </div>
@@ -965,8 +962,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
       {/* ── Files List ──────────────────────────────────────── */}
       <div style={{ marginTop: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
-          📁 {t.upload.filesTitle}
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="file" size={14} /> {t.upload.filesTitle}
         </div>
 
         {filesLoading ? (
@@ -983,10 +980,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               const shareCount   = shares.length;
 
               const typeMeta =
-                f.fileType === 'returns' ? { label: t.upload.typeReturnsLabel, color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' } :
-                f.fileType === 'auto'    ? { label: t.upload.typeAutoLabel,    color: '#6d28d9', bg: '#ede9fe', border: '#c4b5fd' } :
+                f.fileType === 'returns' ? { label: t.upload.typeReturnsLabel, color: 'var(--c-danger)', bg: 'var(--c-danger-bg)', border: 'var(--c-danger-border)' } :
+                f.fileType === 'auto'    ? { label: t.upload.typeAutoLabel,    color: 'var(--c-purple)', bg: 'var(--c-purple-bg)', border: 'var(--c-purple-border)' } :
+                // 'matrix' has no dedicated design-system token (not one of the 4 palette colors) — left as its original cyan hex.
                 f.fileType === 'matrix' ? { label: t.upload.typeMatrixLabel,   color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc' } :
-                                          { label: t.upload.typeSalesLabel,    color: '#1d4ed8', bg: '#dbeafe', border: '#93c5fd' };
+                                          { label: t.upload.typeSalesLabel,    color: 'var(--c-accent)', bg: 'var(--c-accent-light)', border: 'var(--c-accent)' };
 
               const currIsDollar = (f.currencyMode ?? f.detectedCurrency) === 'USD';
 
@@ -994,8 +992,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 <div key={f.id} style={{
                   ...CARD,
                   marginBottom: 0,
-                  borderColor: isActive ? '#86efac' : isSharedToMe ? '#fde68a' : '#e2e8f0',
-                  background: isActive ? '#f0fdf4' : isSharedToMe ? '#fffbeb' : '#fff',
+                  borderColor: isActive ? 'var(--c-success-border)' : isSharedToMe ? 'var(--c-warning-border)' : '#e2e8f0',
+                  background: isActive ? 'var(--c-success-bg)' : isSharedToMe ? 'var(--c-warning-bg)' : '#fff',
                 }}>
                   {/* ── Row 1: name + badges + 3-dots menu ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
@@ -1055,8 +1053,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
                           {/* Sync with reps — manager only */}
                           {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
-                            <button onClick={() => { openShareModal(f); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
-                              🔗 {isSharedByMe ? `مزامنة (${shareCount})` : 'مزامنة مع مندوبين'}
+                            <button onClick={() => { openShareModal(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="link" size={13} /> {isSharedByMe ? `مزامنة (${shareCount})` : 'مزامنة مع مندوبين'}
                             </button>
                           )}
 
@@ -1072,16 +1070,16 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           {/* Delete */}
                           {confirmId === f.id ? (
                             <div style={{ padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center' }}>
-                              <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, flex: 1 }}>{t.upload.confirmDelete}</span>
-                              <button style={{ ...BTN_PRI, background: '#dc2626', padding: '3px 10px' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
+                              <span style={{ fontSize: 11, color: 'var(--c-danger)', fontWeight: 600, flex: 1 }}>{t.upload.confirmDelete}</span>
+                              <button style={{ ...BTN_PRI, background: 'var(--c-danger)', padding: '3px 10px' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
                                 {deleting === f.id ? '⏳' : '✓'}
                               </button>
-                              <button style={{ ...BTN_GHOST, padding: '3px 8px' }} onClick={() => setConfirmId(null)}>✕</button>
+                              <button style={{ ...BTN_GHOST, padding: '3px 8px' }} onClick={() => setConfirmId(null)}><Icon name="close" size={12} /></button>
                             </div>
                           ) : (
                             <button onClick={() => setConfirmId(f.id)} disabled={deleting === f.id}
-                              style={{ ...MENU_ITEM_STYLE, color: '#dc2626' }}>
-                              🗑️ حذف الملف
+                              style={{ ...MENU_ITEM_STYLE, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="delete" size={13} /> حذف الملف
                             </button>
                           )}
                         </div>
@@ -1096,30 +1094,30 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     {f.sourceSystem === 'mercato' && (
                       <button
                         onClick={() => setRepNameFileIds([f.id])}
-                        style={{ ...BADGE('#fff7ed', '#c2410c', '#fdba74'), cursor: 'pointer' }}
+                        style={{ ...BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)'), cursor: 'pointer' }}
                         title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
                       >🏬 ميركاتو · مطابقة الأسماء</button>
                     )}
-                    {isActive && <span style={BADGE('#dcfce7', '#15803d', '#86efac')}>✓ {t.upload.statusActive}</span>}
+                    {isActive && <span style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}><Icon name="checkCircle" size={11} /> {t.upload.statusActive}</span>}
                     {isSharedByMe && (
                       <button
                         onClick={() => setExpandedSharesId(expandedSharesId === f.id ? null : f.id)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid #c4b5fd', borderRadius: 20, padding: '2px 10px', background: expandedSharesId === f.id ? '#ede9fe' : '#faf5ff', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#6d28d9', flexShrink: 0 }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--c-purple-border)', borderRadius: 20, padding: '2px 10px', background: expandedSharesId === f.id ? 'var(--c-purple-bg)' : 'var(--c-surface)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'var(--c-purple)', flexShrink: 0 }}
                         title="عرض المندوبين"
                       >
-                        🔗 {shareCount} مندوب
+                        <Icon name="link" size={11} /> {shareCount} مندوب
                         <span style={{ fontSize: 10, transition: 'transform 0.2s', display: 'inline-block', transform: expandedSharesId === f.id ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
                       </button>
                     )}
-                    {isSharedToMe && <span style={BADGE('#fef3c7', '#92400e', '#fcd34d')}>📥 مشارك معك</span>}
+                    {isSharedToMe && <span style={BADGE('#fef3c7', 'var(--c-warning)', '#fcd34d')}>📥 مشارك معك</span>}
                   </div>
 
                   {/* ── Expanded reps row ── */}
                   {isSharedByMe && expandedSharesId === f.id && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
                       {shares.map(s => (
-                        <span key={s.userId} style={BADGE('#ede9fe', '#6d28d9', '#c4b5fd')}>
-                          🔗 {s.user.displayName || s.user.username}
+                        <span key={s.userId} style={BADGE('var(--c-purple-bg)', 'var(--c-purple)', 'var(--c-purple-border)')}>
+                          <Icon name="link" size={11} /> {s.user.displayName || s.user.username}
                         </span>
                       ))}
                     </div>
@@ -1132,12 +1130,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       <button
                         onClick={() => toggleCurrency(f)}
                         title={currIsDollar ? 'تحويل إلى دينار عراقي' : 'تحويل إلى دولار'}
-                        style={{ ...BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac'), cursor: 'pointer' }}
+                        style={{ ...BADGE(currIsDollar ? 'var(--c-warning-bg)' : 'var(--c-success-bg)', currIsDollar ? 'var(--c-warning)' : 'var(--c-success)', currIsDollar ? 'var(--c-warning-border)' : 'var(--c-success-border)'), cursor: 'pointer' }}
                       >
                         {currIsDollar ? '$ USD' : 'IQD د.ع'}
                       </button>
                     ) : (
-                      <span style={BADGE(currIsDollar ? '#fef9c3' : '#dcfce7', currIsDollar ? '#92400e' : '#15803d', currIsDollar ? '#fcd34d' : '#86efac')}>
+                      <span style={BADGE(currIsDollar ? 'var(--c-warning-bg)' : 'var(--c-success-bg)', currIsDollar ? 'var(--c-warning)' : 'var(--c-success)', currIsDollar ? 'var(--c-warning-border)' : 'var(--c-success-border)')}>
                         {currIsDollar ? '$ USD' : 'IQD د.ع'}
                       </span>
                     )}
@@ -1145,19 +1143,22 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       onClick={() => onFileActivated(f.id)}
                       title={isActive ? 'إلغاء التفعيل' : 'تفعيل الملف'}
                       style={{
-                        border: isActive ? '1px solid #86efac' : '1px solid #cbd5e1',
+                        border: isActive ? '1px solid var(--c-success-border)' : '1px solid #cbd5e1',
                         borderRadius: 20,
                         padding: '2px 10px',
-                        background: isActive ? '#dcfce7' : '#f8fafc',
+                        background: isActive ? 'var(--c-success-bg)' : '#f8fafc',
                         cursor: 'pointer',
                         fontSize: 11,
                         fontWeight: 700,
-                        color: isActive ? '#15803d' : '#64748b',
+                        color: isActive ? 'var(--c-success)' : '#64748b',
                         transition: 'background 0.15s, border-color 0.15s',
                         flexShrink: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
                       }}
                     >
-                      {isActive ? '✅ نشط' : '⚡ تفعيل'}
+                      {isActive ? <><Icon name="checkCircle" size={11} /> نشط</> : <>⚡ تفعيل</>}
                     </button>
                   </div>
                 </div>
@@ -1207,9 +1208,9 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   key={mode}
                   style={{
                     flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem',
-                    border: `2px solid ${currModalSource === mode ? (mode === 'USD' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'}`,
+                    border: `2px solid ${currModalSource === mode ? (mode === 'USD' ? 'var(--c-warning)' : 'var(--c-accent)') : '#e5e7eb'}`,
                     borderRadius: 10, padding: '0.6rem 0.9rem', cursor: 'pointer',
-                    background: currModalSource === mode ? (mode === 'USD' ? '#fef9c3' : '#eff6ff') : '#f9fafb',
+                    background: currModalSource === mode ? (mode === 'USD' ? '#fef9c3' : 'var(--c-accent-light)') : '#f9fafb',
                     fontWeight: currModalSource === mode ? 700 : 400, fontSize: '0.9rem',
                   }}
                 >
@@ -1219,7 +1220,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     value={mode}
                     checked={currModalSource === mode}
                     onChange={() => setCurrModalSource(mode)}
-                    style={{ accentColor: mode === 'USD' ? '#f59e0b' : '#3b82f6' }}
+                    style={{ accentColor: mode === 'USD' ? 'var(--c-warning)' : 'var(--c-accent)' }}
                   />
                   {mode === 'IQD' ? t.upload.currencyIQD : t.upload.currencyUSD}
                 </label>
@@ -1236,9 +1237,9 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   key={mode}
                   style={{
                     flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem',
-                    border: `2px solid ${currModalMode === mode ? (mode === 'USD' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'}`,
+                    border: `2px solid ${currModalMode === mode ? (mode === 'USD' ? 'var(--c-warning)' : 'var(--c-accent)') : '#e5e7eb'}`,
                     borderRadius: 10, padding: '0.6rem 0.9rem', cursor: 'pointer',
-                    background: currModalMode === mode ? (mode === 'USD' ? '#fef9c3' : '#eff6ff') : '#f9fafb',
+                    background: currModalMode === mode ? (mode === 'USD' ? '#fef9c3' : 'var(--c-accent-light)') : '#f9fafb',
                     fontWeight: currModalMode === mode ? 700 : 400, fontSize: '0.9rem',
                   }}
                 >
@@ -1248,7 +1249,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     value={mode}
                     checked={currModalMode === mode}
                     onChange={() => setCurrModalMode(mode)}
-                    style={{ accentColor: mode === 'USD' ? '#f59e0b' : '#3b82f6' }}
+                    style={{ accentColor: mode === 'USD' ? 'var(--c-warning)' : 'var(--c-accent)' }}
                   />
                   {mode === 'IQD' ? t.upload.currencyIQD : t.upload.currencyUSD}
                 </label>
@@ -1281,7 +1282,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
             {/* Save message */}
             {currSaveMsg && (
-              <p style={{ color: currSaveMsg === t.upload.currencySaved ? '#16a34a' : '#dc2626', fontSize: '0.85rem', marginBottom: '0.75rem', fontWeight: 600 }}>
+              <p style={{ color: currSaveMsg === t.upload.currencySaved ? 'var(--c-success)' : 'var(--c-danger)', fontSize: '0.85rem', marginBottom: '0.75rem', fontWeight: 600 }}>
                 {currSaveMsg}
               </p>
             )}
@@ -1295,7 +1296,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 {t.upload.cancel}
               </button>
               <button
-                style={{ padding: '7px 20px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', opacity: savingCurrency ? 0.7 : 1 }}
+                style={{ padding: '7px 20px', background: 'var(--c-warning)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', opacity: savingCurrency ? 0.7 : 1 }}
                 onClick={saveCurrencySettings}
                 disabled={savingCurrency}
               >
@@ -1317,10 +1318,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
-              <strong style={{ color: '#92400e', fontSize: 15 }}>
+              <strong style={{ color: 'var(--c-warning)', fontSize: 15 }}>
                 ⚠️ تم اكتشاف {autoDedup.length} ايتم متشابه — اختَر ما تريد دمجه (يُحتفظ بالاسم الأطول)
               </strong>
-              <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#92400e' }}>✕</button>
+              <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--c-warning)', display: 'flex' }}><Icon name="close" size={18} /></button>
             </div>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 14 }}>
               <thead>
@@ -1335,7 +1336,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     />
                   </th>
                   <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>سيُحذف</th>
-                  <th style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--c-warning)' }}>→</th>
                   <th style={{ padding: '6px 10px', textAlign: 'right', color: '#065f46', fontWeight: 700 }}>سيُبقى (الأطول)</th>
                 </tr>
               </thead>
@@ -1347,12 +1348,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   const checked = autoDedupSel.has(i);
                   const toggle = () => setAutoDedupSel(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
                   return (
-                    <tr key={i} style={{ borderTop: '1px solid #fde68a', background: checked ? 'transparent' : '#f8fafc', cursor: 'pointer' }} onClick={toggle}>
+                    <tr key={i} style={{ borderTop: '1px solid var(--c-warning-border)', background: checked ? 'transparent' : '#f8fafc', cursor: 'pointer' }} onClick={toggle}>
                       <td style={{ padding: '6px 10px', textAlign: 'center' }}>
                         <input type="checkbox" checked={checked} onChange={toggle} onClick={ev => ev.stopPropagation()} />
                       </td>
-                      <td style={{ padding: '6px 10px', color: checked ? '#dc2626' : '#94a3b8', textDecoration: checked ? 'line-through' : 'none' }}>{remove}</td>
-                      <td style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</td>
+                      <td style={{ padding: '6px 10px', color: checked ? 'var(--c-danger)' : '#94a3b8', textDecoration: checked ? 'line-through' : 'none' }}>{remove}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'center', color: 'var(--c-warning)' }}>→</td>
                       <td style={{ padding: '6px 10px', color: checked ? '#065f46' : '#94a3b8', fontWeight: 600 }}>{keep}</td>
                     </tr>
                   );
@@ -1361,7 +1362,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             </table>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={applyAutoDedup} disabled={autoDedupApplying || autoDedupSel.size === 0}
-                style={{ background: autoDedupSel.size === 0 ? '#cbd5e1' : '#d97706', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: autoDedupSel.size === 0 ? 'not-allowed' : 'pointer', opacity: autoDedupApplying ? 0.7 : 1 }}>
+                style={{ background: autoDedupSel.size === 0 ? '#cbd5e1' : 'var(--c-warning)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: autoDedupSel.size === 0 ? 'not-allowed' : 'pointer', opacity: autoDedupApplying ? 0.7 : 1 }}>
                 {autoDedupApplying ? '⏳ جاري الدمج...' : `🔀 دمج المحدد (${autoDedupSel.size})`}
               </button>
               <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying}
@@ -1385,7 +1386,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 12 }}>
               <strong style={{ color: '#9a3412', fontSize: 15 }}>🗂️ معالجة الايتمات غير الموجودة في الكتالوج</strong>
-              <button onClick={() => setCatalogModal(null)} disabled={catalogApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9a3412' }}>✕</button>
+              <button onClick={() => setCatalogModal(null)} disabled={catalogApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9a3412', display: 'flex' }}><Icon name="close" size={18} /></button>
             </div>
             <p style={{ margin: '0 0 12px', fontSize: 11.5, color: '#78716c' }}>
               لكل ايتم: اربطه بايتم موجود في الكتالوج (يُدمج ويُتذكَّر للمرات القادمة). الأسماء الجديدة كلياً تُرسَل لمشرف الشركة لإضافتها للكتالوج (إضافة الايتمات الجديدة للكتالوج صلاحية المشرف).
@@ -1396,7 +1397,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             ) : (
               <>
                 {catalogModal.companies.length === 0 && (
-                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#b91c1c', marginBottom: 10 }}>
+                  <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--c-danger)', marginBottom: 10 }}>
                     ⚠ حسابك غير مرتبط بأي شركة علمية — لا يمكن الإضافة للكتالوج، يمكنك فقط الربط إن وُجدت اقتراحات.
                   </div>
                 )}
@@ -1410,7 +1411,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                       }
                       return next;
                     })}
-                    style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 7, padding: '4px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+                    style={{ background: 'var(--c-accent-light)', color: 'var(--c-accent)', border: '1px solid var(--c-accent-light)', borderRadius: 7, padding: '4px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
                   >ربط كل ما له اقتراح</button>
                   <button
                     onClick={() => setCatalogActions(prev => {
@@ -1474,7 +1475,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 </div>
 
                 {catalogMsg && (
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: catalogMsg.startsWith('⚠') ? '#dc2626' : '#059669', marginBottom: 10 }}>{catalogMsg}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: catalogMsg.startsWith('⚠') ? 'var(--c-danger)' : 'var(--c-success)', marginBottom: 10 }}>{catalogMsg}</div>
                 )}
 
                 <div style={{ display: 'flex', gap: 10 }}>
@@ -1516,9 +1517,9 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             </label>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.3rem' }}>
               {([
-                { type: 'auto',    label: 'مختلط (تلقائي)', icon: '🔀', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
-                { type: 'returns', label: 'ارجاعات فقط',    icon: '↩',  color: '#dc2626', bg: '#fff1f2', border: '#fecaca' },
-                { type: 'sales',   label: 'مبيعات فقط',     icon: '📦', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+                { type: 'auto',    label: 'مختلط (تلقائي)', icon: 'uploadAuto' as const,    color: 'var(--c-purple)', bg: 'var(--c-purple-bg)', border: 'var(--c-purple-border)' },
+                { type: 'returns', label: 'ارجاعات فقط',    icon: 'uploadReturns' as const, color: 'var(--c-danger)', bg: 'var(--c-danger-bg)', border: 'var(--c-danger-border)' },
+                { type: 'sales',   label: 'مبيعات فقط',     icon: 'uploadSales' as const,   color: 'var(--c-accent)', bg: 'var(--c-accent-light)', border: 'var(--c-accent)' },
               ] as const).map(opt => (
                 <button key={opt.type} type="button"
                   onClick={() => setFileType(opt.type)}
@@ -1531,7 +1532,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     transition: 'all 0.1s',
                   }}
                 >
-                  <span style={{ fontSize: 18 }}>{opt.icon}</span>
+                  <Icon name={opt.icon} size={18} />
                   <span>{opt.label}</span>
                 </button>
               ))}
@@ -1547,9 +1548,9 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   key={c}
                   style={{
                     flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem',
-                    border: `2px solid ${preCurrency === c ? (c === 'USD' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'}`,
+                    border: `2px solid ${preCurrency === c ? (c === 'USD' ? 'var(--c-warning)' : 'var(--c-accent)') : '#e5e7eb'}`,
                     borderRadius: 12, padding: '0.9rem 0.5rem', cursor: 'pointer',
-                    background: preCurrency === c ? (c === 'USD' ? '#fef9c3' : '#eff6ff') : '#f9fafb',
+                    background: preCurrency === c ? (c === 'USD' ? '#fef9c3' : 'var(--c-accent-light)') : '#f9fafb',
                     fontWeight: preCurrency === c ? 700 : 400,
                   }}
                 >
@@ -1559,7 +1560,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     value={c}
                     checked={preCurrency === c}
                     onChange={() => setPreCurrency(c)}
-                    style={{ accentColor: c === 'USD' ? '#f59e0b' : '#3b82f6' }}
+                    style={{ accentColor: c === 'USD' ? 'var(--c-warning)' : 'var(--c-accent)' }}
                   />
                   <span style={{ fontSize: '1.6rem' }}>{c === 'IQD' ? '🇮🇶' : '🇺🇸'}</span>
                   <span style={{ fontSize: '0.9rem' }}>{c === 'IQD' ? t.upload.currencyIQD : t.upload.currencyUSD}</span>
@@ -1575,7 +1576,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 {t.upload.cancel}
               </button>
               <button
-                style={{ padding: '8px 22px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}
+                style={{ padding: '8px 22px', background: 'var(--c-accent)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}
                 onClick={() => { const f = pendingFile; setPendingFile(null); uploadFile(f, preCurrency); }}
               >
                 {t.upload.preCurrencyConfirm}
@@ -1607,7 +1608,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             {linkedUsersLoading ? (
               <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>⏳ جاري التحميل...</div>
             ) : linkedUsers.length === 0 ? (
-              <div style={{ padding: '12px', background: '#fef2f2', borderRadius: 8, color: '#b91c1c', fontSize: 13 }}>
+              <div style={{ padding: '12px', background: 'var(--c-danger-bg)', borderRadius: 8, color: 'var(--c-danger)', fontSize: 13 }}>
                 لا يوجد مندوبون مرتبطون بك — عيّنهم من لوحة الماستر أولاً
               </div>
             ) : (
@@ -1617,7 +1618,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                   <button onClick={selectAllUsers} style={{ ...BTN_SEC, fontSize: 11 }}>تحديد الكل</button>
                   <button onClick={() => setSelectedUserIds(new Set())} style={{ ...BTN_GHOST, fontSize: 11 }}>إلغاء الكل</button>
                   {selectedUserIds.size > 0 && (
-                    <span style={{ fontSize: 11, color: '#6d28d9', fontWeight: 700, marginRight: 4 }}>
+                    <span style={{ fontSize: 11, color: 'var(--c-purple)', fontWeight: 700, marginRight: 4 }}>
                       {selectedUserIds.size} محدد
                     </span>
                   )}
@@ -1634,20 +1635,20 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                     return (
                       <div key={u.id} style={{
                         borderRadius: 8,
-                        border: `1.5px solid ${checked ? (hasOverride ? '#0891b2' : '#7c3aed') : '#e2e8f0'}`,
-                        background: checked ? (hasOverride ? '#ecfeff' : '#f5f3ff') : '#fafafa',
+                        border: `1.5px solid ${checked ? (hasOverride ? '#0891b2' : 'var(--c-purple)') : '#e2e8f0'}`,
+                        background: checked ? (hasOverride ? '#ecfeff' : 'var(--c-purple-bg)') : '#fafafa',
                         overflow: 'hidden',
                         flexShrink: 0,
                       }}>
                         {/* Main row — checkbox + name only, no buttons here */}
                         <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleSelectUser(u.id)}
-                            style={{ accentColor: '#7c3aed', width: 16, height: 16, margin: 0, flexShrink: 0, cursor: 'pointer' }} />
+                            style={{ accentColor: 'var(--c-purple)', width: 16, height: 16, margin: 0, flexShrink: 0, cursor: 'pointer' }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
                               title={u.name}
                               style={{
-                                fontSize: 13, fontWeight: checked ? 700 : 500, color: checked ? (hasOverride ? '#0e7490' : '#6d28d9') : '#1e293b',
+                                fontSize: 13, fontWeight: checked ? 700 : 500, color: checked ? (hasOverride ? '#0e7490' : 'var(--c-purple)') : '#1e293b',
                                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                               }}
                             >
@@ -1659,7 +1660,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                                 ? <span style={{ color: '#0891b2', fontWeight: 700, marginRight: 4 }}>· 📍 {overrides!.size} منطقة مخصصة</span>
                                 : u.areaCount > 0
                                   ? ` · ${u.areaCount} منطقة`
-                                  : <span style={{ color: '#f59e0b', marginRight: 4 }}> · ⚠ لا مناطق</span>
+                                  : <span style={{ color: 'var(--c-warning)', marginRight: 4 }}> · ⚠ لا مناطق</span>
                               }
                             </div>
                           </div>
@@ -1674,8 +1675,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                                 style={{
                                   padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
                                   border: `1px solid ${hasOverride ? '#0891b2' : '#a78bfa'}`,
-                                  background: hasOverride ? '#cffafe' : '#ede9fe',
-                                  color: hasOverride ? '#0e7490' : '#6d28d9', cursor: 'pointer',
+                                  background: hasOverride ? '#cffafe' : 'var(--c-purple-bg)',
+                                  color: hasOverride ? '#0e7490' : 'var(--c-purple)', cursor: 'pointer',
                                 }}
                               >
                                 {isExpanded ? '▲ إخفاء' : (hasOverride ? `📍 ${overrides!.size} منطقة` : '📍 تخصيص المناطق')}
@@ -1745,7 +1746,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             )}
 
             {shareMsg && (
-              <div style={{ marginBottom: 10, fontSize: 13, fontWeight: 700, color: shareMsg.startsWith('✓') ? '#059669' : '#dc2626' }}>
+              <div style={{ marginBottom: 10, fontSize: 13, fontWeight: 700, color: shareMsg.startsWith('✓') ? 'var(--c-success)' : 'var(--c-danger)' }}>
                 {shareMsg}
               </div>
             )}

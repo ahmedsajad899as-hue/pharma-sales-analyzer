@@ -4,21 +4,23 @@ import { useAuth } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { NAV_ITEMS, FEATURE_PAGE_MAP, COMM_REP_ORDER } from '../../config/featureConfig';
+import { Icon, NAV_ICON_BY_ID } from '../../config/icons';
+import type { IconName } from '../../config/icons';
 import NotificationBell from '../NotificationBell';
 
 function OrdineLogo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="28" height="28" rx="6" fill="#1a2b48"/>
+      <rect width="28" height="28" rx="6" fill="var(--c-primary)"/>
       {/* Large arc r=12 */}
-      <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+      <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
       {/* Medium arc r=8.5 */}
-      <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+      <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
       {/* Small arc r=5 */}
-      <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+      <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
       {/* Free + in top-right gap */}
-      <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round"/>
-      <line x1="21" y1="3" x2="21" y2="12" stroke="#4a8cf0" strokeWidth="2.4" strokeLinecap="round"/>
+      <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round"/>
+      <line x1="21" y1="3" x2="21" y2="12" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round"/>
     </svg>
   );
 }
@@ -94,12 +96,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   // roles: [] means "all roles"; roles with entries means restricted to those roles only
   // Source of truth: src/config/featureConfig.ts (shared with the Super Admin "Features" screen)
-  const navItems: { id: PageId; label: string; icon: string; roles: string[] }[] = NAV_ITEMS.map(item => ({
+  const navItems: { id: PageId; label: string; iconName: IconName; roles: string[] }[] = NAV_ITEMS.map(item => ({
     id:    item.id as PageId,
     label: item.id === 'dashboard' && role === 'commercial_rep'
-      ? '💹 المبيع والارجاع'
+      ? 'المبيع والارجاع'
       : item.i18nKey ? t.nav[item.i18nKey] : item.labelAr,
-    icon:  item.icon,
+    iconName: NAV_ICON_BY_ID[item.id] ?? 'navDashboard',
     roles: item.roles,
   }));
 
@@ -177,10 +179,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 4,
+        gap: 6,
       }}
     >
-      🌐 {full ? t.toggleLang : lang === 'ar' ? 'EN' : 'ع'}
+      <Icon name="language" size={14} /> {full ? t.toggleLang : lang === 'ar' ? 'EN' : 'ع'}
     </button>
   );
 
@@ -199,7 +201,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           <span className="sidebar-brand-icon"><OrdineLogo size={28} /></span>
           {isOpen && <span className="sidebar-brand-text">{t.appName}</span>}
           <button className="sidebar-toggle" onClick={onToggle} title={t.sidebar.collapse}>
-            {isOpen ? (lang === 'ar' ? '◀' : '▶') : (lang === 'ar' ? '▶' : '◀')}
+            <Icon name={isOpen ? (lang === 'ar' ? 'chevronLeft' : 'chevronRight') : (lang === 'ar' ? 'chevronRight' : 'chevronLeft')} size={14} />
           </button>
         </div>
 
@@ -217,7 +219,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   borderRight: '3px solid rgba(26,86,219,0.55)',
                 } : undefined}
               >
-                <span className="sidebar-nav-icon">{item.icon}</span>
+                <Icon name={item.iconName} className="sidebar-nav-icon" size={18} />
                 {isOpen && <span className="sidebar-nav-label">{item.label}</span>}
               </button>
             );
@@ -228,7 +230,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               onClick={() => { window.dispatchEvent(new CustomEvent('comm-set-tab', { detail: 'upload' })); onNavigate('commercial'); }}
               title="رفع فاتورة"
             >
-              <span className="sidebar-nav-icon">📤</span>
+              <Icon name="import" className="sidebar-nav-icon" size={18} />
               {isOpen && <span className="sidebar-nav-label">رفع فاتورة</span>}
             </button>
           )}
@@ -249,10 +251,11 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     title="تبديل الحساب"
                     style={{
                       background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
-                      borderRadius: 7, padding: '4px 7px', fontSize: 14, cursor: 'pointer',
+                      borderRadius: 7, padding: '4px 7px', cursor: 'pointer',
                       color: '#a8c4f4', flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
-                  >⇄</button>
+                  ><Icon name="transfer" size={14} /></button>
                 )}
               </div>
               <div style={{ marginBottom: 6 }}>
@@ -268,7 +271,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     display: 'flex', alignItems: 'center', gap: 6,
                   }}
                 >
-                  🤖 {showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
+                  <Icon name="aiBot" size={15} /> {showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
                 </button>
               </div>
               <div style={{ marginBottom: 6 }}>
@@ -324,8 +327,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   </button>
                 </div>
               )}
-              <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13 }} onClick={logout}>
-                🚪 {t.sidebar.logout}
+              <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }} onClick={logout}>
+                <Icon name="logout" size={14} /> {t.sidebar.logout}
               </button>
             </>
           ) : (
@@ -336,10 +339,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   title="تبديل الحساب"
                   style={{
                     background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
-                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
+                    borderRadius: 8, padding: '6px', cursor: 'pointer', width: '100%',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a8c4f4',
                   }}
-                >⇄</button>
+                ><Icon name="transfer" size={16} /></button>
               )}
               <button
                 onClick={onAIToggle}
@@ -347,11 +350,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 style={{
                   background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
                   border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                  borderRadius: 8, padding: '6px', fontSize: 16,
+                  borderRadius: 8, padding: '6px',
                   cursor: 'pointer', width: '100%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: showAI ? '#a8c4f4' : '#8fa0be',
                 }}
-              >🤖</button>
+              ><Icon name="aiBot" size={16} /></button>
               <LangToggleBtn />
               {!REP_ANALYSIS_ROLES.has(role) && (
               <button
@@ -392,8 +396,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   }}
                 >⬇️</button>
               )}
-              <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%' }}>
-                <span className="sidebar-nav-icon">🚪</span>
+              <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%', justifyContent: 'center' }}>
+                <Icon name="logout" className="sidebar-nav-icon" size={17} />
               </button>
             </div>
           )}
@@ -428,7 +432,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             onClick={() => handleMobileNavigate(item.id)}
             className={`mobile-nav-item ${activePage === item.id ? 'mobile-nav-item--active' : ''}`}
           >
-            <span className="mobile-nav-icon">{item.icon}</span>
+            <Icon name={item.iconName} className="mobile-nav-icon" size={20} />
             <span className="mobile-nav-label">{item.label}</span>
           </button>
         ))}
@@ -449,7 +453,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   </div>
                 </div>
               </div>
-              <button className="mobile-drawer-close" onClick={() => setMobileMenuOpen(false)}>✕</button>
+              <button className="mobile-drawer-close" onClick={() => setMobileMenuOpen(false)}><Icon name="close" size={16} /></button>
             </div>
             <nav className="mobile-drawer-nav">
               {visibleItems.map(item => {
@@ -465,7 +469,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                       borderRight: '3px solid rgba(26,86,219,0.5)',
                     } : undefined}
                   >
-                    <span style={{ fontSize: 20 }}>{item.icon}</span>
+                    <Icon name={item.iconName} size={20} />
                     <span>{item.label}</span>
                   </button>
                 );
@@ -475,7 +479,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   className="mobile-drawer-item"
                   onClick={() => { window.dispatchEvent(new CustomEvent('comm-set-tab', { detail: 'upload' })); onNavigate('commercial'); setMobileMenuOpen(false); }}
                 >
-                  <span style={{ fontSize: 20 }}>📤</span>
+                  <Icon name="import" size={20} />
                   <span>رفع فاتورة</span>
                 </button>
               )}
@@ -488,8 +492,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     background: 'rgba(26,86,219,0.15)', border: '1px solid rgba(26,86,219,0.35)', borderRadius: 8,
                     padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#a8c4f4',
                     cursor: 'pointer', width: '100%', textAlign: 'center',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   }}
-                >⇄ تبديل الحساب</button>
+                ><Icon name="transfer" size={14} /> تبديل الحساب</button>
               )}
               <button
                 onClick={() => { onAIToggle?.(); setMobileMenuOpen(false); }}
@@ -499,9 +504,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   borderRadius: 8, padding: '8px 14px', fontSize: 13,
                   fontWeight: 700, color: showAI ? '#a8c4f4' : '#8fa0be',
                   cursor: 'pointer', width: '100%', textAlign: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                🤖 {showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
+                <Icon name="aiBot" size={15} /> {showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
               </button>
               <button
                 onClick={() => { toggleLang(); setMobileMenuOpen(false); }}
@@ -509,9 +515,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
                   padding: '8px 14px', fontSize: 13, fontWeight: 700, color: '#8fa0be',
                   cursor: 'pointer', width: '100%', textAlign: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                🌐 {t.toggleLang}
+                <Icon name="language" size={14} /> {t.toggleLang}
               </button>
               {!REP_ANALYSIS_ROLES.has(role) && (
               <button
@@ -561,10 +568,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               )}
               <button
                 className="btn btn--secondary"
-                style={{ width: '100%', fontSize: 14 }}
+                style={{ width: '100%', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                 onClick={() => { logout(); setMobileMenuOpen(false); }}
               >
-                🚪 {t.sidebar.logout}
+                <Icon name="logout" size={15} /> {t.sidebar.logout}
               </button>
             </div>
           </div>

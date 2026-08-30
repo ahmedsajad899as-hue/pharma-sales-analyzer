@@ -5,6 +5,7 @@ import { cachedFetch, invalidateCache, getCached } from '../utils/apiCache';
 import * as XLSX from 'xlsx';
 import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
+import { Icon } from '../config/icons';
 
 // --- Voice beep: fetch audio buffer once, play via AudioContext (works on iOS/Android) ---
 let _audioCtx: AudioContext | null = null;
@@ -1574,12 +1575,12 @@ export default function MonthlyPlansPage() {
             <div
               onClick={stopVoice}
               style={{
-                background: voiceCountingDown ? '#fef3c7' : '#fee2e2',
-                border: `1.5px solid ${voiceCountingDown ? '#fbbf24' : '#fca5a5'}`,
+                background: voiceCountingDown ? 'var(--c-warning-bg)' : 'var(--c-danger-bg)',
+                border: `1.5px solid ${voiceCountingDown ? 'var(--c-warning-border)' : 'var(--c-danger-border)'}`,
                 borderRadius: 10, padding: '10px 14px', cursor: 'pointer',
               }}
             >
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: voiceCountingDown ? '#92400e' : '#dc2626' }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: voiceCountingDown ? 'var(--c-warning)' : 'var(--c-danger)' }}>
                 {voiceCountingDown ? '✋ اضغط هنا للإلغاء' : '👆 اضغط هنا أو في أي مكان لإنهاء التسجيل'}
               </p>
             </div>
@@ -1607,9 +1608,9 @@ export default function MonthlyPlansPage() {
           return selectedRep ? (
             <button
               onClick={() => openRepAreasModal(selectedRep.id, selectedRep.name)}
-              style={{ fontSize: 12, padding: '6px 12px', background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}
+              style={{ fontSize: 12, padding: '6px 12px', background: 'var(--c-accent-light)', color: 'var(--c-accent)', border: '1px solid var(--c-accent)', borderRadius: 8, cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5 }}
             >
-              📍 مناطق {selectedRep.name}
+              <Icon name="location" size={13} /> مناطق {selectedRep.name}
             </button>
           ) : null;
         })()}
@@ -1633,27 +1634,27 @@ export default function MonthlyPlansPage() {
           })}
         </select>
 
-        <button onClick={() => setShowCreate(true)} style={btnStyle('#3b82f6', true)}>+ جديد</button>
+        <button onClick={() => setShowCreate(true)} style={btnStyle('var(--c-accent)', true)}>+ جديد</button>
         <button
           onClick={async () => { setRefreshing(true); invalidateCache('/api/monthly-plans'); await load(); setRefreshing(false); }}
           disabled={refreshing}
           title="تحديث البيانات من الخادم"
-          style={{ ...btnStyle('#64748b', true), padding: '6px 10px', minWidth: 36 }}>
-          {refreshing ? '⏳' : '🔄'}
+          style={{ ...btnStyle('var(--c-text-secondary)', true), padding: '6px 10px', minWidth: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {refreshing ? <Icon name="loading" size={14} /> : <Icon name="refresh" size={14} />}
         </button>
 
         {/* Upload visits */}
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
           onChange={e => e.target.files?.[0] && uploadVisits(e.target.files[0])} />
         {!uploadedFileName ? (
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={btnStyle('#059669', true)}>
-            {uploading ? '⏳ جاري الرفع...' : '📤 رفع زيارات Excel'}
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...btnStyle('var(--c-success)', true), display: 'flex', alignItems: 'center', gap: 6 }}>
+            {uploading ? '⏳ جاري الرفع...' : <><Icon name="import" size={14} /> رفع زيارات Excel</>}
           </button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, color: '#374151', background: '#fff', padding: '4px 8px', borderRadius: 6, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #e2e8f0' }}
               title={uploadedFileName}>📄 {uploadedFileName}</span>
-            <button onClick={clearUpload} style={{ ...btnStyle('#ef4444', true), padding: '4px 8px', fontSize: 11 }}>🗑</button>
+            <button onClick={clearUpload} style={{ ...btnStyle('var(--c-danger)', true), padding: '4px 8px', fontSize: 11, display: 'flex', alignItems: 'center' }}><Icon name="delete" size={12} /></button>
           </div>
         )}
         {uploadResult && (
@@ -1680,13 +1681,13 @@ export default function MonthlyPlansPage() {
                   const totalV = p.entries.reduce((s, e) => s + e.visits.length, 0);
                   const pct    = Math.min(100, Math.round((totalV / (p.targetCalls || 150)) * 100));
                   return (
-                    <div key={p.id} onClick={() => {
+                    <div key={p.id} className="card" onClick={() => {
                       history.pushState({ page: 'monthly-plans', planId: p.id }, '');
                       setActivePlan(p); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set());
                     }}
-                      style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: 12, padding: 16, cursor: 'pointer', transition: 'all 0.15s' }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.15)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}>
+                      style={{ padding: 16, cursor: 'pointer', transition: 'all 0.15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--c-accent)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(26,86,219,0.15)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, position: 'relative' }}>
                           <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: p.scientificRep ? '#1e293b' : '#94a3b8' }}>
@@ -1696,7 +1697,7 @@ export default function MonthlyPlansPage() {
                           {(p.planAreas?.length ?? 0) > 0 && (
                             <span
                               onClick={e => { e.stopPropagation(); setAreaDropdownPlanId(areaDropdownPlanId === p.id ? null : p.id); }}
-                              style={{ cursor: 'pointer', fontSize: 10, color: '#6366f1', userSelect: 'none', padding: '2px 4px', borderRadius: 4, background: areaDropdownPlanId === p.id ? '#eef2ff' : 'transparent' }}
+                              style={{ cursor: 'pointer', fontSize: 10, color: 'var(--c-accent)', userSelect: 'none', padding: '2px 4px', borderRadius: 4, background: areaDropdownPlanId === p.id ? 'var(--c-accent-light)' : 'transparent' }}
                               title="عرض المناطق">
                               {areaDropdownPlanId === p.id ? '▲' : '▼'}
                             </span>
@@ -1709,7 +1710,7 @@ export default function MonthlyPlansPage() {
                               boxShadow: '0 4px 12px rgba(0,0,0,0.1)', padding: '8px 12px',
                               minWidth: 140, marginTop: 4,
                             }}>
-                              <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>📍 مناطق البلان:</p>
+                              <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={11} /> مناطق البلان:</p>
                               {p.planAreas!.map(pa => (
                                 <div key={pa.id} style={{ fontSize: 12, color: '#374151', padding: '2px 0' }}>• {pa.area.name}</div>
                               ))}
@@ -1717,8 +1718,8 @@ export default function MonthlyPlansPage() {
                           )}
                         </div>
                         {p.user && (
-                          <span style={{ fontSize: 11, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '2px 7px', fontWeight: 600, whiteSpace: 'nowrap', marginRight: 4 }}>
-                            👤 {p.user.username}
+                          <span className="tag tag--purple" style={{ fontSize: 11, borderRadius: 6, padding: '2px 7px', fontWeight: 600, whiteSpace: 'nowrap', marginRight: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="person" size={11} /> {p.user.username}
                           </span>
                         )}
                       </div>
@@ -1738,7 +1739,7 @@ export default function MonthlyPlansPage() {
                                 if (r.ok) { invalidateCache('/api/monthly-plans'); await load(); }
                               } catch {}
                             }}
-                            style={{ width: '100%', fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca', cursor: 'pointer', fontWeight: 600 }}>
+                            style={{ width: '100%', fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', cursor: 'pointer', fontWeight: 600 }}>
                             <option value="">🔗 ربط بمندوب...</option>
                             {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                           </select>
@@ -1748,37 +1749,37 @@ export default function MonthlyPlansPage() {
                         {MONTHS_AR[p.month - 1]} {p.year}
                       </p>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475569', marginBottom: 6 }}>
-                        <span>👨‍⚕️ {p.entries.length}/{p.targetDoctors} طبيب</span>
-                        <span>📞 {totalV}/{p.targetCalls} زيارة</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={13} /> {p.entries.length}/{p.targetDoctors} طبيب</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="call" size={13} /> {totalV}/{p.targetCalls} زيارة</span>
                       </div>
-                      <div style={{ background: '#e2e8f0', borderRadius: 4, height: 6 }}>
-                        <div style={{ background: pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#3b82f6', width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
+                      <div style={{ background: 'var(--c-border)', borderRadius: 4, height: 6 }}>
+                        <div style={{ background: pct >= 80 ? 'var(--c-success)' : pct >= 50 ? 'var(--c-warning)' : 'var(--c-accent)', width: `${pct}%`, height: '100%', borderRadius: 4, transition: 'width 0.3s' }} />
                       </div>
                       <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8', textAlign: 'left' }}>{pct}%</p>
                       {(isManagerOrAdmin || (isFieldRep && p.scientificRepId === authUser?.linkedRepId)) && (
                         <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
                           {isManagerOrAdmin && (p.assignedUserId ? (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>
-                                🔗 {p.assignedUser?.username ?? 'مُحوَّل'}
+                              <span style={{ fontSize: 11, color: 'var(--c-accent)', background: 'var(--c-accent-light)', borderRadius: 4, padding: '2px 6px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Icon name="transfer" size={11} /> {p.assignedUser?.username ?? 'مُحوَّل'}
                               </span>
                               <button
-                                style={{ fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 700 }}
+                                style={{ fontSize: 11, color: 'var(--c-danger)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}
                                 onClick={e => revokeTransfer(e, p.id)}>
-                                ✕ إلغاء
+                                <Icon name="close" size={11} /> إلغاء
                               </button>
                             </div>
                           ) : (
                             <button
-                              style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600 }}
+                              style={{ fontSize: 11, color: 'var(--c-accent)', background: 'var(--c-accent-light)', border: '1px solid var(--c-accent)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                               onClick={e => openTransferModal(e, p)}>
-                              📤 تحويل للمندوب
+                              <Icon name="transfer" size={12} /> تحويل للمندوب
                             </button>
                           ))}
                           <button
-                            style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600, marginTop: 6 }}
+                            style={{ fontSize: 11, color: 'var(--c-danger)', background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', width: '100%', fontWeight: 600, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                             onClick={e => deletePlan(e, p.id)}>
-                            🗑️ مسح البلان
+                            <Icon name="delete" size={12} /> مسح البلان
                           </button>
                         </div>
                       )}
@@ -1804,7 +1805,7 @@ export default function MonthlyPlansPage() {
                 {/* ── Excel: export + import plan ── */}
                 <div style={{ position: 'relative' }}>
                   <button onClick={() => setShowExcelMenu(v => !v)}
-                    style={{ ...btnStyle('#059669'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                    style={{ ...btnStyle('var(--c-success)'), display: 'flex', alignItems: 'center', gap: 5 }}>
                     📊 Excel
                   </button>
                   {showExcelMenu && (
@@ -1828,12 +1829,12 @@ export default function MonthlyPlansPage() {
                 {/* ── Suggest + settings (combined group) ── */}
                 <div style={{ display: 'flex', gap: 0 }}>
                   <button onClick={loadSuggest} disabled={suggestLoading}
-                    style={{ ...btnStyle('#7c3aed'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
+                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
                     {suggestLoading ? '⏳' : '✨'} اقتراح ذكي
                   </button>
                   <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
                     title="إعدادات الاقتراح"
-                    style={{ ...btnStyle('#7c3aed'), borderRadius: '0 9px 9px 0', padding: '8px 9px', fontSize: 14 }}>
+                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '0 9px 9px 0', padding: '8px 9px', fontSize: 14 }}>
                     ⚙️
                   </button>
                 </div>
@@ -1843,7 +1844,7 @@ export default function MonthlyPlansPage() {
                   onClick={() => { if (voiceListening) { stopVoice(); } else { startVoice(); } }}
                   title={voiceListening ? 'إيقاف التسجيل' : 'إدخال صوتي'}
                   style={{
-                    ...btnStyle(voiceListening ? '#ef4444' : '#0284c7'),
+                    ...btnStyle(voiceListening ? 'var(--c-danger)' : 'var(--c-accent)'),
                     padding: '8px 11px', fontSize: 16,
                     animation: voiceListening ? 'pulse-mic 1.5s infinite' : 'none',
                   }}>
@@ -1855,7 +1856,7 @@ export default function MonthlyPlansPage() {
                   <div style={{ position: 'relative', marginRight: 'auto' }}>
                     <button
                       onClick={() => setShowToolsMenu(v => !v)}
-                      style={{ ...btnStyle('#64748b'), padding: '6px 10px', minWidth: 36 }}
+                      style={{ ...btnStyle('var(--c-text-secondary)'), padding: '6px 10px', minWidth: 36 }}
                       title="أدوات">
                       ⋯
                     </button>
@@ -2697,7 +2698,7 @@ export default function MonthlyPlansPage() {
                     </div>
 
                     <button onClick={loadSuggest} disabled={suggestLoading}
-                      style={{ ...btnStyle('#7c3aed'), width: '100%', marginTop: 10 }}>
+                      style={{ ...btnStyle('var(--c-purple)'), width: '100%', marginTop: 10 }}>
                       ✨ تطبيق وعرض الاقتراح
                     </button>
                   </div>
@@ -2758,7 +2759,7 @@ export default function MonthlyPlansPage() {
                     <div style={{ fontSize: 36 }}>⚠️</div>
                     <p style={{ margin: '8px 0 12px', color: '#dc2626', fontSize: 13, fontWeight: 600 }}>{voiceError}</p>
                     <button onClick={() => setVoiceError(null)}
-                      style={btnStyle('#94a3b8', true)}>إغلاق</button>
+                      style={btnStyle('var(--c-text-secondary)', true)}>إغلاق</button>
                   </div>
                 )}
 
@@ -2951,11 +2952,11 @@ export default function MonthlyPlansPage() {
                     }
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                       <button onClick={() => { setVoiceResults(null); }}
-                        style={btnStyle('#94a3b8', true)}>إلغاء</button>
+                        style={btnStyle('var(--c-text-secondary)', true)}>إلغاء</button>
                       <button onClick={submitVoiceVisits}
                         disabled={voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0)}
                         style={{
-                          ...btnStyle('#22c55e', true),
+                          ...btnStyle('var(--c-success)', true),
                           opacity: voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0) ? 0.5 : 1,
                         }}>
                         {voiceSaving ? '⏳ جاري الحفظ...' : `✅ تأكيد وحفظ ${voiceResults.filter(v => v.entryId).length + voiceAddToPlan.size} زيارة`}
@@ -3195,8 +3196,8 @@ export default function MonthlyPlansPage() {
                   )}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 4, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setSuggest(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
-                    <button onClick={applySuggestion} disabled={selectedDoctors.size === 0} style={{ ...btnStyle('#22c55e'), opacity: selectedDoctors.size === 0 ? 0.5 : 1 }}>
+                    <button onClick={() => setSuggest(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
+                    <button onClick={applySuggestion} disabled={selectedDoctors.size === 0} style={{ ...btnStyle('var(--c-success)'), opacity: selectedDoctors.size === 0 ? 0.5 : 1 }}>
                       ✅ إضافة {selectedDoctors.size} طبيب للبلان
                     </button>
                   </div>
@@ -3633,7 +3634,7 @@ export default function MonthlyPlansPage() {
                   </p>
                   {(visitFilter !== 'all' || searchQuery) && (
                     <button onClick={() => { setVisitFilter('all'); setSearchQuery(''); }}
-                      style={{ ...btnStyle('#6366f1'), marginTop: 12 }}>عرض الكل</button>
+                      style={{ ...btnStyle('var(--c-accent)'), marginTop: 12 }}>عرض الكل</button>
                   )}
                 </div>
               ) : filteredEntries.map((entry, idx) => {
@@ -4209,11 +4210,11 @@ export default function MonthlyPlansPage() {
                 <input ref={importFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                   onChange={e => e.target.files?.[0] && importPlanVisits(e.target.files[0])} />
                 <button onClick={downloadTemplate}
-                  style={{ ...btnStyle('#6366f1'), flex: 1 }}>
+                  style={{ ...btnStyle('var(--c-accent)'), flex: 1 }}>
                   ⬇️ تحميل قالب Excel
                 </button>
                 <button onClick={() => importFileRef.current?.click()} disabled={importing}
-                  style={{ ...btnStyle('#10b981'), flex: 1 }}>
+                  style={{ ...btnStyle('var(--c-success)'), flex: 1 }}>
                   {importing ? '⏳ جاري الاستيراد...' : '📤 رفع ملف Excel'}
                 </button>
               </div>
@@ -4264,10 +4265,10 @@ export default function MonthlyPlansPage() {
                 )}
 
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportResult(null); }} style={btnStyle('#6366f1')}>
+                  <button onClick={() => { setImportResult(null); }} style={btnStyle('var(--c-accent)')}>
                     📤 رفع ملف آخر
                   </button>
-                  <button onClick={() => setShowImportModal(false)} style={btnStyle('#10b981')}>
+                  <button onClick={() => setShowImportModal(false)} style={btnStyle('var(--c-success)')}>
                     ✓ تم
                   </button>
                 </div>
@@ -4314,7 +4315,7 @@ export default function MonthlyPlansPage() {
                 <input ref={planImportFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) importPlanEntries(f); }} />
                 <button onClick={() => planImportFileRef.current?.click()} disabled={planImporting}
-                  style={{ ...btnStyle('#16a34a', true), width: '100%', justifyContent: 'center', gap: 8, opacity: planImporting ? 0.6 : 1 }}>
+                  style={{ ...btnStyle('var(--c-success)', true), width: '100%', justifyContent: 'center', gap: 8, opacity: planImporting ? 0.6 : 1 }}>
                   {planImporting ? '⏳ جاري الاستيراد...' : '📂 اختيار ملف Excel'}
                 </button>
               </div>
@@ -4338,7 +4339,7 @@ export default function MonthlyPlansPage() {
                   </div>
                 )}
                 <button onClick={() => { setPlanImportResult(null); setShowPlanImportModal(false); }}
-                  style={{ ...btnStyle('#475569', true), width: '100%', justifyContent: 'center' }}>
+                  style={{ ...btnStyle('var(--c-text-secondary)', true), width: '100%', justifyContent: 'center' }}>
                   إغلاق
                 </button>
               </div>
@@ -4494,8 +4495,8 @@ export default function MonthlyPlansPage() {
               </div>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => setVisitFormEntry(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
-                <button onClick={submitVisit} disabled={savingVisit} style={btnStyle('#3b82f6')}>
+                <button onClick={() => setVisitFormEntry(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
+                <button onClick={submitVisit} disabled={savingVisit} style={btnStyle('var(--c-accent)')}>
                   {savingVisit ? 'جاري الحفظ...' : '✓ حفظ الزيارة'}
                 </button>
               </div>
@@ -4566,8 +4567,8 @@ export default function MonthlyPlansPage() {
               </label>
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={() => setShowCreate(false)} style={btnStyle('#94a3b8')}>إلغاء</button>
-              <button onClick={createPlan} disabled={creating} style={btnStyle('#3b82f6')}>
+              <button onClick={() => setShowCreate(false)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
+              <button onClick={createPlan} disabled={creating} style={btnStyle('var(--c-accent)')}>
                 {creating ? 'جاري الإنشاء...' : 'إنشاء البلان'}
               </button>
             </div>
@@ -4626,7 +4627,7 @@ export default function MonthlyPlansPage() {
             )}
 
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setFbPopup(null)} style={btnStyle('#64748b')}>إغلاق</button>
+              <button onClick={() => setFbPopup(null)} style={btnStyle('var(--c-text-secondary)')}>إغلاق</button>
             </div>
           </div>
         </div>
@@ -4689,7 +4690,7 @@ export default function MonthlyPlansPage() {
             )}
 
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setDoctorHistoryFor(null)} style={btnStyle('#64748b')}>إغلاق</button>
+              <button onClick={() => setDoctorHistoryFor(null)} style={btnStyle('var(--c-text-secondary)')}>إغلاق</button>
             </div>
           </div>
         </div>
@@ -4732,9 +4733,9 @@ export default function MonthlyPlansPage() {
               <p style={{ color: '#ef4444', fontSize: 13, marginTop: 10 }}>{transferError}</p>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={() => setTransferPlan(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
+              <button onClick={() => setTransferPlan(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
               {repUsers.length > 0 && (
-                <button onClick={doTransfer} disabled={transferring || !transferTarget} style={btnStyle('#0369a1')}>
+                <button onClick={doTransfer} disabled={transferring || !transferTarget} style={btnStyle('var(--c-accent)')}>
                   {transferring ? '⏳...' : '📤 تحويل'}
                 </button>
               )}
@@ -4780,8 +4781,8 @@ export default function MonthlyPlansPage() {
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={() => setRepAreasModal(null)} style={btnStyle('#94a3b8')}>إلغاء</button>
-              <button onClick={saveRepAreas} disabled={repAreasSaving} style={btnStyle('#6366f1')}>
+              <button onClick={() => setRepAreasModal(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
+              <button onClick={saveRepAreas} disabled={repAreasSaving} style={btnStyle('var(--c-accent)')}>
                 {repAreasSaving ? '⏳...' : '💾 حفظ المناطق'}
               </button>
             </div>

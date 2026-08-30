@@ -17,8 +17,15 @@
   --c-success-bg:     #e6f7f2;
   --c-warning:        #d97706;
   --c-warning-bg:     #fef3dc;
+  --c-warning-border: #fde68a;
   --c-danger:         #dc2626;
   --c-danger-bg:      #fef2f2;
+  --c-danger-border:  #fecaca;
+  --c-success-border: #a7e8d3;
+  --c-purple:         #6d28d9;   /* secondary accent - AI / auto-detect */
+  --c-purple-hover:   #5b21b6;
+  --c-purple-bg:      #ede9fe;
+  --c-purple-border:  #c4b5fd;
   --radius-sm:        8px;
   --radius-md:        12px;
   --radius-lg:        16px;
@@ -66,6 +73,8 @@ body {
 .card:hover {
   box-shadow: var(--shadow-md);
 }
+
+.card--compact { padding: 14px 16px; }
 
 button {
   transition: all 0.3s ease;
@@ -364,6 +373,9 @@ tr:hover {
   border-radius: 6px;
   transition: background 0.2s;
   margin-right: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .sidebar-toggle:hover { background: rgba(255,255,255,0.14); transform: none; box-shadow: none; }
@@ -504,6 +516,12 @@ tr:hover {
 .stat-card-label { font-size: 13px; color: #64748b; margin-top: 4px; }
 .stat-card-body  { min-width: 0; flex: 1; }
 
+.stat-card-icon--blue   { background: var(--c-accent-light); color: var(--c-accent); }
+.stat-card-icon--green  { background: var(--c-success-bg); color: var(--c-success); }
+.stat-card-icon--red    { background: var(--c-danger-bg); color: var(--c-danger); }
+.stat-card-icon--amber  { background: var(--c-warning-bg); color: var(--c-warning); }
+.stat-card-icon--purple { background: var(--c-purple-bg); color: var(--c-purple); }
+
 /* ======= QUICK ACTIONS ======= */
 .quick-actions-grid {
   display: flex;
@@ -580,6 +598,14 @@ tr:hover {
 .btn--secondary { background: #f0f2f7; color: var(--c-text-secondary); border: 1px solid var(--c-border); }
 .btn--secondary:hover:not(:disabled) { background: #e6eaf3; color: var(--c-text-primary); }
 .btn--full      { width: 100%; }
+.btn--sm        { padding: 6px 14px; font-size: 12.5px; border-radius: 8px; }
+
+.btn--danger    { background: var(--c-danger);  color: #fff; box-shadow: 0 2px 8px rgba(220,38,38,0.25); }
+.btn--danger:hover:not(:disabled)    { background: #b91c1c; box-shadow: 0 4px 14px rgba(220,38,38,0.35); }
+.btn--success   { background: var(--c-success); color: #fff; box-shadow: 0 2px 8px rgba(13,159,110,0.25); }
+.btn--success:hover:not(:disabled)   { background: #0b8760; box-shadow: 0 4px 14px rgba(13,159,110,0.35); }
+.btn--purple    { background: var(--c-purple);  color: #fff; box-shadow: 0 2px 8px rgba(109,40,217,0.25); }
+.btn--purple:hover:not(:disabled)    { background: var(--c-purple-hover); box-shadow: 0 4px 14px rgba(109,40,217,0.35); }
 
 .btn-icon {
   width: 34px; height: 34px;
@@ -591,9 +617,11 @@ tr:hover {
 }
 
 .btn-icon:hover { transform: scale(1.1); }
-.btn-icon--blue  { background: var(--c-accent-light); color: var(--c-accent); }
-.btn-icon--green { background: var(--c-success-bg); color: var(--c-success); }
-.btn-icon--red   { background: var(--c-danger-bg); color: var(--c-danger); }
+.btn-icon--blue   { background: var(--c-accent-light); color: var(--c-accent); }
+.btn-icon--green  { background: var(--c-success-bg); color: var(--c-success); }
+.btn-icon--red    { background: var(--c-danger-bg); color: var(--c-danger); }
+.btn-icon--amber  { background: var(--c-warning-bg); color: var(--c-warning); }
+.btn-icon--purple { background: var(--c-purple-bg); color: var(--c-purple); }
 
 /* ======= DROP ZONE ======= */
 .drop-zone {
@@ -763,6 +791,51 @@ tr:hover {
 
 .badge--green  { background: #d1fae5; color: #065f46; }
 .badge--red    { background: #fee2e2; color: #991b1b; }
+.badge--blue   { background: var(--c-accent-light); color: var(--c-accent); }
+.badge--amber  { background: var(--c-warning-bg); color: var(--c-warning); }
+.badge--gray   { background: #f0f2f7; color: var(--c-text-secondary); }
+
+/* ======= FILTER CHIP (data-filtering pill, distinct from .tab section-switcher) ======= */
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 14px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1.5px solid var(--c-border);
+  background: #f8fafc; color: var(--c-text-secondary);
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.filter-chip:hover { color: var(--c-text-primary); transform: none; box-shadow: none; }
+.filter-chip--sm { padding: 3px 11px; font-size: 11px; }
+.filter-chip--active {
+  border-color: var(--c-accent);
+  background: var(--c-accent-light);
+  color: var(--c-accent);
+}
+
+/* ======= TOGGLE SWITCH ======= */
+.toggle-switch {
+  position: relative;
+  width: 40px; height: 22px;
+  border-radius: 999px;
+  background: var(--c-border);
+  cursor: pointer;
+  transition: background 0.2s;
+  border: none;
+  flex-shrink: 0;
+  padding: 0;
+}
+.toggle-switch--on { background: var(--c-success); }
+.toggle-switch-knob {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  transition: right 0.2s;
+}
+.toggle-switch--on .toggle-switch-knob { right: 20px; }
 
 /* ======= ACTION BUTTONS ======= */
 .action-btns { display: flex; gap: 6px; }
@@ -1260,6 +1333,24 @@ tr:hover {
 }
 .calls-compact td strong { font-size: 10px !important; }
 .calls-compact td span  { font-size: 9px !important; }
+
+/* ── Floating Action Button ── */
+.fab-btn {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  border: none;
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.fab-btn--accent {
+  background: linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%);
+  box-shadow: 0 4px 20px rgba(26,86,219,0.45);
+}
+.fab-btn--purple {
+  background: linear-gradient(135deg, var(--c-purple) 0%, var(--c-purple-hover) 100%);
+  box-shadow: 0 4px 20px rgba(109,40,217,0.45);
+}
 
 /* ── FAB Ring Pulse ── */
 .fab-ring {

@@ -2,6 +2,7 @@
 import { useAuth } from '../context/AuthContext';
 import { usePharmacyNetFiles } from '../hooks/usePharmacyNetFiles';
 import * as XLSX from 'xlsx';
+import { Icon } from '../config/icons';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -71,16 +72,16 @@ function fmtDate(d: string) {
   catch { return d; }
 }
 function dayColor(d: number): { bg: string; color: string } {
-  if (d < 15)  return { bg: '#ecfdf5', color: '#059669' };
-  if (d < 30)  return { bg: '#fefce8', color: '#b45309' };
+  if (d < 15)  return { bg: 'var(--c-success-bg)', color: 'var(--c-success)' };
+  if (d < 30)  return { bg: 'var(--c-warning-bg)', color: 'var(--c-warning)' };
   if (d < 60)  return { bg: '#fff7ed', color: '#c2410c' };
-  return              { bg: '#fef2f2', color: '#dc2626' };
+  return              { bg: 'var(--c-danger-bg)', color: 'var(--c-danger)' };
 }
 
 const TABS = [
-  { id: 'pharmacies',   label: 'الصيدليات',  icon: '🏪' },
-  { id: 'items',        label: 'الايتمات',   icon: '💊' },
-  { id: 'alerts',       label: 'التنبيهات',  icon: '🔔' },
+  { id: 'pharmacies',   label: 'الصيدليات',  icon: 'pharmacy' },
+  { id: 'items',        label: 'الايتمات',   icon: 'drug' },
+  { id: 'alerts',       label: 'التنبيهات',  icon: 'alert' },
 ] as const;
 type Tab = typeof TABS[number]['id'];
 type GroupBy = 'none' | 'area' | 'rep' | 'item' | 'date';
@@ -397,14 +398,14 @@ export default function PharmacyAnalysisPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl">
             <div style={{ fontSize: 22, marginBottom: 6 }}>💱</div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 4 }}>عملة الملف</div>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 18 }}>{pendingFile.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--c-text-primary)', marginBottom: 4 }}>عملة الملف</div>
+            <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 18 }}>{pendingFile.name}</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 16 }}>
               {(['IQD', 'USD'] as const).map(c => (
                 <button key={c} onClick={() => setPreCurrency(c)} style={{
-                  padding: '8px 22px', borderRadius: 8, border: `2px solid ${preCurrency === c ? '#1e40af' : '#e2e8f0'}`,
-                  background: preCurrency === c ? '#eff6ff' : '#f8fafc',
-                  color: preCurrency === c ? '#1e40af' : '#64748b',
+                  padding: '8px 22px', borderRadius: 8, border: `2px solid ${preCurrency === c ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                  background: preCurrency === c ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                  color: preCurrency === c ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                   fontWeight: preCurrency === c ? 700 : 500, fontSize: 14, cursor: 'pointer',
                 }}>
                   {c === 'IQD' ? 'د.ع دينار عراقي' : '$ دولار'}
@@ -413,11 +414,11 @@ export default function PharmacyAnalysisPage() {
             </div>
             {preCurrency === 'USD' && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 16 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>سعر الصرف (دولار → دينار):</span>
+                <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>سعر الصرف (دولار → دينار):</span>
                 <input
                   type="number" min="1" value={preRate}
                   onChange={e => setPreRate(e.target.value)}
-                  style={{ width: 90, padding: '5px 8px', borderRadius: 7, border: '1.5px solid #cbd5e1', fontSize: 13, textAlign: 'center' }}
+                  style={{ width: 90, padding: '5px 8px', borderRadius: 7, border: '1.5px solid var(--c-text-muted)', fontSize: 13, textAlign: 'center' }}
                 />
               </div>
             )}
@@ -428,13 +429,13 @@ export default function PharmacyAnalysisPage() {
                   uploadFile(pendingFile, preCurrency, isFinite(rate) && rate > 0 ? rate : 1470);
                   setPendingFile(null);
                 }}
-                style={{ padding: '9px 24px', borderRadius: 8, background: '#1e40af', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+                style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--c-accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
               >
                 ✔ رفع الملف
               </button>
               <button
                 onClick={() => setPendingFile(null)}
-                style={{ padding: '9px 20px', borderRadius: 8, background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}
+                style={{ padding: '9px 20px', borderRadius: 8, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}
               >
                 إلغاء
               </button>
@@ -445,10 +446,10 @@ export default function PharmacyAnalysisPage() {
 
       {/* ── Page Header ────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🔬</div>
+        <div style={{ background: 'var(--c-accent)', borderRadius: 10, padding: '8px 12px', color: '#fff', display: 'flex', alignItems: 'center' }}><Icon name="navPharmacyAnalysis" size={20} /></div>
         <div>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>تحليل الصيدليات والمبيعات</h1>
-          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>تحليل شامل عبر الملفات المرفوعة</p>
+          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: 'var(--c-text-primary)' }}>تحليل الصيدليات والمبيعات</h1>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--c-text-secondary)' }}>تحليل شامل عبر الملفات المرفوعة</p>
         </div>
       </div>
 
@@ -459,25 +460,25 @@ export default function PharmacyAnalysisPage() {
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !clearing && setShowClearConfirm(false)}>
             <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', marginBottom: 6 }}>مسح كل البيانات</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 20 }}>سيتم حذف جميع الملفات ({files.length}) وبياناتها نهائياً. هل أنت متأكد؟</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-primary)', marginBottom: 6 }}>مسح كل البيانات</div>
+              <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 20 }}>سيتم حذف جميع الملفات ({files.length}) وبياناتها نهائياً. هل أنت متأكد؟</div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button onClick={clearAllData} disabled={clearing} style={{ padding: '9px 24px', borderRadius: 8, background: '#dc2626', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: clearing ? 'default' : 'pointer', opacity: clearing ? .7 : 1 }}>
+                <button onClick={clearAllData} disabled={clearing} style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--c-danger)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: clearing ? 'default' : 'pointer', opacity: clearing ? .7 : 1 }}>
                   {clearing ? '⏳ جاري الحذف...' : '✔ نعم، احذف'}
                 </button>
-                <button onClick={() => setShowClearConfirm(false)} disabled={clearing} style={{ padding: '9px 20px', borderRadius: 8, background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}>إلغاء</button>
+                <button onClick={() => setShowClearConfirm(false)} disabled={clearing} style={{ padding: '9px 20px', borderRadius: 8, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}>إلغاء</button>
               </div>
             </div>
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>الملفات:</span>
-          <button onClick={selectAll}  style={PILL_BTN('#eff6ff','#1d4ed8')}>تحديد الكل</button>
-          <button onClick={selectNone} style={PILL_BTN('#f1f5f9','#64748b')}>إلغاء الكل</button>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)' }}>الملفات:</span>
+          <button onClick={selectAll}  style={PILL_BTN('var(--c-accent-light)','var(--c-accent)')}>تحديد الكل</button>
+          <button onClick={selectNone} style={PILL_BTN('var(--c-bg)','var(--c-text-secondary)')}>إلغاء الكل</button>
           {files.length > 0 && (
-            <button onClick={() => setShowClearConfirm(true)} style={{ ...PILL_BTN('#fef2f2','#dc2626'), border: '1px solid #fecaca' }}>🗑 مسح كل البيانات</button>
+            <button onClick={() => setShowClearConfirm(true)} style={{ ...PILL_BTN('var(--c-danger-bg)','var(--c-danger)'), border: '1px solid var(--c-danger-border)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="delete" size={12} /> مسح كل البيانات</button>
           )}
-          <span style={{ marginRight: 'auto', fontSize: 11, color: '#94a3b8' }}>{selFiles.size} / {files.length} ملف</span>
+          <span style={{ marginRight: 'auto', fontSize: 11, color: 'var(--c-text-muted)' }}>{selFiles.size} / {files.length} ملف</span>
         </div>
         {/* Confirm single-file delete dialog */}
         {confirmDeleteFileId !== null && (() => {
@@ -486,28 +487,28 @@ export default function PharmacyAnalysisPage() {
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deletingFileId && setConfirmDeleteFileId(null)}>
               <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 6 }}>حذف الملف</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 18, wordBreak: 'break-all' }}>{cf?.originalName}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-text-primary)', marginBottom: 6 }}>حذف الملف</div>
+                <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 18, wordBreak: 'break-all' }}>{cf?.originalName}</div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                  <button onClick={() => deleteOneFile(confirmDeleteFileId)} disabled={!!deletingFileId} style={{ padding: '8px 22px', borderRadius: 8, background: '#dc2626', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: deletingFileId ? 'default' : 'pointer', opacity: deletingFileId ? .7 : 1 }}>
+                  <button onClick={() => deleteOneFile(confirmDeleteFileId)} disabled={!!deletingFileId} style={{ padding: '8px 22px', borderRadius: 8, background: 'var(--c-danger)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: deletingFileId ? 'default' : 'pointer', opacity: deletingFileId ? .7 : 1 }}>
                     {deletingFileId ? '⏳ جاري الحذف...' : '✔ نعم، احذف'}
                   </button>
-                  <button onClick={() => setConfirmDeleteFileId(null)} disabled={!!deletingFileId} style={{ padding: '8px 18px', borderRadius: 8, background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>إلغاء</button>
+                  <button onClick={() => setConfirmDeleteFileId(null)} disabled={!!deletingFileId} style={{ padding: '8px 18px', borderRadius: 8, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>إلغاء</button>
                 </div>
               </div>
             </div>
           );
         })()}
 
-        {filesLoading ? <span style={{ fontSize: 12, color: '#94a3b8' }}>جاري التحميل...</span> : (
+        {filesLoading ? <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>جاري التحميل...</span> : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {files.map(f => (
               <div key={f.id} style={{
                 display: 'flex', alignItems: 'center', gap: 0,
                 borderRadius: 6, fontSize: 12,
-                border: selFiles.has(f.id) ? '1.5px solid #1e40af' : '1.5px solid #e2e8f0',
-                background: selFiles.has(f.id) ? '#eff6ff' : '#fff',
-                color: selFiles.has(f.id) ? '#1e40af' : '#6b7280',
+                border: selFiles.has(f.id) ? '1.5px solid var(--c-accent)' : '1.5px solid var(--c-border)',
+                background: selFiles.has(f.id) ? 'var(--c-accent-light)' : '#fff',
+                color: selFiles.has(f.id) ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                 fontWeight: selFiles.has(f.id) ? 600 : 400,
                 overflow: 'hidden',
               }}>
@@ -520,24 +521,24 @@ export default function PharmacyAnalysisPage() {
                   title="حذف الملف"
                   style={{
                     padding: '5px 7px', border: 'none', background: 'transparent',
-                    cursor: 'pointer', color: '#94a3b8', fontSize: 13, lineHeight: 1,
-                    borderRight: selFiles.has(f.id) ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+                    cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 13, lineHeight: 1,
+                    borderRight: selFiles.has(f.id) ? '1px solid #bfdbfe' : '1px solid var(--c-border)',
                     order: -1,
                   }}
                 >×</button>
               </div>
             ))}
-            {files.length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد ملفات</span>}
+            {files.length === 0 && <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>لا توجد ملفات</span>}
           </div>
         )}
 
         {/* Upload row */}
-        <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 10, paddingTop: 8 }}>
+        <div style={{ borderTop: '1px solid var(--c-bg)', marginTop: 10, paddingTop: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={() => setShowUpload(v => !v)} style={{ ...PILL_BTN('#f5f3ff','#6d28d9'), border: '1.5px dashed #a5b4fc' }}>
               {showUpload ? '✕ إخفاء' : '⬆ رفع ملف جديد'}
             </button>
-            {uploadMsg && <span style={{ fontSize: 12, color: uploadMsg.ok ? '#16a34a' : '#dc2626' }}>{uploadMsg.text}</span>}
+            {uploadMsg && <span style={{ fontSize: 12, color: uploadMsg.ok ? 'var(--c-success)' : 'var(--c-danger)' }}>{uploadMsg.text}</span>}
           </div>
           {showUpload && (
             <div
@@ -550,7 +551,7 @@ export default function PharmacyAnalysisPage() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) { requestUpload(f); e.target.value = ''; } }} />
               {uploading
                 ? <span style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>⏳ جاري الرفع...</span>
-                : <><div style={{ fontSize: 11, fontWeight: 600, color: '#4f46e5' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: '#94a3b8' }}>.xlsx / .xls / .csv</div></>
+                : <><div style={{ fontSize: 11, fontWeight: 600, color: '#4f46e5' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv</div></>
               }
             </div>
           )}
@@ -558,39 +559,36 @@ export default function PharmacyAnalysisPage() {
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setSelectedPharma(null); setSelectedItem(null); }} style={{
-            padding: '8px 18px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
-            background: tab === t.id ? '#fff' : 'transparent',
-            color: tab === t.id ? '#1e40af' : '#6b7280',
-            fontWeight: tab === t.id ? 700 : 500, fontSize: 13,
-            borderBottom: tab === t.id ? '2px solid #1e40af' : '2px solid transparent', marginBottom: -2,
-          }}>
-            {t.label}
-            {t.id === 'alerts' && alerts.length > 0 && (
-              <span style={{ background: '#dc2626', color: '#fff', borderRadius: 10, padding: '0 6px', fontSize: 10, fontWeight: 700, marginRight: 5 }}>{alerts.length}</span>
-            )}
-          </button>
-        ))}
+      <div style={{ display: 'flex', marginBottom: 14, alignItems: 'center' }}>
+        <div className="tabs">
+          {TABS.map(t => (
+            <button key={t.id} className={`tab${tab === t.id ? ' tab--active' : ''}`} onClick={() => { setTab(t.id); setSelectedPharma(null); setSelectedItem(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name={t.icon} size={16} />
+              {t.label}
+              {t.id === 'alerts' && alerts.length > 0 && (
+                <span style={{ background: 'var(--c-danger)', color: '#fff', borderRadius: 10, padding: '0 6px', fontSize: 10, fontWeight: 700, marginRight: 5 }}>{alerts.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
         {/* Currency toggle — pinned to left */}
         <div style={{ marginRight: 'auto', marginBottom: -2, display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 6 }}>
           {showRateEdit && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 11, color: '#64748b' }}>سعر الصرف:</span>
+              <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>سعر الصرف:</span>
               <input
                 value={rateInput}
                 onChange={e => setRateInput(e.target.value)}
                 onBlur={() => { const r = parseFloat(rateInput); if (r > 0) { setDispRate(r); } setShowRateEdit(false); }}
                 onKeyDown={e => { if (e.key === 'Enter') { const r = parseFloat(rateInput); if (r > 0) { setDispRate(r); } setShowRateEdit(false); } }}
                 autoFocus
-                style={{ width: 72, padding: '3px 7px', borderRadius: 5, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }}
+                style={{ width: 72, padding: '3px 7px', borderRadius: 5, border: '1px solid var(--c-text-muted)', fontSize: 12, textAlign: 'center' }}
               />
             </div>
           )}
           {!showRateEdit && dispCurrency === 'USD' && (
             <button onClick={() => { setRateInput(String(dispRate)); setShowRateEdit(true); }}
-              style={{ fontSize: 10, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}
+              style={{ fontSize: 10, color: 'var(--c-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}
               title="تعديل سعر الصرف"
             >✏ {dispRate}</button>
           )}
@@ -599,9 +597,9 @@ export default function PharmacyAnalysisPage() {
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: 42, height: 30, borderRadius: 6,
-              border: `1.5px solid ${dispCurrency === 'USD' ? '#f59e0b' : '#1e40af'}`,
-              background: dispCurrency === 'USD' ? '#fffbeb' : '#eff6ff',
-              color: dispCurrency === 'USD' ? '#b45309' : '#1e40af',
+              border: `1.5px solid ${dispCurrency === 'USD' ? '#f59e0b' : 'var(--c-accent)'}`,
+              background: dispCurrency === 'USD' ? '#fffbeb' : 'var(--c-accent-light)',
+              color: dispCurrency === 'USD' ? '#b45309' : 'var(--c-accent)',
               fontSize: 13, fontWeight: 800, cursor: 'pointer',
             }}
             title={dispCurrency === 'IQD' ? 'التحويل إلى دولار' : 'التحويل إلى دينار عراقي'}
@@ -615,9 +613,9 @@ export default function PharmacyAnalysisPage() {
       {tab === 'pharmacies' && !selectedPharma && (
         <div>
           {selFiles.size === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--c-text-muted)' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: '#64748b', marginBottom: 6 }}>لا توجد ملفات محددة</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-secondary)', marginBottom: 6 }}>لا توجد ملفات محددة</div>
               <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض بيانات الصيدليات</div>
             </div>
           ) : (
@@ -626,16 +624,16 @@ export default function PharmacyAnalysisPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}
               placeholder="بحث باسم الصيدلية أو المنطقة..."
-              style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
+              style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, background: '#fff' }} />
 
             {/* Group by */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 4px' }}>
-              <span style={{ fontSize: 11, color: '#6b7280', padding: '0 6px' }}>تجميع:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 4px' }}>
+              <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', padding: '0 6px' }}>تجميع:</span>
               {([['none','بدون'],['area','المنطقة'],['rep','المندوب'],['item','الايتم'],['date','التاريخ']] as [GroupBy,string][]).map(([v, label]) => (
                 <button key={v} onClick={() => setGroupBy(v)} style={{
                   padding: '4px 10px', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                  background: groupBy === v ? '#1e40af' : 'transparent',
-                  color: groupBy === v ? '#fff' : '#374151',
+                  background: groupBy === v ? 'var(--c-accent)' : 'transparent',
+                  color: groupBy === v ? '#fff' : 'var(--c-text-primary)',
                 }}>{label}</button>
               ))}
             </div>
@@ -662,18 +660,18 @@ export default function PharmacyAnalysisPage() {
               )}
               disabled={sortedPharmacies.length === 0}
               title="تصدير الصيدليات المعروضة (بعد البحث والترتيب) إلى إكسل"
-              style={{ padding: '7px 14px', border: '1px solid #16a34a', borderRadius: 6, background: sortedPharmacies.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedPharmacies.length === 0 ? '#94a3b8' : '#fff', cursor: sortedPharmacies.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
-            >📥 تصدير إكسل</button>
-            <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#374151' }}>↻ تحديث</button>
-            <span style={{ fontSize: 12, color: '#6b7280' }}>{pharmacies.length} صيدلية</span>
+              style={{ padding: '7px 14px', border: '1px solid var(--c-success)', borderRadius: 6, background: sortedPharmacies.length === 0 ? 'var(--c-bg)' : 'var(--c-success)', color: sortedPharmacies.length === 0 ? 'var(--c-text-muted)' : '#fff', cursor: sortedPharmacies.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+            ><Icon name="export" size={13} /> تصدير إكسل</button>
+            <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: 'var(--c-text-primary)' }}>↻ تحديث</button>
+            <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{pharmacies.length} صيدلية</span>
           </div>
 
           {pharmaLoading ? <Loader /> : (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
               {/* Table header */}
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: '#1e40af', color: '#fff' }}>
+                  <tr style={{ background: 'var(--c-accent)', color: '#fff' }}>
                     <th style={TH}>#</th>
                     <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('name')}>الصيدلية{sortArrow('name', pharmaSortCol, pharmaSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handlePharmaSort('area')}>المنطقة{sortArrow('area', pharmaSortCol, pharmaSortDir)}</th>
@@ -693,10 +691,10 @@ export default function PharmacyAnalysisPage() {
                       {/* Group header */}
                       {groupBy !== 'none' && (
                         <tr key={`gh-${g.key}`} style={{ background: '#e8f0fe', cursor: 'pointer' }} onClick={() => toggleGroup(g.key)}>
-                          <td colSpan={11} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: '#1e40af' }}>
+                          <td colSpan={11} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: 'var(--c-accent)' }}>
                             {collapsedGroups.has(g.key) ? '▶' : '▼'}&nbsp;
                             {g.label}
-                            <span style={{ fontWeight: 400, color: '#6b7280', marginRight: 8, fontSize: 11 }}>({g.rows.length} صيدلية)</span>
+                            <span style={{ fontWeight: 400, color: 'var(--c-text-secondary)', marginRight: 8, fontSize: 11 }}>({g.rows.length} صيدلية)</span>
                           </td>
                         </tr>
                       )}
@@ -707,45 +705,45 @@ export default function PharmacyAnalysisPage() {
                         return (
                           <>
                             <tr key={p.name}
-                              style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', cursor: 'pointer', transition: 'background .1s' }}
-                              onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
-                              onMouseOut={e  => (e.currentTarget as HTMLElement).style.background  = i % 2 === 0 ? '#fff' : '#f9fafb'}
+                              style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)', cursor: 'pointer', transition: 'background .1s' }}
+                              onMouseOver={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-accent-light)'}
+                              onMouseOut={e  => (e.currentTarget as HTMLElement).style.background  = i % 2 === 0 ? '#fff' : 'var(--c-bg)'}
                             >
                               <td style={TD} onClick={() => openPharma(p.name)}>{i + 1}</td>
-                              <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }} onClick={() => openPharma(p.name)}>{p.name}</td>
-                              <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.areaName || '—'}</td>
+                              <td style={{ ...TD, fontWeight: 600, color: 'var(--c-text-primary)', textAlign: 'right' }} onClick={() => openPharma(p.name)}>{p.name}</td>
+                              <td style={{ ...TD, color: 'var(--c-text-secondary)' }}       onClick={() => openPharma(p.name)}>{p.areaName || '—'}</td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
                               <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmtV(p.totalValue)}</td>
                               <td style={{ ...TD, textAlign: 'center' }} onClick={() => openPharma(p.name)}>
                                 {p.returnsQty > 0 ? (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
-                                    <span style={{ color: '#dc2626', fontWeight: 700, fontSize: 12 }}>{fmt(p.returnsQty)}</span>
-                                    <span style={{ color: '#ef4444', fontSize: 10 }}>{fmtV(p.returnsValue)}</span>
+                                    <span style={{ color: 'var(--c-danger)', fontWeight: 700, fontSize: 12 }}>{fmt(p.returnsQty)}</span>
+                                    <span style={{ color: 'var(--c-danger)', fontSize: 10 }}>{fmtV(p.returnsValue)}</span>
                                   </div>
-                                ) : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>}
+                                ) : <span style={{ color: 'var(--c-border)', fontSize: 11 }}>—</span>}
                               </td>
                               <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.itemCount}</td>
-                              <td style={{ ...TD, color: '#6b7280' }}       onClick={() => openPharma(p.name)}>{p.lastOrder ? fmtDate(p.lastOrder) : '—'}</td>
+                              <td style={{ ...TD, color: 'var(--c-text-secondary)' }}       onClick={() => openPharma(p.name)}>{p.lastOrder ? fmtDate(p.lastOrder) : '—'}</td>
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>
                                 <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{p.daysSinceLast}</span>
                               </td>
                               <td style={{ ...TD, textAlign: 'center' }} onClick={() => toggleRow(p.name)}>
-                                <span style={{ fontSize: 10, color: '#94a3b8', cursor: 'pointer' }}>{expanded ? '▲' : '▼'}</span>
+                                <span style={{ fontSize: 10, color: 'var(--c-text-muted)', cursor: 'pointer' }}>{expanded ? '▲' : '▼'}</span>
                               </td>
                             </tr>
                             {/* Expanded: top items as small chips */}
                             {expanded && (
-                              <tr key={`exp-${p.name}`} style={{ background: '#f8fafc' }}>
-                                <td colSpan={11} style={{ padding: '8px 16px', borderBottom: '1px solid #e2e8f0' }}>
+                              <tr key={`exp-${p.name}`} style={{ background: 'var(--c-bg)' }}>
+                                <td colSpan={11} style={{ padding: '8px 16px', borderBottom: '1px solid var(--c-border)' }}>
                                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>الايتمات:</span>
+                                    <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 600 }}>الايتمات:</span>
                                     {p.topItems.map(it => (
                                       <span key={it.name} style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 4, padding: '2px 8px', fontSize: 11 }}>
                                         {it.name}&nbsp;<b>×{it.qty}</b>
                                       </span>
                                     ))}
-                                    {p.topItems.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>}
+                                    {p.topItems.length === 0 && <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>—</span>}
                                   </div>
                                 </td>
                               </tr>
@@ -764,8 +762,8 @@ export default function PharmacyAnalysisPage() {
                             <td style={{ ...TD, textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: 12 }}>{fmtV(totalVal)}</td>
                             <td style={{ ...TD, textAlign: 'center', fontWeight: 800, fontSize: 12 }}>
                               {totalRetQty > 0 ? (
-                                <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 12 }}>{fmtV(totalRetVal)}</span>
-                              ) : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>}
+                                <span style={{ color: 'var(--c-danger)', fontWeight: 700, fontSize: 12 }}>{fmtV(totalRetVal)}</span>
+                              ) : <span style={{ color: 'var(--c-border)', fontSize: 11 }}>—</span>}
                             </td>
                             <td colSpan={4} />
                           </tr>
@@ -774,7 +772,7 @@ export default function PharmacyAnalysisPage() {
                     </>
                   ))}
                   {pharmacies.length === 0 && (
-                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات. ارفع ملفات مبيعات أولاً.</td></tr>
+                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-muted)', fontSize: 13 }}>لا توجد بيانات. ارفع ملفات مبيعات أولاً.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -790,7 +788,7 @@ export default function PharmacyAnalysisPage() {
         <div>
           <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); }} style={BACK_BTN}>← رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
-            <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{selectedPharma}</h2>
+            <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedPharma}</h2>
             {pharmaDetailLoading ? <Loader /> : pharmaDetail && (
               <>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -809,10 +807,10 @@ export default function PharmacyAnalysisPage() {
                   const idc = itemDays !== null ? dayColor(itemDays) : null;
                   return (
                   <div key={b.name} style={{ marginBottom: 16 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: '#f1f5f9', borderRadius: '6px 6px 0 0', borderBottom: '1px solid #e2e8f0' }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{b.name}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: 'var(--c-bg)', borderRadius: '6px 6px 0 0', borderBottom: '1px solid var(--c-border)' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--c-text-primary)' }}>{b.name}</span>
                       <div style={{ display: 'flex', gap: 16, fontSize: 12, alignItems: 'center' }}>
-                        <span style={{ color: '#374151' }}>الكمية: <b>{fmt(b.totalQty)}</b></span>
+                        <span style={{ color: 'var(--c-text-primary)' }}>الكمية: <b>{fmt(b.totalQty)}</b></span>
                         <span style={{ color: '#047857' }}>القيمة: <b>{fmtV(b.totalValue)}</b></span>
                         {idc !== null && itemDays !== null && (
                           <span style={{ background: idc.bg, color: idc.color, borderRadius: 5, padding: '2px 9px', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }}>
@@ -823,19 +821,19 @@ export default function PharmacyAnalysisPage() {
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
-                        <tr style={{ background: '#f8fafc' }}>
+                        <tr style={{ background: 'var(--c-bg)' }}>
                           {['التاريخ','الكمية',`القيمة (${currLabel})`,'المندوب','النوع'].map(h => <th key={h} style={TH2}>{h}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {b.orders.map((o: any, i: number) => (
-                          <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                          <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
                             <td style={TD2}>{fmtDate(o.date)}</td>
                             <td style={{ ...TD2, textAlign: 'right' }}>{fmt(o.qty)}</td>
                             <td style={{ ...TD2, textAlign: 'right', color: '#047857' }}>{fmtV(o.value)}</td>
                             <td style={TD2}>{o.rep || '—'}</td>
                             <td style={TD2}>
-                              <span style={{ background: o.type === 'return' ? '#fee2e2' : '#dcfce7', color: o.type === 'return' ? '#dc2626' : '#15803d', borderRadius: 4, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
+                              <span style={{ background: o.type === 'return' ? 'var(--c-danger-bg)' : '#dcfce7', color: o.type === 'return' ? 'var(--c-danger)' : '#15803d', borderRadius: 4, padding: '1px 7px', fontSize: 10, fontWeight: 700 }}>
                                 {o.type === 'return' ? 'مرتجع' : 'بيع'}
                               </span>
                             </td>
@@ -856,16 +854,16 @@ export default function PharmacyAnalysisPage() {
       {tab === 'items' && !selectedItem && (
         <div>
           {selFiles.size === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--c-text-muted)' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: '#64748b', marginBottom: 6 }}>لا توجد ملفات محددة</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-secondary)', marginBottom: 6 }}>لا توجد ملفات محددة</div>
               <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض بيانات الايتمات</div>
             </div>
           ) : (
           <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={itemSearch} onChange={e => onItemSearch(e.target.value)} placeholder="بحث باسم الايتم..."
-              style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }} />
+              style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, background: '#fff' }} />
             <button
               onClick={() => exportRowsToExcel(
                 sortedItems,
@@ -882,16 +880,16 @@ export default function PharmacyAnalysisPage() {
               )}
               disabled={sortedItems.length === 0}
               title="تصدير الايتمات المعروضة (بعد البحث والترتيب) إلى إكسل"
-              style={{ padding: '7px 14px', border: '1px solid #16a34a', borderRadius: 6, background: sortedItems.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedItems.length === 0 ? '#94a3b8' : '#fff', cursor: sortedItems.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
-            >📥 تصدير إكسل</button>
-            <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻ تحديث</button>
-            <span style={{ fontSize: 12, color: '#6b7280' }}>{items.length} ايتم</span>
+              style={{ padding: '7px 14px', border: '1px solid var(--c-success)', borderRadius: 6, background: sortedItems.length === 0 ? 'var(--c-bg)' : 'var(--c-success)', color: sortedItems.length === 0 ? 'var(--c-text-muted)' : '#fff', cursor: sortedItems.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+            ><Icon name="export" size={13} /> تصدير إكسل</button>
+            <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻ تحديث</button>
+            <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{items.length} ايتم</span>
           </div>
           {itemsLoading ? <Loader /> : (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: '#1e40af', color: '#fff' }}>
+                  <tr style={{ background: 'var(--c-accent)', color: '#fff' }}>
                     <th style={TH}>#</th>
                     <th style={{ ...TH, textAlign: 'right', minWidth: 180, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('name')}>الايتم{sortArrow('name', itemSortCol, itemSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleItemSort('qty')}>الكمية{sortArrow('qty', itemSortCol, itemSortDir)}</th>
@@ -903,21 +901,21 @@ export default function PharmacyAnalysisPage() {
                 </thead>
                 <tbody>
                   {sortedItems.map((it, i) => (
-                    <tr key={it.name} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', cursor: 'pointer' }}
+                    <tr key={it.name} style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)', cursor: 'pointer' }}
                       onClick={() => openItem(it.name)}
-                      onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
-                      onMouseOut={e  => (e.currentTarget as HTMLElement).style.background  = i % 2 === 0 ? '#fff' : '#f9fafb'}
+                      onMouseOver={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-accent-light)'}
+                      onMouseOut={e  => (e.currentTarget as HTMLElement).style.background  = i % 2 === 0 ? '#fff' : 'var(--c-bg)'}
                     >
                       <td style={TD}>{i + 1}</td>
-                      <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }}>{it.name}</td>
+                      <td style={{ ...TD, fontWeight: 600, color: 'var(--c-text-primary)', textAlign: 'right' }}>{it.name}</td>
                       <td style={{ ...TD, textAlign: 'right' }}>{fmt(it.totalQty)}</td>
                       <td style={{ ...TD, textAlign: 'right', color: '#047857' }}>{fmtV(it.totalValue)}</td>
                       <td style={{ ...TD, textAlign: 'center' }}>{it.pharmacyCount}</td>
-                      <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.firstOrder)}</td>
-                      <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(it.lastOrder)}</td>
+                      <td style={{ ...TD, color: 'var(--c-text-secondary)' }}>{fmtDate(it.firstOrder)}</td>
+                      <td style={{ ...TD, color: 'var(--c-text-secondary)' }}>{fmtDate(it.lastOrder)}</td>
                     </tr>
                   ))}
-                  {items.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات.</td></tr>}
+                  {items.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-muted)', fontSize: 13 }}>لا توجد بيانات.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -932,7 +930,7 @@ export default function PharmacyAnalysisPage() {
         <div>
           <button onClick={() => { setSelectedItem(null); setItemDetail(null); }} style={BACK_BTN}>← رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
-            <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{selectedItem}</h2>
+            <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedItem}</h2>
             {itemDetailLoading ? <Loader /> : itemDetail && (
               <>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -941,7 +939,7 @@ export default function PharmacyAnalysisPage() {
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
-                    <tr style={{ background: '#f1f5f9' }}>
+                    <tr style={{ background: 'var(--c-bg)' }}>
                       {['الصيدلية','المنطقة','الكمية','آخر طلبية','الأيام'].map(h => <th key={h} style={TH2}>{h}</th>)}
                     </tr>
                   </thead>
@@ -950,11 +948,11 @@ export default function PharmacyAnalysisPage() {
                       const days = Math.floor((Date.now() - new Date(ph.lastOrder).getTime()) / 86400000);
                       const dc = dayColor(days);
                       return (
-                        <tr key={ph.name} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                        <tr key={ph.name} style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
                           <td style={{ ...TD2, fontWeight: 600 }}>{ph.name}</td>
-                          <td style={{ ...TD2, color: '#6b7280' }}>{ph.areaName || '—'}</td>
+                          <td style={{ ...TD2, color: 'var(--c-text-secondary)' }}>{ph.areaName || '—'}</td>
                           <td style={{ ...TD2, textAlign: 'right' }}>{fmt(ph.totalQty)}</td>
-                          <td style={{ ...TD2, color: '#6b7280' }}>{fmtDate(ph.lastOrder)}</td>
+                          <td style={{ ...TD2, color: 'var(--c-text-secondary)' }}>{fmtDate(ph.lastOrder)}</td>
                           <td style={{ ...TD2, textAlign: 'center' }}>
                             <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{days}</span>
                           </td>
@@ -973,27 +971,27 @@ export default function PharmacyAnalysisPage() {
       {tab === 'alerts' && (
         <div>
           {selFiles.size === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--c-text-muted)' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: '#64748b', marginBottom: 6 }}>لا توجد ملفات محددة</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-secondary)', marginBottom: 6 }}>لا توجد ملفات محددة</div>
               <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض التنبيهات</div>
             </div>
           ) : (
           <>
           {/* Alert controls */}
           <div style={{ ...CARD, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>حد التنبيه:</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-primary)' }}>حد التنبيه:</span>
             {[14, 30, 60, 90].map(d => (
               <button key={d} onClick={() => setAlertDays(d)} style={{
                 padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12,
-                background: alertDays === d ? '#1e40af' : '#f1f5f9',
-                color: alertDays === d ? '#fff' : '#374151', fontWeight: alertDays === d ? 700 : 500,
+                background: alertDays === d ? 'var(--c-accent)' : 'var(--c-bg)',
+                color: alertDays === d ? '#fff' : 'var(--c-text-primary)', fontWeight: alertDays === d ? 700 : 500,
               }}>{d} يوم</button>
             ))}
             <input type="number" value={alertDays} min={1} max={365} onChange={e => setAlertDays(Number(e.target.value))}
-              style={{ width: 64, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center' }} />
+              style={{ width: 64, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, textAlign: 'center' }} />
             <input value={alertSearch} onChange={e => setAlertSearch(e.target.value)} placeholder="بحث..."
-              style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, marginRight: 'auto' }} />
+              style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, marginRight: 'auto' }} />
             <button
               onClick={() => exportRowsToExcel(
                 sortedAlerts,
@@ -1011,15 +1009,15 @@ export default function PharmacyAnalysisPage() {
               )}
               disabled={sortedAlerts.length === 0}
               title="تصدير التنبيهات المعروضة (بعد البحث والترتيب) إلى ملف إكسل"
-              style={{ padding: '5px 12px', border: '1px solid #16a34a', borderRadius: 6, background: sortedAlerts.length === 0 ? '#f1f5f9' : '#16a34a', color: sortedAlerts.length === 0 ? '#94a3b8' : '#fff', cursor: sortedAlerts.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
-            >📥 تصدير إكسل</button>
-            <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻</button>
+              style={{ padding: '5px 12px', border: '1px solid var(--c-success)', borderRadius: 6, background: sortedAlerts.length === 0 ? 'var(--c-bg)' : 'var(--c-success)', color: sortedAlerts.length === 0 ? 'var(--c-text-muted)' : '#fff', cursor: sortedAlerts.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
+            ><Icon name="export" size={13} /> تصدير إكسل</button>
+            <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻</button>
             <button
               onClick={() => { setShowAlertSettings(v => !v); if (!alertSettings) loadAlertSettings(); }}
               title="إعدادات التنبيهات التلقائية"
               style={{ padding: '5px 12px', border: '1px solid #4f46e5', borderRadius: 6, background: showAlertSettings ? '#4f46e5' : '#fff', color: showAlertSettings ? '#fff' : '#4f46e5', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
             >⚙️ تلقائي{alertSettings?.enabled ? ' ✓' : ''}</button>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{filteredAlerts.length} تنبيه</span>
+            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{filteredAlerts.length} تنبيه</span>
           </div>
 
           {/* ── إعدادات التنبيهات التلقائية ── */}
@@ -1027,12 +1025,12 @@ export default function PharmacyAnalysisPage() {
             <div style={{ ...CARD, marginBottom: 12, border: '1px solid #c7d2fe', background: '#f5f3ff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <strong style={{ fontSize: 13, color: '#3730a3' }}>⚙️ التنبيهات التلقائية</strong>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>يفحص النظام دورياً ويُشعر المعنيين داخل التطبيق</span>
-                <button onClick={() => setShowAlertSettings(false)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>✕</button>
+                <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>يفحص النظام دورياً ويُشعر المعنيين داخل التطبيق</span>
+                <button onClick={() => setShowAlertSettings(false)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--c-text-secondary)' }}>✕</button>
               </div>
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', fontSize: 12 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 700, color: '#1e293b' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 700, color: 'var(--c-text-primary)' }}>
                   <input type="checkbox" checked={alertSettings.enabled}
                     onChange={e => setAlertSettings({ ...alertSettings, enabled: e.target.checked })} />
                   تفعيل
@@ -1042,7 +1040,7 @@ export default function PharmacyAnalysisPage() {
                   التكرار:
                   <select value={alertSettings.frequency}
                     onChange={e => setAlertSettings({ ...alertSettings, frequency: e.target.value })}
-                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}>
+                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--c-text-muted)', fontSize: 12 }}>
                     <option value="daily">يومياً</option>
                     <option value="weekly">أسبوعياً</option>
                   </select>
@@ -1053,7 +1051,7 @@ export default function PharmacyAnalysisPage() {
                     اليوم:
                     <select value={alertSettings.weekday}
                       onChange={e => setAlertSettings({ ...alertSettings, weekday: Number(e.target.value) })}
-                      style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}>
+                      style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid var(--c-text-muted)', fontSize: 12 }}>
                       {['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'].map((d, i) => (
                         <option key={i} value={i}>{d}</option>
                       ))}
@@ -1065,21 +1063,21 @@ export default function PharmacyAnalysisPage() {
                   الساعة (بغداد):
                   <input type="number" min={0} max={23} value={alertSettings.hour}
                     onChange={e => setAlertSettings({ ...alertSettings, hour: Number(e.target.value) })}
-                    style={{ width: 56, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }} />
+                    style={{ width: 56, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--c-text-muted)', fontSize: 12, textAlign: 'center' }} />
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   يُعتبر متأخراً بعد:
                   <input type="number" min={1} max={365} value={alertSettings.thresholdDays}
                     onChange={e => setAlertSettings({ ...alertSettings, thresholdDays: Number(e.target.value) })}
-                    style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }} /> يوم
+                    style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--c-text-muted)', fontSize: 12, textAlign: 'center' }} /> يوم
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }} title="لا يُعاد التنبيه على نفس الصيدلية/الايتم قبل مرور هذه المدة">
                   لا يتكرر قبل:
                   <input type="number" min={1} max={180} value={alertSettings.cooldownDays}
                     onChange={e => setAlertSettings({ ...alertSettings, cooldownDays: Number(e.target.value) })}
-                    style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'center' }} /> يوم
+                    style={{ width: 60, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--c-text-muted)', fontSize: 12, textAlign: 'center' }} /> يوم
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} title="كل مندوب يستلم صيدليات مناطقه فقط">
@@ -1108,7 +1106,7 @@ export default function PharmacyAnalysisPage() {
               </div>
 
               {alertSettings.lastRunAt && (
-                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginTop: 8 }}>
                   آخر إرسال: {new Date(alertSettings.lastRunAt).toLocaleString('ar-IQ')}
                 </div>
               )}
@@ -1116,10 +1114,10 @@ export default function PharmacyAnalysisPage() {
           )}
 
           {alertsLoading ? <Loader /> : (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: '#1e40af', color: '#fff' }}>
+                  <tr style={{ background: 'var(--c-accent)', color: '#fff' }}>
                     <th style={{ ...TH, textAlign: 'right', minWidth: 160, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('pharma')}>الصيدلية{sortArrow('pharma', alertSortCol, alertSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('item')}>الايتم{sortArrow('item', alertSortCol, alertSortDir)}</th>
                     <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleAlertSort('area')}>المنطقة{sortArrow('area', alertSortCol, alertSortDir)}</th>
@@ -1133,13 +1131,13 @@ export default function PharmacyAnalysisPage() {
                   {sortedAlerts.map((a, i) => {
                     const dc = dayColor(a.daysSinceLast);
                     return (
-                      <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb' }}>
-                        <td style={{ ...TD, fontWeight: 600, color: '#1e293b', textAlign: 'right' }}>{a.pharmaName}</td>
+                      <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
+                        <td style={{ ...TD, fontWeight: 600, color: 'var(--c-text-primary)', textAlign: 'right' }}>{a.pharmaName}</td>
                         <td style={TD}>{a.itemName}</td>
-                        <td style={{ ...TD, color: '#6b7280' }}>{a.areaName || '—'}</td>
+                        <td style={{ ...TD, color: 'var(--c-text-secondary)' }}>{a.areaName || '—'}</td>
                         <td style={{ ...TD, textAlign: 'center' }}>{fmt(a.totalQty)}</td>
                         <td style={{ ...TD, textAlign: 'center' }}>{a.orderCount}</td>
-                        <td style={{ ...TD, color: '#6b7280' }}>{fmtDate(a.lastOrder)}</td>
+                        <td style={{ ...TD, color: 'var(--c-text-secondary)' }}>{fmtDate(a.lastOrder)}</td>
                         <td style={{ ...TD, textAlign: 'center' }}>
                           <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>{a.daysSinceLast}</span>
                         </td>
@@ -1147,7 +1145,7 @@ export default function PharmacyAnalysisPage() {
                     );
                   })}
                   {sortedAlerts.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>
+                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-muted)', fontSize: 13 }}>
                       {alertSearch ? 'لا يوجد تنبيه يطابق البحث.' : `لا توجد صيدلية متأخرة عن ${alertDays} يوم. ✅`}
                     </td></tr>
                   )}
@@ -1167,16 +1165,16 @@ export default function PharmacyAnalysisPage() {
 // ── Small reusable components ─────────────────────────────────
 function KPI({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 14px' }}>
-      <div style={{ fontSize: 10, color: '#6b7280' }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{value}</div>
+    <div style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '8px 14px' }}>
+      <div style={{ fontSize: 10, color: 'var(--c-text-secondary)' }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{value}</div>
     </div>
   );
 }
 function Loader() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 100, color: '#94a3b8', gap: 8 }}>
-      <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2.5px solid #dde3ef', borderTopColor: '#1e40af', animation: 'spin .7s linear infinite' }} />
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 100, color: 'var(--c-text-muted)', gap: 8 }}>
+      <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2.5px solid #dde3ef', borderTopColor: 'var(--c-accent)', animation: 'spin .7s linear infinite' }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <span style={{ fontSize: 13 }}>جاري التحميل...</span>
     </div>
@@ -1185,7 +1183,7 @@ function Loader() {
 
 // ── Style constants ───────────────────────────────────────────
 const CARD: React.CSSProperties = {
-  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+  background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8,
   padding: '12px 16px', marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,.04)',
 };
 const TH: React.CSSProperties = {
@@ -1193,18 +1191,18 @@ const TH: React.CSSProperties = {
   whiteSpace: 'nowrap', borderLeft: '1px solid rgba(255,255,255,.15)',
 };
 const TD: React.CSSProperties = {
-  padding: '7px 12px', borderBottom: '1px solid #f1f5f9', fontSize: 12, color: '#374151',
+  padding: '7px 12px', borderBottom: '1px solid var(--c-bg)', fontSize: 12, color: 'var(--c-text-primary)',
 };
 const TH2: React.CSSProperties = {
-  padding: '7px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, color: '#374151',
-  borderBottom: '1.5px solid #e2e8f0', whiteSpace: 'nowrap',
+  padding: '7px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, color: 'var(--c-text-primary)',
+  borderBottom: '1.5px solid var(--c-border)', whiteSpace: 'nowrap',
 };
 const TD2: React.CSSProperties = {
-  padding: '6px 12px', borderBottom: '1px solid #f1f5f9', fontSize: 12, color: '#374151',
+  padding: '6px 12px', borderBottom: '1px solid var(--c-bg)', fontSize: 12, color: 'var(--c-text-primary)',
 };
 const BACK_BTN: React.CSSProperties = {
-  padding: '6px 14px', border: '1px solid #e2e8f0', borderRadius: 6,
-  background: '#fff', cursor: 'pointer', fontSize: 12, color: '#374151',
+  padding: '6px 14px', border: '1px solid var(--c-border)', borderRadius: 6,
+  background: '#fff', cursor: 'pointer', fontSize: 12, color: 'var(--c-text-primary)',
 };
 function PILL_BTN(bg: string, color: string): React.CSSProperties {
   return { padding: '3px 10px', borderRadius: 6, border: 'none', background: bg, color, fontWeight: 600, fontSize: 11, cursor: 'pointer' };
