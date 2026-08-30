@@ -683,8 +683,9 @@ async function executeDoctorQuery(spec, userId, areasList) {
   if (dateFilter) where.visitDate = dateFilter;
 
   const orderBy = sortBy === 'date_asc' ? { visitDate: 'asc' } : { visitDate: 'desc' };
+  // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُستبعد من كل مكان.
   const visits  = await prisma.doctorVisit.findMany({
-    where,
+    where: { ...where, isActive: true },
     orderBy,
     take: Math.min(Number(limit) || 50, 150),
     include: {
@@ -757,7 +758,7 @@ async function executePlanStatsQuery(spec, userId) {
         where: { isExtraVisit: false },
         include: {
           doctor: { select: { name: true, area: { select: { id: true, name: true } } } },
-          visits: { select: { id: true, itemId: true, feedback: true } },
+          visits: { where: { isActive: true }, select: { id: true, itemId: true, feedback: true } },
           targetItems: { include: { item: { select: { id: true, name: true } } } },
         },
       },
@@ -1248,7 +1249,8 @@ async function executeStatsQuery(spec, userId) {
   }).catch(() => []);
 
   const dateFilter = buildDateFilter(filters);
-  const baseWhere = {};
+  // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُستبعد من كل مكان.
+  const baseWhere = { isActive: true };
   if (userId) baseWhere.userId = userId;
 
   // Area filter
@@ -1409,7 +1411,7 @@ async function executeStatsQuery(spec, userId) {
   // Pharmacy stats (if needed)
   let pharmTotal = 0;
   if (visitType === 'pharmacy' || visitType === 'all') {
-    const pharmWhere = {};
+    const pharmWhere = { isActive: true };
     if (userId) pharmWhere.userId = userId;
     if (dateFilter) pharmWhere.visitDate = dateFilter;
     pharmTotal = await prisma.pharmacyVisit.count({ where: pharmWhere }).catch(() => 0);
@@ -1430,7 +1432,7 @@ async function executeStatsQuery(spec, userId) {
 // ── Execute: Pharmacy Visits ─────────────────────────────────
 async function executePharmacyQuery(spec, userId, areasList) {
   const { filters = {}, groupBy, sortBy, limit } = spec;
-  const where = {};
+  const where = { isActive: true };
   if (userId) where.userId = userId;
 
   // areaName filter
@@ -1561,7 +1563,7 @@ async function executeUnvisitedDoctorsQuery(spec, userId) {
   const dateFilter = buildDateFilter(filters);
 
   // Find doctor IDs that HAVE visits in the period
-  const visitWhere = {};
+  const visitWhere = { isActive: true };
   if (userId) visitWhere.userId = userId;
   if (repId)  visitWhere.scientificRepId = repId;
   if (dateFilter) visitWhere.visitDate = dateFilter;

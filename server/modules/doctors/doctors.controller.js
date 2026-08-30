@@ -604,6 +604,7 @@ export async function getOne(req, res, next) {
         area:       { select: { id: true, name: true } },
         targetItem: { select: { id: true, name: true } },
         visits: {
+          where: { isActive: true },
           orderBy: { visitDate: 'desc' },
           take: 10,
         },

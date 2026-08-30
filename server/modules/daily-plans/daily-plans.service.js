@@ -217,12 +217,12 @@ export async function getPlanView(ctx, planDate) {
   const range = dayRange(date);
   const [docVisits, pharmVisits] = await Promise.all([
     prisma.doctorVisit.findMany({
-      where: { OR: repVisitOr(ctx), visitDate: range },
+      where: { OR: repVisitOr(ctx), visitDate: range, isActive: true },
       select: { id: true, doctorId: true, feedback: true, visitDate: true },
       orderBy: { visitDate: 'desc' },
     }),
     prisma.pharmacyVisit.findMany({
-      where: { OR: repVisitOr(ctx), visitDate: range },
+      where: { OR: repVisitOr(ctx), visitDate: range, isActive: true },
       select: { id: true, pharmacyName: true, visitDate: true },
       orderBy: { visitDate: 'desc' },
     }),
@@ -328,7 +328,7 @@ export async function getDoctorRepeatInfo(ctx, doctorId, settings, asOfDate) {
   const plannedDays = [...new Set(entries.map((e) => e.plan.planDate))].sort();
 
   const visits = await prisma.doctorVisit.findMany({
-    where: { OR: repVisitOr(ctx), doctorId },
+    where: { OR: repVisitOr(ctx), doctorId, isActive: true },
     select: { feedback: true, visitDate: true },
     orderBy: { visitDate: 'desc' },
   });
@@ -374,7 +374,7 @@ export async function addEntry(ctx, planId, dto) {
   if (dup) throw new AppError('الطبيب موجود في بلان اليوم', 409);
 
   // isNewDoctor = no prior visit by this rep
-  const priorVisit = await prisma.doctorVisit.findFirst({ where: { OR: repVisitOr(ctx), doctorId }, select: { id: true } });
+  const priorVisit = await prisma.doctorVisit.findFirst({ where: { OR: repVisitOr(ctx), doctorId, isActive: true }, select: { id: true } });
   const settings = await resolveSettings(ctx.repUserId);
   const repeat = await getDoctorRepeatInfo(ctx, doctorId, settings, plan.planDate);
 
@@ -532,7 +532,7 @@ export async function suggest(ctx, { mode = 'new', areaId, date }) {
   if (!doctors.length) return [];
 
   const visited = await prisma.doctorVisit.findMany({
-    where: { OR: repVisitOr(ctx), doctorId: { in: doctors.map((d) => d.id) } },
+    where: { OR: repVisitOr(ctx), doctorId: { in: doctors.map((d) => d.id) }, isActive: true },
     select: { doctorId: true }, distinct: ['doctorId'],
   });
   const visitedSet = new Set(visited.map((v) => v.doctorId));
@@ -577,7 +577,7 @@ export async function repeatsReport(ctx, { from, to }) {
   const docIds = [...byDoctor.keys()];
   const visits = docIds.length
     ? await prisma.doctorVisit.findMany({
-        where: { OR: repVisitOr(ctx), doctorId: { in: docIds } },
+        where: { OR: repVisitOr(ctx), doctorId: { in: docIds }, isActive: true },
         select: { doctorId: true, feedback: true, visitDate: true }, orderBy: { visitDate: 'desc' },
       })
     : [];

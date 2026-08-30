@@ -160,7 +160,7 @@ export async function listReps(req, res, next) {
 
     // ── 4. Doctor visit counts per rep for this item ──────────────────────
     const drVisits = await prisma.doctorVisit.findMany({
-      where: { userId, itemId, visitDate: { gte: since } },
+      where: { userId, itemId, visitDate: { gte: since }, isActive: true },
       select: { scientificRepId: true },
     });
     const visitCountById = new Map();
@@ -171,7 +171,7 @@ export async function listReps(req, res, next) {
 
     // ── 5. Pharmacy visit counts per rep for this item ────────────────────
     const phVisits = await prisma.pharmacyVisit.findMany({
-      where: { userId, visitDate: { gte: since }, visitItems: { some: { itemId } } },
+      where: { userId, visitDate: { gte: since }, visitItems: { some: { itemId } }, isActive: true },
       select: { scientificRepId: true },
     }).catch(() => []);
     const pvCountById = new Map();
@@ -392,7 +392,7 @@ export async function getItemAnalytics(req, res, next) {
       dvWhere = { userId, itemId, visitDate: { gte: since } };
     }
     const doctorVisits = await prisma.doctorVisit.findMany({
-      where: dvWhere,
+      where: { ...dvWhere, isActive: true },
       select: {
         visitDate: true, feedback: true, notes: true, isDoubleVisit: true,
         doctor:        { select: { id: true, name: true, specialty: true, area: { select: { name: true } } } },
@@ -436,11 +436,11 @@ export async function getItemAnalytics(req, res, next) {
     if (sciRep) {
       const pvRepConditions = [{ scientificRepId: sciRep.id }];
       if (sciRep.repUserId) pvRepConditions.push({ userId: sciRep.repUserId });
-      pvWhere = { itemId, pharmacyVisit: { OR: pvRepConditions, visitDate: { gte: since } } };
+      pvWhere = { itemId, pharmacyVisit: { OR: pvRepConditions, visitDate: { gte: since }, isActive: true } };
     } else if (repName) {
-      pvWhere = { itemId, pharmacyVisit: { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since } } };
+      pvWhere = { itemId, pharmacyVisit: { scientificRep: { name: { equals: repName, mode: 'insensitive' } }, visitDate: { gte: since }, isActive: true } };
     } else {
-      pvWhere = { itemId, pharmacyVisit: { userId, visitDate: { gte: since } } };
+      pvWhere = { itemId, pharmacyVisit: { userId, visitDate: { gte: since }, isActive: true } };
     }
     const pharmacyVisitItems = await prisma.pharmacyVisitItem.findMany({
       where: pvWhere,

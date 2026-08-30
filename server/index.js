@@ -686,7 +686,7 @@ app.get('/api/sa/areas/:id/usage', requireSuperAdmin, async (req, res) => {
       prisma.planArea.count({ where: { areaId: id } }),
       prisma.doctor.count({ where: { areaId: id } }),
       prisma.pharmacy.count({ where: { areaId: id } }),
-      prisma.pharmacyVisit.count({ where: { areaId: id } }),
+      prisma.pharmacyVisit.count({ where: { areaId: id, isActive: true } }),
       prisma.scientificRepArea.count({ where: { areaId: id } }),
       prisma.representativeArea.count({ where: { areaId: id } }),
       prisma.userAreaAssignment.count({ where: { areaId: id } }),
@@ -1436,7 +1436,7 @@ app.delete('/api/items/:id', async (req, res) => {
     const [salesCount, doctorTargetCount, doctorVisitCount, pharmVisitItemCount, commInvItemCount] = await Promise.all([
       prisma.sale.count({                  where: { itemId: id } }),
       prisma.doctor.count({                where: { targetItemId: id } }),
-      prisma.doctorVisit.count({           where: { itemId: id } }),
+      prisma.doctorVisit.count({           where: { itemId: id, isActive: true } }),
       prisma.pharmacyVisitItem.count({     where: { itemId: id } }),
       prisma.commercialInvoiceItem.count({ where: { itemId: id } }),
     ]);
@@ -3428,7 +3428,7 @@ app.get('/api/pharmacies/all', requireAuth, async (req, res) => {
     const userId = req.user?.id ?? null;
     const userFilter = userId ? { userId } : {};
     const visits = await prisma.pharmacyVisit.findMany({
-      where: userFilter,
+      where: { ...userFilter, isActive: true },
       select: { pharmacyName: true },
       distinct: ['pharmacyName'],
       orderBy: { visitDate: 'desc' },
@@ -3456,7 +3456,7 @@ app.get('/api/pharmacies/suggestions', requireAuth, async (req, res) => {
     const userFilter = userId ? { userId } : {};
     const qLower = String(q).trim().toLowerCase();
     const visits = await prisma.pharmacyVisit.findMany({
-      where: { ...userFilter, pharmacyName: { contains: String(q).trim() } },
+      where: { ...userFilter, pharmacyName: { contains: String(q).trim() }, isActive: true },
       select: { pharmacyName: true },
       distinct: ['pharmacyName'],
       orderBy: { visitDate: 'desc' },
@@ -3497,7 +3497,7 @@ app.get('/api/pharmacy-area-lookup', requireAuth, async (req, res) => {
     const n = normalize(name);
     // 1. Search previous pharmacy visits for matching pharmacy name with an area
     const prevVisits = await prisma.pharmacyVisit.findMany({
-      where: { ...userFilter, areaId: { not: null } },
+      where: { ...userFilter, areaId: { not: null }, isActive: true },
       select: { pharmacyName: true, area: { select: { id: true, name: true } } },
       orderBy: { visitDate: 'desc' },
     });
@@ -4212,8 +4212,9 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (repId) where.scientificRepId = repId;
     }
 
+    // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُستبعد من كل مكان.
     const visits = await prisma.doctorVisit.findMany({
-      where,
+      where: { ...where, isActive: true },
       include: {
         doctor:        { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } } },
         scientificRep: { select: { id: true, name: true } },
@@ -4261,7 +4262,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       if (repId) pharmWhere.scientificRepId = repId;
     }
     const pharmacyVisits = await prisma.pharmacyVisit.findMany({
-      where: pharmWhere,
+      where: { ...pharmWhere, isActive: true },
       include: {
         area:          { select: { id: true, name: true } },
         scientificRep: { select: { id: true, name: true } },

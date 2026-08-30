@@ -66,7 +66,7 @@ export async function list(req, res, next) {
         entries: {
           include: {
             doctor: { select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } }, targetItem: { select: { id: true, name: true } } } },
-            visits: { select: { id: true, feedback: true, visitDate: true, notes: true, latitude: true, longitude: true, item: { select: { id: true, name: true } }, likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } }, comments: { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } } } },
+            visits: { where: { isActive: true }, select: { id: true, feedback: true, visitDate: true, notes: true, latitude: true, longitude: true, item: { select: { id: true, name: true } }, likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } }, comments: { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } } } },
             targetItems: { include: { item: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } },
           },
         },
@@ -101,7 +101,7 @@ export async function getOne(req, res, next) {
                 targetItem: { select: { id: true, name: true } },
               },
             },
-            visits: { orderBy: { visitDate: 'asc' }, include: { item: { select: { id: true, name: true } }, likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } }, comments: { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } } } },
+            visits: { where: { isActive: true }, orderBy: { visitDate: 'asc' }, include: { item: { select: { id: true, name: true } }, likes: { select: { id: true, userId: true, user: { select: { id: true, username: true } } } }, comments: { select: { id: true, userId: true, content: true, createdAt: true, user: { select: { id: true, username: true } } }, orderBy: { createdAt: 'asc' } } } },
             targetItems: { include: { item: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } },
           },
         },
@@ -266,7 +266,7 @@ export async function suggest(req, res, next) {
           entries: {
             include: {
               doctor: true,
-              visits: { orderBy: { visitDate: 'desc' } },
+              visits: { where: { isActive: true }, orderBy: { visitDate: 'desc' } },
             },
           },
         },
@@ -363,6 +363,7 @@ export async function suggest(req, res, next) {
         where: {
           visitDate: { gte: cutoffDate },
           userId,
+          isActive: true,
         },
         select: { doctorId: true },
         distinct: ['doctorId'],
@@ -1734,7 +1735,7 @@ export async function importPlanVisits(req, res, next) {
           include: {
             doctor:      { select: { id: true, name: true } },
             targetItems: { include: { item: { select: { id: true, name: true } } } },
-            visits:      { select: { id: true, feedback: true, visitDate: true, notes: true, item: { select: { id: true, name: true } } } },
+            visits:      { where: { isActive: true }, select: { id: true, feedback: true, visitDate: true, notes: true, item: { select: { id: true, name: true } } } },
           },
         });
         entry = newEntry;
@@ -2541,6 +2542,7 @@ export async function getPharmacyVisits(req, res, next) {
       where: {
         scientificRepId: plan.scientificRepId,
         visitDate: { gte: monthStart, lt: monthEnd },
+        isActive: true,
       },
       include: {
         area:  { select: { id: true, name: true } },
@@ -2578,7 +2580,7 @@ export async function getDoctorHistory(req, res, next) {
 
     const [visits, entries] = await Promise.all([
       prisma.doctorVisit.findMany({
-        where: { doctorId, userId: { in: repIds } },
+        where: { doctorId, userId: { in: repIds }, isActive: true },
         select: { visitDate: true, feedback: true, user: { select: { displayName: true, username: true } } },
         orderBy: { visitDate: 'desc' },
       }),

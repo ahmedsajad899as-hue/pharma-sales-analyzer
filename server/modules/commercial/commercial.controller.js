@@ -715,7 +715,7 @@ export async function listVisits(req, res, next) {
     const { id: userId, role } = req.user;
     const where = isMgr(role) ? { userId } : { userId };
     const visits = await prisma.pharmacyVisit.findMany({
-      where,
+      where: { ...where, isActive: true },
       include: { items: { include: { item: true } }, area: true },
       orderBy: { visitDate: 'desc' },
       take: 100,
