@@ -10,7 +10,7 @@ import {
   Phone, RefreshCw, History, Banknote, Tag, Hash, FileText, Calendar,
   Scale, FileSpreadsheet, Target, Eye, Mic, Folder, Home, Crown, Shield,
   Rocket, Monitor, Ban, Repeat, Mail, ThumbsUp, ThumbsDown, DoorOpen,
-  Plane, HelpCircle,
+  Plane, HelpCircle, Menu,
 } from 'lucide-react';
 
 /**
@@ -106,6 +106,7 @@ export const ICONS = {
   exit: DoorOpen,
   travel: Plane,
   help: HelpCircle,
+  menu: Menu,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

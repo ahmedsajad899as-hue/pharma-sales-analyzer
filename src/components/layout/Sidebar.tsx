@@ -195,13 +195,20 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   return (
     <>
+      {/* Reopen button — floats in the sidebar's place once it has slid off-canvas */}
+      {!isOpen && (
+        <button className="sidebar-reopen-btn sidebar--desktop-only" onClick={onToggle} title={t.sidebar.collapse}>
+          <Icon name="menu" size={20} />
+        </button>
+      )}
+
       {/* ── DESKTOP SIDEBAR ── */}
       <aside className={`sidebar sidebar--desktop ${isOpen ? 'sidebar--open' : 'sidebar--closed'}`}>
         <div className="sidebar-brand">
           <span className="sidebar-brand-icon"><OrdineLogo size={28} /></span>
           {isOpen && <span className="sidebar-brand-text">{t.appName}</span>}
           <button className="sidebar-toggle" onClick={onToggle} title={t.sidebar.collapse}>
-            <Icon name={isOpen ? (lang === 'ar' ? 'chevronLeft' : 'chevronRight') : (lang === 'ar' ? 'chevronRight' : 'chevronLeft')} size={14} />
+            <Icon name={lang === 'ar' ? 'chevronRight' : 'chevronLeft'} size={14} />
           </button>
         </div>
 
@@ -236,171 +243,88 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           )}
         </nav>
 
+        {/* Compact icon-only footer — kept small on purpose so the nav list above has more room */}
         <div className="sidebar-footer" style={{ marginTop: 'auto' }}>
-          {isOpen ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ display: 'flex', alignItems: 'center' }}><Icon name={roleIcon} size={18} /></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: '#e0e8f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
-                  <div style={{ fontSize: 11, color: '#8fa0be' }}>{roleLabel}</div>
-                </div>
-                {showSwitchBtn && (
-                  <button
-                    onClick={() => setShowSwitchPanel(true)}
-                    title="تبديل الحساب"
-                    style={{
-                      background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
-                      borderRadius: 7, padding: '4px 7px', cursor: 'pointer',
-                      color: '#a8c4f4', flexShrink: 0,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                  ><Icon name="transfer" size={14} /></button>
-                )}
-              </div>
-              <div style={{ marginBottom: 6 }}>
-                <button
-                  onClick={onAIToggle}
-                  title={showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
-                  style={{
-                    background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
-                    border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                    borderRadius: 8, padding: '6px 14px', fontSize: 13,
-                    color: showAI ? '#a8c4f4' : '#8fa0be',
-                    cursor: 'pointer', fontWeight: 600, width: '100%',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                >
-                  <Icon name="aiBot" size={15} /> {showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
-                </button>
-              </div>
-              <div style={{ marginBottom: 6 }}>
-                <LangToggleBtn full />
-              </div>
-              {!REP_ANALYSIS_ROLES.has(role) && (
-              <div style={{ marginBottom: 6 }}>
-                <button
-                  onClick={switchEnv}
-                  title={isLocal ? 'فتح نفس الصفحة على Production' : 'فتح نفس الصفحة على Local'}
-                  style={{
-                    background: isLocal ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)',
-                    border: `1px solid ${isLocal ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.4)'}`,
-                    borderRadius: 8, padding: '6px 14px', fontSize: 12,
-                    color: isLocal ? '#fbbf24' : '#4ade80',
-                    cursor: 'pointer', fontWeight: 700, width: '100%',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                >{isLocal ? <><Icon name="rocket" size={14} /> فتح على Production</> : <><Icon name="monitor" size={14} /> فتح على Local</>}</button>
-              </div>
-              )}
-              {canInstall && (
-                <div style={{ marginBottom: 6 }}>
-                  <button
-                    onClick={handleInstall}
-                    style={{
-                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                      border: 'none',
-                      borderRadius: 8, padding: '7px 14px', fontSize: 13,
-                      color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
-                    }}
-                  >
-                    <Icon name="export" size={14} /> تثبيت التطبيق
-                  </button>
-                </div>
-              )}
-              {showIosBtn && (
-                <div style={{ marginBottom: 6 }}>
-                  <button
-                    onClick={() => setShowIosInstallModal(true)}
-                    style={{
-                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                      border: 'none',
-                      borderRadius: 8, padding: '7px 14px', fontSize: 13,
-                      color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
-                    }}
-                  >
-                    <Icon name="export" size={14} /> تثبيت التطبيق
-                  </button>
-                </div>
-              )}
-              <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }} onClick={logout}>
-                <Icon name="logout" size={14} /> {t.sidebar.logout}
-              </button>
-            </>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-              {showSwitchBtn && (
-                <button
-                  onClick={() => setShowSwitchPanel(true)}
-                  title="تبديل الحساب"
-                  style={{
-                    background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
-                    borderRadius: 8, padding: '6px', cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a8c4f4',
-                  }}
-                ><Icon name="transfer" size={16} /></button>
-              )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+            <span
+              title={`${user?.username ?? ''} — ${roleLabel}`}
+              style={{
+                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a8c4f4',
+              }}
+            ><Icon name={roleIcon} size={16} /></span>
+            {showSwitchBtn && (
               <button
-                onClick={onAIToggle}
-                title={showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
+                onClick={() => setShowSwitchPanel(true)}
+                title="تبديل الحساب"
                 style={{
-                  background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
-                  border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                  borderRadius: 8, padding: '6px',
-                  cursor: 'pointer', width: '100%',
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
+                  cursor: 'pointer', color: '#a8c4f4',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: showAI ? '#a8c4f4' : '#8fa0be',
                 }}
-              ><Icon name="aiBot" size={16} /></button>
-              <LangToggleBtn />
-              {!REP_ANALYSIS_ROLES.has(role) && (
+              ><Icon name="transfer" size={15} /></button>
+            )}
+            <button
+              onClick={onAIToggle}
+              title={showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
+              style={{
+                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
+                border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                color: showAI ? '#a8c4f4' : '#8fa0be',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            ><Icon name="aiBot" size={16} /></button>
+            <LangToggleBtn />
+            {!REP_ANALYSIS_ROLES.has(role) && (
               <button
                 onClick={switchEnv}
-                title={isLocal ? 'فتح على Production' : 'فتح على Local'}
+                title={isLocal ? 'فتح نفس الصفحة على Production' : 'فتح نفس الصفحة على Local'}
                 style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
                   background: isLocal ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)',
                   border: `1px solid ${isLocal ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.4)'}`,
-                  borderRadius: 8, padding: '6px', fontSize: 14, cursor: 'pointer', width: '100%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: isLocal ? '#fbbf24' : '#4ade80',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >{isLocal ? <Icon name="rocket" size={16} /> : <Icon name="monitor" size={16} />}</button>
-              )}
-              {canInstall && (
-                <button
-                  onClick={handleInstall}
-                  title="تثبيت التطبيق"
-                  style={{
-                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                    border: 'none',
-                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-                    boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
-                  }}
-                ><Icon name="export" size={16} /></button>
-              )}
-              {showIosBtn && (
-                <button
-                  onClick={() => setShowIosInstallModal(true)}
-                  title="تثبيت التطبيق"
-                  style={{
-                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                    border: 'none',
-                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-                    boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
-                  }}
-                ><Icon name="export" size={16} /></button>
-              )}
-              <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%', justifyContent: 'center' }}>
-                <Icon name="logout" className="sidebar-nav-icon" size={17} />
-              </button>
-            </div>
-          )}
+            )}
+            {canInstall && (
+              <button
+                onClick={handleInstall}
+                title="تثبيت التطبيق"
+                style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)', border: 'none',
+                  color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
+                }}
+              ><Icon name="export" size={16} /></button>
+            )}
+            {showIosBtn && (
+              <button
+                onClick={() => setShowIosInstallModal(true)}
+                title="تثبيت التطبيق"
+                style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)', border: 'none',
+                  color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
+                }}
+              ><Icon name="export" size={16} /></button>
+            )}
+            <button
+              onClick={logout}
+              title={t.sidebar.logout}
+              style={{
+                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+                color: '#8fa0be', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            ><Icon name="logout" size={16} /></button>
+          </div>
         </div>
       </aside>
 

@@ -333,7 +333,7 @@ tr:hover {
 }
 
 .app-main.sidebar-closed {
-  margin-right: 64px;
+  margin-right: 0;
 }
 
 /* ======= SIDEBAR ======= */
@@ -341,19 +341,42 @@ tr:hover {
   position: fixed;
   top: 0;
   right: 0;
+  width: 240px;
   height: 100vh;
   background: linear-gradient(180deg, #0f1e35 0%, #0a1628 100%);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: width 0.3s ease;
+  transition: transform 0.3s ease;
   box-shadow: -2px 0 20px rgba(0,0,0,0.20);
   overflow: hidden;
   border-left: 1px solid rgba(255,255,255,0.04);
 }
 
-.sidebar--open  { width: 240px; }
-.sidebar--closed { width: 64px; }
+/* "closed" now means fully off-canvas (slid out to the right) rather than
+   a narrow icon rail — a floating .sidebar-reopen-btn takes its place. */
+.sidebar--open   { transform: translateX(0); }
+.sidebar--closed { transform: translateX(100%); }
+
+.sidebar-reopen-btn {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 101;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #0f1e35 0%, #0a1628 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #e0e8f4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+
+.sidebar-reopen-btn:hover { background: linear-gradient(180deg, #162844 0%, #0f1e35 100%); transform: none; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
 
 .sidebar-brand {
   display: flex;
@@ -1551,6 +1574,7 @@ tr:hover {
 
   /* ── Layout ── */
   .sidebar--desktop { display: none !important; }
+  .sidebar--desktop-only { display: none !important; }
 
   .mobile-header     { display: flex; }
   .mobile-bottom-nav { display: flex; }
