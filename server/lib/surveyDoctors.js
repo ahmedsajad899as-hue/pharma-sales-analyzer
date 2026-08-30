@@ -112,7 +112,9 @@ export async function buildVisitOverlay(scope, dateFilter) {
   if (!orClauses.length) return { bySurveyDocId, byName };
 
   const visits = await prisma.doctorVisit.findMany({
-    where: { OR: orClauses, ...(dateFilter ? { visitDate: dateFilter } : {}) },
+    // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تبقى
+    // محفوظة لكن تُخفى من شاشة الزيارات حتى يُعاد تفعيل الملف.
+    where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
     select: {
       id: true, visitDate: true, feedback: true, notes: true,
       item: { select: { id: true, name: true } },

@@ -1437,6 +1437,56 @@ export default function DoctorsPage() {
     return [...names].sort((a, b) => a.localeCompare(b));
   }, [items, archiveRepItems, archiveAreas]);
 
+  // مناطق الزيارات مرتّبة + قائمة الأطباء بعد الفلترة/الترتيب لكل منطقة — محسوبة
+  // مرة واحدة فقط عند تغيّر البيانات أو معايير الفلترة الفعلية. كانت هذه العملية
+  // تُعاد لكل مناطق التبويب (482 طبيباً لمنطقة، 373 لأخرى، ...) في كل إعادة رسم
+  // للمكوّن — بما فيها إعادة رسم لا علاقة لها بهذا التبويب إطلاقاً (فتح لوحة
+  // جانبية، كتابة حرف في حقل آخر) — وهذا هو المصدر الرئيسي للتقطّع عند التنقّل.
+  const visitAreasSorted = useMemo(
+    () => [...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors),
+    [visitAreas],
+  );
+  const visitDoctorsByArea = useMemo(() => {
+    const searchQ = visitSearch.trim().toLowerCase();
+    const m = new Map<string, VisitDoctor[]>();
+    for (const area of visitAreas) {
+      const filtered = area.doctors.filter(d => {
+        if (showOnlyVisited && !d.visited) return false;
+        if (searchQ && !d.name.toLowerCase().includes(searchQ) && !(d.specialty ?? '').toLowerCase().includes(searchQ)) return false;
+        return true;
+      });
+      const sorted = [...filtered].sort((a, b) => {
+        if (a.visited !== b.visited) return a.visited ? -1 : 1;
+        return (a.name ?? '').localeCompare(b.name ?? '');
+      });
+      m.set(String(area.id), sorted);
+    }
+    return m;
+  }, [visitAreas, showOnlyVisited, visitSearch]);
+
+  // مطابقة صيدلية الطبيب مع بيانات الصيدليات نت — نسخة سريعة تستعمل netPharmNormMap
+  // (بحث O(1)) بدل findNetMatches التي كانت تُستدعى لكل طبيب ظاهر في كل إعادة رسم
+  // وتفحص كامل قائمة netPharmacies ثلاث مرات (تطابق تام + فلترة منطقة + تشابه).
+  const netPharmByAreaNorm = useMemo(() => {
+    const m = new Map<string, NetPharm[]>();
+    for (const p of netPharmacies) {
+      const k = normPharm(p.areaName);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(p);
+    }
+    return m;
+  }, [netPharmacies]);
+  const findNetMatchesFast = (pharmName: string, areaName?: string | null): { exact: NetPharm | null; similar: NetPharm[] } => {
+    const q = normPharm(pharmName);
+    const exact = netPharmNormMap.get(q) ?? null;
+    const pool = areaName ? (netPharmByAreaNorm.get(normPharm(areaName)) ?? []) : netPharmacies;
+    const similar = pool.filter(p => {
+      const n = normPharm(p.name);
+      return n !== q && (n.includes(q) || q.includes(n));
+    }).slice(0, 6);
+    return { exact, similar };
+  };
+
   const toggleArea = (key: string) => setExpandedAreas(prev => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -2535,22 +2585,14 @@ export default function DoctorsPage() {
           )}
 
           <div style={{ opacity: visitLoading ? 0.45 : 1, transition: 'opacity 0.15s', pointerEvents: visitLoading ? 'none' : 'auto' }}>
-          {[...visitAreas].sort((a, b) => b.totalDoctors - a.totalDoctors).map(area => {
+          {visitAreasSorted.map(area => {
             const key     = String(area.id);
             const isOpen  = expandedAreas.has(key);
             const pct     = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
             const searchQ = visitSearch.trim().toLowerCase();
 
-            const filtered = area.doctors.filter(d => {
-              if (showOnlyVisited && !d.visited) return false;
-              if (searchQ && !d.name.toLowerCase().includes(searchQ) && !(d.specialty ?? '').toLowerCase().includes(searchQ)) return false;
-              return true;
-            });
-            if (filtered.length === 0 && searchQ) return null;
-            const sorted = [...filtered].sort((a, b) => {
-              if (a.visited !== b.visited) return a.visited ? -1 : 1;
-              return (a.name ?? '').localeCompare(b.name ?? '');
-            });
+            const sorted = visitDoctorsByArea.get(key) ?? [];
+            if (sorted.length === 0 && searchQ) return null;
 
             return (
               <div key={key} style={{
@@ -2643,7 +2685,7 @@ export default function DoctorsPage() {
                                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
                                   <span>{doc.pharmacyName}</span>
                                   {canSeePharmNet && (() => {
-                                    const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies, doc.area?.name);
+                                    const { exact, similar } = findNetMatchesFast(doc.pharmacyName!, doc.area?.name);
                                     if (!exact && similar.length === 0) return null;
                                     const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : '#6366f1';
                                     return (
@@ -3412,7 +3454,7 @@ export default function DoctorsPage() {
                                       <>
                                         <span style={{ fontSize: 11, color: '#94a3b8' }}>· {doc.pharmacyName}</span>
                                         {canSeePharmNet && (() => {
-                                          const { exact, similar } = findNetMatches(doc.pharmacyName!, netPharmacies, doc.areaName);
+                                          const { exact, similar } = findNetMatchesFast(doc.pharmacyName!, doc.areaName);
                                           if (!exact && similar.length === 0) return null;
                                           const c = exact ? (exact.totalValue > 0 ? '#10b981' : '#f59e0b') : '#6366f1';
                                           return (
@@ -4459,10 +4501,11 @@ export default function DoctorsPage() {
       {showVisitsImportModal && (
         <DoctorVisitsImportModal
           token={token ?? ''}
-          onClose={() => setShowVisitsImportModal(false)}
+          onClose={() => { setShowVisitsImportModal(false); loadVisits(true); loadPharmVisits(true); }}
           onSaved={msg => {
             setVisitsImportMsg(msg);
             loadVisits(true);
+            loadPharmVisits(true);
             setTimeout(() => setVisitsImportMsg(''), 15000);
           }}
         />

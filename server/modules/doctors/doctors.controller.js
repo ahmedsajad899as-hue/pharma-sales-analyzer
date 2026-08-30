@@ -150,13 +150,14 @@ export async function pharmacyVisitsByArea(req, res, next) {
       subLinkedRepIdPharma = subUserPharma?.linkedRepId ?? null;
     }
 
+    // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُخفى هنا حتى يُعاد تفعيله.
     const visitWhere = isFieldRep
-      ? { scientificRepId: linkedRepId ?? -1, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+      ? { scientificRepId: linkedRepId ?? -1, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) }
       : repUserIdPharma
         ? subLinkedRepIdPharma
-          ? { scientificRepId: subLinkedRepIdPharma, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-          : { userId: repUserIdPharma, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-        : { userId, ...(dateFilter ? { visitDate: dateFilter } : {}) };
+          ? { scientificRepId: subLinkedRepIdPharma, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+          : { userId: repUserIdPharma, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) }
+        : { userId, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) };
 
     const visits = await prisma.pharmacyVisit.findMany({
       where: visitWhere,
@@ -1002,16 +1003,17 @@ export async function extractVisitsImport(req, res, next) {
   try {
     if (!req.file) return res.status(400).json({ error: 'لم يتم إرسال ملف' });
     const data = await importVisits.extractVisitsFromExcel(req.file, req.user);
+    data.fileName = req.file.originalname;
     res.json({ success: true, data });
   } catch (e) { next(e); }
 }
 
 // ── POST /visits/import-commit — حفظ الصفوف بعد مراجعة المستخدم ──────────────
 // body: { doctorRows?: [...], pharmacyRows?: [...], rememberRepLinks?: [{fromName, scientificRepId|null}],
-//         rememberDoctorLinks?: [{fromName, areaName|null, doctorId|null}] }
+//         rememberDoctorLinks?: [{fromName, areaName|null, doctorId|null}], fileName?: string }
 export async function commitVisitsImport(req, res, next) {
   try {
-    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks } = req.body || {};
+    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks, fileName } = req.body || {};
     const dRows = Array.isArray(doctorRows) ? doctorRows : [];
     const pRows = Array.isArray(pharmacyRows) ? pharmacyRows : [];
     if (dRows.length === 0 && pRows.length === 0) {
@@ -1022,9 +1024,64 @@ export async function commitVisitsImport(req, res, next) {
       pharmacyRows: pRows,
       rememberRepLinks: Array.isArray(rememberRepLinks) ? rememberRepLinks : [],
       rememberDoctorLinks: Array.isArray(rememberDoctorLinks) ? rememberDoctorLinks : [],
+      fileName: typeof fileName === 'string' ? fileName : '',
       user: req.user,
     });
     res.json({ success: true, data: result });
+  } catch (e) { next(e); }
+}
+
+// ── GET /visits/import-files — ملفات الاستيراد السابقة (لتفعيل/تعطيل/حذف) ────
+export async function listVisitImportFiles(req, res, next) {
+  try {
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const files = await prisma.visitImportFile.findMany({
+      where: { ownerUserId },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { doctorVisits: true, pharmacyVisits: true } } },
+    });
+    res.json({
+      success: true,
+      data: files.map(f => ({
+        id: f.id, originalName: f.originalName, isActive: f.isActive, createdAt: f.createdAt,
+        doctorVisitCount: f._count.doctorVisits, pharmacyVisitCount: f._count.pharmacyVisits,
+      })),
+    });
+  } catch (e) { next(e); }
+}
+
+// ── PATCH /visits/import-files/:id — تفعيل/تعطيل ملف (يُخفي/يُظهر زياراته في شاشة الزيارات) ──
+export async function setVisitImportFileActive(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    const { isActive } = req.body || {};
+    if (!Number.isInteger(id) || typeof isActive !== 'boolean') {
+      return res.status(400).json({ error: 'مدخلات غير صالحة' });
+    }
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const file = await prisma.visitImportFile.findFirst({ where: { id, ownerUserId } });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+
+    await prisma.$transaction([
+      prisma.visitImportFile.update({ where: { id }, data: { isActive } }),
+      prisma.doctorVisit.updateMany({ where: { visitImportFileId: id }, data: { isActive } }),
+      prisma.pharmacyVisit.updateMany({ where: { visitImportFileId: id }, data: { isActive } }),
+    ]);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+// ── DELETE /visits/import-files/:id — حذف الملف وكل زياراته (onDelete: Cascade) ──
+export async function deleteVisitImportFile(req, res, next) {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const file = await prisma.visitImportFile.findFirst({ where: { id, ownerUserId } });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+
+    await prisma.visitImportFile.delete({ where: { id } });
+    res.json({ success: true });
   } catch (e) { next(e); }
 }
 

@@ -126,6 +126,7 @@ model User {
   blockedRepAreas       BlockedRepArea[]
   sciRepNameLinks       SciRepNameLink[]
   doctorNameLinks       DoctorNameLink[]
+  visitImportFiles      VisitImportFile[]
   // Master on/off for this manager's block lists. When false the names are kept
   // but no blocking is applied anywhere. Default on (natural state is enabled).
   blockingEnabled       Boolean                @default(true)
@@ -760,12 +761,19 @@ model DoctorVisit {
   longitude       Float?
   createdAt       DateTime @default(now())
 
+  // الملف الذي استُوردت منه هذه الزيارة (إن جاءت من استيراد إكسل جماعي — راجع
+  // VisitImportFile). isActive نسخة مُسطَّحة من حالة الملف — تُحدَّث دفعة واحدة
+  // عند تفعيل/تعطيل الملف بدل الحاجة لـ join في كل استعلامات شاشة الزيارات.
+  visitImportFileId Int?
+  isActive          Boolean @default(true)
+
   userId        Int?
   user          User?                     @relation(fields: [userId], references: [id])
   doctor        Doctor                    @relation(fields: [doctorId], references: [id])
   scientificRep ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
   item          Item?                     @relation(fields: [itemId], references: [id])
   planEntry     PlanEntry?                @relation(fields: [planEntryId], references: [id])
+  visitImportFile VisitImportFile?        @relation(fields: [visitImportFileId], references: [id], onDelete: Cascade)
   likes         VisitLike[]
   comments      VisitComment[]
 
@@ -773,6 +781,7 @@ model DoctorVisit {
   @@index([scientificRepId])
   @@index([visitDate])
   @@index([userId])
+  @@index([visitImportFileId])
   @@map("doctor_visits")
 }
 
@@ -820,17 +829,46 @@ model PharmacyVisit {
   longitude       Float?
   createdAt       DateTime @default(now())
 
+  // راجع التعليق المطابق في DoctorVisit — نفس فكرة ربط/تفعيل ملف الاستيراد.
+  visitImportFileId Int?
+  isActive          Boolean @default(true)
+
   userId        Int?
   user          User?                     @relation(fields: [userId], references: [id])
   area          Area?                     @relation(fields: [areaId], references: [id])
   scientificRep ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
+  visitImportFile VisitImportFile?        @relation(fields: [visitImportFileId], references: [id], onDelete: Cascade)
   items         PharmacyVisitItem[]
   likes         PharmacyVisitLike[]
 
   @@index([userId])
   @@index([scientificRepId])
   @@index([visitDate])
+  @@index([visitImportFileId])
   @@map("pharmacy_visits")
+}
+
+// ─── Visit Import File (ملف استيراد زيارات إكسل) ─────────────
+// يمثّل ملف إكسل واحد رُفع عبر "استيراد زيارات من إكسل" — يتيح للمدير تعطيل أو
+// حذف كل زيارات ذلك الملف دفعة واحدة بدل حذفها فرداً فرداً. isActive=false
+// يُخفي زياراته من شاشة "الزيارات" (وحدها — راجع الذاكرة لبقية الشاشات) دون
+// حذفها فعلياً؛ الحذف الفعلي للملف يحذف زياراته تلقائياً (onDelete: Cascade).
+model VisitImportFile {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  isActive     Boolean  @default(true)
+  ownerUserId  Int // نطاق Doctor/DoctorVisit الفعلي (resolveDocOwnerUserId) — قد يختلف عن رافع الملف
+  createdAt    DateTime @default(now())
+
+  userId Int // رافع الملف الفعلي
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  doctorVisits   DoctorVisit[]
+  pharmacyVisits PharmacyVisit[]
+
+  @@index([ownerUserId])
+  @@index([userId])
+  @@map("visit_import_files")
 }
 
 // ─── Pharmacy Visit Like (إعجاب بزيارة صيدلية) ───────────────

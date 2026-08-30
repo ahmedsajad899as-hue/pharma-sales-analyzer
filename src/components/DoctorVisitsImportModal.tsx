@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import VisitImportFilesPanel from './VisitImportFilesPanel';
 
 /**
  * استيراد زيارات الأطباء والصيدليات بالجملة من ملف إكسل خارجي — بديل عن
@@ -60,6 +61,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
 
   const [docRows, setDocRows] = useState<DoctorRow[]>([]);
   const [pharmRows, setPharmRows] = useState<PharmacyRow[]>([]);
+  const [fileName, setFileName] = useState('');
   const [gridTab, setGridTab] = useState<'doctors' | 'pharmacies'>('doctors');
   const [reps, setReps] = useState<RepOpt[]>([]);
   const [pendingNames, setPendingNames] = useState<RepNameEntry[]>([]);
@@ -118,7 +120,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
     if (!file) return;
     setError(''); setInfo(''); setExtracting(true);
     setDocRows([]); setPharmRows([]); setNameApplied(false); setDoctorNamesApplied(false);
-    setNameChoice({}); setDoctorChoice({});
+    setNameChoice({}); setDoctorChoice({}); setFileName(file.name);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -228,7 +230,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
         : [];
       const res = await fetch(`${API}/api/doctors/visits/import-commit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authH },
-        body: JSON.stringify({ doctorRows: docRows, pharmacyRows: pharmRows, rememberRepLinks, rememberDoctorLinks }),
+        body: JSON.stringify({ doctorRows: docRows, pharmacyRows: pharmRows, rememberRepLinks, rememberDoctorLinks, fileName }),
       });
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || j.message || 'فشل الحفظ');
@@ -257,17 +259,20 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
         </p>
 
         {totalRows === 0 && (
-          <div style={dropZone}>
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
-              onChange={e => onFile(e.target.files)} />
-            <button onClick={() => fileInputRef.current?.click()} disabled={extracting} style={imgBtn}>
-              {extracting ? '⏳ جاري القراءة…' : '📄 اختر ملف إكسل'}
-            </button>
-            <button onClick={downloadTemplate} title="تنزيل ملف إكسل بالأعمدة الصحيحة وصفوف مثال وورقة تعليمات"
-              style={templateBtn}>
-              ⬇️ تحميل نموذج الملف
-            </button>
-          </div>
+          <>
+            <VisitImportFilesPanel token={token} />
+            <div style={dropZone}>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
+                onChange={e => onFile(e.target.files)} />
+              <button onClick={() => fileInputRef.current?.click()} disabled={extracting} style={imgBtn}>
+                {extracting ? '⏳ جاري القراءة…' : '📄 اختر ملف إكسل'}
+              </button>
+              <button onClick={downloadTemplate} title="تنزيل ملف إكسل بالأعمدة الصحيحة وصفوف مثال وورقة تعليمات"
+                style={templateBtn}>
+                ⬇️ تحميل نموذج الملف
+              </button>
+            </div>
+          </>
         )}
 
         {error && <div style={errBox}>⚠️ {error}</div>}

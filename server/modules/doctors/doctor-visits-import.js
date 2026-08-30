@@ -493,7 +493,7 @@ export async function extractVisitsFromExcel(file, user) {
  * جديد» الموجودة أصلاً (addCustomDoctor) — كل طبيب جديد هنا يُنشأ عبر السيرفي
  * أولاً (createSurveyDoctor) لا كصف Doctor مستقل.
  */
-async function commitDoctorRows(rows, ownerUserId, user) {
+async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
 
@@ -675,6 +675,7 @@ async function commitDoctorRows(rows, ownerUserId, user) {
           latitude:  Number.isFinite(r.lat) ? r.lat : null,
           longitude: Number.isFinite(r.lng) ? r.lng : null,
           userId: user.id,
+          visitImportFileId: importFileId ?? null,
         },
       });
       imported++;
@@ -692,7 +693,7 @@ async function commitDoctorRows(rows, ownerUserId, user) {
 }
 
 /** نفس منطق commitDoctorRows لكن لِـ PharmacyVisit — pharmacyName نص حر بلا سجل رئيسي فيُحفظ كما هو. */
-async function commitPharmacyRows(rows, ownerUserId, user) {
+async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
 
@@ -730,6 +731,7 @@ async function commitPharmacyRows(rows, ownerUserId, user) {
           latitude:  Number.isFinite(r.lat) ? r.lat : null,
           longitude: Number.isFinite(r.lng) ? r.lng : null,
           userId: user.id,
+          visitImportFileId: importFileId ?? null,
         },
       });
       imported++;
@@ -744,22 +746,34 @@ async function commitPharmacyRows(rows, ownerUserId, user) {
 
 /**
  * نقطة الحفظ الموحّدة: تحفظ روابط أسماء المندوبين وأسماء الأطباء المؤكَّدة أولاً
- * (تُستعمل فوراً + تُطبَّق تلقائياً في الاستيرادات القادمة)، ثم تستورد صفوف
- * الأطباء والصيدليات معاً (أي منهما قد يكون فارغاً حسب صيغة الملف).
+ * (تُستعمل فوراً + تُطبَّق تلقائياً في الاستيرادات القادمة)، تُنشئ سجل
+ * VisitImportFile واحداً لهذا الملف (يتيح لاحقاً تعطيل/حذف كل زياراته دفعة
+ * واحدة من "الملفات المرفوعة")، ثم تستورد صفوف الأطباء والصيدليات معاً
+ * (أي منهما قد يكون فارغاً حسب صيغة الملف) مربوطة به.
  */
-export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], user }) {
+export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], fileName = '', user }) {
   const ownerUserId = await resolveDocOwnerUserId(user.id);
 
   if (rememberRepLinks.length) await saveRepNameLinks(user.id, rememberRepLinks);
   if (rememberDoctorLinks.length) await saveDoctorNameLinks(ownerUserId, rememberDoctorLinks);
 
+  const importFile = await prisma.visitImportFile.create({
+    data: { originalName: fileName?.trim() || 'ملف بدون اسم', userId: user.id, ownerUserId },
+  });
+
   const [doctorResult, pharmacyResult] = await Promise.all([
-    commitDoctorRows(doctorRows, ownerUserId, user),
-    commitPharmacyRows(pharmacyRows, ownerUserId, user),
+    commitDoctorRows(doctorRows, ownerUserId, user, importFile.id),
+    commitPharmacyRows(pharmacyRows, ownerUserId, user, importFile.id),
   ]);
 
+  const totalImported = doctorResult.imported + pharmacyResult.imported;
+  // لا نُبقي سجل ملف فارغاً (كل الصفوف فشلت/تُجوهلت) — يُربك قائمة "الملفات المرفوعة".
+  if (totalImported === 0) {
+    await prisma.visitImportFile.delete({ where: { id: importFile.id } }).catch(() => {});
+  }
+
   return {
-    imported: doctorResult.imported + pharmacyResult.imported,
+    imported: totalImported,
     skipped:  doctorResult.skipped + pharmacyResult.skipped,
     errors:   [...doctorResult.errors, ...pharmacyResult.errors].slice(0, 30),
     doctor:   doctorResult,
