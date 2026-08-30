@@ -208,11 +208,12 @@ export default function DoctorsPage() {
 
   // ── Tab ──────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'>(() => {
-    // Always open on the Archive tab when it's available (user preference) —
-    // ignore the previously-saved tab so entering the page always lands on الأرشيف.
+    // Always open on the Visits tab when it's available (user preference) —
+    // ignore the previously-saved tab so entering the page always lands on الزيارات.
+    if (showVisitAnalysis) return 'visits';
     if (showArchiveTab) return 'archive';
     const saved = localStorage.getItem('doctors_active_tab');
-    return (saved && ['list','visits','pharmacies','myvisits','archive'].includes(saved)) ? saved as any : 'visits';
+    return (saved && ['list','visits','pharmacies','myvisits','archive'].includes(saved)) ? saved as any : 'list';
   });
   useEffect(() => { localStorage.setItem('doctors_active_tab', activeTab); }, [activeTab]);
 
@@ -658,6 +659,23 @@ export default function DoctorsPage() {
     }
   }, [token, visitMonthFilter, visitRepFilter]);
 
+  // Default the doctors-visits month filter to the current month, or — if it has
+  // no reports yet — the most recent month that does. "الكل" stays one click away
+  // via the month picker for anyone who wants every month at once.
+  const visitMonthDefaultAppliedRef = useRef(false);
+  useEffect(() => {
+    if (visitMonthDefaultAppliedRef.current || !showVisitAnalysis) return;
+    visitMonthDefaultAppliedRef.current = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/doctors/visits-latest-month`, { headers: H() });
+        const j = await r.json();
+        if (j.month && j.year) setVisitMonthFilter({ month: j.month, year: j.year });
+      } catch (e) { console.error('[visitsLatestMonth] fetch error:', e); }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVisitAnalysis]);
+
   const loadManagerReps = useCallback(async () => {
     if (isFieldRep) return;
     try {
@@ -957,6 +975,21 @@ export default function DoctorsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, pharmVisitMonthFilter, visitRepFilter]);
+
+  // Same default-month behavior as the doctors visits view, for the pharmacies sub-view.
+  const pharmVisitMonthDefaultAppliedRef = useRef(false);
+  useEffect(() => {
+    if (pharmVisitMonthDefaultAppliedRef.current || !showVisitAnalysis) return;
+    pharmVisitMonthDefaultAppliedRef.current = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/doctors/pharmacy-visits-latest-month`, { headers: H() });
+        const j = await r.json();
+        if (j.month && j.year) setPharmVisitMonthFilter({ month: j.month, year: j.year });
+      } catch (e) { console.error('[pharmacyVisitsLatestMonth] fetch error:', e); }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVisitAnalysis]);
 
   const loadSurveyPharmacies = useCallback(async () => {
     if (!isCommercialRep) return;
@@ -1825,6 +1858,10 @@ export default function DoctorsPage() {
               const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
               options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
             }
+            const currentLabel = visitMonthFilter
+              ? (options.find(o => o.month === visitMonthFilter.month && o.year === visitMonthFilter.year)?.label
+                  ?? `${MONTHS[visitMonthFilter.month - 1]} ${String(visitMonthFilter.year).slice(2)}`)
+              : 'الكل';
             return (
               !showVisitMonthPicker ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
@@ -1834,7 +1871,7 @@ export default function DoctorsPage() {
                       fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                       border: '1px solid #6366f1', background: '#eef2ff', color: '#4338ca',
                       cursor: 'default', whiteSpace: 'nowrap',
-                    }}>الكل</button>
+                    }}>{currentLabel}</button>
                   <button
                     onClick={() => setShowVisitMonthPicker(true)}
                     style={{
@@ -2802,6 +2839,10 @@ export default function DoctorsPage() {
                   const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                   options.push({ month: d.getMonth() + 1, year: d.getFullYear(), label: `${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}` });
                 }
+                const currentLabel = pharmVisitMonthFilter
+                  ? (options.find(o => o.month === pharmVisitMonthFilter.month && o.year === pharmVisitMonthFilter.year)?.label
+                      ?? `${MONTHS[pharmVisitMonthFilter.month - 1]} ${String(pharmVisitMonthFilter.year).slice(2)}`)
+                  : 'الكل';
                 return (
                   !showPharmMonthPicker ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
@@ -2810,7 +2851,7 @@ export default function DoctorsPage() {
                         fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                         border: '1px solid #6366f1', background: '#eef2ff', color: '#4338ca',
                         cursor: 'default', whiteSpace: 'nowrap',
-                      }}>الكل</button>
+                      }}>{currentLabel}</button>
                       <button
                         onClick={() => setShowPharmMonthPicker(true)}
                         style={{

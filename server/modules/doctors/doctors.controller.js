@@ -117,12 +117,77 @@ export async function visitsByArea(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ─── Latest month with any doctor-visit report (for defaulting the visits-tab month filter) ──
+export async function visitsLatestMonth(req, res, next) {
+  try {
+    const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
+    const scope = await resolveAreaScope(req.user, { repUserId });
+    const orClauses = [];
+    if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
+    if (scope.memberUserIds.length) orClauses.push({ userId: { in: scope.memberUserIds } });
+    if (!orClauses.length) return res.json({ month: null, year: null });
+
+    const latest = await prisma.doctorVisit.findFirst({
+      where: { OR: orClauses, isActive: true },
+      select: { visitDate: true },
+      orderBy: { visitDate: 'desc' },
+    });
+    if (!latest) return res.json({ month: null, year: null });
+    res.json({ month: latest.visitDate.getMonth() + 1, year: latest.visitDate.getFullYear() });
+  } catch (e) { next(e); }
+}
+
+// المنطق مشترك بين pharmacyVisitsByArea و pharmacyVisitsLatestMonth.
+async function resolvePharmacyVisitWhere(req, extra = {}) {
+  const userId = req.user.id;
+  const role   = req.user.role;
+  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
+  const isFieldRep  = FIELD_ROLES.includes(role);
+
+  let linkedRepId = null;
+  if (isFieldRep) {
+    const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
+    linkedRepId = userRow?.linkedRepId;
+  }
+
+  // اختياري: فلترة حسب مندوب محدد (للمدير فقط)
+  const repUserIdPharma = (!isFieldRep && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
+  let subLinkedRepIdPharma = null;
+  if (repUserIdPharma) {
+    const subUserPharma = await prisma.user.findUnique({
+      where: { id: repUserIdPharma },
+      select: { linkedRepId: true },
+    });
+    subLinkedRepIdPharma = subUserPharma?.linkedRepId ?? null;
+  }
+
+  // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُخفى هنا حتى يُعاد تفعيله.
+  return isFieldRep
+    ? { scientificRepId: linkedRepId ?? -1, isActive: true, ...extra }
+    : repUserIdPharma
+      ? subLinkedRepIdPharma
+        ? { scientificRepId: subLinkedRepIdPharma, isActive: true, ...extra }
+        : { userId: repUserIdPharma, isActive: true, ...extra }
+      : { userId, isActive: true, ...extra };
+}
+
+// ─── Latest month with any pharmacy-visit report (for defaulting the pharmacies month filter) ──
+export async function pharmacyVisitsLatestMonth(req, res, next) {
+  try {
+    const visitWhere = await resolvePharmacyVisitWhere(req);
+    const latest = await prisma.pharmacyVisit.findFirst({
+      where: visitWhere,
+      select: { visitDate: true },
+      orderBy: { visitDate: 'desc' },
+    });
+    if (!latest) return res.json({ month: null, year: null });
+    res.json({ month: latest.visitDate.getMonth() + 1, year: latest.visitDate.getFullYear() });
+  } catch (e) { next(e); }
+}
+
 // ─── Pharmacy Visits by Area (for visits analysis toggle) ──────
 export async function pharmacyVisitsByArea(req, res, next) {
   try {
-    const userId = req.user.id;
-    const role   = req.user.role;
-
     const filterMonth = req.query.month ? parseInt(req.query.month) : null;
     const filterYear  = req.query.year  ? parseInt(req.query.year)  : null;
     const dateFilter  = (filterMonth && filterYear) ? {
@@ -130,34 +195,7 @@ export async function pharmacyVisitsByArea(req, res, next) {
       lt:  new Date(filterYear, filterMonth, 1),
     } : undefined;
 
-    const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
-    const isFieldRep  = FIELD_ROLES.includes(role);
-
-    let linkedRepId = null;
-    if (isFieldRep) {
-      const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-      linkedRepId = userRow?.linkedRepId;
-    }
-
-    // اختياري: فلترة حسب مندوب محدد (للمدير فقط)
-    const repUserIdPharma = (!isFieldRep && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
-    let subLinkedRepIdPharma = null;
-    if (repUserIdPharma) {
-      const subUserPharma = await prisma.user.findUnique({
-        where: { id: repUserIdPharma },
-        select: { linkedRepId: true },
-      });
-      subLinkedRepIdPharma = subUserPharma?.linkedRepId ?? null;
-    }
-
-    // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُخفى هنا حتى يُعاد تفعيله.
-    const visitWhere = isFieldRep
-      ? { scientificRepId: linkedRepId ?? -1, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-      : repUserIdPharma
-        ? subLinkedRepIdPharma
-          ? { scientificRepId: subLinkedRepIdPharma, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-          : { userId: repUserIdPharma, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) }
-        : { userId, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) };
+    const visitWhere = await resolvePharmacyVisitWhere(req, dateFilter ? { visitDate: dateFilter } : {});
 
     const visits = await prisma.pharmacyVisit.findMany({
       where: visitWhere,
