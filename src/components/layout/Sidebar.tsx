@@ -243,17 +243,18 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           )}
         </nav>
 
-        {/* Compact icon-only footer — kept small on purpose so the nav list above has more room */}
+        {/* Footer — account name/role always stays fully spelled out (not reduced to an
+            icon); only the secondary action buttons below it are compact icons, to keep
+            more room for the main nav list above. */}
         <div className="sidebar-footer" style={{ marginTop: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}><Icon name={roleIcon} size={18} /></span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#e0e8f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
+              <div style={{ fontSize: 11, color: '#8fa0be' }}>{roleLabel}</div>
+            </div>
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-            <span
-              title={`${user?.username ?? ''} — ${roleLabel}`}
-              style={{
-                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a8c4f4',
-              }}
-            ><Icon name={roleIcon} size={16} /></span>
             {showSwitchBtn && (
               <button
                 onClick={() => setShowSwitchPanel(true)}
