@@ -5,6 +5,7 @@ import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
 const RepTrackingMap = lazy(() => import('../components/RepTrackingMap'));
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { Icon } from '../config/icons';
 
 interface Stats { sciRepsCount: number; filesCount: number; areasCount: number; totalSales: number; totalReturns: number; }
 interface UploadedFile { id: number; originalName: string; rowCount: number; uploadedAt: string; _count?: { sales: number }; }
@@ -1416,8 +1417,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   const quickActions = [
-    { label: 'تحليل ملفات المندوبين', desc: 'رفع البيانات وإدارة المندوبين', icon: '📂', page: 'rep-analysis' as PageId, color: '#6366f1' },
-    { label: t.dashboard.viewReports,  desc: t.dashboard.viewReportsDesc,  icon: '📋', page: 'reports'       as PageId, color: '#10b981' },
+    { label: 'تحليل ملفات المندوبين', desc: 'رفع البيانات وإدارة المندوبين', icon: '📂', page: 'rep-analysis' as PageId, color: 'var(--c-accent)' },
+    { label: t.dashboard.viewReports,  desc: t.dashboard.viewReportsDesc,  icon: '📋', page: 'reports'       as PageId, color: 'var(--c-success)' },
   ];
 
   const netValue = activeStats.totalSalesValue - activeStats.totalReturnsValue;
@@ -1427,19 +1428,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       type: 'sales',
       label: t.dashboard.totalSales,
       value: activeStatsLoading ? '...' : activeFileIds.length === 0 ? '—' : fmtMoney(activeStats.totalSalesValue),
-      icon: '📦', color: '#10b981', bg: '#d1fae5',
+      icon: '📦', color: 'var(--c-success)', bg: 'var(--c-success-bg)',
     },
     {
       type: 'returns',
       label: t.dashboard.returns,
       value: activeStatsLoading ? '...' : activeFileIds.length === 0 ? '—' : fmtMoney(activeStats.totalReturnsValue),
-      icon: '↩', color: '#ef4444', bg: '#fee2e2',
+      icon: '↩', color: 'var(--c-danger)', bg: 'var(--c-danger-bg)',
     },
     {
       type: 'net',
       label: t.dashboard.net,
       value: activeStatsLoading ? '...' : activeFileIds.length === 0 ? '—' : fmtMoney(netValue),
-      icon: '🏆', color: '#6366f1', bg: '#eef2ff',
+      icon: '🏆', color: 'var(--c-accent)', bg: 'var(--c-accent-light)',
     },
   ];
 
@@ -1447,7 +1448,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     ...moneyCards.map(c => ({ ...c, onClick: undefined as undefined | (() => void) })),
     {
       label: t.dashboard.sciReps, value: loading ? '...' : stats.sciRepsCount,
-      icon: '🔬', color: '#8b5cf6', bg: '#ede9fe', onClick: () => onNavigate('rep-analysis'),
+      icon: '🔬', color: 'var(--c-purple)', bg: 'var(--c-purple-bg)', onClick: () => onNavigate('rep-analysis'),
       type: undefined,
     },
     {
@@ -1457,12 +1458,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     },
     {
       label: t.dashboard.uploadedFiles, value: loading ? '...' : stats.filesCount,
-      icon: '📂', color: '#10b981', bg: '#d1fae5', onClick: openFilesPanel,
+      icon: '📂', color: 'var(--c-success)', bg: 'var(--c-success-bg)', onClick: openFilesPanel,
       type: undefined,
     },
     {
       label: t.dashboard.aiAnalysis, value: loading ? '...' : '✓',
-      icon: '🤖', color: '#f59e0b', bg: '#fef3c7', onClick: undefined as undefined | (() => void),
+      icon: '🤖', color: 'var(--c-warning)', bg: 'var(--c-warning-bg)', onClick: undefined as undefined | (() => void),
       type: undefined,
     },
   ];
@@ -1505,28 +1506,28 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
       {
         label: 'مبيعات إجمالية',
         value: commDashLoading ? '...' : fmtNum(commDash?.monthlySales ?? 0),
-        icon: '📦', color: '#10b981', bg: '#d1fae5',
+        icon: '📦', color: 'var(--c-success)', bg: 'var(--c-success-bg)',
         desc: '',
         onClick: () => setShowSalesBreakdown('sales'),
       },
       {
         label: 'ارجاعات',
         value: commDashLoading ? '...' : fmtNum(commDash?.monthlyReturns ?? 0),
-        icon: '↩', color: '#ef4444', bg: '#fee2e2',
+        icon: '↩', color: 'var(--c-danger)', bg: 'var(--c-danger-bg)',
         desc: '',
         onClick: () => setShowSalesBreakdown('returns'),
       },
       {
         label: 'صافي (نت)',
         value: commDashLoading ? '...' : fmtNum(commDash?.netSales ?? 0),
-        icon: '🏆', color: '#6366f1', bg: '#eef2ff',
+        icon: '🏆', color: 'var(--c-accent)', bg: 'var(--c-accent-light)',
         desc: '',
         onClick: () => setShowSalesBreakdown('net'),
       },
       {
         label: 'المندوبون العلميون',
         value: commDashLoading ? '...' : (commDash?.sciReps.length ?? 0),
-        icon: '🔬', color: '#8b5cf6', bg: '#ede9fe',
+        icon: '🔬', color: 'var(--c-purple)', bg: 'var(--c-purple-bg)',
         desc: '',
         onClick: () => setShowSciRepsPanel(true),
       },
@@ -1555,16 +1556,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 onClick={() => setCommDashMonth({ month: o.month, year: o.year })}
                 style={{
                   fontSize: 11, fontWeight: active ? 700 : 400, padding: '4px 10px', borderRadius: 14,
-                  border: `1px solid ${active ? '#10b981' : '#e2e8f0'}`,
-                  background: active ? '#d1fae5' : 'transparent',
-                  color: active ? '#065f46' : '#94a3b8', cursor: 'pointer',
+                  border: `1px solid ${active ? 'var(--c-success)' : '#e2e8f0'}`,
+                  background: active ? 'var(--c-success-bg)' : 'transparent',
+                  color: active ? 'var(--c-success)' : '#94a3b8', cursor: 'pointer',
                 }}>{o.label}</button>
             );
           })}
         </div>
 
         {commDashError && (
-          <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 16, color: '#dc2626', fontSize: 13 }}>
+          <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, color: 'var(--c-danger)', fontSize: 13 }}>
             ⚠️ {commDashError}
           </div>
         )}
@@ -1605,12 +1606,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {commDash!.sciReps.map(rep => (
                     <div key={rep.id} style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#ede9fe', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 18, flexShrink: 0 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--c-purple-bg)', color: 'var(--c-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 18, flexShrink: 0 }}>
                         {rep.name[0]?.toUpperCase() ?? '?'}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{rep.name}</div>
-                        {rep.company && <div style={{ fontSize: 12, color: '#6366f1' }}>🏢 {rep.company}</div>}
+                        {rep.company && <div style={{ fontSize: 12, color: 'var(--c-accent)' }}>🏢 {rep.company}</div>}
                         {rep.phone && <div style={{ fontSize: 12, color: '#64748b' }}>📞 {rep.phone}</div>}
                         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>📍 {rep.areas.join('، ')}</div>
                       </div>
@@ -1637,7 +1638,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {commDash!.myAreas.map(area => (
-                    <div key={area.id} style={{ background: '#f0f9ff', borderRadius: 10, padding: '10px 14px', color: '#0369a1', fontWeight: 600, fontSize: 14 }}>
+                    <div key={area.id} style={{ background: '#f0f9ff', borderRadius: 10, padding: '10px 14px', color: 'var(--c-accent)', fontWeight: 600, fontSize: 14 }}>
                       📍 {area.name}
                     </div>
                   ))}
@@ -1655,9 +1656,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           const totalNet = commDash?.netSales ?? 0;
           const maxVal = byCompany[0]?.total ?? 1;
           const titleMap = {
-            sales:   { icon: '📦', label: 'المبيعات الإجمالية حسب الشركة', color: '#10b981', totalLabel: 'إجمالي المبيعات', total: totalSales },
-            returns: { icon: '↩',  label: 'الارجاعات',                       color: '#ef4444', totalLabel: 'إجمالي الارجاعات', total: totalReturns },
-            net:     { icon: '🏆', label: 'صافي المبيع حسب الشركة',          color: '#6366f1', totalLabel: 'صافي المبيع',      total: totalNet },
+            sales:   { icon: '📦', label: 'المبيعات الإجمالية حسب الشركة', color: 'var(--c-success)', totalLabel: 'إجمالي المبيعات', total: totalSales },
+            returns: { icon: '↩',  label: 'الارجاعات',                       color: 'var(--c-danger)', totalLabel: 'إجمالي الارجاعات', total: totalReturns },
+            net:     { icon: '🏆', label: 'صافي المبيع حسب الشركة',          color: 'var(--c-accent)', totalLabel: 'صافي المبيع',      total: totalNet },
           } as const;
           const t2 = titleMap[showSalesBreakdown];
           return (
@@ -1687,7 +1688,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {byCompany.map((co, idx) => {
                           const barPct = maxVal > 0 ? (co.total / maxVal) * 100 : 0;
-                          const rowColor = [t2.color, '#f59e0b', '#0ea5e9', '#8b5cf6', '#ec4899', '#14b8a6'][idx % 6];
+                          const rowColor = [t2.color, 'var(--c-warning)', '#0ea5e9', 'var(--c-purple)', '#ec4899', '#14b8a6'][idx % 6];
                           const displayTotal = showSalesBreakdown === 'net'
                             ? co.total - (totalReturns * (totalSales > 0 ? co.total / totalSales : 0))
                             : co.total;
@@ -1728,13 +1729,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         {/* Quick Actions */}
         <h2 className="section-title">{t.dashboard.quickActions}</h2>
         <div className="quick-actions-grid">
-          <button className="quick-action-card" onClick={() => onNavigate('commercial' as PageId)} style={{ borderColor: '#6366f1' }}>
-            <div className="quick-action-icon" style={{ background: '#6366f1' }}>💵</div>
+          <button className="quick-action-card" onClick={() => onNavigate('commercial' as PageId)} style={{ borderColor: 'var(--c-accent)' }}>
+            <div className="quick-action-icon" style={{ background: 'var(--c-accent)' }}>💵</div>
             <div className="quick-action-body">
               <div className="quick-action-label">الاستحصالات والفواتير</div>
               <div className="quick-action-desc">متابعة فواتير الصيدليات</div>
             </div>
-            <span className="quick-action-arrow" style={{ color: '#6366f1' }}>←</span>
+            <span className="quick-action-arrow" style={{ color: 'var(--c-accent)' }}>←</span>
           </button>
         </div>
       </div>
@@ -1753,9 +1754,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               onClick={() => setIsDoubleVisit(p => !p)}
               style={{
                 padding: '6px 10px', fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                background: isDoubleVisit ? '#374151' : '#eef2ff',
-                border: `2px solid ${isDoubleVisit ? '#374151' : '#6366f1'}`,
-                borderRadius: '10px', color: isDoubleVisit ? '#fff' : '#4338ca',
+                background: isDoubleVisit ? '#374151' : 'var(--c-accent-light)',
+                border: `2px solid ${isDoubleVisit ? '#374151' : 'var(--c-accent)'}`,
+                borderRadius: '10px', color: isDoubleVisit ? '#fff' : 'var(--c-accent)',
                 fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap', lineHeight: 1, minWidth: 40,
               }}
             >
@@ -1775,8 +1776,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         {/* Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
           {/* Row 1: Date range pickers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start', flexWrap: 'nowrap' }}>
-              <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--c-bg)', borderRadius: '8px', padding: '4px 10px', border: '1px solid var(--c-border)', alignSelf: 'flex-start', flexWrap: 'nowrap' }}>
+              <span style={{ fontSize: '11px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}><Icon name="calendar" size={12} /> من:</span>
               <input
                 type="date"
                 className="form-input"
@@ -1784,8 +1785,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 value={callsDateFrom}
                 onChange={e => handleCallsDateFromChange(e.target.value)}
               />
-              <span style={{ fontSize: '11px', color: '#d1d5db', whiteSpace: 'nowrap' }}>|</span>
-              <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
+              <span style={{ fontSize: '11px', color: 'var(--c-border)', whiteSpace: 'nowrap' }}>|</span>
+              <span style={{ fontSize: '11px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>إلى:</span>
               <input
                 type="date"
                 className="form-input"
@@ -1798,19 +1799,19 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <button
                   onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
                   title="العودة لليوم الحالي"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: '#6366f1', fontWeight: 700, padding: '1px 4px', whiteSpace: 'nowrap' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--c-accent)', fontWeight: 700, padding: '1px 4px', whiteSpace: 'nowrap' }}
                 >اليوم</button>
               )}
           </div>
 
           {/* Row 2: Rep filter — company_manager only */}
           {isCompanyManager && dashReps.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '8px', padding: '4px 10px', border: '1px solid #e2e8f0', alignSelf: 'flex-start' }}>
-              <span style={{ fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>👤 المندوب:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--c-bg)', borderRadius: '8px', padding: '4px 10px', border: '1px solid var(--c-border)', alignSelf: 'flex-start' }}>
+              <span style={{ fontSize: '11px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}><Icon name="person" size={12} /> المندوب:</span>
               <select
                 value={callsRepId}
                 onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
-                style={{ fontSize: '11px', border: 'none', background: 'transparent', outline: 'none', cursor: 'pointer', color: '#374151', fontWeight: 600 }}
+                style={{ fontSize: '11px', border: 'none', background: 'transparent', outline: 'none', cursor: 'pointer', color: 'var(--c-text-primary)', fontWeight: 600 }}
               >
                 <option value="">كل المندوبين</option>
                 {dashReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -1821,7 +1822,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
         </div>
 
         {/* Table card */}
-        <div style={{ background: '#fff', border: '2px solid #6366f1', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(99,102,241,0.12)' }}>
+        <div style={{ background: 'var(--c-surface)', border: '2px solid var(--c-accent)', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(26,86,219,0.12)' }}>
           {callsLoading ? (
             <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
               {(t.dashboard as any).dailyCallsLoading}
@@ -1851,12 +1852,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   <span>صيدلية</span>
                 </button>
                 <button onClick={() => setFDouble(p => !p)}
-                  style={{ padding: '3px 8px', fontSize: '14px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : '#6366f1'}`, background: fDouble ? '#374151' : '#eef2ff', color: fDouble ? '#fff' : '#4338ca', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px', lineHeight: 1 }}>
+                  style={{ padding: '3px 8px', fontSize: '14px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : 'var(--c-accent)'}`, background: fDouble ? '#374151' : 'var(--c-accent-light)', color: fDouble ? '#fff' : 'var(--c-accent)', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px', lineHeight: 1 }}>
                   <span>👥</span>
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
-                    style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: '1.5px solid #ef4444', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px' }}>
+                    style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: '1.5px solid var(--c-danger)', background: '#fff', color: 'var(--c-danger)', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px' }}>
                     ✕
                   </button>
                 )}
@@ -1970,7 +1971,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           <div style={{ position: 'relative' }}>
                             <button
                               onClick={e => { e.stopPropagation(); v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id); }}
-                              style={{ background: 'none', border: 'none', padding: 0, fontSize: 14, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px #f59e0b)' : 'none' }}
+                              style={{ background: 'none', border: 'none', padding: 0, fontSize: 14, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px var(--c-warning))' : 'none' }}
                             >📝</button>
                             {showItemNotesId === v.id && v.notes && (
                               <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '7px 11px', fontSize: 11, zIndex: 1000, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', minWidth: 150, maxWidth: 230, whiteSpace: 'normal', direction: 'rtl', marginTop: 4 }}
@@ -1993,8 +1994,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(likeKey), 600); }}
                               onTouchEnd={() => clearTimeout(likeTimer.current)}
                               style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'transparent', cursor: isManagerOrAdmin ? 'pointer' : 'default' }}>
-                              <svg viewBox="0 0 24 24" width="13" height="13" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                              {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 8, fontWeight: 800, width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
+                              <svg viewBox="0 0 24 24" width="13" height="13" fill={likeCount > 0 ? 'var(--c-danger)' : 'none'} stroke={likeCount > 0 ? 'var(--c-danger)' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                              {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: 'var(--c-danger)', color: '#fff', borderRadius: '50%', fontSize: 8, fontWeight: 800, width: 13, height: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
                             </button>
                             {showLikersId === likeKey && (
                               <div style={{ position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
@@ -2044,7 +2045,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: showCallStats ? 8 : 0 }}
                     >
                       <div style={{ fontWeight: 700, fontSize: 12, color: '#1e293b' }}>📊 إحصائيات الكولات</div>
-                      <span style={{ fontSize: 16, color: '#6366f1', transition: 'transform 0.2s', transform: showCallStats ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>⌄</span>
+                      <span style={{ fontSize: 16, color: 'var(--c-accent)', transition: 'transform 0.2s', transform: showCallStats ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>⌄</span>
                     </button>
                     {showCallStats && (
                     <>
@@ -2054,14 +2055,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <span style={{ fontSize: 12 }}>👨‍⚕️</span>
                         <div>
                           <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1 }}>أطباء</div>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: '#4f46e5', lineHeight: 1.2 }}>{doctorCalls.length}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--c-accent)', lineHeight: 1.2 }}>{doctorCalls.length}</div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
                         <span style={{ fontSize: 12 }}>🏪</span>
                         <div>
                           <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1 }}>صيدليات</div>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--c-success)', lineHeight: 1.2 }}>{pharmacyCalls.length}</div>
                         </div>
                       </div>
                     </div>
@@ -2073,7 +2074,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           {itemEntries.map(([name, count]) => (
                             <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 8px', fontSize: 11 }}>
                               <span style={{ fontWeight: 600, color: '#1e293b' }}>{name}</span>
-                              <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 4, padding: '1px 6px', fontWeight: 800, fontSize: 11 }}>{count}</span>
+                              <span style={{ background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 4, padding: '1px 6px', fontWeight: 800, fontSize: 11 }}>{count}</span>
                             </div>
                           ))}
                         </div>
@@ -2229,10 +2230,10 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   )}
                 </div>
 
-                {clEditDocError && <p style={{ color: '#ef4444', fontSize: '12px', marginBottom: '10px' }}>{clEditDocError}</p>}
+                {clEditDocError && <p style={{ color: 'var(--c-danger)', fontSize: '12px', marginBottom: '10px' }}>{clEditDocError}</p>}
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                   <button onClick={() => setClEditDocOpen(false)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '13px' }}>إلغاء</button>
-                  <button onClick={saveDocEdit} disabled={clEditDocSaving} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#8B1A1A', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, opacity: clEditDocSaving ? 0.7 : 1 }}>{clEditDocSaving ? 'جاري الحفظ...' : 'حفظ'}</button>
+                  <button onClick={saveDocEdit} disabled={clEditDocSaving} style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: 'var(--c-danger)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, opacity: clEditDocSaving ? 0.7 : 1 }}>{clEditDocSaving ? 'جاري الحفظ...' : 'حفظ'}</button>
                 </div>
               </div>
             </div>
@@ -2269,28 +2270,28 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <button
                         onClick={() => setCallType('doctor')}
                         style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                          border: `2px solid ${callType === 'doctor' ? '#6366f1' : '#e5e7eb'}`,
-                          background: callType === 'doctor' ? '#eef2ff' : '#fff',
-                          color: callType === 'doctor' ? '#4338ca' : '#6b7280' }}
+                          border: `2px solid ${callType === 'doctor' ? 'var(--c-accent)' : '#e5e7eb'}`,
+                          background: callType === 'doctor' ? 'var(--c-accent-light)' : '#fff',
+                          color: callType === 'doctor' ? 'var(--c-accent)' : '#6b7280' }}
                       >👨‍⚕️ طبيب</button>
                       <button
                         onClick={() => setCallType('pharmacy')}
                         style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                          border: `2px solid ${callType === 'pharmacy' ? '#059669' : '#e5e7eb'}`,
-                          background: callType === 'pharmacy' ? '#f0fdf4' : '#fff',
-                          color: callType === 'pharmacy' ? '#065f46' : '#6b7280' }}
+                          border: `2px solid ${callType === 'pharmacy' ? 'var(--c-success)' : '#e5e7eb'}`,
+                          background: callType === 'pharmacy' ? 'var(--c-success-bg)' : '#fff',
+                          color: callType === 'pharmacy' ? 'var(--c-success)' : '#6b7280' }}
                       >🏪 صيدلية</button>
                     </div>
                     {callType === 'doctor' ? (
                       <>
                         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>اذكر بالترتيب: اسم الطبيب ← الايتم ← النتيجة ← ملاحظات</div>
                         {planItems.length > 0 && (
-                          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px',
+                          <div style={{ background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', borderRadius: '12px',
                             padding: '10px 14px', marginBottom: 16, textAlign: 'right' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#166534', marginBottom: 6 }}>📦 الايتمات في بلانك:</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-success)', marginBottom: 6 }}>📦 الايتمات في بلانك:</div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
                               {planItems.map((name, i) => (
-                                <span key={i} style={{ background: '#dcfce7', color: '#166534', borderRadius: '6px',
+                                <span key={i} style={{ background: 'var(--c-success-bg)', color: 'var(--c-success)', borderRadius: '6px',
                                   padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{name}</span>
                               ))}
                             </div>
@@ -2298,15 +2299,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         )}
                       </>
                     ) : (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px',
+                      <div style={{ background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', borderRadius: '12px',
                         padding: '10px 14px', marginBottom: 16, textAlign: 'right' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 4 }}>🏪 اذكر بالترتيب لزيارة الصيدلية:</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-success)', marginBottom: 4 }}>🏪 اذكر بالترتيب لزيارة الصيدلية:</div>
                         <div style={{ fontSize: 12, color: '#374151' }}>اسم الصيدلية ← المنطقة ← الايتمات (مع ملاحظة كل ايتم)</div>
                       </div>
                     )}
                     <button
                       onClick={startRecordingNow}
-                      style={{ width: '100%', background: callType === 'pharmacy' ? '#059669' : '#f97316', color: '#fff', border: 'none',
+                      style={{ width: '100%', background: callType === 'pharmacy' ? 'var(--c-success)' : '#f97316', color: '#fff', border: 'none',
                         borderRadius: '10px', padding: '11px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
                         marginBottom: 8 }}
                     >
@@ -2324,13 +2325,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 {/* ── Step 2: Recording in progress ── */}
                 {voiceListening && !voiceParsing && (
                   <>
-                    <div style={{ fontSize: 52, marginBottom: 8, animation: 'clGpsPulse 1.2s ease-in-out infinite', color: '#ef4444' }}>🎤</div>
+                    <div style={{ fontSize: 52, marginBottom: 8, animation: 'clGpsPulse 1.2s ease-in-out infinite', color: 'var(--c-danger)' }}>🎤</div>
                     <div style={{ fontWeight: 800, fontSize: 17, color: '#111827', marginBottom: 4 }}>{callType === 'pharmacy' ? 'جاري تسجيل زيارة صيدلية...' : 'جاري التسجيل...'}</div>
                     {callType === 'doctor' && planItems.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', justifyContent: 'center',
                         marginBottom: 14 }}>
                         {planItems.map((name, i) => (
-                          <span key={i} style={{ background: '#fef3c7', color: '#92400e', borderRadius: '6px',
+                          <span key={i} style={{ background: 'var(--c-warning-bg)', color: 'var(--c-warning)', borderRadius: '6px',
                             padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{name}</span>
                         ))}
                       </div>
@@ -2341,7 +2342,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         : 'اذكر: الطبيب ← الايتم ← النتيجة ← ملاحظات'}
                     </p>
                     <button onClick={stopVoice}
-                      style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '10px',
+                      style={{ background: 'var(--c-danger)', color: '#fff', border: 'none', borderRadius: '10px',
                         padding: '10px 32px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
                     >
                       ⏹ إيقاف التسجيل
@@ -2359,7 +2360,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
                 {voiceError && (
                   <div style={{ marginTop: 14, textAlign: 'center' }}>
-                    <p style={{ fontSize: 13, color: '#ef4444', marginBottom: 12 }}>⚠️ {voiceError}</p>
+                    <p style={{ fontSize: 13, color: 'var(--c-danger)', marginBottom: 12 }}>⚠️ {voiceError}</p>
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                       <button
                         onClick={() => { setVoiceError(''); setVoiceReady(true); }}
@@ -2449,20 +2450,20 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <div
                           className="gps-ripple"
                           style={{
-                            background: clGpsStatus === 'got' ? '#10b981' : '#f59e0b',
+                            background: clGpsStatus === 'got' ? 'var(--c-success)' : 'var(--c-warning)',
                             animation: 'gpsRipple 1.6s ease-out infinite',
                           }}
                         />
                       )}
                       <div style={{
                         width: 12, height: 12, borderRadius: '50%', position: 'relative', zIndex: 1, flexShrink: 0,
-                        background: clGpsStatus === 'got' ? '#10b981' : clGpsStatus === 'getting' ? '#f59e0b' : '#ef4444',
+                        background: clGpsStatus === 'got' ? 'var(--c-success)' : clGpsStatus === 'getting' ? 'var(--c-warning)' : 'var(--c-danger)',
                         animation: clGpsStatus === 'getting' ? 'clGpsPulse 1s ease-in-out infinite' : 'none',
                       }} />
                     </div>
                     {/* Status label */}
                     <span style={{ fontSize: '9px', fontWeight: 700, whiteSpace: 'nowrap', lineHeight: 1,
-                      color: clGpsStatus === 'got' ? '#10b981' : clGpsStatus === 'getting' ? '#d97706' : '#ef4444' }}>
+                      color: clGpsStatus === 'got' ? 'var(--c-success)' : clGpsStatus === 'getting' ? 'var(--c-warning)' : 'var(--c-danger)' }}>
                       {clGpsStatus === 'got'
                         ? (clAccuracy !== null ? `±${clAccuracy}م` : '✓ محدَّد')
                         : clGpsStatus === 'getting' ? 'جاري...'
@@ -2470,7 +2471,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </span>
                     {/* Still refining hint — a tighter reading may still arrive */}
                     {clGpsStatus === 'got' && clGpsRefining && clAccuracy !== null && clAccuracy > 15 && (
-                      <span style={{ fontSize: '8px', fontWeight: 600, color: '#d97706', whiteSpace: 'nowrap', lineHeight: 1 }}>
+                      <span style={{ fontSize: '8px', fontWeight: 600, color: 'var(--c-warning)', whiteSpace: 'nowrap', lineHeight: 1 }}>
                         ↓ يحسّن…
                       </span>
                     )}
@@ -2481,17 +2482,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Plan info */}
               {activePlan && callType === 'doctor' && (
-                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px', fontSize: '13px', color: '#166534' }}>
+                <div style={{ background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px', fontSize: '13px', color: 'var(--c-success)' }}>
                   📋 البلان: شهر {activePlan.month}/{activePlan.year} — {activePlan.entries?.length ?? 0} طبيب
                 </div>
               )}
 
               {/* HTTP warning — GPS blocked on plain HTTP */}
               {isInsecureHttp && (
-                <div style={{ background: '#fef2f2', border: '1.5px solid #fca5a5', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', fontSize: '12px', color: '#991b1b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ background: 'var(--c-danger-bg)', border: '1.5px solid var(--c-danger-border)', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', fontSize: '12px', color: 'var(--c-danger)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                   <span>⚠️ GPS لا يعمل على HTTP — استخدم الرابط الآمن للهاتف</span>
                   <a href="https://ordine-sales.up.railway.app" target="_blank" rel="noopener noreferrer"
-                    style={{ background: '#059669', color: '#fff', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                    style={{ background: 'var(--c-success)', color: '#fff', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                     🔗 فتح الرابط الآمن
                   </a>
                 </div>
@@ -2502,16 +2503,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <button
                   onClick={() => setCallType('doctor')}
                   style={{ flex: 1, padding: '9px 10px', borderRadius: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
-                    border: `2px solid ${callType === 'doctor' ? '#6366f1' : '#e5e7eb'}`,
-                    background: callType === 'doctor' ? '#eef2ff' : '#f9fafb',
-                    color: callType === 'doctor' ? '#4338ca' : '#6b7280' }}
+                    border: `2px solid ${callType === 'doctor' ? 'var(--c-accent)' : '#e5e7eb'}`,
+                    background: callType === 'doctor' ? 'var(--c-accent-light)' : '#f9fafb',
+                    color: callType === 'doctor' ? 'var(--c-accent)' : '#6b7280' }}
                 >👨‍⚕️ زيارة طبيب</button>
                 <button
                   onClick={() => setCallType('pharmacy')}
                   style={{ flex: 1, padding: '9px 10px', borderRadius: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
-                    border: `2px solid ${callType === 'pharmacy' ? '#059669' : '#e5e7eb'}`,
-                    background: callType === 'pharmacy' ? '#f0fdf4' : '#f9fafb',
-                    color: callType === 'pharmacy' ? '#065f46' : '#6b7280' }}
+                    border: `2px solid ${callType === 'pharmacy' ? 'var(--c-success)' : '#e5e7eb'}`,
+                    background: callType === 'pharmacy' ? 'var(--c-success-bg)' : '#f9fafb',
+                    color: callType === 'pharmacy' ? 'var(--c-success)' : '#6b7280' }}
                 >🏪 زيارة صيدلية</button>
               </div>
 
@@ -2521,12 +2522,12 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   {/* Pharmacy Name with autocomplete */}
                   <div style={{ marginBottom: '14px' }}>
                     <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
-                      🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span>
+                      🏪 اسم الصيدلية <span style={{ color: 'var(--c-danger)' }}>*</span>
                       {clPharmacyIsNew && clPharmacyName.trim() && (
-                        <span style={{ marginRight: '8px', fontSize: '11px', background: '#fef3c7', color: '#d97706', borderRadius: '6px', padding: '2px 8px', fontWeight: 700 }}>جديد</span>
+                        <span style={{ marginRight: '8px', fontSize: '11px', background: 'var(--c-warning-bg)', color: 'var(--c-warning)', borderRadius: '6px', padding: '2px 8px', fontWeight: 700 }}>جديد</span>
                       )}
                       {!clPharmacyIsNew && clPharmacyName.trim() && (
-                        <span style={{ marginRight: '8px', fontSize: '11px', background: '#d1fae5', color: '#065f46', borderRadius: '6px', padding: '2px 8px', fontWeight: 700 }}>✓ موجود</span>
+                        <span style={{ marginRight: '8px', fontSize: '11px', background: 'var(--c-success-bg)', color: 'var(--c-success)', borderRadius: '6px', padding: '2px 8px', fontWeight: 700 }}>✓ موجود</span>
                       )}
                     </label>
                     <div style={{ position: 'relative' }}>
@@ -2592,7 +2593,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                               onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                               onMouseLeave={e => (e.currentTarget.style.background = '')}
                             >
-                              <span style={{ fontSize: '11px', color: '#059669' }}>✓</span> {name}
+                              <span style={{ fontSize: '11px', color: 'var(--c-success)' }}>✓</span> {name}
                             </div>
                           ))}
                         </div>
@@ -2628,7 +2629,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: clPharmacyAreaId ? '28px' : undefined }}
                       />
                       {clPharmacyAreaId && (
-                        <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                        <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: 'var(--c-success)', fontWeight: 700 }}>✓</span>
                       )}
                       {clPharmacyAreaShowSugg && clPharmacyAreaSugg.length > 0 && (
                         <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
@@ -2647,7 +2648,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   </div>
                   {/* Items list */}
                   <div style={{ marginBottom: '14px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '8px' }}>📦 الايتمات <span style={{ color: '#ef4444' }}>*</span></label>
+                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '8px' }}>📦 الايتمات <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                     {clPharmacyItems.map((pit, idx) => (
                       <div key={pit.tempId} style={{ border: '1px solid #e5e7eb', borderRadius: '10px', padding: '10px 12px', marginBottom: '8px', background: '#fafafa', position: 'relative' }}>
                         {/* Item search */}
@@ -2701,14 +2702,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             }}
                             style={{
                               position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
-                              background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '5px',
-                              color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                              background: 'var(--c-accent-light)', border: '1px solid #bfdbfe', borderRadius: '5px',
+                              color: 'var(--c-accent)', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
                               padding: '2px 7px', lineHeight: '1.4', touchAction: 'none', zIndex: 2,
                             }}
                             title="اختر ايتم من القائمة"
                           >←</button>
                           {pit.itemId && (
-                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: 'var(--c-success)', fontWeight: 700 }}>✓</span>
                           )}
                           {pit.showSugg && pit.sugg.length > 0 && (
                             <>
@@ -2747,7 +2748,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         {clPharmacyItems.length > 1 && (
                           <button
                             onClick={() => setClPharmacyItems(prev => prev.filter(p => p.tempId !== pit.tempId))}
-                            style={{ position: 'absolute', top: '6px', left: '8px', background: 'none', border: 'none', fontSize: '16px', cursor: 'pointer', color: '#ef4444', lineHeight: 1, padding: 0 }}
+                            style={{ position: 'absolute', top: '6px', left: '8px', background: 'none', border: 'none', fontSize: '16px', cursor: 'pointer', color: 'var(--c-danger)', lineHeight: 1, padding: 0 }}
                             title="حذف الايتم"
                           >×</button>
                         )}
@@ -2758,7 +2759,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         const newId = clPharmacyItemCounter.current++;
                         setClPharmacyItems(prev => [...prev, { tempId: newId, itemId: '', itemName: '', notes: '', showSugg: false, sugg: [] }]);
                       }}
-                      style={{ fontSize: '13px', color: '#059669', background: 'none', border: '1px dashed #6ee7b7', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', width: '100%' }}
+                      style={{ fontSize: '13px', color: 'var(--c-success)', background: 'none', border: '1px dashed var(--c-success-border)', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', width: '100%' }}
                     >
                       + إضافة ايتم آخر
                     </button>
@@ -2785,7 +2786,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* Doctor Name */}
               <div style={{ marginBottom: '16px', position: 'relative' }}>
                 <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>
-                  👨‍⚕️ اسم الطبيب <span style={{ color: '#ef4444' }}>*</span>
+                  👨‍⚕️ اسم الطبيب <span style={{ color: 'var(--c-danger)' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -2820,8 +2821,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             )}
                           </div>
                           {entry._inPlan
-                            ? <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ في البلان</span>
-                            : <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>خارج البلان</span>
+                            ? <span style={{ fontSize: '10px', background: 'var(--c-success-bg)', color: 'var(--c-success)', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ في البلان</span>
+                            : <span style={{ fontSize: '10px', background: 'var(--c-warning-bg)', color: 'var(--c-warning)', padding: '2px 7px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>خارج البلان</span>
                           }
                         </div>
                       </div>
@@ -2831,7 +2832,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 {/* Selected doctor badge */}
                 {clSelectedEntry && (
                   <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ background: '#d1fae5', color: '#065f46', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 600 }}>✓ في البلان</span>
+                    <span style={{ background: 'var(--c-success-bg)', color: 'var(--c-success)', borderRadius: '6px', padding: '3px 10px', fontSize: '12px', fontWeight: 600 }}>✓ في البلان</span>
                     {clSelectedEntry.doctor.specialty && <span style={{ fontSize: '12px', color: '#6b7280' }}>{clSelectedEntry.doctor.specialty}</span>}
                     {(clSelectedEntry.doctor.pharmacyName || clSelectedEntry.doctor.area?.name) && (
                       <span style={{ fontSize: '12px', color: '#9ca3af' }}>
@@ -2856,7 +2857,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Not-in-plan: catalog doctor found — show their details */}
               {clNotInPlan && clOtherDoc && (
-                <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: '#92400e', marginBottom: '16px' }}>
+                <div style={{ background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: 'var(--c-warning)', marginBottom: '16px' }}>
                   <div style={{ fontWeight: 600, marginBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>⚠️ الطبيب خارج البلان — سيُضاف تلقائياً عند التسجيل</span>
                     <button
@@ -2868,7 +2869,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         setClEditDocAreaName(clOtherDoc.area?.name || '');
                         setClEditDocError(''); setClEditDocOpen(true);
                       }}
-                      style={{ fontSize: '11px', background: '#fff', border: '1px solid #fcd34d', borderRadius: '5px', padding: '2px 8px', cursor: 'pointer', color: '#92400e' }}
+                      style={{ fontSize: '11px', background: '#fff', border: '1px solid var(--c-warning-border)', borderRadius: '5px', padding: '2px 8px', cursor: 'pointer', color: 'var(--c-warning)' }}
                     >✏️ تعديل</button>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', color: '#374151', fontSize: '12px' }}>
@@ -2887,17 +2888,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* ── "هل تقصد؟" block — shown after voice input when partial match found ── */}
               {clDidYouMean && (
-                <div style={{ background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ background: 'var(--c-accent-light)', border: '1px solid #93c5fd', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '18px' }}>🔍</span>
                   <span style={{ fontSize: '13px', color: '#1e3a5f', flex: 1 }}>
-                    هل تقصد <strong style={{ color: '#1d4ed8' }}>{clDidYouMean.candidate.doctor.name}</strong>؟
+                    هل تقصد <strong style={{ color: 'var(--c-accent)' }}>{clDidYouMean.candidate.doctor.name}</strong>؟
                     {clDidYouMean.candidate.doctor.specialty && <span style={{ color: '#6b7280', marginRight: '6px', fontSize: '12px' }}> — {clDidYouMean.candidate.doctor.specialty}</span>}
                   </span>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                       type="button"
                       onMouseDown={() => selectClEntry(clDidYouMean.candidate)}
-                      style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}
+                      style={{ background: 'var(--c-accent)', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: 600 }}
                     >نعم ✓</button>
                     <button
                       type="button"
@@ -2911,16 +2912,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* Missing fields block for existing doctor (in-plan or catalog) */}
               {!clManualMode && !clDidYouMean && clMissingFields.length > 0 && (clSelectedEntry || clOtherDoc) && (
                 <div style={{ background: clNotInPlan && clOtherDoc ? '#f0f9ff' : '#fff7ed', border: `2px solid ${clNotInPlan && clOtherDoc ? '#7dd3fc' : '#fb923c'}`, borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
-                  <div style={{ fontWeight: 700, fontSize: '13px', color: clNotInPlan && clOtherDoc ? '#0369a1' : '#c2410c', marginBottom: '10px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '13px', color: clNotInPlan && clOtherDoc ? 'var(--c-accent)' : '#c2410c', marginBottom: '10px' }}>
                     {clNotInPlan && clOtherDoc
                       ? '📋 تفاصيل الطبيب — راجع وعدّل إذا لزم'
                       : '⚠️ بيانات الطبيب غير مكتملة — يرجى تعبئة الحقول التالية قبل الإرسال'
-                    } <span style={{ color: '#ef4444' }}>*</span>
+                    } <span style={{ color: 'var(--c-danger)' }}>*</span>
                   </div>
                   <div style={{ display: 'grid', gap: '10px' }}>
                     {clMissingFields.includes('specialty') && (
                       <div style={{ position: 'relative' }}>
-                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: '#ef4444' }}>*</span></label>
+                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                         <input type="text" className="form-input" placeholder="اكتب الاختصاص..." value={clManualSpecialty} autoComplete="off"
                           onChange={async e => {
                             const v = e.target.value; setClManualSpecialty(v);
@@ -2942,7 +2943,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     )}
                     {clMissingFields.includes('pharmacy') && (
                       <div style={{ position: 'relative' }}>
-                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span></label>
+                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                         <input type="text" className="form-input" placeholder="اكتب اسم الصيدلية..." value={clManualPharmacy} autoComplete="off"
                           onChange={async e => {
                             const v = e.target.value; setClManualPharmacy(v);
@@ -2964,7 +2965,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     )}
                     {clMissingFields.includes('area') && (
                       <div style={{ position: 'relative' }}>
-                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
+                        <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                         <input type="text" className="form-input" placeholder="اكتب اسم المنطقة..." value={clManualAreaName} autoComplete="off"
                           onChange={e => {
                             const v = e.target.value; setClManualAreaName(v); setClManualAreaId('');
@@ -3018,11 +3019,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               {/* Manual mode: fill in doctor details */}
               {clManualMode && (
                 <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: '#b91c1c', marginBottom: '10px' }}>📋 "{clDoctor}" — طبيب جديد، يرجى تعبئة الحقول التالية <span style={{ color: '#ef4444' }}>*</span></div>
+                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--c-danger)', marginBottom: '10px' }}>📋 "{clDoctor}" — طبيب جديد، يرجى تعبئة الحقول التالية <span style={{ color: 'var(--c-danger)' }}>*</span></div>
                   <div style={{ display: 'grid', gap: '10px' }}>
                     {/* Specialty */}
                     <div style={{ position: 'relative' }}>
-                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: '#ef4444' }}>*</span></label>
+                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🔬 الاختصاص <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                       <input
                         type="text" className="form-input"
                         placeholder="اكتب الاختصاص..."
@@ -3057,7 +3058,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </div>
                     {/* Pharmacy name */}
                     <div style={{ position: 'relative' }}>
-                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: '#ef4444' }}>*</span></label>
+                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>🏪 اسم الصيدلية <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                       <input
                         type="text" className="form-input"
                         placeholder="اكتب اسم الصيدلية..."
@@ -3092,7 +3093,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     </div>
                     {/* Area with autocomplete */}
                     <div style={{ position: 'relative' }}>
-                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: '#ef4444' }}>*</span></label>
+                      <label style={{ fontSize: '12px', color: '#374151', display: 'block', marginBottom: '4px' }}>📍 المنطقة <span style={{ color: 'var(--c-danger)' }}>*</span></label>
                       <input
                         type="text" className="form-input"
                         placeholder="اكتب اسم المنطقة..."
@@ -3113,7 +3114,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         style={{ width: '100%', boxSizing: 'border-box', fontSize: '13px', paddingLeft: clManualAreaId ? '28px' : undefined }}
                       />
                       {clManualAreaId && (
-                        <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(4px)', fontSize: '11px', color: '#059669', fontWeight: 700 }}>✓</span>
+                        <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(4px)', fontSize: '11px', color: 'var(--c-success)', fontWeight: 700 }}>✓</span>
                       )}
                       {clManualAreaShow && clManualAreaSugg.length > 0 && (
                         <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: '2px', overflow: 'hidden' }}>
@@ -3184,14 +3185,14 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     }}
                     style={{
                       position: 'absolute', left: '5px', top: '50%', transform: 'translateY(-50%)',
-                      background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '5px',
-                      color: '#2563eb', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
+                      background: 'var(--c-accent-light)', border: '1px solid #bfdbfe', borderRadius: '5px',
+                      color: 'var(--c-accent)', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
                       padding: '2px 7px', lineHeight: '1.4', touchAction: 'none', zIndex: 2,
                     }}
                     title="اختر ايتم من القائمة"
                   >←</button>
                   {clItemId && (
-                    <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#059669', fontWeight: 600 }}>✓</span>
+                    <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: 'var(--c-success)', fontWeight: 600 }}>✓</span>
                   )}
                   {clItemShowSugg && clItemSugg.length > 0 && (
                     <>
@@ -3232,8 +3233,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     }}
                     style={{
                       width: 13, height: 13, borderRadius: '50%', border: '2px solid',
-                      borderColor: clDualFeedback ? '#6366f1' : '#d1d5db',
-                      background: clDualFeedback ? '#6366f1' : '#fff',
+                      borderColor: clDualFeedback ? 'var(--c-accent)' : '#d1d5db',
+                      background: clDualFeedback ? 'var(--c-accent)' : '#fff',
                       cursor: 'pointer', padding: 0, flexShrink: 0, transition: 'all 0.2s',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
@@ -3302,8 +3303,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* GPS Warning — shown when user tries to submit without location */}
               {clGpsWarning && clGpsStatus !== 'got' && (
-                <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginBottom: '14px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#92400e' }}>
+                <div style={{ background: 'var(--c-warning-bg)', border: '2px solid var(--c-warning)', borderRadius: '10px', padding: '14px', marginBottom: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--c-warning)' }}>
                     📍 الموقع الجغرافي غير مفعّل، يرجى تفعيل الموقع
                   </div>
                 </div>
@@ -3311,7 +3312,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
               {/* Error */}
               {clError && (
-                <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', fontSize: '13px', color: '#991b1b' }}>
+                <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', fontSize: '13px', color: 'var(--c-danger)' }}>
                   ❌ {clError}
                 </div>
               )}
@@ -3334,7 +3335,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       : !clPharmacyName.trim()
                   )}
                   style={{
-                    padding: '8px 24px', background: '#059669', border: 'none', borderRadius: '8px',
+                    padding: '8px 24px', background: 'var(--c-success)', border: 'none', borderRadius: '8px',
                     fontSize: '14px', cursor: 'pointer', color: '#fff', fontWeight: 700,
                     opacity: (clSaving || (callType === 'doctor'
                       ? (activePlan
@@ -3378,27 +3379,17 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               }}
               onClick={() => { if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} openCallLog(); } }}
               title="اضغط: تسجيل زيارة | اضغط مطوّل: زيارة صوتية"
+              className="fab-btn fab-btn--accent"
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #8B1A1A, #6b1414)',
-                color: '#fff',
-                border: 'none',
                 fontSize: 28,
                 fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 4px 20px rgba(5, 150, 105, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
                 position: 'relative',
                 zIndex: 1,
                 lineHeight: 1,
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
               }}
-            >+</button>
+            ><Icon name="fabCall" size={26} /></button>
           </div>
         )}
       </div>
@@ -3459,11 +3450,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           }}
         >
           {/* Header */}
-          <div style={{ padding: '10px 14px', background: openDropdown === 'sales' ? '#d1fae5' : openDropdown === 'returns' ? '#fee2e2' : '#eef2ff', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700, fontSize: '13px', color: openDropdown === 'sales' ? '#065f46' : openDropdown === 'returns' ? '#991b1b' : '#3730a3' }}>
+          <div style={{ padding: '10px 14px', background: openDropdown === 'sales' ? 'var(--c-success-bg)' : openDropdown === 'returns' ? 'var(--c-danger-bg)' : 'var(--c-accent-light)', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 700, fontSize: '13px', color: openDropdown === 'sales' ? 'var(--c-success)' : openDropdown === 'returns' ? 'var(--c-danger)' : 'var(--c-accent)' }}>
               {openDropdown === 'sales' ? '📦 ' + t.dashboard.totalSales : openDropdown === 'returns' ? '↩ ' + t.dashboard.returns : '🏆 ' + t.dashboard.net}
             </span>
-            <span style={{ fontWeight: 800, fontSize: '15px', color: openDropdown === 'sales' ? '#10b981' : openDropdown === 'returns' ? '#ef4444' : '#6366f1' }}>
+            <span style={{ fontWeight: 800, fontSize: '15px', color: openDropdown === 'sales' ? 'var(--c-success)' : openDropdown === 'returns' ? 'var(--c-danger)' : 'var(--c-accent)' }}>
               {fmtMoney(openDropdown === 'sales' ? activeStats.totalSalesValue : openDropdown === 'returns' ? activeStats.totalReturnsValue : netValue)}
             </span>
           </div>
@@ -3474,7 +3465,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             ) : (
               activeStats.files.map(f => {
                 const val = openDropdown === 'sales' ? f.salesValue : openDropdown === 'returns' ? f.returnsValue : f.salesValue - f.returnsValue;
-                const color = openDropdown === 'sales' ? '#10b981' : openDropdown === 'returns' ? '#ef4444' : '#6366f1';
+                const color = openDropdown === 'sales' ? 'var(--c-success)' : openDropdown === 'returns' ? 'var(--c-danger)' : 'var(--c-accent)';
                 return (
                   <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid #f1f5f9', gap: '10px' }}>
                     <span style={{ fontSize: '12px', color: '#475569', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {f.name}</span>
@@ -3518,7 +3509,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           onClick={() => setShowCallsSection(v => { const n = !v; localStorage.setItem('dash_calls_open', String(n)); return n; })}
           style={{
             width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: '#fff', border: '1px solid #e2e8f0', borderRadius: showCallsSection ? '12px 12px 0 0' : 12,
+            background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: showCallsSection ? '12px 12px 0 0' : 12,
             padding: '12px 18px', cursor: 'pointer', marginBottom: showCallsSection ? 0 : 0,
             boxShadow: '0 1px 4px rgba(0,0,0,0.05)', transition: 'border-radius 0.2s',
           }}
@@ -3526,18 +3517,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           <h2 className="section-title" style={{ margin: 0, fontSize: 16 }}>
             📞 {(t.dashboard as any).dailyCalls}
             {callsData && callsData.total > 0 && (
-              <span style={{ marginRight: 8, fontSize: 12, fontWeight: 600, background: '#eef2ff', color: '#4338ca', borderRadius: 20, padding: '2px 10px' }}>{callsData.total}</span>
+              <span style={{ marginRight: 8, fontSize: 12, fontWeight: 600, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 20, padding: '2px 10px' }}>{callsData.total}</span>
             )}
           </h2>
-          <span style={{ fontSize: 20, color: '#6366f1', transition: 'transform 0.2s', transform: showCallsSection ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>⌄</span>
+          <span style={{ fontSize: 20, color: 'var(--c-accent)', transition: 'transform 0.2s', transform: showCallsSection ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>⌄</span>
         </button>
 
         {showCallsSection && (
-        <div style={{ border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', overflow: 'hidden', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+        <div style={{ border: '1px solid var(--c-border)', borderTop: 'none', borderRadius: '0 0 12px 12px', overflow: 'hidden', background: 'var(--c-surface)', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '10px', padding: '10px 16px 6px' }}>
             {/* Date range pickers */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', borderRadius: '10px', padding: '5px 10px', border: '1px solid #e2e8f0' }}>
-              <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>📅 من:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--c-bg)', borderRadius: '10px', padding: '5px 10px', border: '1px solid var(--c-border)' }}>
+              <span style={{ fontSize: '13px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}><Icon name="calendar" size={13} /> من:</span>
               <input
                 type="date"
                 className="form-input"
@@ -3545,7 +3536,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 value={callsDateFrom}
                 onChange={e => handleCallsDateFromChange(e.target.value)}
               />
-              <span style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>إلى:</span>
+              <span style={{ fontSize: '13px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>إلى:</span>
               <input
                 type="date"
                 className="form-input"
@@ -3558,7 +3549,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <button
                   onClick={() => { setCallsDateFrom(todayStr); setCallsDateTo(todayStr); loadDailyCalls(todayStr, todayStr, callsRepId); }}
                   title="العودة لليوم الحالي"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#6366f1', fontWeight: 700, padding: '2px 4px', whiteSpace: 'nowrap' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: 'var(--c-accent)', fontWeight: 700, padding: '2px 4px', whiteSpace: 'nowrap' }}
                 >اليوم</button>
               )}
             </div>
@@ -3568,8 +3559,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               if (repList.length === 0) return null;
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <label style={{ fontSize: '13px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                    👤 {(t.dashboard as any).dailyCallsRep}:
+                  <label style={{ fontSize: '13px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                    <Icon name="person" size={13} /> {(t.dashboard as any).dailyCallsRep}:
                   </label>
                   <select
                     className="form-input"
@@ -3641,7 +3632,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     (!v.scientificRep && (v as any).user && `user:${(v as any).user.id}` === String(rep.id))
                   ).length;
                   return (
-                    <span key={String(rep.id)} style={{ fontSize: '12px', background: '#eef2ff', color: '#4f46e5', borderRadius: '8px', padding: '2px 10px' }}>
+                    <span key={String(rep.id)} style={{ fontSize: '12px', background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: '8px', padding: '2px 10px' }}>
                       👤 {rep.name}: {cnt}
                     </span>
                   );
@@ -3657,7 +3648,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   style={{ flex: 1, minWidth: 150, padding: '5px 10px', fontSize: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff' }}
                 />
                 <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'doctor' ? '#6366f1' : '#d1d5db'}`, background: fType === 'doctor' ? '#eef2ff' : '#fff', color: fType === 'doctor' ? '#4338ca' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'doctor' ? 'var(--c-accent)' : '#d1d5db'}`, background: fType === 'doctor' ? 'var(--c-accent-light)' : '#fff', color: fType === 'doctor' ? 'var(--c-accent)' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   👨‍⚕️ طبيب
                 </button>
                 <button
@@ -3671,7 +3662,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 </button>
                 {(fSearch || fType !== 'all' || fDouble) && (
                   <button onClick={() => { setFSearch(''); setFType('all'); setFDouble(false); }}
-                    style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: '1.5px solid #ef4444', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: '1.5px solid var(--c-danger)', background: '#fff', color: 'var(--c-danger)', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                     ✕ مسح
                   </button>
                 )}
@@ -3733,7 +3724,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           {isOutOfPlan && <span style={{ fontSize: 10, background: '#fed7aa', color: '#9a3412', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>خارج البلان</span>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-                          {items.length > 0 && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>{items.join(' · ')}</span>}
+                          {items.length > 0 && <span style={{ fontSize: 10, color: 'var(--c-accent)', fontWeight: 600 }}>{items.join(' · ')}</span>}
                           {isManagerOrAdmin && repName && <span style={{ fontSize: 10, color: '#64748b' }}>👤 {repName}</span>}
                         </div>
                       </div>
@@ -3749,7 +3740,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         <div style={{ position: 'relative' }}>
                           <button
                             onClick={e => { e.stopPropagation(); v.notes && setShowItemNotesId(showItemNotesId === v.id ? null : v.id); }}
-                            style={{ background: 'none', border: 'none', padding: 0, fontSize: 15, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px #f59e0b)' : 'none' }}
+                            style={{ background: 'none', border: 'none', padding: 0, fontSize: 15, lineHeight: 1, cursor: v.notes ? 'pointer' : 'default', opacity: v.notes ? 1 : 0.2, filter: v.notes ? 'drop-shadow(0 0 4px var(--c-warning))' : 'none' }}
                           >📝</button>
                           {showItemNotesId === v.id && v.notes && (
                             <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '7px 11px', fontSize: 11, zIndex: 1000, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', minWidth: 150, maxWidth: 230, whiteSpace: 'normal', direction: 'rtl', marginTop: 4 }}
@@ -3772,8 +3763,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                             onTouchStart={() => { likeTimer.current = setTimeout(() => setShowLikersId(v.id), 600); }}
                             onTouchEnd={() => clearTimeout(likeTimer.current)}
                             style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', border: 'none', background: 'transparent', cursor: isManagerOrAdmin ? 'pointer' : 'default' }}>
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill={likeCount > 0 ? '#ef4444' : 'none'} stroke={likeCount > 0 ? '#ef4444' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                            {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', borderRadius: '50%', fontSize: 9, fontWeight: 800, width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill={likeCount > 0 ? 'var(--c-danger)' : 'none'} stroke={likeCount > 0 ? 'var(--c-danger)' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                            {likeCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: 'var(--c-danger)', color: '#fff', borderRadius: '50%', fontSize: 9, fontWeight: 800, width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #fff' }}>{likeCount}</span>}
                           </button>
                           {showLikersId === v.id && (
                             <div style={{ position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)', minWidth: 110 }}
@@ -3881,7 +3872,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                           {group.map(a => (
-                            <span key={a.id} style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '5px 12px', fontSize: '13px', color: '#0369a1', fontWeight: 500 }}>
+                            <span key={a.id} style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '5px 12px', fontSize: '13px', color: 'var(--c-accent)', fontWeight: 500 }}>
                               📍 {a.name}
                             </span>
                           ))}
@@ -3924,16 +3915,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   </thead>
                   <tbody>
                     {files.map((f, i) => (
-                      <tr key={f.id} style={{ background: activeFileIds.includes(f.id) ? '#f0fdf4' : analyzeFile?.id === f.id ? '#fefce8' : undefined }}>
+                      <tr key={f.id} style={{ background: activeFileIds.includes(f.id) ? 'var(--c-success-bg)' : analyzeFile?.id === f.id ? '#fefce8' : undefined }}>
                         <td>{i + 1}</td>
-                        <td><strong>{f.originalName}</strong>{activeFileIds.includes(f.id) && <span style={{ marginRight: '6px', fontSize: '0.75rem', background: '#dcfce7', color: '#16a34a', borderRadius: '4px', padding: '2px 6px' }}>{t.dashboard.active}</span>}</td>
+                        <td><strong>{f.originalName}</strong>{activeFileIds.includes(f.id) && <span style={{ marginRight: '6px', fontSize: '0.75rem', background: 'var(--c-success-bg)', color: 'var(--c-success)', borderRadius: '4px', padding: '2px 6px' }}>{t.dashboard.active}</span>}</td>
                         <td>{f.rowCount.toLocaleString('ar-IQ-u-nu-latn')}</td>
                         <td>{f._count?.sales?.toLocaleString('ar-IQ-u-nu-latn') ?? '—'}</td>
                         <td>{fmtDate(f.uploadedAt)}</td>
                         <td style={{ display: 'flex', gap: '6px' }}>
                           <button
                             className="btn btn--primary"
-                            style={{ padding: '4px 12px', fontSize: '0.8rem', background: activeFileIds.includes(f.id) ? '#16a34a' : undefined }}
+                            style={{ padding: '4px 12px', fontSize: '0.8rem', background: activeFileIds.includes(f.id) ? 'var(--c-success)' : undefined }}
                             onClick={() => { onFileActivated(f.id); }}
                           >
                             {activeFileIds.includes(f.id) ? t.dashboard.deactivate : t.dashboard.activate}

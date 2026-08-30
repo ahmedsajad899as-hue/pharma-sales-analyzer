@@ -22,6 +22,27 @@ export default {
         },
         surface: '#ffffff',
         'app-bg': '#f0f2f7',
+        success: {
+          DEFAULT: '#0d9f6e',
+          bg:      '#e6f7f2',
+          border:  '#a7e8d3',
+        },
+        warning: {
+          DEFAULT: '#d97706',
+          bg:      '#fef3dc',
+          border:  '#fde68a',
+        },
+        danger: {
+          DEFAULT: '#dc2626',
+          bg:      '#fef2f2',
+          border:  '#fecaca',
+        },
+        purple: {
+          DEFAULT: '#6d28d9',
+          hover:   '#5b21b6',
+          bg:      '#ede9fe',
+          border:  '#c4b5fd',
+        },
         border: {
           DEFAULT: '#dde3ef',
           light:   '#edf0f7',

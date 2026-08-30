@@ -2,6 +2,7 @@
 import { useBackHandler } from '../hooks/useBackHandler';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
+import { Icon } from '../config/icons';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ColMeta {
@@ -1731,13 +1732,13 @@ table{border-collapse:collapse;width:100%}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1e293b' }}>📊 بيانات المبيعات</h1>
-          <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>تحليل ملفات Excel مع البحث المتعدد — مناطق · مخازن · ايتمات</p>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--c-text-primary)' }}>📊 بيانات المبيعات</h1>
+          <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--c-text-muted)' }}>تحليل ملفات Excel مع البحث المتعدد — مناطق · مخازن · ايتمات</p>
         </div>
         {hasFeature('sales_data_upload') && (
         <button onClick={openFilePicker} disabled={importing}
-          style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
-          ＋ استيراد Excel
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: 'var(--c-accent)', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
+          <Icon name="import" size={15} /> استيراد Excel
         </button>
         )}
       </div>
@@ -1749,19 +1750,19 @@ table{border-collapse:collapse;width:100%}
 
       {/* Import progress / errors */}
       {(importing || importErr) && (
-        <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '12px 16px', marginBottom: 14 }}>
+        <div style={{ background: 'var(--c-bg)', border: '1.5px solid var(--c-border)', borderRadius: 14, padding: '12px 16px', marginBottom: 14 }}>
           {importing && importProgress && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 6 }}>
                 ⏳ جاري استيراد الملفات ({importProgress.current} / {importProgress.total}) — {importProgress.name}
               </div>
-              <div style={{ height: 6, borderRadius: 99, background: '#e2e8f0', overflow: 'hidden' }}>
-                <div style={{ width: `${(importProgress.current / importProgress.total) * 100}%`, height: '100%', background: '#6366f1', transition: 'width 0.3s' }} />
+              <div style={{ height: 6, borderRadius: 99, background: 'var(--c-border)', overflow: 'hidden' }}>
+                <div style={{ width: `${(importProgress.current / importProgress.total) * 100}%`, height: '100%', background: 'var(--c-accent)', transition: 'width 0.3s' }} />
               </div>
             </div>
           )}
           {importErr && (
-            <div style={{ marginTop: importing ? 10 : 0, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#b91c1c', whiteSpace: 'pre-line' }}>
+            <div style={{ marginTop: importing ? 10 : 0, padding: '8px 12px', background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 8, fontSize: 12, color: 'var(--c-danger)', whiteSpace: 'pre-line' }}>
               ⚠️ {importErr}
             </div>
           )}
@@ -1776,8 +1777,8 @@ table{border-collapse:collapse;width:100%}
               <div key={f.id} style={{ display: 'flex' }}>
                 <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setPage(1); }}
                   style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none',
-                    background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: activeId === f.id ? '#4338ca' : '#64748b',
+                    border: `1.5px solid ${activeId === f.id ? 'var(--c-accent)' : 'var(--c-border)'}`, borderLeft: 'none',
+                    background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: activeId === f.id ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                     maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                   title={`${f.name} · ${f.rows.length} صف · ${f.areaCols.length} مخزن · ${fmtDate(f.uploadedAt)}`}>
                   {f.name.startsWith('دمج:') ? '🔗' : '📄'} {f.name}
@@ -1786,14 +1787,14 @@ table{border-collapse:collapse;width:100%}
                   <button onClick={() => { if (activeId !== f.id) { setActiveId(f.id); } setTimeout(doRebuildMerge, 0); }}
                     title="إعادة بناء الملف المدمج بأحدث التحسينات"
                     style={{ padding: '5px 8px', fontSize: 11, cursor: 'pointer',
-                      border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderLeft: 'none', borderRight: 'none',
-                      background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#7c3aed' }}>🔄</button>
+                      border: `1.5px solid ${activeId === f.id ? 'var(--c-accent)' : 'var(--c-border)'}`, borderLeft: 'none', borderRight: 'none',
+                      background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: '#7c3aed' }}>🔄</button>
                 )}
                 {hasFeature('sales_data_delete') && (
                 <button onClick={() => deleteFile(f.id)} title="حذف"
                   style={{ padding: '5px 9px', borderRadius: '0 20px 20px 0', fontSize: 11, cursor: 'pointer',
-                    border: `1.5px solid ${activeId === f.id ? '#6366f1' : '#e2e8f0'}`, borderRight: 'none',
-                    background: activeId === f.id ? '#eef2ff' : '#f8fafc', color: '#ef4444' }}>×</button>
+                    border: `1.5px solid ${activeId === f.id ? 'var(--c-accent)' : 'var(--c-border)'}`, borderRight: 'none',
+                    background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: 'var(--c-danger)' }}>×</button>
                 )}
               </div>
             ))}
@@ -1802,9 +1803,9 @@ table{border-collapse:collapse;width:100%}
               <button
                 onClick={() => { setShowMergePanel(v => !v); setMergeChecked(new Set()); setShowAddToMerge(false); }}
                 style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  border: `1.5px solid ${showMergePanel ? '#8b5cf6' : '#e2e8f0'}`,
-                  background: showMergePanel ? '#ede9fe' : '#f8fafc',
-                  color: showMergePanel ? '#7c3aed' : '#64748b' }}>
+                  border: `1.5px solid ${showMergePanel ? '#8b5cf6' : 'var(--c-border)'}`,
+                  background: showMergePanel ? '#ede9fe' : 'var(--c-bg)',
+                  color: showMergePanel ? '#7c3aed' : 'var(--c-text-secondary)' }}>
                 🔗 دمج ملفات
               </button>
             )}
@@ -1813,9 +1814,9 @@ table{border-collapse:collapse;width:100%}
               <button
                 onClick={() => { setShowAddToMerge(v => !v); setAddChecked(new Set()); setShowMergePanel(false); }}
                 style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  border: `1.5px solid ${showAddToMerge ? '#0891b2' : '#e2e8f0'}`,
-                  background: showAddToMerge ? '#e0f2fe' : '#f8fafc',
-                  color: showAddToMerge ? '#0e7490' : '#64748b' }}>
+                  border: `1.5px solid ${showAddToMerge ? '#0891b2' : 'var(--c-border)'}`,
+                  background: showAddToMerge ? '#e0f2fe' : 'var(--c-bg)',
+                  color: showAddToMerge ? '#0e7490' : 'var(--c-text-secondary)' }}>
                 ➕ إضافة ملف للدمج
               </button>
             )}
@@ -1829,9 +1830,9 @@ table{border-collapse:collapse;width:100%}
                 {files.map(f => (
                   <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
                     background: mergeChecked.has(f.id) ? '#ede9fe' : '#fff',
-                    border: `1.5px solid ${mergeChecked.has(f.id) ? '#8b5cf6' : '#e2e8f0'}`,
+                    border: `1.5px solid ${mergeChecked.has(f.id) ? '#8b5cf6' : 'var(--c-border)'}`,
                     borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: mergeChecked.has(f.id) ? 700 : 400,
-                    color: mergeChecked.has(f.id) ? '#7c3aed' : '#475569', transition: 'all 0.1s' }}>
+                    color: mergeChecked.has(f.id) ? '#7c3aed' : 'var(--c-text-secondary)', transition: 'all 0.1s' }}>
                     <input type="checkbox" checked={mergeChecked.has(f.id)}
                       onChange={() => setMergeChecked(prev => { const n = new Set(prev); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
                       style={{ accentColor: '#8b5cf6' }} />
@@ -1842,11 +1843,11 @@ table{border-collapse:collapse;width:100%}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={doMerge} disabled={mergeChecked.size < 2}
                   style={{ padding: '6px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: mergeChecked.size < 2 ? 'not-allowed' : 'pointer',
-                    background: mergeChecked.size < 2 ? '#e2e8f0' : '#7c3aed', color: mergeChecked.size < 2 ? '#94a3b8' : '#fff', border: 'none' }}>
+                    background: mergeChecked.size < 2 ? 'var(--c-border)' : '#7c3aed', color: mergeChecked.size < 2 ? 'var(--c-text-muted)' : '#fff', border: 'none' }}>
                   🔗 دمج المحدد ({mergeChecked.size})
                 </button>
                 <button onClick={() => { setShowMergePanel(false); setMergeChecked(new Set()); }}
-                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', fontWeight: 600 }}>
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'var(--c-border-light)', color: 'var(--c-text-secondary)', border: '1px solid var(--c-border)', fontWeight: 600 }}>
                   إلغاء
                 </button>
               </div>
@@ -1862,20 +1863,20 @@ table{border-collapse:collapse;width:100%}
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#0e7490', marginBottom: 6 }}>
                   ➕ إضافة ملفات إلى الدمج الحالي
                 </div>
-                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginBottom: 10 }}>
                   الملفات المدمجة حالياً: {activeFile.regions.join(' · ')}
                 </div>
                 {available.length === 0 ? (
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد ملفات إضافية متاحة للإضافة.</div>
+                  <div style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>لا توجد ملفات إضافية متاحة للإضافة.</div>
                 ) : (
                   <>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                       {available.map(f => (
                         <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
                           background: addChecked.has(f.id) ? '#e0f2fe' : '#fff',
-                          border: `1.5px solid ${addChecked.has(f.id) ? '#0891b2' : '#e2e8f0'}`,
+                          border: `1.5px solid ${addChecked.has(f.id) ? '#0891b2' : 'var(--c-border)'}`,
                           borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: addChecked.has(f.id) ? 700 : 400,
-                          color: addChecked.has(f.id) ? '#0e7490' : '#475569', transition: 'all 0.1s' }}>
+                          color: addChecked.has(f.id) ? '#0e7490' : 'var(--c-text-secondary)', transition: 'all 0.1s' }}>
                           <input type="checkbox" checked={addChecked.has(f.id)}
                             onChange={() => setAddChecked(prev => { const n = new Set(prev); n.has(f.id) ? n.delete(f.id) : n.add(f.id); return n; })}
                             style={{ accentColor: '#0891b2' }} />
@@ -1886,11 +1887,11 @@ table{border-collapse:collapse;width:100%}
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={doAddToMerge} disabled={addChecked.size < 1}
                         style={{ padding: '6px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addChecked.size < 1 ? 'not-allowed' : 'pointer',
-                          background: addChecked.size < 1 ? '#e2e8f0' : '#0891b2', color: addChecked.size < 1 ? '#94a3b8' : '#fff', border: 'none' }}>
+                          background: addChecked.size < 1 ? 'var(--c-border)' : '#0891b2', color: addChecked.size < 1 ? 'var(--c-text-muted)' : '#fff', border: 'none' }}>
                         ➕ إضافة المحدد ({addChecked.size})
                       </button>
                       <button onClick={() => { setShowAddToMerge(false); setAddChecked(new Set()); }}
-                        style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0', fontWeight: 600 }}>
+                        style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', background: 'var(--c-border-light)', color: 'var(--c-text-secondary)', border: '1px solid var(--c-border)', fontWeight: 600 }}>
                         إلغاء
                       </button>
                     </div>
@@ -1904,17 +1905,17 @@ table{border-collapse:collapse;width:100%}
 
       {/* Empty state */}
       {files.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '80px 20px', color: '#94a3b8', background: '#f8fafc', borderRadius: 16, border: '2px dashed #e2e8f0' }}>
+        <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--c-text-muted)', background: 'var(--c-bg)', borderRadius: 16, border: '2px dashed var(--c-border)' }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>📊</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#64748b', marginBottom: 8 }}>لا توجد بيانات بعد</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 8 }}>لا توجد بيانات بعد</div>
           <div style={{ fontSize: 13, marginBottom: 20 }}>ارفع ملف Excel يحتوي على بيانات المبيعات</div>
           {hasFeature('sales_data_upload') && (
           <button onClick={openFilePicker} disabled={importing}
-            style={{ padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: '#6366f1', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
-            ＋ استيراد ملف Excel
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: 'var(--c-accent)', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
+            <Icon name="import" size={15} /> استيراد ملف Excel
           </button>
           )}
-          <div style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>يمكنك اختيار أكثر من ملف في نفس الوقت</div>
+          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--c-text-muted)' }}>يمكنك اختيار أكثر من ملف في نفس الوقت</div>
         </div>
       )}
 
@@ -1923,19 +1924,19 @@ table{border-collapse:collapse;width:100%}
         <>
           {/* Merge debug panel — visible only for merged files that have _mergeDebug */}
           {activeFile._mergeDebug && (
-            <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 12 }}>
-              <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+            <div style={{ background: 'var(--c-warning-bg)', border: '1.5px solid var(--c-warning-border)', borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: 'var(--c-warning)', marginBottom: 6 }}>
                 🔎 تشخيص الدمج — الأعمدة المكتشفة لكل ملف:
-                <span style={{ fontWeight: 400, color: '#78350f', marginRight: 6 }}>إذا ظهر "(لم يُعثر)" في عمود الشركة، يعني الملف ما فيه عمود شركة معروف → راح يستخدم اسم الملف كشركة → ايتمات مكررة!</span>
+                <span style={{ fontWeight: 400, color: 'var(--c-warning)', marginRight: 6 }}>إذا ظهر "(لم يُعثر)" في عمود الشركة، يعني الملف ما فيه عمود شركة معروف → راح يستخدم اسم الملف كشركة → ايتمات مكررة!</span>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {activeFile._mergeDebug.map((d, i) => {
                   const warn = d.companyCol.includes('لم يُعثر');
                   return (
-                    <div key={i} style={{ background: warn ? '#fee2e2' : '#f0fdf4', border: `1px solid ${warn ? '#fca5a5' : '#bbf7d0'}`, borderRadius: 8, padding: '6px 10px', minWidth: 160 }}>
-                      <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>📄 {d.file} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({d.rows} صف)</span></div>
-                      <div style={{ color: warn ? '#dc2626' : '#16a34a' }}>🏢 شركة: <strong>{d.companyCol}</strong></div>
-                      <div style={{ color: '#64748b' }}>💊 ايتم: <strong>{d.itemCol}</strong></div>
+                    <div key={i} style={{ background: warn ? '#fee2e2' : 'var(--c-success-bg)', border: `1px solid ${warn ? 'var(--c-danger-border)' : 'var(--c-success-border)'}`, borderRadius: 8, padding: '6px 10px', minWidth: 160 }}>
+                      <div style={{ fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 2 }}>📄 {d.file} <span style={{ color: 'var(--c-text-muted)', fontWeight: 400 }}>({d.rows} صف)</span></div>
+                      <div style={{ color: warn ? 'var(--c-danger)' : 'var(--c-success)' }}>🏢 شركة: <strong>{d.companyCol}</strong></div>
+                      <div style={{ color: 'var(--c-text-secondary)' }}>💊 ايتم: <strong>{d.itemCol}</strong></div>
                     </div>
                   );
                 })}
@@ -1946,47 +1947,47 @@ table{border-collapse:collapse;width:100%}
           {/* Summary cards */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
             {[
-              { icon: '💊', label: 'إجمالي الايتمات',      value: activeFile.rows.length },
-              { icon: '📍', label: 'المناطق',               value: activeFile.regions.length },
-              { icon: '🏪', label: 'المذاخر',               value: activeFile.areaCols.length },
-              { icon: '🔢', label: showValue ? 'مجموع القيمة المالية' : 'مجموع المبيعات المرئية', value: fmtNum(showValue ? filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0) : grandTotal) },
+              { icon: 'drug' as const,     color: 'var(--c-accent)',  label: 'إجمالي الايتمات',      value: activeFile.rows.length },
+              { icon: 'location' as const, color: 'var(--c-success)', label: 'المناطق',               value: activeFile.regions.length },
+              { icon: 'pharmacy' as const, color: 'var(--c-warning)', label: 'المذاخر',               value: activeFile.areaCols.length },
+              { icon: 'count' as const,    color: 'var(--c-purple)',  label: showValue ? 'مجموع القيمة المالية' : 'مجموع المبيعات المرئية', value: fmtNum(showValue ? filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0) : grandTotal) },
             ].map(s => (
-              <div key={s.label} style={{ flex: '1 1 120px', background: '#fff', borderRadius: 12, padding: '12px 16px', border: '1.5px solid #e2e8f0', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-                <div style={{ fontSize: 20 }}>{s.icon}</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#6366f1', lineHeight: 1.3 }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{s.label}</div>
+              <div key={s.label} style={{ flex: '1 1 120px', background: '#fff', borderRadius: 12, padding: '12px 16px', border: '1.5px solid var(--c-border)', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', color: s.color }}><Icon name={s.icon} size={20} /></div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1.3 }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 2 }}>{s.label}</div>
               </div>
             ))}
           </div>
 
           {/* Filter Panel */}
-          <div style={{ background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+          <div style={{ background: '#fff', border: '1.5px solid var(--c-border)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
 
             {/* Item search — always at top */}
             <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: `1.5px solid ${itemQuery || selectedItems.length > 0 ? '#6366f1' : '#e2e8f0'}`, borderRadius: 10, padding: '7px 12px', boxShadow: itemQuery || selectedItems.length > 0 ? '0 0 0 3px rgba(99,102,241,0.08)' : 'none' }}>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--c-bg)', border: `1.5px solid ${itemQuery || selectedItems.length > 0 ? 'var(--c-accent)' : 'var(--c-border)'}`, borderRadius: 10, padding: '7px 12px', boxShadow: itemQuery || selectedItems.length > 0 ? '0 0 0 3px rgba(99,102,241,0.08)' : 'none' }}>
                 <span style={{ fontSize: 15 }}>🔍</span>
                 <input
                   value={itemQuery}
                   onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); }}
                   placeholder="ابحث عن ايتم..."
-                  style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: '#1e293b' }}
+                  style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: 'var(--c-text-primary)' }}
                 />
                 {(itemQuery || selectedItems.length > 0) && (
-                  <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setSelectedItems([]); setShortageOnlyMode(false); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                  <button onMouseDown={e => { e.preventDefault(); setItemQuery(''); setSelectedItems([]); setShortageOnlyMode(false); setPage(1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
                 )}
               </div>
               {(itemQuery || selectedItems.length > 0) && (
-                <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ {filteredRows.length} ايتم</span>
+                <span style={{ fontSize: 11, color: 'var(--c-success)', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ {filteredRows.length} ايتم</span>
               )}
             </div>
 
             {/* Regions */}
             <div style={{ marginBottom: regionFilter !== 'all' && !isMultiRegion ? 12 : 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                📍 المناطق
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="location" size={13} /> المناطق
                 {isMultiRegion && (
-                  <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 800 }}>
+                  <span style={{ background: 'var(--c-accent)', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 800 }}>
                     {selectedRegions.length} محدد
                   </span>
                 )}
@@ -2003,10 +2004,10 @@ table{border-collapse:collapse;width:100%}
             {regionFilter !== 'all' && (() => {
               return (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  🏪 المخزن
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="pharmacy" size={13} /> المخزن
                   {isMultiRegion && warehouseKeys.size > 0 && (
-                    <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={{ fontSize: 10, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 700 }}>مسح ✕</button>
+                    <button onClick={() => { setWarehouseKeys(new Set()); setPage(1); }} style={{ fontSize: 10, color: 'var(--c-danger)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 700 }}>مسح ✕</button>
                   )}
                 </div>
                 {isMultiRegion
@@ -2014,7 +2015,7 @@ table{border-collapse:collapse;width:100%}
                       const whInRegion = activeFile.areaCols.filter(ac => ac.region === region);
                       return (
                         <div key={region} style={{ marginBottom: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', marginBottom: 4 }}>📍 {region}</div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 4 }}>📍 {region}</div>
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                             {whInRegion.map(ac => (
                               <button key={ac.key} onClick={() => toggleWH(ac.key)} style={fp(warehouseKeys.has(ac.key), true)}>{ac.label}</button>
@@ -2039,7 +2040,7 @@ table{border-collapse:collapse;width:100%}
             {/* Companies */}
             {companyCol && companies.length > 0 && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>🏢 الشركات</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 6 }}>🏢 الشركات</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={clearCompanies} style={fp(selectedCompanies.size === 0)}>الكل</button>
                   {companies.map(c => (
@@ -2074,27 +2075,27 @@ table{border-collapse:collapse;width:100%}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
                         borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                        border: `1.5px solid ${showItemPanel || hasActive ? '#6366f1' : '#e2e8f0'}`,
-                        background: showItemPanel || hasActive ? '#eef2ff' : '#f8fafc',
-                        color: showItemPanel || hasActive ? '#4338ca' : '#64748b',
+                        border: `1.5px solid ${showItemPanel || hasActive ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                        background: showItemPanel || hasActive ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                        color: showItemPanel || hasActive ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                         boxShadow: showItemPanel ? '0 0 0 3px rgba(99,102,241,0.10)' : 'none',
                         transition: 'all 0.15s',
                       }}
                     >
-                      <span>💊 الايتمات</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={13} /> الايتمات</span>
                       {hasActive
-                        ? <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{selectedItems.length}</span>
+                        ? <span style={{ background: 'var(--c-accent)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{selectedItems.length}</span>
                         : <span style={{ fontSize: 10 }}>{showItemPanel ? '▲' : '▼'}</span>
                       }
                     </button>
                     {hasActive && (
                       <button
                         onClick={() => { setSelectedItems([]); setItemQuery(''); setPage(1); }}
-                        style={{ fontSize: 11, color: '#ef4444', background: 'none', border: '1px solid #fca5a5', borderRadius: 20, padding: '1px 8px', cursor: 'pointer', fontWeight: 600 }}
+                        style={{ fontSize: 11, color: 'var(--c-danger)', background: 'none', border: '1px solid var(--c-danger-border)', borderRadius: 20, padding: '1px 8px', cursor: 'pointer', fontWeight: 600 }}
                       >مسح ✕</button>
                     )}
                     {hasActive && (
-                      <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>✓ {filteredRows.length} صف</span>
+                      <span style={{ fontSize: 11, color: 'var(--c-success)', fontWeight: 700 }}>✓ {filteredRows.length} صف</span>
                     )}
                   </div>
                   {/* Expandable pills */}
@@ -2109,7 +2110,7 @@ table{border-collapse:collapse;width:100%}
                         >{name}</button>
                       ))}
                       {visibleItems.length === 0 && (
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد نتائج</span>
+                        <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>لا توجد نتائج</span>
                       )}
                     </div>
                   )}
@@ -2122,21 +2123,24 @@ table{border-collapse:collapse;width:100%}
           <div ref={exportViewRef}>
           {/* Tab switcher + value toggle */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-            {(['table', 'analysis'] as const).filter(id => id === 'table' || hasFeature('sales_data_analysis')).map(id => (
-              <button key={id} onClick={() => setTab(id as 'table' | 'analysis')} style={fp(tab === id)}>{id === 'table' ? '📋 الجدول' : '📈 التحليل'}</button>
-            ))}
+            <div className="tabs">
+              {(['table', 'analysis'] as const).filter(id => id === 'table' || hasFeature('sales_data_analysis')).map(id => (
+                <button key={id} className={`tab${tab === id ? ' tab--active' : ''}`} onClick={() => setTab(id as 'table' | 'analysis')}>{id === 'table' ? '📋 الجدول' : '📈 التحليل'}</button>
+              ))}
+            </div>
             {hasFeature('sales_data_value') && (
             <button
               onClick={() => { setTab('table'); setShowValue(v => !v); }}
               title={showValue ? 'إخفاء القيمة المالية والعودة للكميات' : 'عرض القيمة المالية (الكمية × السعر)'}
               style={{
                 padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                border: `1.5px solid ${showValue ? '#f59e0b' : '#e2e8f0'}`,
-                background: showValue ? '#fffbeb' : '#f8fafc',
-                color: showValue ? '#b45309' : '#64748b',
+                border: `1.5px solid ${showValue ? 'var(--c-warning)' : 'var(--c-border)'}`,
+                background: showValue ? 'var(--c-warning-bg)' : 'var(--c-bg)',
+                color: showValue ? 'var(--c-warning)' : 'var(--c-text-secondary)',
                 boxShadow: showValue ? '0 2px 8px rgba(245,158,11,0.25)' : 'none',
                 transition: 'all 0.15s',
-              }}>💰 قيمة مالية{showValue ? ' ✓' : ''}</button>
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}><Icon name="money" size={14} /> قيمة مالية{showValue ? ' ✓' : ''}</button>
             )}
             {/* Shortage Radar button */}
             {hasFeature('sales_data_shortage') && (
@@ -2145,9 +2149,9 @@ table{border-collapse:collapse;width:100%}
               title={`رادار النقص · الحد الحالي ${shortageThreshold} قطعة`}
               style={{
                 padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: '1.5px solid #e2e8f0',
-                background: '#f8fafc',
-                color: '#64748b',
+                border: '1.5px solid var(--c-border)',
+                background: 'var(--c-bg)',
+                color: 'var(--c-text-secondary)',
                 display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >
@@ -2157,7 +2161,7 @@ table{border-collapse:collapse;width:100%}
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   minWidth: 22, padding: '0 7px', height: 22,
                   borderRadius: 11, fontSize: 12, fontWeight: 800, letterSpacing: '-0.3px',
-                  background: '#dc2626', color: '#fff', lineHeight: 1,
+                  background: 'var(--c-danger)', color: '#fff', lineHeight: 1,
                 }}>{redCellCount}</span>
               )}
             </button>
@@ -2169,19 +2173,19 @@ table{border-collapse:collapse;width:100%}
               title="تصنيف المذاخر (A/B/C)"
               style={{
                 padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: '1.5px solid #e2e8f0',
-                background: '#f8fafc',
-                color: '#64748b',
+                border: '1.5px solid var(--c-border)',
+                background: 'var(--c-bg)',
+                color: 'var(--c-text-secondary)',
                 display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >
-              🏷️ تصنيف المذاخر
+              <Icon name="category" size={14} /> تصنيف المذاخر
               {warehouseClasses.length > 0 && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   minWidth: 22, padding: '0 7px', height: 22,
                   borderRadius: 11, fontSize: 12, fontWeight: 800, letterSpacing: '-0.3px',
-                  background: '#6366f1', color: '#fff', lineHeight: 1,
+                  background: 'var(--c-accent)', color: '#fff', lineHeight: 1,
                 }}>{warehouseClasses.length}</span>
               )}
             </button>
@@ -2194,18 +2198,18 @@ table{border-collapse:collapse;width:100%}
                 title="تصدير الجدول"
                 style={{
                   padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  border: '1.5px solid #e2e8f0',
-                  background: exportMenuOpen ? '#eef2ff' : '#f8fafc',
-                  color: exportMenuOpen ? '#4338ca' : '#64748b',
+                  border: '1.5px solid var(--c-border)',
+                  background: exportMenuOpen ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                  color: exportMenuOpen ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                 }}
-              >⬇ تصدير {exportMenuOpen ? '▲' : '▼'}</button>
+              ><Icon name="export" size={14} /> تصدير {exportMenuOpen ? '▲' : '▼'}</button>
               {exportMenuOpen && (
                 <>
                   <div onClick={() => setExportMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
                   <div style={{
                     position: 'absolute', top: 'calc(100% + 6px)', left: 0,
-                    minWidth: 160, background: '#fff', border: '1.5px solid #e2e8f0',
+                    minWidth: 160, background: '#fff', border: '1.5px solid var(--c-border)',
                     borderRadius: 10, boxShadow: '0 8px 24px rgba(15,23,42,0.12)',
                     zIndex: 60, overflow: 'hidden',
                   }}>
@@ -2217,8 +2221,8 @@ table{border-collapse:collapse;width:100%}
                     ].map(item => (
                       <button key={item.label}
                         onClick={() => { setExportMenuOpen(false); item.onClick(); }}
-                        style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 14px', background: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#475569' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                        style={{ display: 'block', width: '100%', textAlign: 'right', padding: '8px 14px', background: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg)')}
                         onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
                       >{item.label}</button>
                     ))}
@@ -2231,12 +2235,12 @@ table{border-collapse:collapse;width:100%}
           {/* TABLE VIEW */}
           {tab === 'table' && (
             <>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span>{filteredRows.length} ايتم{regionFilter !== 'all' && !isMultiRegion && ` · ${regionFilter}`}{isMultiRegion && ` · ${selectedRegions.length} منطقة`}{warehouseKeys.size > 0 && ` · ${warehouseKeys.size} مخزن`} · {displayCols.length} عمود</span>
                 {shortageOnlyMode && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', color: '#dc2626', fontWeight: 700, fontSize: 11 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 6, padding: '2px 8px', color: 'var(--c-danger)', fontWeight: 700, fontSize: 11 }}>
                     🔴 عرض النقص فقط
-                    <button onClick={() => setShortageOnlyMode(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 13, padding: 0, lineHeight: 1, fontWeight: 700 }}>✕</button>
+                    <button onClick={() => setShortageOnlyMode(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-danger)', fontSize: 13, padding: 0, lineHeight: 1, fontWeight: 700 }}>✕</button>
                   </span>
                 )}
               </div>
@@ -2263,8 +2267,8 @@ table{border-collapse:collapse;width:100%}
                     const regionShortageCount = pageRows.filter(row => visibleCols.some(ac => { const v = toNum(row[ac.key] ?? ''); return v === 0 || (T > 0 && v > 0 && v < T); })).length;
                     const regionTotal = visibleRows.reduce((s, row) => s + visibleCols.reduce((ss, ac) => ss + toNum(row[ac.key] ?? ''), 0), 0);
                     return (
-                      <div key={region} style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid #6366f1', boxShadow: '0 4px 16px rgba(99,102,241,0.1)' }}>
-                        <div style={{ background: 'linear-gradient(135deg,#4338ca 0%,#6366f1 100%)', padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div key={region} style={{ borderRadius: 12, overflow: 'hidden', border: '1.5px solid var(--c-accent)', boxShadow: '0 4px 16px rgba(99,102,241,0.1)' }}>
+                        <div style={{ background: 'linear-gradient(135deg,var(--c-accent-hover) 0%,var(--c-accent) 100%)', padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <span style={{ fontSize: 20 }}>📍</span>
                             <div>
@@ -2282,7 +2286,7 @@ table{border-collapse:collapse;width:100%}
                         <div style={{ overflowX: 'auto', background: '#fff' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                             <thead>
-                              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                              <tr style={{ background: 'var(--c-bg)', borderBottom: '2px solid var(--c-border)' }}>
                                 <th style={thS}>#</th>
                                 {activeFile.fixedCols.map((c, i) => <th key={i} style={thS}>{c}</th>)}
                                 {visibleCols.map(col => {
@@ -2291,11 +2295,11 @@ table{border-collapse:collapse;width:100%}
                                   const focusA = focusCategoryA && cat === 'A';
                                   const palette = cat
                                     ? (focusCategoryA && cat === 'A'
-                                        ? { solid: '#16a34a', text: '#fff', size: 20, fs: 11 }
-                                        : { A: { solid: '#334155', text: '#fff', size: 18, fs: 10 }, B: { solid: '#64748b', text: '#fff', size: 18, fs: 10 }, C: { solid: '#94a3b8', text: '#fff', size: 18, fs: 10 } }[cat])
+                                        ? { solid: 'var(--c-success)', text: '#fff', size: 20, fs: 11 }
+                                        : { A: { solid: '#334155', text: '#fff', size: 18, fs: 10 }, B: { solid: 'var(--c-text-secondary)', text: '#fff', size: 18, fs: 10 }, C: { solid: 'var(--c-text-muted)', text: '#fff', size: 18, fs: 10 } }[cat])
                                     : null;
                                   return (
-                                    <th key={col.key} style={{ ...thA, opacity: dim ? 0.4 : 1, background: focusA ? '#f1f5f9' : '#f8fafc', borderRight: focusA ? '1.5px solid #cbd5e1' : undefined, borderLeft: focusA ? '1.5px solid #cbd5e1' : undefined }}>
+                                    <th key={col.key} style={{ ...thA, opacity: dim ? 0.4 : 1, background: focusA ? 'var(--c-border-light)' : 'var(--c-bg)', borderRight: focusA ? '1.5px solid var(--c-border)' : undefined, borderLeft: focusA ? '1.5px solid var(--c-border)' : undefined }}>
                                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                                         {palette && <span title={cat === 'A' ? 'مفتوح' : cat === 'B' ? 'يحتاج موافقة' : 'لا يجهز'} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: palette.size, height: palette.size, borderRadius: 5, fontSize: palette.fs, fontWeight: 900, background: palette.solid, color: palette.text, lineHeight: 1 }}>{cat}</span>}
                                         <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1.2, textAlign: 'center' }}>{col.label}</span>
@@ -2303,22 +2307,22 @@ table{border-collapse:collapse;width:100%}
                                     </th>
                                   );
                                 })}
-                                {!shortageOnlyMode && <th style={{ ...thA, background: '#f0fdf4', color: '#065f46', position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>}
+                                {!shortageOnlyMode && <th style={{ ...thA, background: 'var(--c-success-bg)', color: 'var(--c-success)', position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid var(--c-success-border)' }}>المجموع</th>}
                               </tr>
                             </thead>
                             <tbody>
                               {visibleRows.length === 0
-                                ? <tr><td colSpan={activeFile.fixedCols.length + visibleCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
+                                ? <tr><td colSpan={activeFile.fixedCols.length + visibleCols.length + 2} style={{ padding: 40, textAlign: 'center', color: 'var(--c-text-muted)' }}>لا توجد نتائج</td></tr>
                                 : visibleRows.map((row, idx) => {
                                     const rt = visibleCols.reduce((s, ac) => s + toNum(row[ac.key] ?? ''), 0);
                                     return (
-                                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                                      <tr key={idx} style={{ borderBottom: '1px solid var(--c-border-light)' }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg)')}
                                         onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                                        <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
+                                        <td style={{ ...tdS, color: 'var(--c-text-muted)', fontSize: 11 }}>{idx + 1}</td>
                                         {activeFile.fixedCols.map((c, ci) => (
                                           <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}) }}>
-                                            {row[c] ?? <span style={{ color: '#d1d5db' }}>—</span>}
+                                            {row[c] ?? <span style={{ color: 'var(--c-text-muted)' }}>—</span>}
                                           </td>
                                         ))}
                                         {visibleCols.map(col => {
@@ -2331,24 +2335,24 @@ table{border-collapse:collapse;width:100%}
                                           const aGap = focusA && v === 0;
                                           const aLow = focusA && v > 0 && T > 0 && v < T;
                                           return (
-                                            <td key={col.key} style={{ ...tdA, opacity: dim ? 0.3 : 1, background: aGap || aLow ? '#fef2f2' : (focusA ? '#f8fafc' : undefined), color: isAbove ? '#d1d5db' : isShortage ? '#dc2626' : v > 0 ? '#1e293b' : '#cbd5e1', fontWeight: isShortage || v > 0 ? 700 : 400, borderRight: focusA ? '1.5px solid #cbd5e1' : undefined, borderLeft: focusA ? '1.5px solid #cbd5e1' : undefined }}>
+                                            <td key={col.key} style={{ ...tdA, opacity: dim ? 0.3 : 1, background: aGap || aLow ? 'var(--c-danger-bg)' : (focusA ? 'var(--c-bg)' : undefined), color: isAbove ? 'var(--c-text-muted)' : isShortage ? 'var(--c-danger)' : v > 0 ? 'var(--c-text-primary)' : 'var(--c-border)', fontWeight: isShortage || v > 0 ? 700 : 400, borderRight: focusA ? '1.5px solid var(--c-border)' : undefined, borderLeft: focusA ? '1.5px solid var(--c-border)' : undefined }}>
                                               {isAbove ? '✓' : (shortageOnlyMode && v === 0 ? '0' : fmtNum(v))}
                                             </td>
                                           );
                                         })}
-                                        {!shortageOnlyMode && <td style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>}
+                                        {!shortageOnlyMode && <td style={{ ...tdA, color: rt > 0 ? 'var(--c-success)' : 'var(--c-border)', fontWeight: 800, position: 'sticky', left: 0, background: 'var(--c-success-bg)', borderRight: '2px solid var(--c-success-border)', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>}
                                       </tr>
                                     );
                                   })
                               }
                             </tbody>
                             <tfoot data-export="omit">
-                              <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
-                                <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: '#475569', fontWeight: 700 }}>المجموع ({visibleRows.length} ايتم)</td>
+                              <tr style={{ background: 'var(--c-border-light)', borderTop: '2px solid var(--c-border)' }}>
+                                <td colSpan={activeFile.fixedCols.length + 1} style={{ ...tdS, color: 'var(--c-text-secondary)', fontWeight: 700 }}>المجموع ({visibleRows.length} ايتم)</td>
                                 {visibleCols.map(col => (
-                                  <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800 }}>{fmtNum(visibleRows.reduce((s, row) => s + toNum(row[col.key] ?? ''), 0))}</td>
+                                  <td key={col.key} style={{ ...tdA, color: 'var(--c-text-primary)', fontWeight: 800 }}>{fmtNum(visibleRows.reduce((s, row) => s + toNum(row[col.key] ?? ''), 0))}</td>
                                 ))}
-                                {!shortageOnlyMode && <td style={{ ...tdA, color: '#065f46', fontWeight: 800, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(regionTotal)}</td>}
+                                {!shortageOnlyMode && <td style={{ ...tdA, color: 'var(--c-success)', fontWeight: 800, left: 0, background: '#e7fdf0', borderRight: '2px solid var(--c-success-border)' }}>{fmtNum(regionTotal)}</td>}
                               </tr>
                             </tfoot>
                           </table>
@@ -2361,10 +2365,10 @@ table{border-collapse:collapse;width:100%}
 
               {/* ── NORMAL (single / all) VIEW ── */}
               {!isMultiRegion && (
-              <div ref={tableContainerRef} style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', marginBottom: 12 }}>
+              <div ref={tableContainerRef} style={{ overflowX: 'auto', borderRadius: 12, border: '1.5px solid var(--c-border)', background: '#fff', marginBottom: 12 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                    <tr style={{ background: 'var(--c-bg)', borderBottom: '2px solid var(--c-border)' }}>
                       <th style={thS}>#</th>
                       {activeFile.fixedCols.map((c, i) => {
                         if (shortageOnlyMode && c === priceCol) return null;
@@ -2381,7 +2385,7 @@ table{border-collapse:collapse;width:100%}
                                 <button
                                   onClick={e => { e.stopPropagation(); setOpenFilterCol(openFilterCol === c ? null : c); setFilterSearch(''); }}
                                   title="فلتر"
-                                  style={{ background: hasFilter ? '#eef2ff' : 'none', border: hasFilter ? '1px solid #a5b4fc' : 'none', borderRadius: 4, cursor: 'pointer', padding: '1px 4px', color: hasFilter ? '#4338ca' : '#94a3b8', fontSize: 11, lineHeight: 1 }}
+                                  style={{ background: hasFilter ? 'var(--c-accent-light)' : 'none', border: hasFilter ? '1px solid #a5b4fc' : 'none', borderRadius: 4, cursor: 'pointer', padding: '1px 4px', color: hasFilter ? 'var(--c-accent)' : 'var(--c-text-muted)', fontSize: 11, lineHeight: 1 }}
                                 >
                                   {hasFilter ? `▼ ${activeVals.length}` : '▽'}
                                 </button>
@@ -2389,26 +2393,26 @@ table{border-collapse:collapse;width:100%}
                             </div>
                             {/* Filter Dropdown */}
                             {isFilterable && openFilterCol === c && (
-                              <div data-col-filter={c} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
+                              <div data-col-filter={c} style={{ position: 'absolute', top: '100%', right: 0, zIndex: 200, background: '#fff', border: '1.5px solid var(--c-border)', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 230, display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden' }}>
                                 {/* Search */}
-                                <div style={{ padding: '8px 10px', borderBottom: '1px solid #f1f5f9' }}>
+                                <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--c-border-light)' }}>
                                   <input
                                     autoFocus
                                     value={filterSearch}
                                     onChange={e => setFilterSearch(e.target.value)}
                                     placeholder="بحث في القيم..."
                                     onClick={e => e.stopPropagation()}
-                                    style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+                                    style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
                                   />
                                 </div>
                                 {/* Select all / clear */}
-                                <div style={{ padding: '5px 10px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: 10, alignItems: 'center' }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', fontWeight: allSelected ? 700 : 400, color: allSelected ? '#4338ca' : '#475569' }}>
+                                <div style={{ padding: '5px 10px', borderBottom: '1px solid var(--c-border-light)', display: 'flex', gap: 10, alignItems: 'center' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', fontWeight: allSelected ? 700 : 400, color: allSelected ? 'var(--c-accent)' : 'var(--c-text-secondary)' }}>
                                     <input type="checkbox" checked={allSelected} onChange={() => setColFilters(prev => { const n = { ...prev }; delete n[c]; return n; })} />
                                     الكل
                                   </label>
                                   {hasFilter && (
-                                    <button onClick={() => setColFilters(prev => { const n = { ...prev }; delete n[c]; return n; })} style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginRight: 'auto' }}>
+                                    <button onClick={() => setColFilters(prev => { const n = { ...prev }; delete n[c]; return n; })} style={{ fontSize: 11, color: 'var(--c-danger)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginRight: 'auto' }}>
                                       مسح الفلتر ✕
                                     </button>
                                   )}
@@ -2416,11 +2420,11 @@ table{border-collapse:collapse;width:100%}
                                 {/* Values list */}
                                 <div style={{ overflowY: 'auto', maxHeight: 220 }}>
                                   {visibleVals.length === 0
-                                    ? <div style={{ padding: '12px 14px', color: '#94a3b8', fontSize: 12 }}>لا توجد نتائج</div>
+                                    ? <div style={{ padding: '12px 14px', color: 'var(--c-text-muted)', fontSize: 12 }}>لا توجد نتائج</div>
                                     : visibleVals.map(val => {
                                       const checked = activeVals.includes(val);
                                       return (
-                                        <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', cursor: 'pointer', background: checked ? '#eef2ff' : undefined, fontSize: 12 }}>
+                                        <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', cursor: 'pointer', background: checked ? 'var(--c-accent-light)' : undefined, fontSize: 12 }}>
                                           <input type="checkbox" checked={checked} onChange={() => {
                                             setColFilters(prev => {
                                               const cur = prev[c] ?? [];
@@ -2437,8 +2441,8 @@ table{border-collapse:collapse;width:100%}
                                   }
                                 </div>
                                 {/* Close */}
-                                <div style={{ padding: '6px 10px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
-                                  <button onClick={() => setOpenFilterCol(null)} style={{ padding: '4px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>تطبيق</button>
+                                <div style={{ padding: '6px 10px', borderTop: '1px solid var(--c-border-light)', display: 'flex', justifyContent: 'flex-end' }}>
+                                  <button onClick={() => setOpenFilterCol(null)} style={{ padding: '4px 16px', background: 'var(--c-accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>تطبيق</button>
                                 </div>
                               </div>
                             )}
@@ -2450,16 +2454,16 @@ table{border-collapse:collapse;width:100%}
                         const dim = focusCategoryA && !isRT(col) && cat !== 'A';
                         const focusA = focusCategoryA && cat === 'A';
                         return (
-                        <th key={col.key} style={{ ...thA, position: 'relative', background: focusA ? '#f1f5f9' : (isRT(col) ? '#eef2ff' : '#f8fafc'), color: dim ? '#cbd5e1' : (isRT(col) ? '#4338ca' : '#1e293b'), borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
+                        <th key={col.key} style={{ ...thA, position: 'relative', background: focusA ? 'var(--c-border-light)' : (isRT(col) ? 'var(--c-accent-light)' : 'var(--c-bg)'), color: dim ? 'var(--c-border)' : (isRT(col) ? 'var(--c-accent)' : 'var(--c-text-primary)'), borderRight: focusA ? '1.5px solid var(--c-border)' : (isRT(col) ? '2px solid #c7d2fe' : undefined), borderLeft: focusA ? '1.5px solid var(--c-border)' : (isRT(col) ? '2px solid #c7d2fe' : undefined), opacity: dim ? 0.4 : 1 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                             {!isRT(col) && cat && (() => {
                                 const isFocused = focusCategoryA && cat === 'A';
                                 const palette = isFocused
-                                  ? { solid: '#16a34a', text: '#fff', shadow: 'rgba(22,163,74,0.40)', size: 20, fs: 11 }
+                                  ? { solid: 'var(--c-success)', text: '#fff', shadow: 'rgba(22,163,74,0.40)', size: 20, fs: 11 }
                                   : {
                                       A: { solid: '#334155', text: '#fff', shadow: 'rgba(51,65,85,0.22)', size: 18, fs: 10 },
-                                      B: { solid: '#64748b', text: '#fff', shadow: 'rgba(100,116,139,0.20)', size: 18, fs: 10 },
-                                      C: { solid: '#94a3b8', text: '#fff', shadow: 'rgba(148,163,184,0.18)', size: 18, fs: 10 },
+                                      B: { solid: 'var(--c-text-secondary)', text: '#fff', shadow: 'rgba(100,116,139,0.20)', size: 18, fs: 10 },
+                                      C: { solid: 'var(--c-text-muted)', text: '#fff', shadow: 'rgba(148,163,184,0.18)', size: 18, fs: 10 },
                                     }[cat];
                                 return (
                                   <span title={cat === 'A' ? 'مفتوح — يمكن التجهيز' : cat === 'B' ? 'يحتاج موافقة وترتيب التجاري' : 'لا يجهز حالياً'}
@@ -2484,27 +2488,27 @@ table{border-collapse:collapse;width:100%}
                         </th>
                         );
                       })}
-                      {!shortageOnlyMode && <th data-export="omit" style={{ ...thA, background: '#f0fdf4', color: '#065f46', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid #bbf7d0' }}>المجموع</th>}
+                      {!shortageOnlyMode && <th data-export="omit" style={{ ...thA, background: 'var(--c-success-bg)', color: 'var(--c-success)', minWidth: 80, position: 'sticky', left: 0, zIndex: 2, borderRight: '2px solid var(--c-success-border)' }}>المجموع</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {pageRows.length === 0
-                      ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 2} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</td></tr>
+                      ? <tr><td colSpan={activeFile.fixedCols.length + displayCols.length + 2} style={{ padding: 40, textAlign: 'center', color: 'var(--c-text-muted)' }}>لا توجد نتائج</td></tr>
                       : pageRows.map((row, idx) => {
                         const rt = rowDisplay(row, displayCols);
                         return (
-                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--c-border-light)' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg)')}
                             onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                            <td style={{ ...tdS, color: '#94a3b8', fontSize: 11 }}>{idx + 1}</td>
+                            <td style={{ ...tdS, color: 'var(--c-text-muted)', fontSize: 11 }}>{idx + 1}</td>
                             {activeFile.fixedCols.map((c, ci) => {
                               if (shortageOnlyMode && c === priceCol) return null;
                               const val = row[c] ?? '';
                               const hi = itemQuery && val.toLowerCase().includes(itemQuery.toLowerCase());
                               const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
                               return (
-                                <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: '#1e293b' } : {}) }}>
-                                  {hi ? <span style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 4px' }}>{display}</span> : (display || <span style={{ color: '#d1d5db' }}>—</span>)}
+                                <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: 'var(--c-text-primary)' } : {}) }}>
+                                  {hi ? <span style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 4px' }}>{display}</span> : (display || <span style={{ color: 'var(--c-text-muted)' }}>—</span>)}
                                 </td>
                               );
                             })}
@@ -2522,26 +2526,26 @@ table{border-collapse:collapse;width:100%}
                               const isShortage = !isRT(col) && (v === 0 || (T > 0 && v < T && v > 0));
                               // Base color logic: red for any shortage cell, light grey for above-threshold checkmark
                               const color = isAbove
-                                ? '#d1d5db'
+                                ? 'var(--c-text-muted)'
                                 : (isShortage || showZero
-                                  ? '#dc2626'
-                                  : (v > 0 ? (showValue ? '#92400e' : '#1e293b')
-                                  : '#cbd5e1'));
+                                  ? 'var(--c-danger)'
+                                  : (v > 0 ? (showValue ? 'var(--c-warning)' : 'var(--c-text-primary)')
+                                  : 'var(--c-border)'));
                               return (
                                 <td key={col.key} style={{
                                   ...tdA,
-                                  background: aGap || aLow ? '#fef2f2' : (focusA ? '#f8fafc' : undefined),
+                                  background: aGap || aLow ? 'var(--c-danger-bg)' : (focusA ? 'var(--c-bg)' : undefined),
                                   color,
                                   fontWeight: aGap || aLow || v > 0 || showZero ? 700 : 400,
-                                  borderRight: focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
-                                  borderLeft:  focusA ? '1.5px solid #cbd5e1' : (isRT(col) ? '2px solid #e2e8f0' : undefined),
+                                  borderRight: focusA ? '1.5px solid var(--c-border)' : (isRT(col) ? '2px solid var(--c-border)' : undefined),
+                                  borderLeft:  focusA ? '1.5px solid var(--c-border)' : (isRT(col) ? '2px solid var(--c-border)' : undefined),
                                   opacity: dim ? 0.3 : 1,
                                 }}>
                                   {isAbove ? '✓' : (showZero ? '0' : fmtNum(v))}
                                 </td>
                               );
                             })}
-                            {!shortageOnlyMode && <td data-export="omit" style={{ ...tdA, color: rt > 0 ? '#065f46' : '#e2e8f0', fontWeight: 800, position: 'sticky', left: 0, background: '#f0fdf4', borderRight: '2px solid #bbf7d0', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>}
+                            {!shortageOnlyMode && <td data-export="omit" style={{ ...tdA, color: rt > 0 ? 'var(--c-success)' : 'var(--c-border)', fontWeight: 800, position: 'sticky', left: 0, background: 'var(--c-success-bg)', borderRight: '2px solid var(--c-success-border)', zIndex: 1 }}>{rt > 0 ? fmtNum(rt) : '—'}</td>}
                           </tr>
                         );
                       })
@@ -2549,14 +2553,14 @@ table{border-collapse:collapse;width:100%}
                   </tbody>
                   {!shortageOnlyMode && (
                   <tfoot data-export="omit">
-                    <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
-                      <td style={{ ...tdS, color: '#475569', fontSize: 11, fontWeight: 700, position: 'sticky', bottom: 0, background: '#f1f5f9' }} colSpan={activeFile.fixedCols.length + 1}>
+                    <tr style={{ background: 'var(--c-border-light)', borderTop: '2px solid var(--c-border)' }}>
+                      <td style={{ ...tdS, color: 'var(--c-text-secondary)', fontSize: 11, fontWeight: 700, position: 'sticky', bottom: 0, background: 'var(--c-border-light)' }} colSpan={activeFile.fixedCols.length + 1}>
                         المجموع ({filteredRows.length} ايتم)
                       </td>
                       {displayCols.map(col => (
-                        <td key={col.key} style={{ ...tdA, color: '#1e293b', fontWeight: 800, position: 'sticky', bottom: 0, background: '#f1f5f9' }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
+                        <td key={col.key} style={{ ...tdA, color: 'var(--c-text-primary)', fontWeight: 800, position: 'sticky', bottom: 0, background: 'var(--c-border-light)' }}>{fmtNum(filteredRows.reduce((s, row) => s + cellDisplay(row, col), 0))}</td>
                       ))}
-                      <td style={{ ...tdA, color: '#065f46', fontWeight: 800, position: 'sticky', bottom: 0, left: 0, background: '#e7fdf0', borderRight: '2px solid #bbf7d0' }}>{fmtNum(filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0))}</td>
+                      <td style={{ ...tdA, color: 'var(--c-success)', fontWeight: 800, position: 'sticky', bottom: 0, left: 0, background: '#e7fdf0', borderRight: '2px solid var(--c-success-border)' }}>{fmtNum(filteredRows.reduce((s, row) => s + rowDisplay(row, displayCols), 0))}</td>
                     </tr>
                   </tfoot>
                   )}
@@ -2574,31 +2578,31 @@ table{border-collapse:collapse;width:100%}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
               {/* Top items */}
-              <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: '16px 18px' }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
+              <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid var(--c-border)', padding: '16px 18px' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 14 }}>
                   🏆 أعلى الايتمات مبيعاً
-                  {regionFilter !== 'all' && !isMultiRegion && <span style={{ fontSize: 11, color: '#6366f1', marginRight: 8, fontWeight: 400 }}>— {regionFilter}</span>}
-                  {isMultiRegion && <span style={{ fontSize: 11, color: '#6366f1', marginRight: 8, fontWeight: 400 }}>— {selectedRegions.join(' · ')}</span>}
-                  {(selectedItems.length > 0 || itemQuery) && <span style={{ fontSize: 11, color: '#10b981', marginRight: 8, fontWeight: 400 }}>({filteredRows.length} نتيجة)</span>}
+                  {regionFilter !== 'all' && !isMultiRegion && <span style={{ fontSize: 11, color: 'var(--c-accent)', marginRight: 8, fontWeight: 400 }}>— {regionFilter}</span>}
+                  {isMultiRegion && <span style={{ fontSize: 11, color: 'var(--c-accent)', marginRight: 8, fontWeight: 400 }}>— {selectedRegions.join(' · ')}</span>}
+                  {(selectedItems.length > 0 || itemQuery) && <span style={{ fontSize: 11, color: 'var(--c-success)', marginRight: 8, fontWeight: 400 }}>({filteredRows.length} نتيجة)</span>}
                 </div>
                 {topItems.length === 0
-                  ? <div style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات</div>
+                  ? <div style={{ color: 'var(--c-text-muted)', fontSize: 13 }}>لا توجد بيانات</div>
                   : (() => {
                     const mx = topItems[0]?.total ?? 1;
                     return topItems.map(({ row, total }, idx) => {
                       const name = row[itemNameCol] ?? '';
                       const pct  = Math.round(total / mx * 100);
-                      const bar  = idx === 0 ? '#6366f1' : idx < 3 ? '#8b5cf6' : '#a5b4fc';
+                      const bar  = idx === 0 ? 'var(--c-accent)' : idx < 3 ? '#8b5cf6' : '#a5b4fc';
                       return (
                         <div key={idx} style={{ marginBottom: 10 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ width: 22, height: 22, background: bar, color: '#fff', borderRadius: 6, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{name}</span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text-primary)' }}>{name}</span>
                             </div>
                             <span style={{ fontSize: 13, fontWeight: 800, color: bar }}>{fmtNum(total)}</span>
                           </div>
-                          <div style={{ height: 6, borderRadius: 99, background: '#f1f5f9', overflow: 'hidden' }}>
+                          <div style={{ height: 6, borderRadius: 99, background: 'var(--c-border-light)', overflow: 'hidden' }}>
                             <div style={{ width: `${pct}%`, height: '100%', background: bar, borderRadius: 99, transition: 'width 0.4s' }} />
                           </div>
                         </div>
@@ -2610,8 +2614,8 @@ table{border-collapse:collapse;width:100%}
 
               {/* Regional comparison */}
               {(regionFilter === 'all' || isMultiRegion) && (isMultiRegion ? selectedRegions : activeFile.regions).length > 0 && (
-                <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: '16px 18px' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>🗺️ مبيعات المناطق</div>
+                <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid var(--c-border)', padding: '16px 18px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 14 }}>🗺️ مبيعات المناطق</div>
                   {(() => {
                     const displayRegions = isMultiRegion ? selectedRegions : activeFile.regions;
                     const regionTotals = displayRegions.map(region => {
@@ -2630,16 +2634,16 @@ table{border-collapse:collapse;width:100%}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span>📍</span>
                               <button onClick={() => { selectRegion(region); setTab('table'); }}
-                                style={{ fontSize: 13, fontWeight: 700, color: '#4338ca', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline dotted' }}>
+                                style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline dotted' }}>
                                 {region}
                               </button>
-                              <span style={{ fontSize: 11, color: '#94a3b8' }}>{wCount} مخزن</span>
-                              <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', borderRadius: 10, padding: '1px 7px' }}>{share}%</span>
+                              <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{wCount} مخزن</span>
+                              <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', background: 'var(--c-border-light)', borderRadius: 10, padding: '1px 7px' }}>{share}%</span>
                             </div>
-                            <span style={{ fontSize: 14, fontWeight: 800, color: '#6366f1' }}>{fmtNum(total)}</span>
+                            <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--c-accent)' }}>{fmtNum(total)}</span>
                           </div>
-                          <div style={{ height: 8, borderRadius: 99, background: '#f1f5f9', overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: '#6366f1', borderRadius: 99, transition: 'width 0.4s' }} />
+                          <div style={{ height: 8, borderRadius: 99, background: 'var(--c-border-light)', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: 'var(--c-accent)', borderRadius: 99, transition: 'width 0.4s' }} />
                           </div>
                         </div>
                       );
@@ -2657,14 +2661,14 @@ table{border-collapse:collapse;width:100%}
                 const partial  = activeFile.rows.filter(r => { const n = r['_regions']?.split(',').length ?? 0; return n > 1 && n < totalR; });
                 const full     = activeFile.rows.filter(r => (r['_regions']?.split(',').length ?? 0) >= totalR);
                 return (
-                  <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #fde68a', padding: '16px 18px' }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#92400e', marginBottom: 10 }}>
+                  <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid var(--c-warning-border)', padding: '16px 18px' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-warning)', marginBottom: 10 }}>
                       🔍 تغطية الايتمات
-                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 400, marginRight: 8 }}>— يكشف الايتمات التي قد تكون مكررة بأسماء مختلفة</span>
+                      <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 400, marginRight: 8 }}>— يكشف الايتمات التي قد تكون مكررة بأسماء مختلفة</span>
                     </div>
                     <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
                       <div style={{ background: '#dcfce7', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{full.length}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--c-success)' }}>{full.length}</div>
                         <div style={{ fontSize: 11, color: '#166534' }}>✅ في كل المناطق ({totalR}/{totalR})</div>
                       </div>
                       <div style={{ background: '#fef9c3', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
@@ -2672,7 +2676,7 @@ table{border-collapse:collapse;width:100%}
                         <div style={{ fontSize: 11, color: '#713f12' }}>⚠️ في بعض المناطق</div>
                       </div>
                       <div style={{ background: '#fee2e2', borderRadius: 10, padding: '8px 16px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#dc2626' }}>{orphaned.length}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--c-danger)' }}>{orphaned.length}</div>
                         <div style={{ fontSize: 11, color: '#7f1d1d' }}>❌ منطقة واحدة فقط</div>
                       </div>
                     </div>
@@ -2681,16 +2685,16 @@ table{border-collapse:collapse;width:100%}
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#7f1d1d', marginBottom: 8 }}>
                           ❌ ايتمات ظهرت في منطقة واحدة فقط — غالباً مكررة بأسم مختلف في الملفات الأخرى:
                         </div>
-                        <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #fecaca', borderRadius: 8 }}>
+                        <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--c-danger-border)', borderRadius: 8 }}>
                           {orphaned.map((row, i) => (
                             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                               padding: '5px 10px', borderBottom: i < orphaned.length - 1 ? '1px solid #fff1f2' : 'none',
                               background: i % 2 === 0 ? '#fffbfb' : '#fff', fontSize: 12 }}>
-                              <span style={{ color: '#1e293b', fontWeight: 600 }}>
+                              <span style={{ color: 'var(--c-text-primary)', fontWeight: 600 }}>
                                 {row['المادة']}
-                                <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 11 }}> ({row['الشركة']})</span>
+                                <span style={{ color: 'var(--c-text-muted)', fontWeight: 400, fontSize: 11 }}> ({row['الشركة']})</span>
                               </span>
-                              <span style={{ color: '#dc2626', fontSize: 11, background: '#fee2e2', borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: 'var(--c-danger)', fontSize: 11, background: '#fee2e2', borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap' }}>
                                 📍 {row['_regions']}
                               </span>
                             </div>
@@ -2704,8 +2708,8 @@ table{border-collapse:collapse;width:100%}
 
               {/* Item detail breakdown (when 1-5 items match search) */}
               {(selectedItems.length > 0 || itemQuery) && filteredRows.length > 0 && filteredRows.length <= 5 && (
-                <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #e2e8f0', padding: '16px 18px' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
+                <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid var(--c-border)', padding: '16px 18px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 14 }}>
                     🔎 تفاصيل بالمناطق
                   </div>
                   {filteredRows.map((row, ri) => {
@@ -2719,31 +2723,31 @@ table{border-collapse:collapse;width:100%}
                     const itemGrand = breakdown.reduce((s, x) => s + x.total, 0);
                     return (
                       <div key={ri} style={{ marginBottom: ri < filteredRows.length - 1 ? 24 : 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#4338ca', marginBottom: 12 }}>
-                          💊 {name} <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>— إجمالي: {fmtNum(itemGrand)}</span>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 12 }}>
+                          💊 {name} <span style={{ color: 'var(--c-text-muted)', fontWeight: 400, fontSize: 12 }}>— إجمالي: {fmtNum(itemGrand)}</span>
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: regionFilter !== 'all' ? 12 : 0 }}>
                           {breakdown.map(({ region, total }) => (
                             <div key={region}
-                              style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 10, padding: '10px 16px', minWidth: 110, textAlign: 'center', cursor: 'pointer' }}
+                              style={{ background: 'var(--c-accent-light)', border: '1px solid #c7d2fe', borderRadius: 10, padding: '10px 16px', minWidth: 110, textAlign: 'center', cursor: 'pointer' }}
                               onClick={() => { selectRegion(region); setTab('table'); }}>
-                              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 2 }}>📍 {region}</div>
-                              <div style={{ fontSize: 18, fontWeight: 800, color: '#4338ca' }}>{fmtNum(total)}</div>
-                              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{itemGrand > 0 ? Math.round(total / itemGrand * 100) : 0}%</div>
+                              <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginBottom: 2 }}>📍 {region}</div>
+                              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--c-accent)' }}>{fmtNum(total)}</div>
+                              <div style={{ fontSize: 10, color: 'var(--c-text-muted)', marginTop: 1 }}>{itemGrand > 0 ? Math.round(total / itemGrand * 100) : 0}%</div>
                             </div>
                           ))}
                         </div>
                         {regionFilter !== 'all' && (
                           <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>تفاصيل مخازن {regionFilter}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 6 }}>تفاصيل مخازن {regionFilter}</div>
                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                               {activeFile.areaCols
                                 .filter(ac => ac.region === regionFilter && toNum(row[ac.key] ?? '') > 0)
                                 .sort((a, b) => toNum(row[b.key] ?? '') - toNum(row[a.key] ?? ''))
                                 .map(ac => (
-                                  <div key={ac.key} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 12px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>{ac.label}</div>
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{fmtNum(toNum(row[ac.key] ?? ''))}</div>
+                                  <div key={ac.key} style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 8, padding: '6px 12px', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{ac.label}</div>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>{fmtNum(toNum(row[ac.key] ?? ''))}</div>
                                   </div>
                                 ))}
                             </div>
@@ -2769,29 +2773,29 @@ table{border-collapse:collapse;width:100%}
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 14, width: 'min(820px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1.5px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15,23,42,0.12)' }}
+            style={{ background: '#fff', borderRadius: 14, width: 'min(820px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1.5px solid var(--c-border)', boxShadow: '0 10px 30px rgba(15,23,42,0.12)' }}
           >
-            <div style={{ padding: '14px 18px', borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1.5px solid var(--c-border)', background: 'var(--c-bg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b' }}>🏷️ تصنيف المذاخر</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="category" size={15} /> تصنيف المذاخر</div>
+                <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 3 }}>
                   A = مفتوح · B = يحتاج موافقة · C = لا يجهز حالياً
                 </div>
               </div>
-              <button onClick={() => setShowClassifyModal(false)} style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>✕</button>
+              <button onClick={() => setShowClassifyModal(false)} style={{ width: 30, height: 30, borderRadius: 8, border: '1.5px solid var(--c-border)', background: '#fff', color: 'var(--c-text-secondary)', fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>✕</button>
             </div>
 
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--c-border)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <input ref={classifyFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleClassifyUpload(f); if (classifyFileRef.current) classifyFileRef.current.value = ''; }} />
               {hasFeature('sales_data_classify') && (
               <button onClick={() => classifyFileRef.current?.click()}
-                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #6366f1', background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                📥 رفع ملف Excel
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: '1.5px solid var(--c-accent)', background: 'var(--c-accent)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                <Icon name="import" size={13} /> رفع ملف Excel
               </button>
               )}
               <button onClick={downloadClassifyTemplate}
-                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid var(--c-border)', background: '#fff', color: 'var(--c-text-secondary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 ⬇ تحميل نموذج
               </button>
               <button
@@ -2799,8 +2803,8 @@ table{border-collapse:collapse;width:100%}
                 title="إبراز مذاخر التصنيف A وتوضيح فجواتها وتعتيم باقي المذاخر"
                 style={{
                   padding: '6px 14px', borderRadius: 8,
-                  border: `1.5px solid ${focusCategoryA ? '#16a34a' : '#bbf7d0'}`,
-                  background: focusCategoryA ? '#16a34a' : '#f0fdf4',
+                  border: `1.5px solid ${focusCategoryA ? 'var(--c-success)' : 'var(--c-success-border)'}`,
+                  background: focusCategoryA ? 'var(--c-success)' : 'var(--c-success-bg)',
                   color: focusCategoryA ? '#fff' : '#166534',
                   fontSize: 12, fontWeight: 700, cursor: 'pointer',
                 }}>
@@ -2820,26 +2824,26 @@ table{border-collapse:collapse;width:100%}
               </button>
               {warehouseClasses.length > 0 && (
                 <button onClick={() => { if (confirm('مسح كل التصنيفات؟')) { setWarehouseClasses([]); setClassifyUploadMsg(''); } }}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginInlineStart: 'auto' }}>
-                  🗑 مسح الكل
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8, border: '1.5px solid var(--c-danger-border)', background: '#fff', color: 'var(--c-danger)', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginInlineStart: 'auto' }}>
+                  <Icon name="delete" size={13} /> مسح الكل
                 </button>
               )}
             </div>
 
             {classifyUploadMsg && (
-              <div style={{ padding: '8px 18px', fontSize: 12, color: classifyUploadMsg.startsWith('✓') ? '#166534' : '#9a3412', background: classifyUploadMsg.startsWith('✓') ? '#f0fdf4' : '#fff7ed', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ padding: '8px 18px', fontSize: 12, color: classifyUploadMsg.startsWith('✓') ? '#166534' : '#9a3412', background: classifyUploadMsg.startsWith('✓') ? 'var(--c-success-bg)' : '#fff7ed', borderBottom: '1px solid var(--c-border)' }}>
                 {classifyUploadMsg}
               </div>
             )}
 
-            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e2e8f0', fontSize: 11, color: '#64748b' }}>
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)', fontSize: 11, color: 'var(--c-text-secondary)' }}>
               الأعمدة المطلوبة في الملف: <strong>المنطقة</strong> أو <strong>Location</strong> · <strong>المخزن</strong> أو <strong>Client</strong> · <strong>التصنيف</strong> أو <strong>كلاس/Class</strong> (A أو B أو C).
               المطابقة تتم بحسب الاسم بعد تجاهل الفراغات وحالة الأحرف.
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px' }}>
               {!activeFile ? (
-                <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '40px 0' }}>
+                <div style={{ textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 13, padding: '40px 0' }}>
                   لا يوجد ملف ستوك نشط لعرض المذاخر.
                 </div>
               ) : (() => {
@@ -2866,16 +2870,16 @@ table{border-collapse:collapse;width:100%}
                 const unclassifiedCount = activeWarehousesAll.filter(w => !matchedKeys.has(`${normName(w.region)}||${normName(w.warehouse)}`)).length;
 
                 const catChip: Record<WarehouseCategory, { solid: string; light: string; border: string }> = {
-                  A: { solid: '#16a34a', light: '#f0fdf4', border: '#16a34a' },
-                  B: { solid: '#b45309', light: '#fffbeb', border: '#b45309' },
-                  C: { solid: '#dc2626', light: '#fef2f2', border: '#dc2626' },
+                  A: { solid: 'var(--c-success)', light: 'var(--c-success-bg)', border: 'var(--c-success)' },
+                  B: { solid: 'var(--c-warning)', light: 'var(--c-warning-bg)', border: 'var(--c-warning)' },
+                  C: { solid: 'var(--c-danger)', light: 'var(--c-danger-bg)', border: 'var(--c-danger)' },
                 };
                 // keep catColors for header bulk-buttons only
                 const catColors: Record<WarehouseCategory | '', { bg: string; fg: string; br: string }> = {
-                  A: { bg: '#f0fdf4', fg: '#166534', br: '#86efac' },
+                  A: { bg: 'var(--c-success-bg)', fg: '#166534', br: '#86efac' },
                   B: { bg: '#fefce8', fg: '#854d0e', br: '#fde047' },
-                  C: { bg: '#fef2f2', fg: '#991b1b', br: '#fca5a5' },
-                  '': { bg: '#f8fafc', fg: '#94a3b8', br: '#e2e8f0' },
+                  C: { bg: 'var(--c-danger-bg)', fg: '#991b1b', br: 'var(--c-danger-border)' },
+                  '': { bg: 'var(--c-bg)', fg: 'var(--c-text-muted)', br: 'var(--c-border)' },
                 };
                 const renderSelect = (region: string, warehouse: string) => {
                   const cur = getCategory(region, warehouse) ?? '';
@@ -2891,7 +2895,7 @@ table{border-collapse:collapse;width:100%}
                             title={cat === 'A' ? 'مفتوح' : cat === 'B' ? 'يحتاج موافقة' : 'لا يجهز'}
                             style={{
                               width: 26, height: 24, borderRadius: 4,
-                              border: `1.5px solid ${isSelected ? chip.border : '#d1d5db'}`,
+                              border: `1.5px solid ${isSelected ? chip.border : 'var(--c-text-muted)'}`,
                               background: isSelected ? chip.solid : '#fff',
                               color: isSelected ? '#fff' : '#9ca3af',
                               fontWeight: 700, cursor: 'pointer', fontSize: 12,
@@ -2912,8 +2916,8 @@ table{border-collapse:collapse;width:100%}
                   <>
                     {/* Match summary */}
                     <div style={{ display: 'flex', gap: 8, marginBottom: 14, fontSize: 12, flexWrap: 'wrap' }}>
-                      <span style={{ background: '#f0fdf4', color: '#166534', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid #bbf7d0' }}>✓ مصنّف: {matchedCount}</span>
-                      {unclassifiedCount > 0 && <span style={{ background: '#f8fafc', color: '#475569', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid #e2e8f0' }}>غير مصنّف: {unclassifiedCount}</span>}
+                      <span style={{ background: 'var(--c-success-bg)', color: '#166534', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid var(--c-success-border)' }}>✓ مصنّف: {matchedCount}</span>
+                      {unclassifiedCount > 0 && <span style={{ background: 'var(--c-bg)', color: 'var(--c-text-secondary)', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid var(--c-border)' }}>غير مصنّف: {unclassifiedCount}</span>}
                       {unmatchedClasses.length > 0 && <span style={{ background: '#fff7ed', color: '#9a3412', padding: '4px 10px', borderRadius: 8, fontWeight: 700, border: '1px solid #fed7aa' }}>⚠ خارج الستوك: {unmatchedClasses.length}</span>}
                     </div>
 
@@ -2929,9 +2933,9 @@ table{border-collapse:collapse;width:100%}
                           })
                         : list;
                       return (
-                      <div key={region} style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                        <div style={{ background: '#f8fafc', padding: '8px 12px', fontSize: 13, fontWeight: 800, color: '#1e293b', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                          <span>📍 {region} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginInlineStart: 6 }}>({list.length} مخزن)</span></span>
+                      <div key={region} style={{ marginBottom: 16, border: '1px solid var(--c-border)', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--c-bg)', padding: '8px 12px', fontSize: 13, fontWeight: 800, color: 'var(--c-text-primary)', borderBottom: '1px solid var(--c-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                          <span>📍 {region} <span style={{ fontSize: 11, color: 'var(--c-text-muted)', fontWeight: 400, marginInlineStart: 6 }}>({list.length} مخزن)</span></span>
                           <div style={{ display: 'flex', gap: 4 }}>
                             {(['A', 'B', 'C'] as WarehouseCategory[]).map(cat => (
                               <button key={cat} title={`تطبيق ${cat} على كل مذاخر ${region}`}
@@ -2942,7 +2946,7 @@ table{border-collapse:collapse;width:100%}
                             ))}
                             <button title={`مسح تصنيفات ${region}`}
                               onClick={() => list.forEach(w => setCat(w.region, w.warehouse, null))}
-                              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer' }}>
+                              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--c-border)', background: '#fff', color: 'var(--c-text-secondary)', fontWeight: 700, cursor: 'pointer' }}>
                               مسح
                             </button>
                           </div>
@@ -2953,8 +2957,8 @@ table{border-collapse:collapse;width:100%}
                               const wCur = getCategory(w.region, w.warehouse) ?? '';
                               const wChip = wCur ? catChip[wCur as WarehouseCategory] : null;
                               return (
-                                <tr key={`${w.region}__${w.warehouse}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#fff' }}>
-                                  <td style={{ padding: '7px 12px', fontWeight: 500, color: '#1e293b', borderRight: `3px solid ${wChip ? wChip.solid : '#e5e7eb'}` }}>{w.warehouse}</td>
+                                <tr key={`${w.region}__${w.warehouse}`} style={{ borderBottom: '1px solid var(--c-border-light)', background: '#fff' }}>
+                                  <td style={{ padding: '7px 12px', fontWeight: 500, color: 'var(--c-text-primary)', borderRight: `3px solid ${wChip ? wChip.solid : '#e5e7eb'}` }}>{w.warehouse}</td>
                                   <td style={{ padding: '7px 10px', textAlign: 'left', width: 110 }}>{renderSelect(w.region, w.warehouse)}</td>
                                 </tr>
                               );
@@ -2977,13 +2981,13 @@ table{border-collapse:collapse;width:100%}
                               const uCur = getCategory(c.region, c.warehouse) ?? '';
                               const uChip = uCur ? catChip[uCur as WarehouseCategory] : null;
                               return (
-                              <tr key={`${c.region}-${c.warehouse}-${i}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#fff' }}>
-                                <td style={{ padding: '7px 12px', color: '#6b7280', width: 130, fontSize: 11 }}>{c.region || <span style={{ color: '#d1d5db' }}>—</span>}</td>
-                                <td style={{ padding: '7px 12px', fontWeight: 500, color: '#1e293b', borderRight: `3px solid ${uChip ? uChip.solid : '#e5e7eb'}` }}>{c.warehouse}</td>
+                              <tr key={`${c.region}-${c.warehouse}-${i}`} style={{ borderBottom: '1px solid var(--c-border-light)', background: '#fff' }}>
+                                <td style={{ padding: '7px 12px', color: 'var(--c-text-secondary)', width: 130, fontSize: 11 }}>{c.region || <span style={{ color: 'var(--c-text-muted)' }}>—</span>}</td>
+                                <td style={{ padding: '7px 12px', fontWeight: 500, color: 'var(--c-text-primary)', borderRight: `3px solid ${uChip ? uChip.solid : '#e5e7eb'}` }}>{c.warehouse}</td>
                                 <td style={{ padding: '7px 10px', textAlign: 'left', width: 110 }}>{renderSelect(c.region, c.warehouse)}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'center', width: 50 }}>
                                   <button onClick={() => setWarehouseClasses(prev => prev.filter(x => !(normName(x.warehouse) === normName(c.warehouse) && normName(x.region) === normName(c.region))))}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 14 }} title="حذف">🗑</button>
+                                    style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-danger)' }} title="حذف"><Icon name="delete" size={14} /></button>
                                 </td>
                               </tr>
                               );
@@ -3017,31 +3021,31 @@ table{border-collapse:collapse;width:100%}
             style={{
               background: '#fff', borderRadius: 14, width: 'min(860px, 100%)', maxHeight: '90vh',
               display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              border: '1.5px solid #e2e8f0',
+              border: '1.5px solid var(--c-border)',
               boxShadow: '0 10px 30px rgba(15,23,42,0.12)',
             }}
           >
             {/* Header */}
             <div style={{
-              padding: '14px 18px', borderBottom: '1.5px solid #e2e8f0', background: '#f8fafc',
+              padding: '14px 18px', borderBottom: '1.5px solid var(--c-border)', background: 'var(--c-bg)',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
             }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b' }}>📡 رادار النقص</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--c-text-primary)' }}>📡 رادار النقص</div>
+                <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 3 }}>
                   {shortages.totalCount === 0
                     ? 'لا توجد نواقص حالياً'
                     : `تم رصد ${fmtNum(shortages.totalCount)} ايتم يحتاج انتباه`}
                 </div>
               </div>
               <button onClick={() => setShowShortages(false)} style={{
-                width: 30, height: 30, borderRadius: 8, border: '1.5px solid #e2e8f0',
-                background: '#fff', color: '#64748b', fontSize: 14, cursor: 'pointer', fontWeight: 700,
+                width: 30, height: 30, borderRadius: 8, border: '1.5px solid var(--c-border)',
+                background: '#fff', color: 'var(--c-text-secondary)', fontSize: 14, cursor: 'pointer', fontWeight: 700,
               }}>✕</button>
             </div>
 
             {/* Threshold controls */}
-            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>الحد الأدنى للتذكير:</span>
                 <input
@@ -3049,12 +3053,12 @@ table{border-collapse:collapse;width:100%}
                   value={shortageThreshold}
                   onChange={e => setShortageThreshold(Math.max(0, parseInt(e.target.value) || 0))}
                   style={{
-                    width: 80, padding: '5px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0',
-                    fontSize: 13, fontWeight: 700, color: '#1e293b', textAlign: 'center', outline: 'none',
-                    background: '#f8fafc',
+                    width: 80, padding: '5px 10px', borderRadius: 8, border: '1.5px solid var(--c-border)',
+                    fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)', textAlign: 'center', outline: 'none',
+                    background: 'var(--c-bg)',
                   }}
                 />
-                <span style={{ fontSize: 12, color: '#64748b' }}>قطعة</span>
+                <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>قطعة</span>
                 <div style={{ marginInlineStart: 'auto', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   {[0, 10, 30, 50, 100].map(v => (
                     <button key={v} onClick={() => setShortageThreshold(v)} style={fp(shortageThreshold === v, true)}>
@@ -3063,8 +3067,8 @@ table{border-collapse:collapse;width:100%}
                   ))}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8' }}>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: '#64748b' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'var(--c-text-muted)' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: 'var(--c-text-secondary)' }}>
                   <input type="checkbox" checked={highlightLow} onChange={e => setHighlightLow(e.target.checked)} />
                   تلوين الخلايا المنخفضة في الجدول
                 </label>
@@ -3072,22 +3076,22 @@ table{border-collapse:collapse;width:100%}
             </div>
 
             {/* Summary row + actions */}
-            <div style={{ padding: '12px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '12px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid var(--c-border)' }}>
               {([
-                ['نفد', shortages.out.length, '#dc2626'],
-                ['حرج', shortages.critical.length, '#d97706'],
-                ['منخفض', shortages.low.length, '#65a30d'],
+                ['نفد', shortages.out.length, 'var(--c-danger)'],
+                ['حرج', shortages.critical.length, 'var(--c-warning)'],
+                ['منخفض', shortages.low.length, 'var(--c-success)'],
               ] as [string, number, string][]).map(([lbl, n, c]) => (
                 <div key={lbl} style={{
                   flex: '1 1 100px', minWidth: 90, padding: '8px 12px', borderRadius: 10,
-                  background: '#f8fafc', border: '1.5px solid #e2e8f0',
+                  background: 'var(--c-bg)', border: '1.5px solid var(--c-border)',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--c-text-secondary)', fontWeight: 600 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 99, background: c, display: 'inline-block' }} />
                     {lbl}
                   </span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>{fmtNum(n)}</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--c-text-primary)' }}>{fmtNum(n)}</span>
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 6 }}>
@@ -3188,9 +3192,9 @@ table{border-collapse:collapse;width:100%}
                     ...fp(shortages.totalCount > 0, true),
                     cursor: shortages.totalCount === 0 ? 'default' : 'pointer',
                     opacity: shortages.totalCount === 0 ? 0.5 : 1,
-                    background: shortages.totalCount > 0 ? '#10b981' : undefined,
+                    background: shortages.totalCount > 0 ? 'var(--c-success)' : undefined,
                     color: shortages.totalCount > 0 ? '#fff' : undefined,
-                    borderColor: shortages.totalCount > 0 ? '#10b981' : undefined,
+                    borderColor: shortages.totalCount > 0 ? 'var(--c-success)' : undefined,
                   }}
                   title="تصدير النقص إلى ملف إكسل بورقتين: ملخص وتفصيل لكل مخزن"
                 >⬇ تصدير Excel</button>
@@ -3225,16 +3229,16 @@ table{border-collapse:collapse;width:100%}
             {/* List body */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 18px 18px' }}>
               {shortages.totalCount === 0 ? (
-                <div style={{ textAlign: 'center', padding: '50px 20px', color: '#94a3b8' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#64748b' }}>لا توجد نواقص</div>
+                <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--c-text-muted)' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-secondary)' }}>لا توجد نواقص</div>
                   <div style={{ fontSize: 12, marginTop: 6 }}>كل الايتمات فوق الحد المحدد ({shortageThreshold} قطعة)</div>
                 </div>
               ) : shortageView === 'by-item' ? (
                 <>
                   {([
-                    ['out',      'نفد تماماً',   '#dc2626'],
-                    ['critical', 'حالة حرجة',   '#d97706'],
-                    ['low',      'مستوى منخفض', '#65a30d'],
+                    ['out',      'نفد تماماً',   'var(--c-danger)'],
+                    ['critical', 'حالة حرجة',   'var(--c-warning)'],
+                    ['low',      'مستوى منخفض', 'var(--c-success)'],
                   ] as ['out' | 'critical' | 'low', string, string][]).map(([key, title, c]) => {
                     const list = shortages[key];
                     if (list.length === 0) return null;
@@ -3242,7 +3246,7 @@ table{border-collapse:collapse;width:100%}
                       <div key={key} style={{ marginBottom: 14 }}>
                         <div style={{
                           padding: '6px 10px', fontSize: 12, fontWeight: 700, marginBottom: 8,
-                          color: '#1e293b', borderInlineStart: `3px solid ${c}`, background: '#f8fafc',
+                          color: 'var(--c-text-primary)', borderInlineStart: `3px solid ${c}`, background: 'var(--c-bg)',
                           borderRadius: 6,
                         }}>{title} · {list.length}</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3258,19 +3262,19 @@ table{border-collapse:collapse;width:100%}
 
                             return (
                               <div key={i} style={{
-                                padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0',
+                                padding: '10px 12px', borderRadius: 8, border: '1px solid var(--c-border)',
                                 background: '#fff', display: 'flex', flexDirection: 'column', gap: 8,
                                 borderInlineStart: `3px solid ${c}`,
                               }}>
                                 {/* Header row: name + company + total */}
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                   <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-                                      {e.name || <span style={{ color: '#94a3b8' }}>(بدون اسم)</span>}
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>
+                                      {e.name || <span style={{ color: 'var(--c-text-muted)' }}>(بدون اسم)</span>}
                                     </div>
                                     {e.company && (
-                                      <div style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                        <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 500 }}>الشركة:</span>
+                                      <div style={{ fontSize: 11, color: 'var(--c-accent)', fontWeight: 600, marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <span style={{ fontSize: 9, color: 'var(--c-text-muted)', fontWeight: 500 }}>الشركة:</span>
                                         {e.company}
                                       </div>
                                     )}
@@ -3283,16 +3287,16 @@ table{border-collapse:collapse;width:100%}
 
                                 {/* Regions + warehouses breakdown */}
                                 {regionOrder.length > 0 && (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6, borderTop: '1px dashed #e2e8f0' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingTop: 6, borderTop: '1px dashed var(--c-border)' }}>
                                     {regionOrder.map(reg => {
                                       const rq = regionQty(reg);
-                                      const rc = rq ? (rq.sev === 'out' ? '#dc2626' : rq.sev === 'critical' ? '#d97706' : '#65a30d') : '#94a3b8';
+                                      const rc = rq ? (rq.sev === 'out' ? 'var(--c-danger)' : rq.sev === 'critical' ? 'var(--c-warning)' : 'var(--c-success)') : 'var(--c-text-muted)';
                                       const whs = whByRegion[reg] || [];
                                       return (
                                         <div key={reg} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11 }}>
                                           <span style={{
                                             padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
-                                            background: '#f1f5f9', color: '#1e293b',
+                                            background: 'var(--c-border-light)', color: 'var(--c-text-primary)',
                                             display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 110,
                                           }}>
                                             <span style={{ width: 7, height: 7, borderRadius: 99, background: rc }} />
@@ -3304,7 +3308,7 @@ table{border-collapse:collapse;width:100%}
                                           {whs.length > 0 ? (
                                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
                                               {whs.map((w, k) => {
-                                                const wc = w.sev === 'out' ? '#dc2626' : w.sev === 'critical' ? '#d97706' : '#65a30d';
+                                                const wc = w.sev === 'out' ? 'var(--c-danger)' : w.sev === 'critical' ? 'var(--c-warning)' : 'var(--c-success)';
                                                 return (
                                                   <span key={k} style={{
                                                     padding: '2px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600,
@@ -3319,7 +3323,7 @@ table{border-collapse:collapse;width:100%}
                                               })}
                                             </div>
                                           ) : (
-                                            <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>المجموع منخفض (كل مخزن ضمن الحد)</span>
+                                            <span style={{ fontSize: 10, color: 'var(--c-text-muted)', fontStyle: 'italic' }}>المجموع منخفض (كل مخزن ضمن الحد)</span>
                                           )}
                                         </div>
                                       );
@@ -3369,7 +3373,7 @@ table{border-collapse:collapse;width:100%}
 
                     const keys = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
                     if (keys.length === 0) return (
-                      <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 12 }}>
+                      <div style={{ textAlign: 'center', padding: 30, color: 'var(--c-text-muted)', fontSize: 12 }}>
                         {emptyMsg}
                       </div>
                     );
@@ -3386,26 +3390,26 @@ table{border-collapse:collapse;width:100%}
                       return (
                         <div key={key} style={{ marginBottom: 14 }}>
                           <div style={{
-                            padding: '7px 12px', borderRadius: 8, background: '#f8fafc',
-                            color: '#1e293b', fontSize: 13, fontWeight: 700, marginBottom: 6,
-                            display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #e2e8f0',
+                            padding: '7px 12px', borderRadius: 8, background: 'var(--c-bg)',
+                            color: 'var(--c-text-primary)', fontSize: 13, fontWeight: 700, marginBottom: 6,
+                            display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--c-border)',
                           }}>
                             {parts ? (
                               <>
                                 <span>{parts[0]}</span>
-                                {parts[1] && <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600, background: '#eef2ff', padding: '1px 7px', borderRadius: 10 }}>{parts[1]}</span>}
+                                {parts[1] && <span style={{ fontSize: 10, color: 'var(--c-text-secondary)', fontWeight: 600, background: 'var(--c-accent-light)', padding: '1px 7px', borderRadius: 10 }}>{parts[1]}</span>}
                               </>
                             ) : key}
-                            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>({list.length} {unit})</span>
+                            <span style={{ fontSize: 11, color: 'var(--c-text-muted)', fontWeight: 500 }}>({list.length} {unit})</span>
                             <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6 }}>
                               {(['out', 'critical', 'low'] as const).map(s => {
                                 const n = list.filter(x => x.sev === s).length;
                                 if (n === 0) return null;
-                                const c = s === 'out' ? '#dc2626' : s === 'critical' ? '#d97706' : '#65a30d';
+                                const c = s === 'out' ? 'var(--c-danger)' : s === 'critical' ? 'var(--c-warning)' : 'var(--c-success)';
                                 const lbl = s === 'out' ? 'نفد' : s === 'critical' ? 'حرج' : 'منخفض';
                                 return <span key={s} style={{
                                   display: 'inline-flex', alignItems: 'center', gap: 4,
-                                  fontSize: 11, fontWeight: 600, color: '#64748b',
+                                  fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)',
                                 }}>
                                   <span style={{ width: 7, height: 7, borderRadius: 99, background: c }} />
                                   {lbl} {n}
@@ -3415,17 +3419,17 @@ table{border-collapse:collapse;width:100%}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                             {list.sort((a, b) => a.qty - b.qty).map((x, i) => {
-                              const c = x.sev === 'out' ? '#dc2626' : x.sev === 'critical' ? '#d97706' : '#65a30d';
+                              const c = x.sev === 'out' ? 'var(--c-danger)' : x.sev === 'critical' ? 'var(--c-warning)' : 'var(--c-success)';
                               return (
                                 <div key={i} style={{
-                                  padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
+                                  padding: '6px 12px', borderRadius: 6, border: '1px solid var(--c-border)',
                                   display: 'flex', alignItems: 'center', gap: 10, fontSize: 12,
                                   borderInlineStart: `3px solid ${c}`, background: '#fff',
                                 }}>
-                                  <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>
+                                  <span style={{ flex: 1, fontWeight: 600, color: 'var(--c-text-primary)' }}>
                                     {x.entry.name || '(بدون اسم)'}
                                     {shortageView !== 'by-company' && x.entry.company && (
-                                      <span style={{ color: '#94a3b8', fontSize: 10, marginInlineStart: 6, fontWeight: 500 }}>· {x.entry.company}</span>
+                                      <span style={{ color: 'var(--c-text-muted)', fontSize: 10, marginInlineStart: 6, fontWeight: 500 }}>· {x.entry.company}</span>
                                     )}
                                   </span>
                                   <span style={{ color: c, fontWeight: 700 }}>
@@ -3455,12 +3459,12 @@ table{border-collapse:collapse;width:100%}
 
 // Style helpers
 function fp(active: boolean, small = false): React.CSSProperties {
-  return { padding: small ? '3px 11px' : '5px 14px', borderRadius: 20, fontSize: small ? 11 : 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${active ? '#6366f1' : '#e2e8f0'}`, background: active ? '#eef2ff' : '#f8fafc', color: active ? '#4338ca' : '#64748b' };
+  return { padding: small ? '3px 11px' : '5px 14px', borderRadius: 20, fontSize: small ? 11 : 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`, background: active ? 'var(--c-accent-light)' : 'var(--c-bg)', color: active ? 'var(--c-accent)' : 'var(--c-text-secondary)' };
 }
-const thS: React.CSSProperties = { padding: '10px 14px', fontWeight: 700, color: '#1e293b', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap', background: '#f8fafc' };
+const thS: React.CSSProperties = { padding: '10px 14px', fontWeight: 700, color: 'var(--c-text-primary)', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap', background: 'var(--c-bg)' };
 const thA: React.CSSProperties = { padding: '10px 10px', fontWeight: 700, fontSize: 11, textAlign: 'center', whiteSpace: 'nowrap', minWidth: 70 };
-const tdS: React.CSSProperties = { padding: '9px 14px', color: '#1e293b', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap' };
+const tdS: React.CSSProperties = { padding: '9px 14px', color: 'var(--c-text-primary)', fontSize: 12, textAlign: 'right', whiteSpace: 'nowrap' };
 const tdA: React.CSSProperties = { padding: '8px 8px', fontSize: 12, textAlign: 'center', whiteSpace: 'nowrap' };
 function pgBtn(disabled: boolean): React.CSSProperties {
-  return { padding: '5px 10px', borderRadius: 8, fontSize: 13, cursor: disabled ? 'default' : 'pointer', border: '1.5px solid #e2e8f0', background: '#f8fafc', color: disabled ? '#d1d5db' : '#374151' };
+  return { padding: '5px 10px', borderRadius: 8, fontSize: 13, cursor: disabled ? 'default' : 'pointer', border: '1.5px solid var(--c-border)', background: 'var(--c-bg)', color: disabled ? 'var(--c-text-muted)' : 'var(--c-text-primary)' };
 }

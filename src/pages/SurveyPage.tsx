@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
+import { Icon } from '../config/icons';
 
 // ── Types ────────────────────────────────────────────────────
 interface Survey {
@@ -35,7 +36,7 @@ interface SurveyDetail extends Survey {
 function Spinner() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-      <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid #e2e8f0', borderTopColor: '#8B1A1A', animation: 'surveySpins .6s linear infinite' }} />
+      <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--c-border)', borderTopColor: 'var(--c-accent)', animation: 'surveySpins .6s linear infinite' }} />
       <style>{`@keyframes surveySpins{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
@@ -46,7 +47,7 @@ function Toast({ msg, onClose }: { msg: string; onClose: () => void }) {
   return (
     <div style={{
       position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
-      background: '#1e293b', color: '#fff', padding: '12px 24px', borderRadius: 24,
+      background: 'var(--c-text-primary)', color: '#fff', padding: '12px 24px', borderRadius: 24,
       fontSize: 14, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
       direction: 'rtl', whiteSpace: 'nowrap',
     }}>{msg}</div>
@@ -60,7 +61,7 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: '#fff', borderRadius: 18, padding: 24, width: '100%', maxWidth: 500,
+        background: 'var(--c-surface)', borderRadius: 18, padding: 24, width: '100%', maxWidth: 500,
         maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
       }}>
         {children}
@@ -254,19 +255,19 @@ export default function SurveyPage() {
 
     return (
       <ModalOverlay onClose={onClose}>
-        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: '#1e293b', direction: 'rtl' }}>
-          {isNew ? '➕ إضافة طبيب' : '✏️ تعديل بيانات الطبيب'}
+        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: 'var(--c-text-primary)', direction: 'rtl', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isNew ? <><Icon name="add" size={18} /> إضافة طبيب</> : <><Icon name="edit" size={16} /> تعديل بيانات الطبيب</>}
         </h3>
         {([['الاسم *','name'],['الاختصاص','specialty'],['المنطقة','areaName'],['الصيدلية المرتبطة','pharmacyName'],['الكلاس','className'],['الهاتف','phone']] as [string,string][]).map(([label, key]) => (
           <div key={key} style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>{label}</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', display: 'block', marginBottom: 4 }}>{label}</label>
             <input value={(form as any)[key]} onChange={set(key)} style={inputStyle} />
           </div>
         ))}
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>ملاحظات</label>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', display: 'block', marginBottom: 4 }}>ملاحظات</label>
         <textarea value={form.notes} onChange={set('notes')} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
-        <p style={{ fontSize: 11, color: '#94a3b8', margin: '10px 0 0', direction: 'rtl' }}>
-          ⚠️ التعديل مشترك — سيظهر للجميع فور الحفظ
+        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '10px 0 0', direction: 'rtl', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Icon name="warning" size={12} /> التعديل مشترك — سيظهر للجميع فور الحفظ
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
           <button onClick={onClose} style={btnSecondary}>إلغاء</button>
@@ -301,19 +302,19 @@ export default function SurveyPage() {
 
     return (
       <ModalOverlay onClose={onClose}>
-        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: '#1e293b', direction: 'rtl' }}>
-          {isNew ? '➕ إضافة صيدلية' : '✏️ تعديل بيانات الصيدلية'}
+        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 800, color: 'var(--c-text-primary)', direction: 'rtl', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isNew ? <><Icon name="add" size={18} /> إضافة صيدلية</> : <><Icon name="edit" size={16} /> تعديل بيانات الصيدلية</>}
         </h3>
         {([['الاسم *','name'],['صاحب الصيدلية','ownerName'],['الهاتف','phone'],['العنوان','address'],['المنطقة','areaName']] as [string,string][]).map(([label, key]) => (
           <div key={key} style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>{label}</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', display: 'block', marginBottom: 4 }}>{label}</label>
             <input value={(form as any)[key]} onChange={set(key)} style={inputStyle} />
           </div>
         ))}
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>ملاحظات</label>
+        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', display: 'block', marginBottom: 4 }}>ملاحظات</label>
         <textarea value={form.notes} onChange={set('notes')} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
-        <p style={{ fontSize: 11, color: '#94a3b8', margin: '10px 0 0', direction: 'rtl' }}>
-          ⚠️ التعديل مشترك — سيظهر للجميع فور الحفظ
+        <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '10px 0 0', direction: 'rtl', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Icon name="warning" size={12} /> التعديل مشترك — سيظهر للجميع فور الحفظ
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
           <button onClick={onClose} style={btnSecondary}>إلغاء</button>
@@ -328,16 +329,16 @@ export default function SurveyPage() {
     return (
       <div style={{ padding: '0 0 80px', direction: 'rtl' }}>
         <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1e293b' }}>🗂️ السيرفيات</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>قوائم الأطباء والصيدليات المشتركة من الإدارة</p>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="navMasterSurvey" size={20} /> السيرفيات</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--c-text-secondary)' }}>قوائم الأطباء والصيدليات المشتركة من الإدارة</p>
         </div>
 
         {loading ? <Spinner /> : surveys.length === 0 ? (
           <div style={{
-            textAlign: 'center', padding: 60, color: '#94a3b8',
-            background: '#f8fafc', borderRadius: 16, border: '1.5px dashed #e2e8f0',
+            textAlign: 'center', padding: 60, color: 'var(--c-text-muted)',
+            background: 'var(--c-bg)', borderRadius: 16, border: '1.5px dashed var(--c-border)',
           }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🗂️</div>
+            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="navMasterSurvey" size={40} /></div>
             <p style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>لا توجد سيرفيات متاحة</p>
             <p style={{ margin: '6px 0 0', fontSize: 13 }}>ستظهر هنا السيرفيات التي يُضيفها الماستر أدمن</p>
           </div>
@@ -345,22 +346,22 @@ export default function SurveyPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 14 }}>
             {surveys.map(s => (
               <button key={s.id} onClick={() => openSurvey(s.id)} style={{
-                background: '#fff', border: '1.5px solid #e8edf5', borderRadius: 16,
+                background: 'var(--c-surface)', border: '1.5px solid var(--c-border-light)', borderRadius: 16,
                 padding: '20px 18px', textAlign: 'right', cursor: 'pointer',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.05)', transition: 'all .2s',
                 fontFamily: 'inherit',
               }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 28px rgba(139,26,26,0.15)'; (e.currentTarget as HTMLElement).style.borderColor = '#8B1A1A40'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.05)'; (e.currentTarget as HTMLElement).style.borderColor = '#e8edf5'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 28px rgba(26,86,219,0.15)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(26,86,219,0.35)'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.05)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-border-light)'; }}
               >
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>{s.name}</div>
-                {s.description && <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{s.description}</p>}
+                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--c-text-primary)', marginBottom: 6 }}>{s.name}</div>
+                {s.description && <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--c-text-secondary)', lineHeight: 1.5 }}>{s.description}</p>}
                 <div style={{ display: 'flex', gap: 14 }}>
                   {s.surveyType === 'drug_prices'
-                    ? <span style={{ fontSize: 13, color: '#059669', fontWeight: 700 }}>💊 {(s._count.drugEntries ?? 0).toLocaleString('ar-IQ')} دواء</span>
+                    ? <span style={{ fontSize: 13, color: 'var(--c-success)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={15} /> {(s._count.drugEntries ?? 0).toLocaleString('ar-IQ')} دواء</span>
                     : <>
-                        <span style={{ fontSize: 13, color: '#6366f1', fontWeight: 700 }}>🩺 {s._count.doctors} طبيب</span>
-                        <span style={{ fontSize: 13, color: '#f97316', fontWeight: 700 }}>🏪 {s._count.pharmacies} صيدلية</span>
+                        <span style={{ fontSize: 13, color: 'var(--c-accent)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={15} /> {s._count.doctors} طبيب</span>
+                        <span style={{ fontSize: 13, color: '#f97316', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pharmacy" size={15} /> {s._count.pharmacies} صيدلية</span>
                       </>
                   }
                 </div>
@@ -378,10 +379,10 @@ export default function SurveyPage() {
     <div style={{ padding: '0 0 80px', direction: 'rtl' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: selectedSurvey.userAreaNames?.length ? 12 : 20 }}>
-        <button onClick={() => setSelectedSurvey(null)} style={btnBack}>← رجوع</button>
+        <button onClick={() => setSelectedSurvey(null)} style={{ ...btnBack, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="chevronLeft" size={14} /> رجوع</button>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>{selectedSurvey.name}</h2>
-          {selectedSurvey.description && <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{selectedSurvey.description}</p>}
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--c-text-primary)' }}>{selectedSurvey.name}</h2>
+          {selectedSurvey.description && <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--c-text-secondary)' }}>{selectedSurvey.description}</p>}
         </div>
       </div>
 
@@ -389,15 +390,12 @@ export default function SurveyPage() {
       {selectedSurvey.userAreaNames && selectedSurvey.userAreaNames.length > 0 && (
         <div style={{
           display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
-          background: '#f0f4ff', border: '1.5px solid #c7d7fd', borderRadius: 12,
+          background: 'var(--c-accent-light)', border: '1.5px solid rgba(26,86,219,0.25)', borderRadius: 12,
           padding: '10px 14px', marginBottom: 20, direction: 'rtl',
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#3b5bdb', whiteSpace: 'nowrap' }}>📍 مناطقك المحددة:</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-accent)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={13} /> مناطقك المحددة:</span>
           {selectedSurvey.userAreaNames.map(area => (
-            <span key={area} style={{
-              background: '#dbe4ff', color: '#364fc7', fontSize: 12, fontWeight: 700,
-              padding: '3px 10px', borderRadius: 20, border: '1px solid #bac8ff',
-            }}>{area}</span>
+            <span key={area} className="tag tag--blue">{area}</span>
           ))}
         </div>
       )}
@@ -406,17 +404,17 @@ export default function SurveyPage() {
       {isCompanyManager && reps.length > 0 && selectedSurvey.surveyType !== 'drug_prices' && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10,
-          background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12,
+          background: 'var(--c-warning-bg)', border: '1.5px solid var(--c-warning-border)', borderRadius: 12,
           padding: '10px 14px', marginBottom: 20, direction: 'rtl',
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#c2410c', whiteSpace: 'nowrap' }}>👤 استيراد لحساب:</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-warning)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={13} /> استيراد لحساب:</span>
           <select
             value={selectedRepId ?? ''}
             onChange={e => handleRepChange(e.target.value ? Number(e.target.value) : null)}
             style={{
-              flex: 1, border: '1.5px solid #fed7aa', borderRadius: 8, padding: '6px 10px',
-              fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: '#fff',
-              color: '#1e293b', cursor: 'pointer', direction: 'rtl',
+              flex: 1, border: '1.5px solid var(--c-warning-border)', borderRadius: 8, padding: '6px 10px',
+              fontSize: 13, fontWeight: 600, fontFamily: 'inherit', background: 'var(--c-surface)',
+              color: 'var(--c-text-primary)', cursor: 'pointer', direction: 'rtl',
             }}
           >
             <option value="">— لحسابي (مدير الشركة) —</option>
@@ -425,7 +423,7 @@ export default function SurveyPage() {
             ))}
           </select>
           {selectedRepId && (
-            <span style={{ fontSize: 11, color: '#92400e', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--c-warning)', whiteSpace: 'nowrap' }}>
               الأطباء المعروضون مفلتَرون بمناطق المندوب
             </span>
           )}
@@ -433,23 +431,23 @@ export default function SurveyPage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #f1f5f9', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid var(--c-border-light)', marginBottom: 20 }}>
         {selectedSurvey.surveyType === 'drug_prices' ? (
           <button style={{
             padding: '10px 18px', border: 'none', cursor: 'default', fontWeight: 700, fontSize: 13,
-            background: 'transparent', fontFamily: 'inherit',
-            borderBottom: '2px solid #059669', color: '#059669', marginBottom: -2,
-          }}>💊 أسعار الأدوية ({drugEntriesTotal.toLocaleString('ar-IQ')})</button>
-        ) : [
-          { id: 'doctors' as const,    label: `🩺 الأطباء (${selectedSurvey.doctors.length})` },
-          { id: 'pharmacies' as const, label: `🏪 الصيدليات (${selectedSurvey.pharmacies.length})` },
-        ].map(t => (
+            background: 'transparent', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+            borderBottom: '2px solid var(--c-success)', color: 'var(--c-success)', marginBottom: -2,
+          }}><Icon name="drug" size={15} /> أسعار الأدوية ({drugEntriesTotal.toLocaleString('ar-IQ')})</button>
+        ) : ([
+          { id: 'doctors' as const,    icon: 'doctor' as const,   label: `الأطباء (${selectedSurvey.doctors.length})` },
+          { id: 'pharmacies' as const, icon: 'pharmacy' as const, label: `الصيدليات (${selectedSurvey.pharmacies.length})` },
+        ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)} style={{
             padding: '10px 18px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13,
-            background: 'transparent', fontFamily: 'inherit',
-            borderBottom: tab === t.id ? '2px solid #8B1A1A' : '2px solid transparent',
-            color: tab === t.id ? '#8B1A1A' : '#64748b', marginBottom: -2, transition: 'all .15s',
-          }}>{t.label}</button>
+            background: 'transparent', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+            borderBottom: tab === t.id ? '2px solid var(--c-accent)' : '2px solid transparent',
+            color: tab === t.id ? 'var(--c-accent)' : 'var(--c-text-secondary)', marginBottom: -2, transition: 'all .15s',
+          }}><Icon name={t.icon} size={15} /> {t.label}</button>
         ))}
         <div style={{ marginRight: 'auto', display: 'flex', gap: 8, paddingBottom: 4 }}>
           {tab === 'doctors' && (
@@ -457,12 +455,12 @@ export default function SurveyPage() {
               <button
                 onClick={importAllDoctors}
                 disabled={importingAll || selectedSurvey.doctors.length === 0}
-                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAll ? 0.6 : 1 }}
+                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAll ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 5 }}
               >
-                {importingAll ? 'جاري...' : '📥 استيرد الكل'}
+                {importingAll ? 'جاري...' : <><Icon name="import" size={14} /> استيرد الكل</>}
               </button>
-              <button onClick={() => setAddingDoc(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>
-                ➕ إضافة طبيب
+              <button onClick={() => setAddingDoc(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Icon name="add" size={14} /> إضافة طبيب
               </button>
             </>
           )}
@@ -471,12 +469,12 @@ export default function SurveyPage() {
               <button
                 onClick={importAllPharmacies}
                 disabled={importingAllPharm || selectedSurvey.pharmacies.length === 0}
-                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAllPharm ? 0.6 : 1 }}
+                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAllPharm ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 5 }}
               >
-                {importingAllPharm ? 'جاري...' : '📥 استيرد الكل'}
+                {importingAllPharm ? 'جاري...' : <><Icon name="import" size={14} /> استيرد الكل</>}
               </button>
-              <button onClick={() => setAddingPharma(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12 }}>
-                ➕ إضافة صيدلية
+              <button onClick={() => setAddingPharma(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Icon name="add" size={14} /> إضافة صيدلية
               </button>
             </>
           )}
@@ -502,37 +500,37 @@ export default function SurveyPage() {
       {/* Doctors Table */}
       {tab === 'doctors' && (
         selectedSurvey.doctors.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f8fafc', borderRadius: 14, border: '1.5px dashed #e2e8f0' }}>
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--c-text-muted)', background: 'var(--c-bg)', borderRadius: 14, border: '1.5px dashed var(--c-border)' }}>
             لا يوجد أطباء في هذا السيرفي بعد
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {selectedSurvey.doctors.map(d => (
               <div key={d.id} style={{
-                background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: 14,
+                background: 'var(--c-surface)', border: '1.5px solid var(--c-border-light)', borderRadius: 14,
                 padding: '14px 16px', boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
               }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: '#1e293b', marginBottom: 4 }}>{d.name}</div>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--c-text-primary)', marginBottom: 4 }}>{d.name}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                       {d.specialty    && <span style={infoChip}>{d.specialty}</span>}
-                      {d.areaName     && <span style={infoChip}>📍 {d.areaName}</span>}
-                      {d.pharmacyName && <span style={infoChip}>🏪 {d.pharmacyName}</span>}
-                      {d.className    && <span style={{ ...infoChip, background: '#fef9c3', color: '#854d0e', fontWeight: 700, border: '1px solid #fde68a' }}>{d.className}</span>}
-                      {d.phone        && <span style={infoChip}>📞 {d.phone}</span>}
+                      {d.areaName     && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={12} /> {d.areaName}</span>}
+                      {d.pharmacyName && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pharmacy" size={12} /> {d.pharmacyName}</span>}
+                      {d.className    && <span style={{ ...infoChip, background: 'var(--c-warning-bg)', color: 'var(--c-warning)', fontWeight: 700, border: '1px solid var(--c-warning-border)' }}>{d.className}</span>}
+                      {d.phone        && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="call" size={12} /> {d.phone}</span>}
                     </div>
-                    {d.notes && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{d.notes}</p>}
+                    {d.notes && <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--c-text-secondary)', lineHeight: 1.5 }}>{d.notes}</p>}
                     {d.lastEditedBy && (
-                      <div style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8' }}>
-                        ✏️ عُدِّل بواسطة: <strong>{d.lastEditedBy.displayName || d.lastEditedBy.username}</strong>
+                      <div style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--c-text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="edit" size={11} /> عُدِّل بواسطة: <strong>{d.lastEditedBy.displayName || d.lastEditedBy.username}</strong>
                         {d.lastEditedAt ? ` · ${new Date(d.lastEditedAt).toLocaleDateString('ar-IQ')}` : ''}
                       </div>
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => setEditingDoc(d)} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12 }}>✏️ تعديل</button>
-                    <button onClick={() => importDoctor(d.id)} style={{ ...btnImport, padding: '6px 14px', fontSize: 12 }}>📥 استيراد لسجلاتي</button>
+                    <button onClick={() => setEditingDoc(d)} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={13} /> تعديل</button>
+                    <button onClick={() => importDoctor(d.id)} style={{ ...btnImport, padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="import" size={13} /> استيراد لسجلاتي</button>
                   </div>
                 </div>
               </div>
@@ -544,36 +542,36 @@ export default function SurveyPage() {
       {/* Pharmacies Table */}
       {tab === 'pharmacies' && (
         selectedSurvey.pharmacies.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f8fafc', borderRadius: 14, border: '1.5px dashed #e2e8f0' }}>
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--c-text-muted)', background: 'var(--c-bg)', borderRadius: 14, border: '1.5px dashed var(--c-border)' }}>
             لا توجد صيدليات في هذا السيرفي بعد
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {selectedSurvey.pharmacies.map(p => (
               <div key={p.id} style={{
-                background: '#fff', border: '1.5px solid #f1f5f9', borderRadius: 14,
+                background: 'var(--c-surface)', border: '1.5px solid var(--c-border-light)', borderRadius: 14,
                 padding: '14px 16px', boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
               }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: '#1e293b', marginBottom: 4 }}>{p.name}</div>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--c-text-primary)', marginBottom: 4 }}>{p.name}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                      {p.ownerName && <span style={infoChip}>👤 {p.ownerName}</span>}
-                      {p.areaName  && <span style={infoChip}>📍 {p.areaName}</span>}
-                      {p.phone     && <span style={infoChip}>📞 {p.phone}</span>}
+                      {p.ownerName && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={12} /> {p.ownerName}</span>}
+                      {p.areaName  && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={12} /> {p.areaName}</span>}
+                      {p.phone     && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="call" size={12} /> {p.phone}</span>}
                       {p.address   && <span style={infoChip}>🏠 {p.address}</span>}
                     </div>
-                    {p.notes && <p style={{ margin: '8px 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{p.notes}</p>}
+                    {p.notes && <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--c-text-secondary)', lineHeight: 1.5 }}>{p.notes}</p>}
                     {p.lastEditedBy && (
-                      <div style={{ margin: '6px 0 0', fontSize: 11, color: '#94a3b8' }}>
-                        ✏️ عُدِّل بواسطة: <strong>{p.lastEditedBy.displayName || p.lastEditedBy.username}</strong>
+                      <div style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--c-text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="edit" size={11} /> عُدِّل بواسطة: <strong>{p.lastEditedBy.displayName || p.lastEditedBy.username}</strong>
                         {p.lastEditedAt ? ` · ${new Date(p.lastEditedAt).toLocaleDateString('ar-IQ')}` : ''}
                       </div>
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => setEditingPharma(p)} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12 }}>✏️ تعديل</button>
-                    <button onClick={() => importPharmacy(p.id)} style={{ ...btnImport, padding: '6px 14px', fontSize: 12 }}>📥 استيراد لسجلاتي</button>
+                    <button onClick={() => setEditingPharma(p)} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={13} /> تعديل</button>
+                    <button onClick={() => importPharmacy(p.id)} style={{ ...btnImport, padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="import" size={13} /> استيراد لسجلاتي</button>
                   </div>
                 </div>
               </div>
@@ -585,51 +583,51 @@ export default function SurveyPage() {
       {/* Drug Prices Table */}
       {tab === 'drug_prices' && (
         drugEntriesLoading ? <Spinner /> : drugEntries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f8fafc', borderRadius: 14, border: '1.5px dashed #e2e8f0' }}>
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--c-text-muted)', background: 'var(--c-bg)', borderRadius: 14, border: '1.5px dashed var(--c-border)' }}>
             {drugSearch ? `لا توجد نتائج لـ “${drugSearch}”` : 'لا توجد بيانات أسعار بعد'}
           </div>
         ) : (
           <>
             {/* pagination */}
             {drugEntriesPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, fontSize: 12, color: '#64748b' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, fontSize: 12, color: 'var(--c-text-secondary)' }}>
                 <span>{drugEntriesTotal.toLocaleString('ar-IQ')} دواء إجمالاً</span>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <button disabled={drugEntriesPage <= 1} onClick={() => { const p = drugEntriesPage - 1; loadDrugEntries(selectedSurvey.id, drugSearch, p); }}
-                    style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage <= 1 ? 0.4 : 1 }}>←</button>
-                  <span style={{ fontWeight: 600, color: '#374151' }}>{drugEntriesPage} / {drugEntriesPages}</span>
+                    style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage <= 1 ? 0.4 : 1, display: 'flex', alignItems: 'center' }}><Icon name="chevronLeft" size={13} /></button>
+                  <span style={{ fontWeight: 600, color: 'var(--c-text-primary)' }}>{drugEntriesPage} / {drugEntriesPages}</span>
                   <button disabled={drugEntriesPage >= drugEntriesPages} onClick={() => { const p = drugEntriesPage + 1; loadDrugEntries(selectedSurvey.id, drugSearch, p); }}
-                    style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage >= drugEntriesPages ? 0.4 : 1 }}>→</button>
+                    style={{ ...btnSecondary, padding: '4px 10px', fontSize: 12, opacity: drugEntriesPage >= drugEntriesPages ? 0.4 : 1, display: 'flex', alignItems: 'center' }}><Icon name="chevronRight" size={13} /></button>
                 </div>
               </div>
             )}
-            <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #e8edf5' }}>
+            <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid var(--c-border-light)' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ background: '#f8fafc' }}>
+                  <tr style={{ background: 'var(--c-bg)' }}>
                     {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','سعر المكتب→مذخر','سعر مذخر→صيدلية','سعر صيدلية→مريض','ملاحظات'].map(h => (
-                      <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', borderBottom: '2px solid var(--c-border-light)', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {drugEntries.map((e, i) => (
-                    <tr key={e.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <td style={{ padding: '8px 12px', fontWeight: 700, color: '#1e293b' }}>{e.brandName}</td>
-                      <td style={{ padding: '8px 12px', color: '#6366f1', fontSize: 12 }}>{e.scientificName || '—'}</td>
-                      <td style={{ padding: '8px 12px', color: '#64748b' }}>{e.dosageForm || '—'}</td>
-                      <td style={{ padding: '8px 12px', color: '#64748b' }}>{e.packaging || '—'}</td>
-                      <td style={{ padding: '8px 12px', color: '#64748b' }}>{e.company || '—'}</td>
-                      <td style={{ padding: '8px 12px', color: '#059669', fontWeight: 600 }}>
-                        {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                    <tr key={e.id} style={{ borderBottom: '1px solid var(--c-border-light)', background: i % 2 === 0 ? 'var(--c-surface)' : 'var(--c-bg)' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--c-text-primary)' }}>{e.brandName}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--c-accent)', fontSize: 12 }}>{e.scientificName || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--c-text-secondary)' }}>{e.dosageForm || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--c-text-secondary)' }}>{e.packaging || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--c-text-secondary)' }}>{e.company || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--c-success)', fontWeight: 600 }}>
+                        {e.priceOfficeToWholesaler != null ? Number(e.priceOfficeToWholesaler).toFixed(3) : <span style={{ color: 'var(--c-text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ padding: '8px 12px', color: '#d97706', fontWeight: 600 }}>
-                        {e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      <td style={{ padding: '8px 12px', color: 'var(--c-warning)', fontWeight: 600 }}>
+                        {e.priceWholesalerToPharmacy != null ? Number(e.priceWholesalerToPharmacy).toFixed(3) : <span style={{ color: 'var(--c-text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ padding: '8px 12px', color: '#dc2626', fontWeight: 600 }}>
-                        {e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      <td style={{ padding: '8px 12px', color: 'var(--c-danger)', fontWeight: 600 }}>
+                        {e.pricePharmacyToPatient != null ? Number(e.pricePharmacyToPatient).toFixed(3) : <span style={{ color: 'var(--c-text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: 'var(--c-text-muted)', fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -649,36 +647,36 @@ export default function SurveyPage() {
 
 // ── Styles ────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
+  width: '100%', padding: '9px 12px', border: '1.5px solid var(--c-border)',
   borderRadius: 9, fontSize: 13, outline: 'none', boxSizing: 'border-box',
   fontFamily: 'inherit', direction: 'rtl',
 };
 const inputStyleInline: React.CSSProperties = {
-  padding: '7px 12px', border: '1.5px solid #e2e8f0',
+  padding: '7px 12px', border: '1.5px solid var(--c-border)',
   borderRadius: 9, fontSize: 13, outline: 'none', boxSizing: 'border-box',
   fontFamily: 'inherit', direction: 'rtl', width: 200,
 };
 const btnPrimary: React.CSSProperties = {
-  background: 'linear-gradient(135deg,#8B1A1A,#6B1414)', color: '#fff',
+  background: 'linear-gradient(135deg,var(--c-accent),var(--c-accent-hover))', color: '#fff',
   border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 700,
   fontSize: 13, padding: '10px 20px', fontFamily: 'inherit',
 };
 const btnSecondary: React.CSSProperties = {
-  background: '#f1f5f9', color: '#374151', border: '1.5px solid #e2e8f0',
+  background: 'var(--c-bg)', color: 'var(--c-text-primary)', border: '1.5px solid var(--c-border)',
   borderRadius: 10, cursor: 'pointer', fontWeight: 600, fontSize: 13,
   padding: '10px 20px', fontFamily: 'inherit',
 };
 const btnImport: React.CSSProperties = {
-  background: '#f0fdf4', color: '#15803d', border: '1.5px solid #bbf7d0',
+  background: 'var(--c-success-bg)', color: 'var(--c-success)', border: '1.5px solid var(--c-success-border)',
   borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: 13,
   padding: '10px 20px', fontFamily: 'inherit',
 };
 const btnBack: React.CSSProperties = {
-  background: '#f1f5f9', color: '#374151', border: '1.5px solid #e2e8f0',
+  background: 'var(--c-bg)', color: 'var(--c-text-primary)', border: '1.5px solid var(--c-border)',
   borderRadius: 10, cursor: 'pointer', fontWeight: 600, fontSize: 13,
   padding: '8px 14px', fontFamily: 'inherit', flexShrink: 0,
 };
 const infoChip: React.CSSProperties = {
-  background: '#f8fafc', border: '1px solid #e2e8f0',
-  borderRadius: 20, padding: '3px 10px', fontSize: 12, color: '#475569', fontWeight: 500,
+  background: 'var(--c-bg)', border: '1px solid var(--c-border)',
+  borderRadius: 20, padding: '3px 10px', fontSize: 12, color: 'var(--c-text-secondary)', fontWeight: 500,
 };

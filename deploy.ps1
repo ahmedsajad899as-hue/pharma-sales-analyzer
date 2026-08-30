@@ -23,11 +23,11 @@ param(
 # NOTE: do NOT set ErrorActionPreference=Stop here. In Windows PowerShell 5.1 that
 # turns harmless native-tool stderr (e.g. git's "LF will be replaced by CRLF") into a
 # fatal error. We check $LASTEXITCODE explicitly after each native command instead.
-$key    = "C:\Users\Marhaba\.ssh\vultr_pharma"
+$key    = "C:\Users\hp\.ssh\vultr_pharma"
 $server = "root@199.247.0.207"
 $dir    = "/var/www/pharma-sales-analyzer"
 $proc   = "pharma-sales"
-Set-Location "D:\my code\marketing\pharma-sales-analyzer"
+Set-Location "D:\my code\ordine_sales"
 
 function Step($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 
