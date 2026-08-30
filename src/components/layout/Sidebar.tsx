@@ -211,16 +211,11 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
         <nav className="sidebar-nav">
           {visibleItems.map(item => {
             const isActive = activePage === item.id;
-            const isRepAnalysis = item.id === 'rep-analysis';
             return (
               <button
                 key={item.id}
                 onClick={() => { if (item.id === 'commercial') window.dispatchEvent(new CustomEvent('comm-reset-tab')); onNavigate(item.id); }}
                 className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`}
-                style={isRepAnalysis && !isActive ? {
-                  background: 'rgba(26,86,219,0.12)',
-                  borderRight: '3px solid rgba(26,86,219,0.55)',
-                } : undefined}
               >
                 <Icon name={item.iconName} className="sidebar-nav-icon" size={18} />
                 {isOpen && <span className="sidebar-nav-label">{item.label}</span>}
@@ -378,17 +373,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             </div>
             <nav className="mobile-drawer-nav">
               {visibleItems.map(item => {
-                const isRepAnalysis = item.id === 'rep-analysis';
                 const isActive = activePage === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => handleMobileNavigate(item.id)}
                     className={`mobile-drawer-item ${isActive ? 'mobile-drawer-item--active' : ''}`}
-                    style={isRepAnalysis && !isActive ? {
-                      background: 'rgba(26,86,219,0.10)',
-                      borderRight: '3px solid rgba(26,86,219,0.5)',
-                    } : undefined}
                   >
                     <Icon name={item.iconName} size={20} />
                     <span>{item.label}</span>

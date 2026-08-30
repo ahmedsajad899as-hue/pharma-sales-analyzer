@@ -1792,20 +1792,20 @@ export default function MonthlyPlansPage() {
         ) : (
           <>
             {/* Plan header */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
-              <div style={{ position: 'relative', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ position: 'relative', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'stretch' }}>
 
                 {/* Back button */}
                 <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set()); }}
                   title="الرجوع للقائمة"
-                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, height: 36, boxSizing: 'border-box', padding: '0 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Icon name="chevronRight" size={14} /> {isFieldRep ? '' : 'الرجوع'}
                 </button>
 
                 {/* ── Excel: export + import plan ── */}
-                <div style={{ position: 'relative' }}>
+                <div style={{ position: 'relative', display: 'flex' }}>
                   <button onClick={() => setShowExcelMenu(v => !v)}
-                    style={{ ...btnStyle('var(--c-success)'), display: 'flex', alignItems: 'center', gap: 5 }}>
+                    style={{ ...btnStyle('var(--c-success)'), height: 36, boxSizing: 'border-box', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 5 }}>
                     <Icon name="excel" size={14} /> Excel
                   </button>
                   {showExcelMenu && (
@@ -1829,12 +1829,12 @@ export default function MonthlyPlansPage() {
                 {/* ── Suggest + settings (combined group) ── */}
                 <div style={{ display: 'flex', gap: 0 }}>
                   <button onClick={loadSuggest} disabled={suggestLoading}
-                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    {suggestLoading ? <Icon name="loading" size={14} className="icon-spin" /> : '✨'} اقتراح ذكي
+                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', height: 36, boxSizing: 'border-box', padding: '0 12px 0 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    {suggestLoading ? <Icon name="loading" size={14} className="icon-spin" /> : <Icon name="netBalance" size={14} />} اقتراح ذكي
                   </button>
                   <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
                     title="إعدادات الاقتراح"
-                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '0 9px 9px 0', padding: '8px 9px', fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>
+                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '0 9px 9px 0', height: 36, boxSizing: 'border-box', padding: '0 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon name="settings" size={14} />
                   </button>
                 </div>
@@ -1845,7 +1845,7 @@ export default function MonthlyPlansPage() {
                   title={voiceListening ? 'إيقاف التسجيل' : 'إدخال صوتي'}
                   style={{
                     ...btnStyle(voiceListening ? 'var(--c-danger)' : 'var(--c-accent)'),
-                    padding: '8px 11px', fontSize: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                     animation: voiceListening ? 'pulse-mic 1.5s infinite' : 'none',
                   }}>
                   <Icon name={voiceListening ? 'pause' : 'mic'} size={16} />
@@ -1853,12 +1853,12 @@ export default function MonthlyPlansPage() {
 
                 {/* ── Tools overflow menu: managers only ── */}
                 {!isFieldRep && (
-                  <div style={{ position: 'relative', marginRight: 'auto' }}>
+                  <div style={{ position: 'relative' }}>
                     <button
                       onClick={() => setShowToolsMenu(v => !v)}
-                      style={{ ...btnStyle('var(--c-text-secondary)'), padding: '6px 10px', minWidth: 36 }}
+                      style={{ ...btnStyle('var(--c-text-secondary)'), width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                       title="أدوات">
-                      ⋯
+                      <Icon name="more" size={16} />
                     </button>
                     {showToolsMenu && (
                       <div style={{
