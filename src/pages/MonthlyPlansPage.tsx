@@ -1826,18 +1826,18 @@ export default function MonthlyPlansPage() {
                   )}
                 </div>
 
-                {/* ── Suggest + settings (combined group) ── */}
-                <div style={{ display: 'flex', gap: 0 }}>
-                  <button onClick={loadSuggest} disabled={suggestLoading}
-                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', height: 36, boxSizing: 'border-box', padding: '0 12px 0 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    {suggestLoading ? <Icon name="loading" size={14} className="icon-spin" /> : <Icon name="netBalance" size={14} />} اقتراح ذكي
-                  </button>
-                  <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
-                    title="إعدادات الاقتراح"
-                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '0 9px 9px 0', height: 36, boxSizing: 'border-box', padding: '0 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon name="settings" size={14} />
-                  </button>
-                </div>
+                {/* ── Suggest ── */}
+                <button onClick={loadSuggest} disabled={suggestLoading}
+                  style={{ ...btnStyle('var(--c-purple)'), height: 36, boxSizing: 'border-box', padding: '0 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {suggestLoading ? <Icon name="loading" size={14} className="icon-spin" /> : <Icon name="netBalance" size={14} />} اقتراح ذكي
+                </button>
+
+                {/* ── Suggest settings ── */}
+                <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
+                  title="إعدادات الاقتراح"
+                  style={{ ...btnStyle('var(--c-purple)'), width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="settings" size={14} />
+                </button>
 
                 {/* ── Voice: icon-only button ── */}
                 <button
@@ -2993,8 +2993,31 @@ export default function MonthlyPlansPage() {
                 {/* Feedback breakdown */}
                 <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, gridColumn: 'span 2' }}>
                   <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#64748b' }}>توزيع الفيدباك</p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {Object.entries(planStats.feedbackCount).map(([fb, cnt]) => {
+                      const meta = FEEDBACK_LABELS[fb] ?? FEEDBACK_LABELS.pending;
+                      return (
+                        <span key={fb}
+                          onClick={() => setFbPopup({ fb, label: meta.label, meta, doctors: planStats.feedbackDoctors[fb] ?? [] })}
+                          style={{
+                            padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                            background: meta.bg, color: meta.color,
+                            cursor: 'pointer', userSelect: 'none',
+                            border: '2px solid transparent',
+                            transition: 'all 0.15s',
+                          }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = meta.color; (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+                        >
+                          {meta.label}: {cnt}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: 10, color: '#cbd5e1' }}>انقر على أي حالة لعرض أسماء الأطباء</p>
+                </div>
 
-                {/* Item calls breakdown */}
+                {/* Item calls breakdown — sibling grid item so gridColumn:'1 / -1' actually spans full width */}
                 {planStats.itemCallStats.length > 0 && (
                   <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, gridColumn: '1 / -1' }}>
                     <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: '#64748b' }}>📦 الكولات حسب الايتم</p>
@@ -3045,29 +3068,6 @@ export default function MonthlyPlansPage() {
                     </div>
                   </div>
                 )}
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {Object.entries(planStats.feedbackCount).map(([fb, cnt]) => {
-                      const meta = FEEDBACK_LABELS[fb] ?? FEEDBACK_LABELS.pending;
-                      return (
-                        <span key={fb}
-                          onClick={() => setFbPopup({ fb, label: meta.label, meta, doctors: planStats.feedbackDoctors[fb] ?? [] })}
-                          style={{
-                            padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-                            background: meta.bg, color: meta.color,
-                            cursor: 'pointer', userSelect: 'none',
-                            border: '2px solid transparent',
-                            transition: 'all 0.15s',
-                          }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = meta.color; (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
-                        >
-                          {meta.label}: {cnt}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <p style={{ margin: '6px 0 0', fontSize: 10, color: '#cbd5e1' }}>انقر على أي حالة لعرض أسماء الأطباء</p>
-                </div>
               </div>
             )}
 
