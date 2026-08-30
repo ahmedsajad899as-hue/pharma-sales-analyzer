@@ -15,17 +15,23 @@
   --c-text-muted:     #8fa0be;
   --c-success:        #0d9f6e;
   --c-success-bg:     #e6f7f2;
-  --c-warning:        #d97706;
-  --c-warning-bg:     #fef3dc;
-  --c-warning-border: #fde68a;
+  --c-success-border: #a7e8d3;
   --c-danger:         #dc2626;
   --c-danger-bg:      #fef2f2;
   --c-danger-border:  #fecaca;
-  --c-success-border: #a7e8d3;
-  --c-purple:         #6d28d9;   /* secondary accent - AI / auto-detect */
-  --c-purple-hover:   #5b21b6;
-  --c-purple-bg:      #ede9fe;
-  --c-purple-border:  #c4b5fd;
+  /* Brand palette intentionally limited to 3 hues (blue / green / red) + neutrals
+     for a unified visual identity — warning/amber and the secondary purple accent
+     were folded into the closest of the three rather than kept as separate hues.
+     Both aliases are kept (not deleted) since many components still reference
+     var(--c-warning*) / var(--c-purple*) by name — this keeps every call site
+     working while making them resolve to the reduced palette from one place. */
+  --c-warning:        var(--c-danger);
+  --c-warning-bg:     var(--c-danger-bg);
+  --c-warning-border: var(--c-danger-border);
+  --c-purple:         var(--c-accent);
+  --c-purple-hover:   var(--c-accent-hover);
+  --c-purple-bg:      var(--c-accent-light);
+  --c-purple-border:  #b9cdf5;
   --radius-sm:        8px;
   --radius-md:        12px;
   --radius-lg:        16px;
@@ -810,8 +816,8 @@ tr:hover {
   border-radius: 999px; font-size: 12px; font-weight: 600;
 }
 
-.badge--green  { background: #d1fae5; color: #065f46; }
-.badge--red    { background: #fee2e2; color: #991b1b; }
+.badge--green  { background: var(--c-success-bg); color: var(--c-success); }
+.badge--red    { background: var(--c-danger-bg); color: var(--c-danger); }
 .badge--blue   { background: var(--c-accent-light); color: var(--c-accent); }
 .badge--amber  { background: var(--c-warning-bg); color: var(--c-warning); }
 .badge--gray   { background: #f0f2f7; color: var(--c-text-secondary); }
@@ -991,9 +997,9 @@ tr:hover {
 .hidden { display: none; }
 
 /* ======= TAG COLORS ======= */
-.tag--green  { background: #d1fae5; color: #065f46; }
-.tag--purple { background: #ede9fe; color: #5b21b6; }
-.tag--orange { background: #fff3e0; color: #c2600a; }
+.tag--green  { background: var(--c-success-bg); color: var(--c-success); }
+.tag--purple { background: var(--c-purple-bg); color: var(--c-purple); }
+.tag--orange { background: var(--c-danger-bg); color: var(--c-danger); }
 .tag--navy   { background: var(--c-accent-light); color: var(--c-accent); font-weight: 600; }
 
 /* ======= TABLE ROW NOTE ======= */
@@ -1293,8 +1299,8 @@ tr:hover {
 
 /* badge--purple */
 .badge--purple {
-  background: #ede9fe;
-  color: #5b21b6;
+  background: var(--c-purple-bg);
+  color: var(--c-purple);
   padding: 2px 10px;
   border-radius: 12px;
   font-size: 12px;

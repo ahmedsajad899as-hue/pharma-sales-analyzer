@@ -146,14 +146,14 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     scientific_rep:           'مندوب علمي',
     user:                     'مستخدم',
   };
-  const ROLE_ICONS: Record<string, string> = {
-    admin: '👑', manager: '🛡️', company_manager: '🏢', supervisor: '🔍',
-    product_manager: '📦', team_leader: '🎯', office_manager: '🏠',
-    commercial_supervisor: '💼', commercial_team_leader: '📋',
-    commercial_rep: '💰', scientific_rep: '🔬',
+  const ROLE_ICONS: Record<string, IconName> = {
+    admin: 'crown', manager: 'shield', company_manager: 'navOrgStructure', supervisor: 'search',
+    product_manager: 'navDistributorSales', team_leader: 'target', office_manager: 'home',
+    commercial_supervisor: 'folder', commercial_team_leader: 'navMasterSurvey',
+    commercial_rep: 'money', scientific_rep: 'navFms',
   };
   const roleLabel = ROLE_LABELS[role] ?? role;
-  const roleIcon  = ROLE_ICONS[role]  ?? '👤';
+  const roleIcon: IconName = ROLE_ICONS[role] ?? 'person';
 
   // Other saved accounts (excluding the currently active one)
   const otherAccounts = savedAccounts.filter(a => a.user.id !== user?.id);
@@ -240,7 +240,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           {isOpen ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 18 }}>{roleIcon}</span>
+                <span style={{ display: 'flex', alignItems: 'center' }}><Icon name={roleIcon} size={18} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, color: '#e0e8f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
                   <div style={{ fontSize: 11, color: '#8fa0be' }}>{roleLabel}</div>
@@ -290,7 +290,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     cursor: 'pointer', fontWeight: 700, width: '100%',
                     display: 'flex', alignItems: 'center', gap: 6,
                   }}
-                >{isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}</button>
+                >{isLocal ? <><Icon name="rocket" size={14} /> فتح على Production</> : <><Icon name="monitor" size={14} /> فتح على Local</>}</button>
               </div>
               )}
               {canInstall && (
@@ -302,11 +302,11 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                       border: 'none',
                       borderRadius: 8, padding: '7px 14px', fontSize: 13,
                       color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', gap: 6,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                       boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
                     }}
                   >
-                    ⬇️ تثبيت التطبيق
+                    <Icon name="export" size={14} /> تثبيت التطبيق
                   </button>
                 </div>
               )}
@@ -319,11 +319,11 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                       border: 'none',
                       borderRadius: 8, padding: '7px 14px', fontSize: 13,
                       color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', gap: 6,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                       boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
                     }}
                   >
-                    ⬇️ تثبيت التطبيق
+                    <Icon name="export" size={14} /> تثبيت التطبيق
                   </button>
                 </div>
               )}
@@ -368,7 +368,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: isLocal ? '#fbbf24' : '#4ade80',
                 }}
-              >{isLocal ? '🚀' : '🖥️'}</button>
+              >{isLocal ? <Icon name="rocket" size={16} /> : <Icon name="monitor" size={16} />}</button>
               )}
               {canInstall && (
                 <button
@@ -381,7 +381,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
                     boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
                   }}
-                >⬇️</button>
+                ><Icon name="export" size={16} /></button>
               )}
               {showIosBtn && (
                 <button
@@ -394,7 +394,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
                     boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
                   }}
-                >⬇️</button>
+                ><Icon name="export" size={16} /></button>
               )}
               <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%', justifyContent: 'center' }}>
                 <Icon name="logout" className="sidebar-nav-icon" size={17} />
@@ -529,9 +529,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   borderRadius: 8, padding: '8px 14px', fontSize: 13,
                   fontWeight: 700, color: isLocal ? '#d97706' : '#16a34a',
                   cursor: 'pointer', width: '100%', textAlign: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                {isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}
+                {isLocal ? <Icon name="rocket" size={14} /> : <Icon name="monitor" size={14} />} {isLocal ? 'فتح على Production' : 'فتح على Local'}
               </button>
               )}
               {canInstall && (
@@ -547,7 +548,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     boxShadow: '0 2px 10px rgba(22,163,74,0.4)',
                   }}
                 >
-                  ⬇️ تثبيت التطبيق
+                  <Icon name="export" size={16} /> تثبيت التطبيق
                 </button>
               )}
               {showIosBtn && (
@@ -563,7 +564,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     boxShadow: '0 2px 10px rgba(22,163,74,0.4)',
                   }}
                 >
-                  ⬇️ تثبيت التطبيق
+                  <Icon name="export" size={16} /> تثبيت التطبيق
                 </button>
               )}
               <button
@@ -598,32 +599,32 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           >
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>⇄ تبديل الحساب</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="transfer" size={16} /> تبديل الحساب</h2>
               <button
                 onClick={() => setShowSwitchPanel(false)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}
-              >✕</button>
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
+              ><Icon name="close" size={18} /></button>
             </div>
 
             {/* Current account */}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>الحساب الحالي</div>
               <div style={{
-                background: '#eef2ff', border: '2px solid #a5b4fc', borderRadius: 12,
+                background: 'var(--c-accent-light)', border: '2px solid var(--c-accent)', borderRadius: 12,
                 padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12,
               }}>
                 <div style={{
-                  width: 38, height: 38, borderRadius: '50%', background: '#6366f1',
+                  width: 38, height: 38, borderRadius: '50%', background: 'var(--c-accent)',
                   color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: 900, fontSize: 17, flexShrink: 0,
                 }}>
                   {(user?.displayName || user?.username || '?')[0].toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#3730a3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-accent-hover)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.displayName || user?.username}
                   </div>
-                  <div style={{ fontSize: 12, color: '#6366f1' }}>{ROLE_LABELS[user?.role ?? ''] ?? user?.role}</div>
+                  <div style={{ fontSize: 12, color: 'var(--c-accent)' }}>{ROLE_LABELS[user?.role ?? ''] ?? user?.role}</div>
                 </div>
                 <NotificationBell />
               </div>
@@ -672,8 +673,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                         style={{
                           background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 8,
                           padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', gap: 4,
                         }}
-                      >تبديل</button>
+                      ><Icon name="transfer" size={12} /> تبديل</button>
                       {/* Remove btn */}
                       <button
                         onClick={e => { e.stopPropagation(); removeSavedAccount(acc.user.id); }}
@@ -681,8 +683,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                         style={{
                           background: 'none', border: 'none', fontSize: 16,
                           cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', flexShrink: 0,
+                          display: 'flex', alignItems: 'center',
                         }}
-                      >✕</button>
+                      ><Icon name="close" size={14} /></button>
                     </div>
                   ))}
                 </div>
@@ -722,8 +725,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>📲 إضافة إلى الشاشة الرئيسية</h2>
               <button
                 onClick={() => setShowIosInstallModal(false)}
-                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}
-              >✕</button>
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1, display: 'flex', alignItems: 'center' }}
+              ><Icon name="close" size={18} /></button>
             </div>
 
             {/* Steps */}
@@ -744,7 +747,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 num: 3,
                 title: 'اضغط "إضافة إلى الشاشة الرئيسية"',
                 desc: 'ثم اضغط "إضافة" في أعلى يسار النافذة',
-                icon: '🏠',
+                icon: <Icon name="home" size={16} />,
               },
             ].map(step => (
               <div key={step.num} style={{
@@ -801,7 +804,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               whiteSpace: 'nowrap',
             }}
           >
-            ⬇️ تثبيت التطبيق
+            <Icon name="export" size={16} /> تثبيت التطبيق
           </button>
           <style>{`
             @media (max-width: 767px) {

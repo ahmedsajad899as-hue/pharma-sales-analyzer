@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Icon } from '../config/icons';
+import type { IconName } from '../config/icons';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -31,11 +32,11 @@ const FEEDBACK_LABELS: Record<string, string> = {
   not_interested: 'غير مهتم', unavailable: 'غير متوفر', pending: 'معلق',
 };
 const FEEDBACK_OPTIONS = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
-const FEEDBACK_ICONS: Record<string, string> = {
-  writing: '✍️', stocked: '📦', interested: '👍', not_interested: '👎', unavailable: '🚫', pending: '⏳',
+const FEEDBACK_ICONS: Record<string, IconName> = {
+  writing: 'edit', stocked: 'navDistributorSales', interested: 'thumbsUp', not_interested: 'thumbsDown', unavailable: 'blocked', pending: 'loading',
 };
 const POSTPONE_REASONS: Record<string, string> = { absent: 'الطبيب غير موجود', traveling: 'مسافر', declined: 'اعتذر عن الاستقبال', other: 'سبب آخر' };
-const POSTPONE_REASON_ICONS: Record<string, string> = { absent: '🚪', traveling: '✈️', declined: '🙅', other: '❓' };
+const POSTPONE_REASON_ICONS: Record<string, IconName> = { absent: 'exit', traveling: 'travel', declined: 'blocked', other: 'help' };
 const STATUS_LABEL: Record<string, string> = { planned: 'مخطط', visited: 'تمت الزيارة', postponed: 'مؤجل' };
 
 const NAVY = 'var(--c-accent)';
@@ -219,10 +220,10 @@ const STYLES = `
 
 function StatusChip({ status }: { status: Entry['status'] }) {
   const m = status === 'visited'
-    ? { t: 'تمت', c: '#166534', bg: '#dcfce7', b: '#bbf7d0', icon: 'check' as const }
+    ? { t: 'تمت', c: 'var(--c-success)', bg: 'var(--c-success-bg)', b: 'var(--c-success-border)', icon: 'check' as const }
     : status === 'postponed'
-    ? { t: 'مؤجل', c: '#b45309', bg: '#fffbeb', b: '#fde68a', icon: 'pause' as const }
-    : { t: 'مخطط', c: '#64748b', bg: '#f1f5f9', b: '#e2e8f0', icon: 'empty' as const };
+    ? { t: 'مؤجل', c: 'var(--c-danger)', bg: 'var(--c-danger-bg)', b: 'var(--c-danger-border)', icon: 'pause' as const }
+    : { t: 'مخطط', c: 'var(--c-text-secondary)', bg: 'var(--c-bg)', b: 'var(--c-border)', icon: 'empty' as const };
   return <span className="dp-chip" style={{ color: m.c, background: m.bg, borderColor: m.b }}><Icon name={m.icon} size={11} /> {m.t}</span>;
 }
 
@@ -573,12 +574,12 @@ export default function DailyPlanPage() {
                 </select>
               )}
               <div className="dp-datenav">
-                <button onClick={() => setDate(shiftDateStr(date, -1))} aria-label="اليوم السابق">›</button>
+                <button onClick={() => setDate(shiftDateStr(date, -1))} aria-label="اليوم السابق" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="chevronRight" size={14} /></button>
                 <input type="date" className="dp-dateinput" value={date} onChange={e => setDate(e.target.value)} onKeyDown={dateArrowKeyHandler(date, setDate)} />
-                <button onClick={() => setDate(shiftDateStr(date, 1))} aria-label="اليوم التالي">‹</button>
+                <button onClick={() => setDate(shiftDateStr(date, 1))} aria-label="اليوم التالي" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="chevronLeft" size={14} /></button>
               </div>
               {!isToday && <button className="dp-btn dp-btn--ghost" style={{ padding: '6px 11px', minHeight: 0 }} onClick={() => setDate(todayLocal())}>اليوم</button>}
-              {isCompanyManager && <button className="dp-btn dp-btn--neutral dp-btn--icon" onClick={openSettings} title="إعدادات" aria-label="إعدادات">⚙</button>}
+              {isCompanyManager && <button className="dp-btn dp-btn--neutral dp-btn--icon" onClick={openSettings} title="إعدادات" aria-label="إعدادات"><Icon name="settings" size={16} /></button>}
             </div>
           </div>
         </header>
@@ -602,10 +603,10 @@ export default function DailyPlanPage() {
                 </div>
                 <div className="dp-progress"><span style={{ width: `${ach.percent}%`, background: lowAch ? RED : NAVY }} /></div>
                 <div className="dp-statgrid">
-                  <div className="dp-stat"><b style={{ color: '#16a34a' }}>{ach.visited}</b><span>تمت</span></div>
-                  <div className="dp-stat"><b style={{ color: '#d97706' }}>{ach.postponed}</b><span>مؤجل</span></div>
+                  <div className="dp-stat"><b style={{ color: 'var(--c-success)' }}>{ach.visited}</b><span>تمت</span></div>
+                  <div className="dp-stat"><b style={{ color: 'var(--c-danger)' }}>{ach.postponed}</b><span>مؤجل</span></div>
                   <div className="dp-stat"><b style={{ color: NAVY }}>{ach.planned}</b><span>مخطط</span></div>
-                  <div className="dp-stat"><b style={{ color: '#334155' }}>{ach.total}</b><span>الكل</span></div>
+                  <div className="dp-stat"><b style={{ color: 'var(--c-text-primary)' }}>{ach.total}</b><span>الكل</span></div>
                 </div>
                 {quota && quota.required > 0 && (
                   <div className={`dp-quota ${quota.planned >= quota.required ? 'dp-quota--ok' : 'dp-quota--warn'}`}>
@@ -655,7 +656,7 @@ export default function DailyPlanPage() {
                     <option value="">المنطقة (اختياري)</option>
                     {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
-                  <button className="dp-btn dp-btn--primary" onClick={() => addPharmacy()}>إضافة</button>
+                  <button className="dp-btn dp-btn--primary" onClick={() => addPharmacy()}><Icon name="add" size={14} /> إضافة</button>
                 </div>
               )}
 
@@ -674,9 +675,9 @@ export default function DailyPlanPage() {
                         <span style={{ fontSize: 12.5, minWidth: 0 }}>
                           <b style={{ fontWeight: 700 }}>{s.name}</b>
                           <span style={{ color: '#64748b' }}> · {[s.specialty, s.areaName, s.pharmacyName].filter(Boolean).join(' · ')}</span>
-                          {s.postponeReason && <span style={{ color: '#b45309' }}> · {POSTPONE_REASONS[s.postponeReason] ?? s.postponeReason}</span>}
+                          {s.postponeReason && <span style={{ color: 'var(--c-danger)' }}> · {POSTPONE_REASONS[s.postponeReason] ?? s.postponeReason}</span>}
                         </span>
-                        <button className="dp-btn dp-btn--primary" onClick={() => addDoctor(s.doctorId)}>أضف</button>
+                        <button className="dp-btn dp-btn--primary" onClick={() => addDoctor(s.doctorId)}><Icon name="add" size={13} /> أضف</button>
                       </div>
                     ))
                   )}
@@ -693,7 +694,7 @@ export default function DailyPlanPage() {
                     <option value="">— بدون تحديد —</option>
                     {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                   </select>
-                  <button className="dp-btn dp-btn--primary" onClick={confirmItemPrompt}>تأكيد</button>
+                  <button className="dp-btn dp-btn--primary" onClick={confirmItemPrompt}><Icon name="check" size={14} /> تأكيد</button>
                   <button className="dp-btn dp-btn--neutral" onClick={skipItemPrompt}>تخطّي</button>
                 </div>
               </div>
@@ -727,17 +728,17 @@ export default function DailyPlanPage() {
                               {e.isNewDoctor && <span className="dp-chip" style={{ color: NAVY, background: '#eff4ff', borderColor: '#dbe6ff' }}>جديد</span>}
                               {e.status !== 'planned' && <StatusChip status={e.status} />}
                               {e.currentFeedback && <span className="dp-chip" style={{ color: '#64748b', background: '#f1f5f9', borderColor: '#e2e8f0' }}>{FEEDBACK_LABELS[e.currentFeedback] ?? e.currentFeedback}</span>}
-                              {e.addedByManager && <span className="dp-chip" style={{ color: '#92400e', background: '#fffbeb', borderColor: '#fde68a' }} title="أضافه المدير">من المدير{e.addedByName ? ` (${e.addedByName})` : ''}</span>}
-                              {rep?.flagged && <span className="dp-chip" style={{ color: '#dc2626', background: '#fef2f2', borderColor: '#fecaca' }} title={`تخطيط: ${rep.plannedDays.join('، ')} | زيارة: ${rep.visitedDays.join('، ') || '—'}`}>مكرر ×{rep.plannedCount}</span>}
+                              {e.addedByManager && <span className="dp-chip" style={{ color: NAVY, background: '#eff4ff', borderColor: '#dbe6ff' }} title="أضافه المدير">من المدير{e.addedByName ? ` (${e.addedByName})` : ''}</span>}
+                              {rep?.flagged && <span className="dp-chip" style={{ color: 'var(--c-danger)', background: 'var(--c-danger-bg)', borderColor: 'var(--c-danger-border)' }} title={`تخطيط: ${rep.plannedDays.join('، ')} | زيارة: ${rep.visitedDays.join('، ') || '—'}`}>مكرر ×{rep.plannedCount}</span>}
                             </div>
                             <div className="dp-actions">
-                              {e.status === 'planned' && <button className="dp-btn dp-btn--primary" onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }}>سجّل كول</button>}
+                              {e.status === 'planned' && <button className="dp-btn dp-btn--primary" onClick={() => { setRecordFor(e); setRecordFeedback('writing'); setRecordItemId(e.itemId ?? ''); }}><Icon name="call" size={13} /> سجّل كول</button>}
                               <div ref={actionsMenuFor === e.id ? actionsMenuRef : undefined} style={{ position: 'relative' }}>
                                 <button className="dp-btn dp-btn--neutral dp-btn--icon" onClick={() => setActionsMenuFor(actionsMenuFor === e.id ? null : e.id)} aria-label="خيارات">⋮</button>
                                 {actionsMenuFor === e.id && (
                                   <div className="dp-menu" style={{ top: '100%', left: 0, marginTop: 5, minWidth: 150 }}>
-                                    {e.status === 'planned' && <button onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); setActionsMenuFor(null); }}>⏸ تأجيل الزيارة</button>}
-                                    <button style={{ color: '#b91c1c' }} onClick={() => { removeEntry(e.id); setActionsMenuFor(null); }}>🗑 حذف</button>
+                                    {e.status === 'planned' && <button style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { setPostponeFor(e); setPostponeReason('absent'); setPostponeDate(''); setActionsMenuFor(null); }}><Icon name="pause" size={14} /> تأجيل الزيارة</button>}
+                                    <button style={{ color: '#b91c1c', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => { removeEntry(e.id); setActionsMenuFor(null); }}><Icon name="delete" size={14} /> حذف</button>
                                   </div>
                                 )}
                               </div>
@@ -745,7 +746,7 @@ export default function DailyPlanPage() {
                           </div>
                           {e.entryType === 'doctor' && (
                             <div className="dp-item-row">
-                              <span>🎯 الايتم:</span>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="target" size={12} /> الايتم:</span>
                               <select className="dp-select" value={e.itemId ?? ''} onChange={ev => setEntryItem(e.id, ev.target.value ? Number(ev.target.value) : '')}>
                                 <option value="">— غير محدد —</option>
                                 {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
@@ -803,7 +804,7 @@ export default function DailyPlanPage() {
                     {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
                       <div key={k} className="dp-stat" style={{ minWidth: 90 }}>
                         <b style={{ color: '#1e293b', fontSize: 18 }}>{postpone.counts[k] ?? 0}</b>
-                        <span>{POSTPONE_REASON_ICONS[k]} {label}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name={POSTPONE_REASON_ICONS[k]} size={11} /> {label}</span>
                       </div>
                     ))}
                   </div>
@@ -826,7 +827,7 @@ export default function DailyPlanPage() {
               )}
               <div className="dp-fields">
                 <input className="dp-input grow" value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="أضف ملاحظة…" />
-                <button className="dp-btn dp-btn--primary" onClick={addComment}>إرسال</button>
+                <button className="dp-btn dp-btn--primary" onClick={addComment}><Icon name="navAqdarExport" size={14} /> إرسال</button>
               </div>
             </div>
           </>
@@ -844,7 +845,7 @@ export default function DailyPlanPage() {
                 <div className="dp-choices">
                   {FEEDBACK_OPTIONS.map(f => (
                     <button key={f} type="button" className={`dp-choice ${recordFeedback === f ? 'active' : ''}`} onClick={() => setRecordFeedback(f)}>
-                      <b>{FEEDBACK_ICONS[f]}</b><span>{FEEDBACK_LABELS[f]}</span>
+                      <Icon name={FEEDBACK_ICONS[f]} size={20} /><span>{FEEDBACK_LABELS[f]}</span>
                     </button>
                   ))}
                 </div>
@@ -862,7 +863,7 @@ export default function DailyPlanPage() {
             <span>ملاحظة (اختياري)</span>
             <input className="dp-input" value={recordNote} onChange={e => setRecordNote(e.target.value)} />
           </label>
-          <button className="dp-btn dp-btn--primary dp-btn--block" onClick={submitRecord}>📍 تسجيل الكول</button>
+          <button className="dp-btn dp-btn--primary dp-btn--block" onClick={submitRecord}><Icon name="location" size={14} /> تسجيل الكول</button>
         </Modal>
       )}
 
@@ -874,7 +875,7 @@ export default function DailyPlanPage() {
             <div className="dp-choices">
               {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
                 <button key={k} type="button" className={`dp-choice ${postponeReason === k ? 'active' : ''}`} onClick={() => setPostponeReason(k)}>
-                  <b>{POSTPONE_REASON_ICONS[k]}</b><span>{label}</span>
+                  <Icon name={POSTPONE_REASON_ICONS[k]} size={20} /><span>{label}</span>
                 </button>
               ))}
             </div>
@@ -889,7 +890,7 @@ export default function DailyPlanPage() {
             <span>ملاحظة (اختياري)</span>
             <input className="dp-input" value={postponeNote} onChange={e => setPostponeNote(e.target.value)} />
           </label>
-          <button className="dp-btn dp-btn--primary dp-btn--block" onClick={submitPostpone}>تأكيد التأجيل</button>
+          <button className="dp-btn dp-btn--primary dp-btn--block" onClick={submitPostpone}><Icon name="check" size={14} /> تأكيد التأجيل</button>
         </Modal>
       )}
 
@@ -904,13 +905,13 @@ export default function DailyPlanPage() {
           </label>
           <NumField label="حد الإنجاز المنخفض % (للإشعار)" value={settingsDraft.lowAchievementThreshold} onChange={v => setSettingsDraft({ ...settingsDraft, lowAchievementThreshold: v })} />
           <NumField label="حصة الأطباء الجدد يومياً (0 = معطّل)" value={settingsDraft.minNewDoctorsPerDay} onChange={v => setSettingsDraft({ ...settingsDraft, minNewDoctorsPerDay: v })} />
-          <button className="dp-btn dp-btn--primary dp-btn--block" style={{ marginTop: 6 }} onClick={saveSettings}>حفظ الإعدادات</button>
+          <button className="dp-btn dp-btn--primary dp-btn--block" style={{ marginTop: 6 }} onClick={saveSettings}><Icon name="check" size={14} /> حفظ الإعدادات</button>
         </Modal>
       )}
 
       {/* Doctor history popup (company_manager/admin): visit dates + daily-plan dates across all reps */}
       {doctorHistoryFor && (
-        <Modal title={`🗓 سجلّ ${doctorHistoryFor.name}`} onClose={() => setDoctorHistoryFor(null)}>
+        <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="calendar" size={16} /> سجلّ {doctorHistoryFor.name}</span>} onClose={() => setDoctorHistoryFor(null)}>
           {doctorHistoryLoading ? (
             <p style={{ textAlign: 'center', color: '#94a3b8', padding: '20px 0' }}>جاري التحميل…</p>
           ) : !doctorHistoryData ? (
@@ -953,13 +954,13 @@ export default function DailyPlanPage() {
   );
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Modal({ title, onClose, children }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="dp-overlay" onClick={onClose}>
       <div className="dp-modal" dir="rtl" onClick={e => e.stopPropagation()}>
         <div className="dp-modal-head">
           <strong>{title}</strong>
-          <button className="dp-modal-x" onClick={onClose}>×</button>
+          <button className="dp-modal-x" onClick={onClose}><Icon name="close" size={16} /></button>
         </div>
         {children}
       </div>

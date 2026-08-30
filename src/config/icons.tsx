@@ -8,7 +8,9 @@ import {
   Link2, Settings, Loader2, AlertTriangle, ChevronRight, ChevronLeft,
   Store, Pill, Bell, Pencil, LogOut, Globe, User, MapPin, Stethoscope,
   Phone, RefreshCw, History, Banknote, Tag, Hash, FileText, Calendar,
-  Scale, FileSpreadsheet,
+  Scale, FileSpreadsheet, Target, Eye, Mic, Folder, Home, Crown, Shield,
+  Rocket, Monitor, Ban, Repeat, Mail, ThumbsUp, ThumbsDown, DoorOpen,
+  Plane, HelpCircle,
 } from 'lucide-react';
 
 /**
@@ -87,6 +89,23 @@ export const ICONS = {
   calendar: Calendar,
   netBalance: Scale,
   excel: FileSpreadsheet,
+  target: Target,
+  view: Eye,
+  mic: Mic,
+  folder: Folder,
+  home: Home,
+  crown: Crown,
+  shield: Shield,
+  rocket: Rocket,
+  monitor: Monitor,
+  blocked: Ban,
+  repeat: Repeat,
+  mail: Mail,
+  thumbsUp: ThumbsUp,
+  thumbsDown: ThumbsDown,
+  exit: DoorOpen,
+  travel: Plane,
+  help: HelpCircle,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;
