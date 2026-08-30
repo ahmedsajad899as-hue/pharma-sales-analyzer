@@ -1772,29 +1772,37 @@ table{border-collapse:collapse;width:100%}
       {/* File tabs */}
       {files.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {files.map(f => (
-              <div key={f.id} style={{ display: 'flex' }}>
+              <div key={f.id} style={{ display: 'flex', height: 30 }}>
                 <button onClick={() => { setActiveId(f.id); selectRegion('all'); setSelectedItems([]); setItemQuery(''); setSelectedCompanies(new Set()); setPage(1); }}
-                  style={{ padding: '5px 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: '100%', boxSizing: 'border-box',
+                    padding: '0 12px', borderRadius: '20px 0 0 20px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     border: `1.5px solid ${activeId === f.id ? 'var(--c-accent)' : 'var(--c-border)'}`, borderLeft: 'none',
                     background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: activeId === f.id ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                     maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                   title={`${f.name} · ${f.rows.length} صف · ${f.areaCols.length} مخزن · ${fmtDate(f.uploadedAt)}`}>
-                  {f.name.startsWith('دمج:') ? '🔗' : '📄'} {f.name}
+                  <Icon name={f.name.startsWith('دمج:') ? 'link' : 'file'} size={12} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
                 </button>
                 {f.sourceFileIds && files.filter(sf => f.sourceFileIds!.includes(sf.id)).length >= 2 && (
                   <button onClick={() => { if (activeId !== f.id) { setActiveId(f.id); } setTimeout(doRebuildMerge, 0); }}
                     title="إعادة بناء الملف المدمج بأحدث التحسينات"
-                    style={{ padding: '5px 8px', fontSize: 11, cursor: 'pointer',
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: '100%', boxSizing: 'border-box',
+                      padding: '0 8px', cursor: 'pointer',
                       border: `1.5px solid ${activeId === f.id ? 'var(--c-accent)' : 'var(--c-border)'}`, borderLeft: 'none', borderRight: 'none',
-                      background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: '#7c3aed' }}>🔄</button>
+                      background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: 'var(--c-purple)' }}>
+                    <Icon name="refresh" size={12} />
+                  </button>
                 )}
                 {hasFeature('sales_data_delete') && (
                 <button onClick={() => deleteFile(f.id)} title="حذف"
-                  style={{ padding: '5px 9px', borderRadius: '0 20px 20px 0', fontSize: 11, cursor: 'pointer',
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: '100%', boxSizing: 'border-box',
+                    padding: '0 9px', borderRadius: '0 20px 20px 0', cursor: 'pointer',
                     border: `1.5px solid ${activeId === f.id ? 'var(--c-accent)' : 'var(--c-border)'}`, borderRight: 'none',
-                    background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: 'var(--c-danger)' }}>×</button>
+                    background: activeId === f.id ? 'var(--c-accent-light)' : 'var(--c-bg)', color: 'var(--c-danger)' }}>
+                  <Icon name="close" size={12} />
+                </button>
                 )}
               </div>
             ))}
@@ -1802,22 +1810,24 @@ table{border-collapse:collapse;width:100%}
             {files.length >= 2 && hasFeature('sales_data_merge') && (
               <button
                 onClick={() => { setShowMergePanel(v => !v); setMergeChecked(new Set()); setShowAddToMerge(false); }}
-                style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  border: `1.5px solid ${showMergePanel ? '#8b5cf6' : 'var(--c-border)'}`,
-                  background: showMergePanel ? '#ede9fe' : 'var(--c-bg)',
-                  color: showMergePanel ? '#7c3aed' : 'var(--c-text-secondary)' }}>
-                🔗 دمج ملفات
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, boxSizing: 'border-box',
+                  padding: '0 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: `1.5px solid ${showMergePanel ? 'var(--c-purple)' : 'var(--c-border)'}`,
+                  background: showMergePanel ? 'var(--c-purple-bg)' : 'var(--c-bg)',
+                  color: showMergePanel ? 'var(--c-purple)' : 'var(--c-text-secondary)' }}>
+                <Icon name="link" size={13} /> دمج ملفات
               </button>
             )}
             {/* Add file to existing merge — only when active file is merged */}
             {activeFile?.sourceFileIds && (
               <button
                 onClick={() => { setShowAddToMerge(v => !v); setAddChecked(new Set()); setShowMergePanel(false); }}
-                style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, boxSizing: 'border-box',
+                  padding: '0 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
                   border: `1.5px solid ${showAddToMerge ? '#0891b2' : 'var(--c-border)'}`,
                   background: showAddToMerge ? '#e0f2fe' : 'var(--c-bg)',
                   color: showAddToMerge ? '#0e7490' : 'var(--c-text-secondary)' }}>
-                ➕ إضافة ملف للدمج
+                <Icon name="add" size={13} /> إضافة ملف للدمج
               </button>
             )}
           </div>
@@ -2122,12 +2132,15 @@ table{border-collapse:collapse;width:100%}
           {/* Tab switcher + value toggle — wrapped for image export */}
           <div ref={exportViewRef}>
           {/* Tab switcher + value toggle */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
             <div className="tabs">
               {(['table', 'analysis'] as const).filter(id => id === 'table' || hasFeature('sales_data_analysis')).map(id => (
-                <button key={id} className={`tab${tab === id ? ' tab--active' : ''}`} onClick={() => setTab(id as 'table' | 'analysis')}>{id === 'table' ? '📋 الجدول' : '📈 التحليل'}</button>
+                <button key={id} className={`tab${tab === id ? ' tab--active' : ''}`} onClick={() => setTab(id as 'table' | 'analysis')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <Icon name={id === 'table' ? 'file' : 'category'} size={13} /> {id === 'table' ? 'الجدول' : 'التحليل'}
+                </button>
               ))}
             </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {hasFeature('sales_data_value') && (
             <button
               onClick={() => { setTab('table'); setShowValue(v => !v); }}
@@ -2231,6 +2244,7 @@ table{border-collapse:collapse;width:100%}
               )}
             </div>
             )}
+            </div>
           </div>
           {/* TABLE VIEW */}
           {tab === 'table' && (

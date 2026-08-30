@@ -8,6 +8,7 @@ import {
   Link2, Settings, Loader2, AlertTriangle, ChevronRight, ChevronLeft,
   Store, Pill, Bell, Pencil, LogOut, Globe, User, MapPin, Stethoscope,
   Phone, RefreshCw, History, Banknote, Tag, Hash, FileText, Calendar,
+  Scale, FileSpreadsheet,
 } from 'lucide-react';
 
 /**
@@ -84,6 +85,8 @@ export const ICONS = {
   count: Hash,
   file: FileText,
   calendar: Calendar,
+  netBalance: Scale,
+  excel: FileSpreadsheet,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

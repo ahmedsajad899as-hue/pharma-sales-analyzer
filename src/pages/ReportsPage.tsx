@@ -4,6 +4,7 @@ import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
+import { Icon } from '../config/icons';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
    drop tatweel/diacritics, strip the definite article «ال», and collapse separators
@@ -1431,9 +1432,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end', width: '100%', justifyContent: 'space-between' }}>
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {[
-        { key: 'sales'   as ReportView, icon: '📈', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
-        { key: 'returns' as ReportView, icon: '📉', label: t.reports.colRetQty,  bg: '#ef4444', glow: '#ef444444', border: '#b91c1c' },
-        { key: 'net'     as ReportView, icon: '⚖️', label: t.reports.viewNet,     bg: '#10b981', glow: '#10b98144', border: '#065f46' },
+        { key: 'sales'   as ReportView, icon: 'uploadSales' as const,   label: t.reports.colSalesQty, bg: 'var(--c-accent)',  glow: 'rgba(26,86,219,0.27)',  border: 'var(--c-accent)' },
+        { key: 'returns' as ReportView, icon: 'uploadReturns' as const, label: t.reports.colRetQty,  bg: 'var(--c-danger)',  glow: 'rgba(220,38,38,0.27)',  border: 'var(--c-danger)' },
+        { key: 'net'     as ReportView, icon: 'netBalance' as const,    label: t.reports.viewNet,     bg: 'var(--c-success)', glow: 'rgba(13,159,110,0.27)', border: 'var(--c-success)' },
       ].map(({ key, icon, label, bg, glow, border }) => {
         const isActive = reportView === key;
         const isDisabled = key === 'returns' && !hasReturns;
@@ -1449,8 +1450,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               borderRadius: 12,
               border: isActive ? `2.5px solid ${border}` : '2.5px solid transparent',
               cursor: isDisabled ? 'not-allowed' : 'pointer',
-              background: isActive ? bg : '#f1f5f9',
-              color: isActive ? '#fff' : '#64748b',
+              background: isActive ? bg : 'var(--c-bg)',
+              color: isActive ? '#fff' : 'var(--c-text-secondary)',
               opacity: isDisabled ? 0.4 : 1,
               boxShadow: isActive ? `0 4px 18px ${glow}, 0 2px 6px ${glow}` : '0 1px 3px #0001',
               transform: isActive ? 'scale(1.12) translateY(-3px)' : 'scale(1)',
@@ -1458,7 +1459,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               minWidth: 48,
               position: 'relative',
             }}>
-            <span style={{ fontSize: isActive ? 24 : 17, lineHeight: 1, transition: 'font-size 0.2s' }}>{icon}</span>
+            <Icon name={icon} size={isActive ? 22 : 17} style={{ transition: 'all 0.2s' }} />
             <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: isActive ? 1 : 0.7 }}>{label}</span>
             {isActive && (
               <span style={{
@@ -1481,12 +1482,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
             padding: '7px 12px 6px', borderRadius: 12,
-            border: '2.5px solid #059669', cursor: exporting ? 'not-allowed' : 'pointer',
-            background: exporting ? '#d1fae5' : '#ecfdf5', color: '#065f46',
+            border: '2.5px solid var(--c-success)', cursor: exporting ? 'not-allowed' : 'pointer',
+            background: exporting ? 'var(--c-success-bg)' : 'var(--c-success-bg)', color: 'var(--c-success)',
             opacity: exporting ? 0.6 : 1,
             boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
           }}>
-          <span style={{ fontSize: 17, lineHeight: 1 }}>{exporting ? '⏳' : '📥'}</span>
+          <Icon name={exporting ? 'loading' : 'export'} size={17} className={exporting ? 'icon-spin' : undefined} />
           <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>تصدير</span>
         </button>
       )}
@@ -1498,20 +1499,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
           padding: '7px 12px 6px', borderRadius: 12,
-          border: '2.5px solid #7c3aed', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
-          background: '#f5f3ff', color: '#5b21b6', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
+          border: '2.5px solid var(--c-purple)', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
+          background: 'var(--c-purple-bg)', color: 'var(--c-purple)', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
           boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
         }}>
-        <span style={{ fontSize: 17, lineHeight: 1 }}>{rowPreviewKey === '__top__' ? '⏳' : '📊'}</span>
+        <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={17} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} />
         <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
       </button>
       {!hasReturns && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
-          background: '#fff7ed', border: '1px solid #fed7aa',
-          borderRadius: 8, padding: '5px 10px', fontSize: 12, color: '#9a3412',
+          background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)',
+          borderRadius: 8, padding: '5px 10px', fontSize: 12, color: 'var(--c-warning)',
         }}>
-          <span>↩️</span>
+          <Icon name="warning" size={13} />
           <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
         </div>
       )}
@@ -3697,8 +3698,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             backdropFilter: 'blur(6px)',
             border: '1px solid rgba(255,255,255,0.25)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18, flexShrink: 0,
-          }}>📊</div>
+            color: '#fff', flexShrink: 0,
+          }}><Icon name="navReports" size={18} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
               {t.reports.noActiveFileTitle}

@@ -1518,20 +1518,20 @@ export default function DoctorsPage() {
         )}
         {activeTab === 'visits' && visitAnalysisType === 'doctors' && (
           <button onClick={() => loadVisits(true)} disabled={visitLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: visitLoading ? 0.7 : 1 }}>
-            {visitLoading ? '⏳ تحديث...' : '↻ تحديث'}
+            style={{ ...btnStyle('var(--c-accent)'), opacity: visitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh" size={14} className={visitLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'visits' && visitAnalysisType === 'pharmacies' && (
           <button onClick={() => loadPharmVisits(true)} disabled={pharmVisitLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: pharmVisitLoading ? 0.7 : 1 }}>
-            {pharmVisitLoading ? '⏳ تحديث...' : '↻ تحديث'}
+            style={{ ...btnStyle('var(--c-accent)'), opacity: pharmVisitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh" size={14} className={pharmVisitLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'pharmacies' && (
           <button onClick={loadSurveyPharmacies} disabled={surveyPharmLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: surveyPharmLoading ? 0.7 : 1 }}>
-            {surveyPharmLoading ? '⏳ تحديث...' : '↻ تحديث'}
+            style={{ ...btnStyle('var(--c-accent)'), opacity: surveyPharmLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh" size={14} className={surveyPharmLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'archive' && showArchiveTab && (
@@ -1793,26 +1793,29 @@ export default function DoctorsPage() {
                 onClick={() => setShowVisitsImportModal(true)}
                 title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
                 style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
                   padding: '6px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                   border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', marginInlineEnd: 4,
-                }}>📥 استيراد من إكسل</button>
+                }}><Icon name="import" size={13} /> استيراد من إكسل</button>
             )}
             <button
               onClick={() => setVisitAnalysisType('doctors')}
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
                 padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 border: `1.5px solid ${visitAnalysisType === 'doctors' ? 'var(--c-accent)' : 'var(--c-border)'}`,
                 background: visitAnalysisType === 'doctors' ? 'var(--c-accent-light)' : 'var(--c-bg)',
                 color: visitAnalysisType === 'doctors' ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-              }}>👨‍⚕️ الأطباء</button>
+              }}><Icon name="doctor" size={14} /> الأطباء</button>
             <button
               onClick={() => setVisitAnalysisType('pharmacies')}
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
                 padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 border: `1.5px solid ${visitAnalysisType === 'pharmacies' ? 'var(--c-accent)' : 'var(--c-border)'}`,
                 background: visitAnalysisType === 'pharmacies' ? 'var(--c-accent-light)' : 'var(--c-bg)',
                 color: visitAnalysisType === 'pharmacies' ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-              }}>🏪 الصيدليات</button>
+              }}><Icon name="pharmacy" size={14} /> الصيدليات</button>
           </div>
 
           {/* ─── DOCTORS ANALYSIS ───────────────────────────── */}
@@ -1889,10 +1892,10 @@ export default function DoctorsPage() {
             return (
               <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'إجمالي الأطباء', value: total,   icon: '👥', accent: 'var(--c-accent)', clickable: 'total' },
-                  { label: 'تمت زيارتهم',    value: visited, icon: '✅', accent: 'var(--c-accent)', clickable: 'visited' },
-                  { label: 'يكتبون الايتم',  value: writing, icon: '✍️', accent: 'var(--c-accent)', clickable: 'writing' },
-                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: '📊', accent: 'var(--c-accent)', clickable: 'coverage' },
+                  { label: 'إجمالي الأطباء', value: total,   icon: 'doctor' as const,      accent: 'var(--c-accent)',  clickable: 'total' },
+                  { label: 'تمت زيارتهم',    value: visited, icon: 'checkCircle' as const, accent: 'var(--c-success)', clickable: 'visited' },
+                  { label: 'يكتبون الايتم',  value: writing, icon: 'edit' as const,        accent: 'var(--c-purple)',  clickable: 'writing' },
+                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: 'navSalesData' as const, accent: 'var(--c-warning)', clickable: 'coverage' },
                 ].map(s => {
                   const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : s.clickable === 'total' ? showTotalPopup : false;
                   const borderColor  = isActiveCard ? s.accent : 'var(--c-border)';
@@ -1912,7 +1915,7 @@ export default function DoctorsPage() {
                       cursor: s.clickable ? 'pointer' : 'default',
                       position: 'relative', transition: 'border-color 0.15s',
                     }}>
-                    <div style={{ fontSize: 22 }}>{s.icon}</div>
+                    <div style={{ color: s.accent, display: 'flex', justifyContent: 'center' }}><Icon name={s.icon} size={22} /></div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
                     <div style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 2 }}>{s.label}</div>
                     {s.clickable && <div style={{ fontSize: 10, color: 'var(--c-accent)', marginTop: 3 }}>▾</div>}

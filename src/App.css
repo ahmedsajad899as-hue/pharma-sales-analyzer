@@ -61,6 +61,13 @@ body {
   min-height: 100vh;
 }
 
+.page-container {
+  padding: 18px 20px 40px;
+}
+
+@keyframes icon-spin { to { transform: rotate(360deg); } }
+.icon-spin { animation: icon-spin 0.9s linear infinite; }
+
 .card {
   background: var(--c-surface);
   padding: 20px;
@@ -389,7 +396,14 @@ tr:hover {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
+
+.sidebar-nav::-webkit-scrollbar { width: 5px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
+.sidebar-nav::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
 
 .sidebar-nav-item {
   display: flex;
@@ -434,7 +448,14 @@ tr:hover {
   flex-shrink: 0;
   overflow-y: auto;
   max-height: 55vh;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
+
+.sidebar-footer::-webkit-scrollbar { width: 5px; }
+.sidebar-footer::-webkit-scrollbar-track { background: transparent; }
+.sidebar-footer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
+.sidebar-footer::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
 
 .sidebar-footer-text { color: #5a6a8a; font-size: 12px; }
 .sidebar-footer-sub  { color: #3d4f6b; font-size: 11px; margin-top: 2px; }
