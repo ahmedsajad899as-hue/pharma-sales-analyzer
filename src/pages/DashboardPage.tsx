@@ -1542,10 +1542,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
     return (
       <div className="page">
-        <div className="page-header">
-          <h1 className="page-title">{t.dashboard.title}</h1>
-        </div>
-
         {/* Month selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20, flexWrap: 'wrap', direction: 'rtl' }}>
           <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={12} /> الشهر:</span>
@@ -3403,11 +3399,6 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
 
   return (
     <div className="page">
-      <div className="page-header">
-        <h1 className="page-title">{t.dashboard.title}</h1>
-        <p className="page-subtitle">{t.dashboard.subtitle}</p>
-      </div>
-
       {/* Stat Cards */}
       <div className="stats-grid">
         {statCards.map(card => {

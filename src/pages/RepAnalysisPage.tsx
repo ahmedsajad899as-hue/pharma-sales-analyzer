@@ -52,8 +52,6 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
     return () => { delete (window as any).__repAnalysisDigest; };
   }, [activeFileIds]);
 
-  const activeInfo = TABS.find(t => t.id === activeTab)!;
-
   const renderContent = () => {
     switch (activeTab) {
       case 'upload':          return <UploadPage activeFileIds={activeFileIds} onFileActivated={onFileActivated} />;
@@ -83,16 +81,6 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
         padding: '18px 28px 0',
         direction: 'rtl',
       }}>
-        {/* Title row */}
-        <div style={{ marginBottom: 16 }}>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
-            تحليل ملفات المندوبين
-          </h1>
-          <p style={{ margin: '3px 0 0', fontSize: 13, color: '#94a3b8' }}>
-            {activeInfo.desc}
-          </p>
-        </div>
-
         {/* Tab bar */}
         <div className="ra-tabs" style={{ display: 'flex', gap: 0 }}>
           {TABS.map(tab => {

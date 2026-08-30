@@ -1534,11 +1534,8 @@ export default function DoctorsPage() {
 
   return (
     <div className="page-container" dir="rtl">
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="navDoctors" size={22} /> قائمة السيرفي</h1>
-        </div>
+      {/* Header — title moved to the app-level topbar; this row now just hosts the tab's action buttons */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         {activeTab === 'list' && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => { setShowImportPanel(v => !v); setImportResult(null); }}

@@ -354,29 +354,48 @@ tr:hover {
 }
 
 /* "closed" now means fully off-canvas (slid out to the right) rather than
-   a narrow icon rail — a floating .sidebar-reopen-btn takes its place. */
+   a narrow icon rail — the persistent .app-topbar (below) takes its place,
+   including the reopen button, so nothing floats over page content. */
 .sidebar--open   { transform: translateX(0); }
 .sidebar--closed { transform: translateX(100%); }
 
-.sidebar-reopen-btn {
-  position: fixed;
-  top: 14px;
-  right: 14px;
-  z-index: 101;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+/* ======= APP TOPBAR ======= */
+/* Sticky within .app-main's own scroll box, so it automatically lines up with
+   whatever margin-right the sidebar state already gives .app-main — no separate
+   width/offset bookkeeping needed here. */
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  height: 60px;
+  min-height: 60px;
   background: linear-gradient(180deg, #0f1e35 0%, #0a1628 100%);
-  border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+
+.app-topbar-reopen {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
   color: #e0e8f4;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
 }
 
-.sidebar-reopen-btn:hover { background: linear-gradient(180deg, #162844 0%, #0f1e35 100%); transform: none; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+.app-topbar-reopen:hover { background: rgba(255,255,255,0.14); transform: none; box-shadow: none; }
+
+.app-topbar-icon { display: flex; align-items: center; color: #a8c4f4; flex-shrink: 0; }
+.app-topbar-title { font-size: 16px; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-topbar-subtitle { font-size: 11.5px; color: #8fa0be; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sidebar-brand {
   display: flex;

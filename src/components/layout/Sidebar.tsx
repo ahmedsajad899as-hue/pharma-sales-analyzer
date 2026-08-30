@@ -195,12 +195,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   return (
     <>
-      {/* Reopen button — floats in the sidebar's place once it has slid off-canvas */}
-      {!isOpen && (
-        <button className="sidebar-reopen-btn sidebar--desktop-only" onClick={onToggle} title={t.sidebar.collapse}>
-          <Icon name="menu" size={20} />
-        </button>
-      )}
+      {/* Reopen button lives in App.tsx's fixed topbar (not floating over content) once
+          the sidebar has slid off-canvas — see .app-topbar-reopen. */}
 
       {/* ── DESKTOP SIDEBAR ── */}
       <aside className={`sidebar sidebar--desktop ${isOpen ? 'sidebar--open' : 'sidebar--closed'}`}>

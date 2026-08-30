@@ -1729,12 +1729,8 @@ table{border-collapse:collapse;width:100%}
   return (
     <div style={{ padding: '16px 14px 80px', maxWidth: 1300, margin: '0 auto', direction: 'rtl' }}>
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="navSalesData" size={20} /> بيانات المبيعات</h1>
-          <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--c-text-muted)' }}>تحليل ملفات Excel مع البحث المتعدد — مناطق · مخازن · ايتمات</p>
-        </div>
+      {/* Header — title moved to the app-level topbar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
         {hasFeature('sales_data_upload') && (
         <button onClick={openFilePicker} disabled={importing}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: 'var(--c-accent)', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>

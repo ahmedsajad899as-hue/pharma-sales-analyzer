@@ -4,6 +4,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
+import { Icon } from './config/icons';
+import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
+import { NAV_ITEMS } from './config/featureConfig';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
@@ -496,6 +499,26 @@ function AppInner() {
       />
       <main className={`app-main ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}
         style={isImpersonating ? { paddingTop: 40 } : undefined}>
+        <div className="app-topbar sidebar--desktop-only">
+          {!sidebarOpen && (
+            <button className="app-topbar-reopen" onClick={() => setSidebarOpen(true)} title="إظهار القائمة الجانبية">
+              <Icon name="menu" size={20} />
+            </button>
+          )}
+          <span className="app-topbar-icon"><Icon name={getPageHeaderIcon(activePage)} size={20} /></span>
+          <div style={{ minWidth: 0 }}>
+            {(() => {
+              const fallbackTitle = NAV_ITEMS.find(n => n.id === activePage)?.labelAr ?? '';
+              const header = getPageHeader(activePage, fallbackTitle);
+              return (
+                <>
+                  <div className="app-topbar-title">{header.title}</div>
+                  {header.subtitle && <div className="app-topbar-subtitle">{header.subtitle}</div>}
+                </>
+              );
+            })()}
+          </div>
+        </div>
         {allPages.map(({ id, node }) => {
           const isMounted = mountedPages.has(id);
           const isActive  = activePage === id;

@@ -556,16 +556,9 @@ export default function DailyPlanPage() {
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
       <div className="dp-wrap">
 
-        {/* Sticky header: brand + rep picker + day stepper + settings */}
+        {/* Sticky header: rep picker + day stepper + settings — title moved to the app-level topbar */}
         <header className="dp-header">
-          <div className="dp-header-row">
-            <div className="dp-brand">
-              <div className="dp-logo"><Icon name="navDailyPlan" size={20} /></div>
-              <div>
-                <h1 className="dp-h1">البلان اليومي</h1>
-                <p className="dp-sub">زيارات اليوم ونسبة التحقيق</p>
-              </div>
-            </div>
+          <div className="dp-header-row" style={{ justifyContent: 'flex-end' }}>
             <div className="dp-controls">
               {isManager && (
                 <select className="dp-select" value={selectedRep ?? ''} onChange={e => setSelectedRep(e.target.value ? Number(e.target.value) : null)}>

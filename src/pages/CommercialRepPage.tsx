@@ -2484,13 +2484,6 @@ export default function CommercialRepPage() {
         <div className="comm-toast">{toast}</div>
       )}
 
-      {/* Page header */}
-      <div className="comm-page-header">
-        <div>
-          <h1 className="comm-page-title">القسم التجاري</h1>
-        </div>
-      </div>
-
       {/* Tabs — hidden for rep, shown for others */}
       {!isRep && (
         <div className="comm-tabs">

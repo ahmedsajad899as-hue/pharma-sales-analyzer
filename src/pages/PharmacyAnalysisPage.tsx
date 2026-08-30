@@ -445,15 +445,6 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* ── Page Header ────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div style={{ background: 'var(--c-accent)', borderRadius: 10, padding: '8px 12px', color: '#fff', display: 'flex', alignItems: 'center' }}><Icon name="navPharmacyAnalysis" size={20} /></div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: 'var(--c-text-primary)' }}>تحليل الصيدليات والمبيعات</h1>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--c-text-secondary)' }}>تحليل شامل عبر الملفات المرفوعة</p>
-        </div>
-      </div>
-
       {/* ── File Selector card ──────────────────────────────── */}
       <div style={CARD}>
         {/* Clear confirm dialog */}

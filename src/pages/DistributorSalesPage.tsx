@@ -317,16 +317,6 @@ export default function DistributorSalesPage() {
 
   return (
     <div style={{ padding: '16px 20px', maxWidth: 1100, margin: '0 auto', direction: 'rtl' }}>
-      {/* ── Header ── */}
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', margin: 0 }}>
-          📦 تحليل مبيعات الموزعين
-        </h1>
-        <p style={{ color: '#64748b', fontSize: 13, marginTop: 4, marginBottom: 0 }}>
-          رفع وتحليل ملفات Excel بتنسيق امازون / فريق — شهر3 / شهر4 / اعادة الفوترة
-        </p>
-      </div>
-
       {/* ── Upload selector (shown when upload exists) ── */}
       {uploads.length > 0 && (
         <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
