@@ -594,10 +594,17 @@ export async function saveDoctorNameLinks(userId, links) {
  * (doctorRows + pharmacyRows) بصرف النظر عن الصيغة.
  */
 export async function extractVisitsFromExcel(file, user) {
-  const workbook = XLSX.readFile(file.path);
-  const sheet    = workbook.Sheets[workbook.SheetNames[0]];
-  const rows     = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-  fs.unlink(file.path, () => {});
+  // الملف المرفوع مؤقّت بحت: يُقرأ إلى الذاكرة ثم يُحذف فوراً من القرص — لا
+  // يُخزَّن أي إكسل على الخادم، المحفوظ هو صفوف قاعدة البيانات فقط. الحذف في
+  // finally كي لا يبقى ملف يتيم حين يفشل التحليل (ملف تالف/صيغة غير مدعومة).
+  let rows;
+  try {
+    const workbook = XLSX.readFile(file.path);
+    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+    rows           = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  } finally {
+    fs.unlink(file.path, () => {});
+  }
 
   const EMPTY = {
     doctorRows: [], pharmacyRows: [],
