@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import { usePharmacyNetFiles, type UpFile } from '../hooks/usePharmacyNetFiles';
@@ -184,6 +184,7 @@ export default function ItemAnalysisPage() {
   const [data, setData]       = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const analyticsReqId        = useRef(0);
 
   const [subTab, setSubTab]   = useState<SubTab>(() => {
     const s = sessionStorage.getItem('item_insight_tab');
@@ -233,18 +234,20 @@ export default function ItemAnalysisPage() {
 
   // ── Load analytics when item or filter changes ───────────
   const loadAnalytics = useCallback(() => {
+    const reqId = ++analyticsReqId.current;
     if (!selectedId) { setData(null); return; }
-    setLoading(true); setError(null);
+    setData(null); setLoading(true); setError(null);
     const qs = new URLSearchParams();
     if (fileIdsParam) qs.set('fileIds', fileIdsParam);
     qs.set('days', String(days));
     if (selectedRep) qs.set('repName', selectedRep);
-    fetch(`${API}/api/item-analysis/${selectedId}?${qs.toString()}`, { headers })
+    fetch(`${API}/api/item-analysis/${selectedId}?${qs.toString()}`, { headers, cache: 'no-store' })
       .then(async r => {
         if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'فشل تحميل البيانات'); }
         return r.json();
       })
       .then((d: Analytics) => {
+        if (reqId !== analyticsReqId.current) return; // a newer item/filter was selected meanwhile — discard
         setData(d);
         const needs = !d.item.scientificName || !d.item.dosage || !d.item.form;
         const skipped = localStorage.getItem(`${SKIP_INFO_PREFIX}${d.item.id}`) === '1';
@@ -260,8 +263,8 @@ export default function ItemAnalysisPage() {
           setShowInfoModal(true);
         }
       })
-      .catch(e => setError(String(e.message || e)))
-      .finally(() => setLoading(false));
+      .catch(e => { if (reqId === analyticsReqId.current) setError(String(e.message || e)); })
+      .finally(() => { if (reqId === analyticsReqId.current) setLoading(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, fileIdsParam, days, selectedRep, token]);
 
