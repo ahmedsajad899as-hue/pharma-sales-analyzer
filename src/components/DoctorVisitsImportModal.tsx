@@ -22,6 +22,7 @@ interface DoctorRow {
   _row: number;
   repName: string; repId: number | null;
   doctorName: string; doctorId: number | null; doctorKey?: string;
+  rawDoctorName?: string; // تهجئة الاسم كما وردت في الملف (للاطلاع فقط بعد المطابقة)
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
@@ -186,17 +187,31 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
   const doctorDecidedCount = pendingDoctorNames.filter(e => doctorChoice[e.key]).length;
   const countForDoctorName = (key: string) => docRows.filter(r => r.doctorKey === key).length;
 
-  /** يطبّق قرارات مطابقة أسماء الأطباء على صفوف الأطباء (لا صلة لها بالصيدليات). */
+  /**
+   * يطبّق قرارات مطابقة أسماء الأطباء على صفوف الأطباء (لا صلة لها بالصيدليات).
+   * عند اختيار طبيب موجود: يُعرَض اسمه كما هو مسجَّل في التطبيق بدل تهجئة الملف —
+   * المطابقة تربط الزيارة بالطبيب ولا تُعيد تسميته إطلاقاً.
+   */
   const applyDoctorMatching = () => {
     const choiceByKey = new Map<string, number | null>();
+    const nameByKey   = new Map<string, string>();
     for (const e of pendingDoctorNames) {
       const c = doctorChoice[e.key];
       if (!c) continue;
       choiceByKey.set(e.key, c === 'new' ? null : Number(c));
+      if (c !== 'new') {
+        const picked = e.suggestions.find(s => String(s.id) === String(c));
+        if (picked) nameByKey.set(e.key, picked.name);
+      }
     }
     setDocRows(rs => rs.map(r => {
       if (!r.doctorKey || !choiceByKey.has(r.doctorKey)) return r;
-      return { ...r, doctorId: choiceByKey.get(r.doctorKey) ?? null };
+      const appName = nameByKey.get(r.doctorKey);
+      return {
+        ...r,
+        doctorId: choiceByKey.get(r.doctorKey) ?? null,
+        ...(appName ? { rawDoctorName: r.rawDoctorName ?? r.doctorName, doctorName: appName } : {}),
+      };
     }));
     setDoctorNamesApplied(true);
   };
@@ -433,7 +448,18 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                             {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
                           </select>
                         </td>
-                        <td style={td}><input value={r.doctorName} onChange={e => setDocCell(i, { doctorName: e.target.value })} style={{ ...cellInp, minWidth: 140 }} /></td>
+                        <td style={td}>
+                          {/* طبيب مطابَق لطبيب موجود: يُعرض اسمه كما هو في التطبيق ولا يُعدَّل هنا —
+                              الزيارة تُضاف إليه فقط، واسمه في التطبيق يبقى دون تغيير. */}
+                          {r.doctorId ? (
+                            <div title={r.rawDoctorName && r.rawDoctorName !== r.doctorName ? `في الملف: ${r.rawDoctorName}` : 'مطابَق لطبيب موجود'}
+                              style={{ ...cellInp, minWidth: 140, background: '#f0fdf4', borderColor: '#bbf7d0', display: 'flex', alignItems: 'center', gap: 4, cursor: 'default' }}>
+                              <span>🔗</span><span style={{ fontWeight: 600 }}>{r.doctorName}</span>
+                            </div>
+                          ) : (
+                            <input value={r.doctorName} onChange={e => setDocCell(i, { doctorName: e.target.value })} style={{ ...cellInp, minWidth: 140 }} />
+                          )}
+                        </td>
                         <td style={td}><input value={r.specialty} onChange={e => setDocCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} /></td>
                         <td style={td}><input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} /></td>
                         <td style={td}><input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>

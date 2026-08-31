@@ -70,21 +70,54 @@ function findCol(headers, keywords) {
   return null;
 }
 
+/** رقم إكسل التسلسلي للتاريخ → Date (المرجع 1899-12-30 = 25569 يوماً قبل عهد يونكس). */
+function excelSerialToDate(n) {
+  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * حارس عقل: أي تاريخ خارج المدى الواقعي للزيارات يُرفَض بدل تمريره إلى قاعدة
+ * البيانات. سبب وجوده: خلية إكسل مخزَّنة كـ«نص» تحمل الرقم التسلسلي (مثل
+ * "46236") كان `new Date("46236")` يقرأها كـ«السنة 46236»، فيُنشأ تاريخ صالح
+ * ظاهرياً لكن Prisma ترفضه لاحقاً برسالة
+ * `Could not convert argument value … "+046236-01-01T00:00:00.000Z"` وتفشل كل
+ * صفوف الملف. المدى 1990..2100 يغطي أي زيارة حقيقية بفارق أمان واسع.
+ */
+const MIN_VISIT_YEAR = 1990;
+const MAX_VISIT_YEAR = 2100;
+function inVisitRange(d) {
+  if (!d || isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  return (y >= MIN_VISIT_YEAR && y <= MAX_VISIT_YEAR) ? d : null;
+}
+
 function parseVisitDate(v) {
   if (!v && v !== 0) return null;
-  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
-  if (typeof v === 'number') { // Excel serial date
-    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
-    return isNaN(d.getTime()) ? null : d;
-  }
+  if (v instanceof Date) return inVisitRange(v);
+  if (typeof v === 'number') return inVisitRange(excelSerialToDate(v)); // رقم إكسل تسلسلي
   const s = String(v).trim();
   if (!s) return null;
+  // نص يحتوي رقماً فقط = خلية تاريخ مخزَّنة كنص في إكسل → رقم تسلسلي لا «سنة».
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n >= 20000 && n <= 80000) return inVisitRange(excelSerialToDate(n)); // مدى تواريخ معقول (1954..2119)
+    return null;
+  }
   const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
-  if (dmy) { const d = new Date(+dmy[3], +dmy[2] - 1, +dmy[1]); if (!isNaN(d.getTime())) return d; }
+  if (dmy) { const d = new Date(+dmy[3], +dmy[2] - 1, +dmy[1]); if (!isNaN(d.getTime())) return inVisitRange(d); }
   const ymd = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
-  if (ymd) { const d = new Date(+ymd[1], +ymd[2] - 1, +ymd[3]); if (!isNaN(d.getTime())) return d; }
+  if (ymd) { const d = new Date(+ymd[1], +ymd[2] - 1, +ymd[3]); if (!isNaN(d.getTime())) return inVisitRange(d); }
   const generic = new Date(s);
-  return isNaN(generic.getTime()) ? null : generic;
+  return inVisitRange(generic);
+}
+
+/** Date → "YYYY-MM-DD" بالتوقيت المحلي — toISOString يزيح التاريخ يوماً كاملاً للخلف
+ *  عند منتصف الليل المحلي في التوقيت العراقي (UTC+3)، فيظهر تاريخ الزيارة خاطئاً. */
+function toDateInput(d) {
+  if (!d || isNaN(d.getTime())) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
 }
 
 function parseLocation(row, colMap) {
@@ -181,7 +214,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
     const areaRaw = get(row, 'address') || get(row, 'city');
     const area = findByName(allAreas, areaRaw);
     const dateVal = parseVisitDate(get(row, 'created'));
-    const date = dateVal ? dateVal.toISOString().slice(0, 10) : '';
+    const date = toDateInput(dateVal) || '';
     const isDoubleVisit = get(row, 'type') === 'Double Visit';
     const notes = get(row, 'note');
     const _row = i + 2;
@@ -304,7 +337,12 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
 
     const link = linkByKey.get(g.key);
     if (link) {
-      for (const r of g.rows) r.doctorId = link.doctorId ?? null;
+      for (const r of g.rows) {
+        r.doctorId = link.doctorId ?? null;
+        // الاسم المعروض يصير اسم الطبيب كما هو في التطبيق — تهجئة الملف تُحفظ
+        // في rawDoctorName للاطلاع فقط، ولا تُكتب فوق اسم الطبيب أبداً.
+        if (link.doctor) { r.rawDoctorName = r.doctorName; r.doctorName = link.doctor.name; }
+      }
       resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
       continue;
     }
@@ -318,7 +356,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       if (areaMatches.length === 1) exact = areaMatches[0];
     }
     if (exact) {
-      for (const r of g.rows) r.doctorId = exact.id;
+      for (const r of g.rows) { r.doctorId = exact.id; r.rawDoctorName = r.doctorName; r.doctorName = exact.name; }
       resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: { id: exact.id, name: exact.name } });
       continue;
     }
@@ -464,7 +502,7 @@ export async function extractVisitsFromExcel(file, user) {
       areaName, areaId: area?.id ?? null,
       pharmacyName: get('pharmacy'),
       itemName, itemId: item?.id ?? null,
-      date: dateVal ? dateVal.toISOString().slice(0, 10) : '',
+      date: toDateInput(dateVal) || '',
       feedback: mapFeedback(get('feedback')),
       notes: get('notes'), isDoubleVisit: false,
       lat, lng,
@@ -586,8 +624,46 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
       const cacheKey = `${doctorName.toLowerCase()}|${areaId ?? ''}`;
       if (!doctorId) doctorId = doctorCache.get(cacheKey) ?? null;
 
+      const ctx = { areaName: areaName || null, specialty: r.specialty || '', pharmacyName: r.pharmacyName || '' };
+
+      /**
+       * يربط طبيباً موجوداً أصلاً بسجل سيرفي إن لم يكن مربوطاً (بلا هذا الربط لن
+       * تظهر زياراته في شاشة «الزيارات»).
+       *
+       * قاعدة صارمة: اسم الطبيب في التطبيق لا يتغيّر أبداً بسبب ملف مستورد —
+       * الاسم القادم من الملف مفتاح بحث/مطابقة فقط. لذلك يُنشأ سجل السيرفي (عند
+       * الحاجة) باسم الطبيب كما هو مسجَّل في التطبيق، لا بالتهجئة القادمة من
+       * الملف؛ وباقي الحقول (منطقة/اختصاص/صيدلية) تُؤخذ من التطبيق أولاً ولا
+       * يُستعان بالملف إلا حين تكون فارغة عندنا.
+       */
+      const ensureSurveyLink = async (doc) => {
+        if (!doc || doc.masterSurveyDoctorId) return;
+        const appName = String(doc.name || '').trim() || doctorName;
+        const appCtx = {
+          areaName:     doc.area?.name   || areaName        || null,
+          specialty:    doc.specialty    || r.specialty     || '',
+          pharmacyName: doc.pharmacyName || r.pharmacyName  || '',
+        };
+        let sd = findSurveyDoctor(appName, appCtx).match;
+        if (!sd && hostSurvey) {
+          sd = await createSurveyDoctor(hostSurvey.id, {
+            name: appName, specialty: appCtx.specialty || null,
+            areaName: appCtx.areaName, pharmacyName: appCtx.pharmacyName || null,
+          }, ownerUserId);
+          if (sd) surveyDoctorsAll.push({
+            id: sd.id, name: appName, areaName: appCtx.areaName,
+            specialty: appCtx.specialty || null, pharmacyName: appCtx.pharmacyName || null,
+          });
+        }
+        if (sd) {
+          await prisma.doctor.update({ where: { id: doc.id }, data: { masterSurveyDoctorId: sd.id } });
+          doc.masterSurveyDoctorId = sd.id;
+        } else {
+          unlinkedNote = true;
+        }
+      };
+
       if (!doctorId) {
-        const ctx = { areaName: areaName || null, specialty: r.specialty || '', pharmacyName: r.pharmacyName || '' };
         const { match: matchedDoctor, fuzzy: matchedByFuzzy } = findExistingDoctor(doctorName, areaId, ctx);
 
         if (matchedDoctor) {
@@ -606,21 +682,8 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
             });
           }
           // موجود لكن غير مربوط بأي سيرفي بعد — اربطه بدل تركه يتيماً (لن يظهر
-          // في شاشة الزيارات بلا هذا الربط).
-          if (!matchedDoctor.masterSurveyDoctorId) {
-            const sd = findSurveyDoctor(doctorName, ctx).match ?? (hostSurvey
-              ? await createSurveyDoctor(hostSurvey.id, {
-                  name: doctorName, specialty: r.specialty || null,
-                  areaName: areaName || null, pharmacyName: r.pharmacyName || null,
-                }, ownerUserId)
-              : null);
-            if (sd) {
-              await prisma.doctor.update({ where: { id: doctorId }, data: { masterSurveyDoctorId: sd.id } });
-              matchedDoctor.masterSurveyDoctorId = sd.id;
-            } else {
-              unlinkedNote = true;
-            }
-          }
+          // في شاشة الزيارات بلا هذا الربط)، مع الإبقاء على اسمه في التطبيق كما هو.
+          await ensureSurveyLink(matchedDoctor);
         } else {
           // طبيب جديد بالكامل — يُنشأ عبر السيرفي أولاً كي يظهر في الزيارات/
           // الأطباء/الأرشيف، ثم صف Doctor المربوط به (نفس نمط addCustomDoctor).
@@ -651,14 +714,28 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName, specialty: r.specialty || null, pharmacyName: r.pharmacyName || null });
         }
         doctorCache.set(cacheKey, doctorId);
-      } else if (r.specialty || r.pharmacyName || areaId) {
-        const doc = await prisma.doctor.findUnique({ where: { id: doctorId }, select: { specialty: true, pharmacyName: true, areaId: true } });
+      } else {
+        // طبيب محسوم مسبقاً (مطابقة أكّدها المستخدم، أو رابط اسم محفوظ، أو صف
+        // سابق في الملف نفسه) — اسمه في التطبيق يبقى كما هو حرفياً؛ الملف يُضيف
+        // زيارة فقط، ولا يُملأ من حقوله إلا ما كان فارغاً عندنا أصلاً.
+        let doc = existingDoctors.find(d => d.id === doctorId);
+        if (!doc) {
+          const fetched = await prisma.doctor.findUnique({
+            where: { id: doctorId },
+            select: { id: true, name: true, areaId: true, specialty: true, pharmacyName: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
+          });
+          if (fetched) { doc = fetched; existingDoctors.push(fetched); }
+        }
         if (doc) {
+          await ensureSurveyLink(doc);
           const upd = {};
           if (!doc.specialty    && r.specialty)    upd.specialty    = r.specialty;
           if (!doc.pharmacyName && r.pharmacyName) upd.pharmacyName = r.pharmacyName;
           if (!doc.areaId       && areaId)         upd.areaId       = areaId;
-          if (Object.keys(upd).length) await prisma.doctor.update({ where: { id: doctorId }, data: upd });
+          if (Object.keys(upd).length) {
+            await prisma.doctor.update({ where: { id: doc.id }, data: upd });
+            Object.assign(doc, upd);
+          }
         }
       }
 
