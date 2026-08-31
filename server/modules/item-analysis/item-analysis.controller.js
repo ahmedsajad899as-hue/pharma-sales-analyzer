@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import { buildItemScopeFilter } from '../../lib/itemScope.js';
+import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 
@@ -306,9 +306,14 @@ export async function getItemAnalytics(req, res, next) {
     }
 
     // ── 2. Sales (filtered by uploadedFileId + userId + itemId) ──
-    const itemScope = await buildItemScopeFilter(userId);
-    // itemId مطلوب أصلاً؛ نطاق المستخدم يمنع تحليل ايتم غير معيَّن له
-    const salesWhere = { userId, itemId, ...buildFileFilter(fileIds), ...itemScope };
+    // ⚠️ لا تنشر buildItemScopeFilter() هنا: يُرجع { itemId: { in: [...] } }، وبما
+    // أنه كان يُنشر أخيراً كان يمسح `itemId` الخاص بالايتم المُختار — فيتحوّل
+    // التحليل إلى مجموع كل ايتمات المستخدم (أرقام الملف كاملاً، ثابتة مهما تغيّر
+    // الاختيار). النطاق هنا صلاحية فقط، والفلتر الفعلي هو الايتم المحدد.
+    const allowedItemIds = await resolveEffectiveItemIds(userId);
+    if (allowedItemIds && !allowedItemIds.includes(itemId))
+      return res.status(403).json({ error: 'هذا الإيتم خارج الايتمات المعيَّنة لحسابك' });
+    const salesWhere = { userId, itemId, ...buildFileFilter(fileIds) };
     if (sciRep) {
       // Scientific rep: filter sales by their assigned areas
       if (sciRep.areaIds.length > 0) {
