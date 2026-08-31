@@ -176,8 +176,126 @@ function cleanDoctorName(name) {
   return s;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// تحليل حقل note في صيغة CRM — منه نستخرج الايتم المستهدف + ملاحظات الزيارة
+// ════════════════════════════════════════════════════════════════════════════
+/*
+ * الحقل ليس ملاحظة واحدة، بل سلسلة تعليقات متلاحقة يفصل بينها «***»، كل تعليق:
+ *     *** <الكاتب: مندوب / منطقة / شركة> *** <النص>(dd/mm/yyyy hh:mm AM/PM)
+ * ويلصق الـCRM بذيل النص تغييرات حالته بلا أي فاصل:
+ *     …كول بخصوص pantactiveStatus: Pending -> CompletedClient: Unset -> عيادة…
+ *
+ * وللنصوص شكلان مختلفان تماماً:
+ *   • «سطر خطة» مفصول بـ \  آخرُ مقطع فيه هو الايتم المستهدف:
+ *       د. ضياء الراوي \ medicine \ كنز الجامعة \ ص. حي الجامعة \ pantactive(10/05/2026 07:45 PM)
+ *     (وقد يخلو من الايتم فينتهي باسم صيدلية/منطقة — لذلك يُشترط أن يكون المقطع
+ *      الأخير لاتينياً: أسماء المواد في هذه الملفات تُكتب بالإنجليزية دائماً،
+ *      بينما الأطباء/الصيدليات/المناطق بالعربية.)
+ *   • تعليق حرّ يكتبه المندوب: «كول بخصوص pantactive,uricodrop» أو
+ *     «تم زيارة الدكتور عاصم الشمري من اجل مادة airtide» → هذه هي الملاحظات،
+ *     والايتم فيها يلي كلمة «مادة/بخصوص».
+ *
+ * فنُخرج ثلاثة أشياء: الايتم (يُطابَق بكتالوج الحساب متى أمكن)، والملاحظات
+ * الحرّة منظّفة من الكاتب والتوقيت وتغييرات الحالة، وتوقيتاً احتياطياً يُستعمل
+ * تاريخاً للزيارة حين يغيب عمود created أو يتعذّر قراءته.
+ */
+
+const NOTE_TS_RE      = /\(\s*(\d{1,2}\/\d{1,2}\/\d{4}[^)]*)\)/g;         // (19/08/2026 11:19 PM)
+const NOTE_META_RE    = /(?:associated\s+client|client|status|assigned\s*to|type)\s*:/i; // ذيل يولّده CRM
+const NOTE_ITEM_KW_RE = /(?:من\s*اجل\s*مادة|بخصوص\s*مادة|مادة\s*ال|مادة|بخصوص)\s*(?:ال\s*)?([A-Za-z][A-Za-z0-9.\- ]{1,40})/i;
+
+/** مقطع «الكاتب» بين نجمتين: «محمود بلال / الكرخ / فارماكتف» — يُطرح من الملاحظات. */
+function isNoteAuthorSegment(seg) {
+  return seg.length <= 80
+    && (seg.match(/\//g) || []).length >= 2
+    && !/[\\()]/.test(seg)
+    && !NOTE_META_RE.test(seg)
+    && !/\d{1,2}\/\d{1,2}\/\d{4}/.test(seg);
+}
+
+/** يقصّ ذيل بيانات CRM الملصوق بلا فاصل (Status:/Client:/Associated client:). */
+function stripNoteMeta(text) {
+  const m = text.match(NOTE_META_RE);
+  return (m ? text.slice(0, m.index) : text).trim();
+}
+
+const normItemText = s => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+/** اسم لاتيني قصير = اسم مادة؛ العربي هنا يعني طبيباً/صيدلية/منطقة لا ايتم. */
+const looksLikeItemToken = s => /[A-Za-z]/.test(s) && !/[؀-ۿ]/.test(s) && s.trim().length >= 3;
+
+/** يربط نصاً باسم ايتم من كتالوج الحساب (تطابق تام ثم احتواء، الأطول أولاً). */
+function matchItemByText(items, text) {
+  const t = normItemText(text);
+  if (!t) return null;
+  const exact = items.find(it => normItemText(it.name) === t);
+  if (exact) return exact;
+  if (t.length < 3) return null; // نص قصير جداً يطابق كل شيء بالاحتواء — لا نخمّن
+  return [...items]
+    .filter(it => normItemText(it.name).length >= 3)
+    .sort((a, b) => b.name.length - a.name.length)
+    .find(it => t.includes(normItemText(it.name)) || normItemText(it.name).includes(t)) ?? null;
+}
+
+/** يبحث عن أي اسم ايتم من الكتالوج داخل نص الملاحظة كاملاً (الأطول أولاً). */
+function scanNoteForCatalogItem(items, note) {
+  const t = normItemText(note);
+  if (!t) return null;
+  return [...items]
+    .filter(it => normItemText(it.name).length >= 3)
+    .sort((a, b) => b.name.length - a.name.length)
+    .find(it => t.includes(normItemText(it.name))) ?? null;
+}
+
+/**
+ * يحلّل حقل note ويُعيد { itemName, itemId, notes, timestamp }.
+ * لا يرمي أبداً: أي شكل غير متوقَّع يرجع بالملاحظة الخام كما هي (أسوأ حالة =
+ * السلوك القديم بالضبط) بدل إسقاط بيانات الصف.
+ */
+function parseCrmNote(rawNote, items = []) {
+  const raw = String(rawNote ?? '').replace(/\r/g, ' ').trim();
+  const empty = { itemName: '', itemId: null, notes: raw, timestamp: '' };
+  if (!raw) return { ...empty, notes: '' };
+
+  const firstTs = raw.match(/\(\s*(\d{1,2}\/\d{1,2}\/\d{4}[^)]*)\)/);
+  const timestamp = firstTs ? firstTs[1].trim() : '';
+
+  const segments = raw.split(/\*{3,}/).map(s => s.trim()).filter(Boolean);
+  const freeTexts = [];
+  let planItem = '';
+
+  for (const seg of segments) {
+    if (isNoteAuthorSegment(seg)) continue;                 // مقطع الكاتب
+    const body = stripNoteMeta(seg).replace(NOTE_TS_RE, '').trim();
+    if (!body) continue;
+    if ((body.match(/\\/g) || []).length >= 2) {            // سطر خطة مفصول بـ \
+      const last = body.split('\\').pop().trim();
+      if (!planItem && looksLikeItemToken(last)) planItem = last;
+      continue;                                             // بيانات توجيه لا ملاحظة
+    }
+    freeTexts.push(body.replace(/\s{2,}/g, ' '));
+  }
+
+  // الايتم: هدف سطر الخطة أولاً (هو «الايتم المستهدف» صراحةً)، ثم ما يلي كلمة
+  // «مادة/بخصوص» في التعليق الحر، ثم أي اسم ايتم من الكتالوج داخل النص كله.
+  let itemText = planItem;
+  if (!itemText) {
+    for (const t of freeTexts) {
+      const m = t.match(NOTE_ITEM_KW_RE);
+      if (m && looksLikeItemToken(m[1])) { itemText = m[1].trim().replace(/[.,;]+$/, ''); break; }
+    }
+  }
+  let item = itemText ? matchItemByText(items, itemText) : null;
+  if (!item && !itemText) { item = scanNoteForCatalogItem(items, raw); if (item) itemText = item.name; }
+
+  const notes = freeTexts.join(' | ').trim();
+  // صيغة غير متوقَّعة تماماً (بلا *** ولا نص مفهوم) → نُبقي الملاحظة الخام بدل ضياعها.
+  if (!notes && !itemText && !raw.includes('***')) return empty;
+
+  return { itemName: item ? item.name : itemText, itemId: item?.id ?? null, notes, timestamp };
+}
+
 /** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
-function extractCrmRows({ rows, headers, repByKey, allAreas }) {
+function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
   const col = {
     taskTo:      findCol(headers, ['task-to']),
     client:      findCol(headers, ['client']),
@@ -213,10 +331,13 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
 
     const areaRaw = get(row, 'address') || get(row, 'city');
     const area = findByName(allAreas, areaRaw);
-    const dateVal = parseVisitDate(get(row, 'created'));
+    // حقل note ثريّ: منه الايتم المستهدف والملاحظات، ومنه أيضاً توقيت يصلح
+    // تاريخاً للزيارة حين يغيب عمود created (بعض التصديرات لا تتضمنه أصلاً).
+    const parsedNote = parseCrmNote(get(row, 'note'), allItems);
+    const dateVal = parseVisitDate(get(row, 'created')) || parseVisitDate(parsedNote.timestamp);
     const date = toDateInput(dateVal) || '';
     const isDoubleVisit = get(row, 'type') === 'Double Visit';
-    const notes = get(row, 'note');
+    const notes = parsedNote.notes;
     const _row = i + 2;
 
     if (category.includes('صيدل')) {
@@ -224,6 +345,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
         _row, repName, repId: rep?.id ?? null,
         pharmacyName: clientName,
         areaName: areaRaw, areaId: area?.id ?? null,
+        itemName: parsedNote.itemName, itemId: parsedNote.itemId,
         date, notes, isDoubleVisit,
         lat: null, lng: null,
       });
@@ -241,7 +363,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
         specialty: get(row, 'subcategory'),
         areaName: areaRaw, areaId: area?.id ?? null,
         pharmacyName: get(row, 'associated'),
-        itemName: '', itemId: null,
+        itemName: parsedNote.itemName, itemId: parsedNote.itemId,
         date,
         feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
         notes, isDoubleVisit,
@@ -473,7 +595,7 @@ export async function extractVisitsFromExcel(file, user) {
   ]);
 
   if (isCrm) {
-    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas });
+    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, allItems });
     const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
     return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, format: 'crm', columnsDetected: {} };
   }
@@ -534,6 +656,9 @@ export async function extractVisitsFromExcel(file, user) {
 async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
+  // لحسم اسم الايتم نصاً إلى itemId: الاسم قد يكون مستخرجاً من حقل note أو
+  // مكتوباً يدوياً في شبكة المراجعة، وDoctorVisit لا يخزّن إلا itemId.
+  const allItems = await prisma.item.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true } });
 
   // نفس السيرفي المضيف الذي تستعمله addCustomDoctor — أول سيرفي نشط ظاهر لهذا المالك.
   const hostSurvey = await prisma.masterSurvey.findFirst({
@@ -745,7 +870,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           doctorId,
           scientificRepId: r.repId,
           visitDate: dateVal ?? new Date(),
-          itemId: r.itemId ?? null,
+          itemId: r.itemId ?? (r.itemName ? matchItemByText(allItems, r.itemName)?.id ?? null : null),
           feedback: r.feedback || 'pending',
           notes: r.notes ? String(r.notes) : null,
           isDoubleVisit: !!r.isDoubleVisit,
@@ -773,6 +898,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
 async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
+  const allItems = await prisma.item.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true } });
 
   let imported = 0, skipped = 0;
   const errors = [];
@@ -796,7 +922,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
       }
 
       const dateVal = parseVisitDate(r.date);
-      await prisma.pharmacyVisit.create({
+      const visit = await prisma.pharmacyVisit.create({
         data: {
           pharmacyName,
           areaId,
@@ -811,6 +937,19 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
           visitImportFileId: importFileId ?? null,
         },
       });
+      // الايتم المستخرج من حقل note — PharmacyVisitItem يقبل itemId أو اسماً حراً،
+      // فلا يُفقَد الايتم حتى لو لم يكن في كتالوج الحساب.
+      const itemName = String(r?.itemName ?? '').trim();
+      const itemId = r?.itemId ?? (itemName ? matchItemByText(allItems, itemName)?.id ?? null : null);
+      if (itemId || itemName) {
+        await prisma.pharmacyVisitItem.create({
+          data: {
+            pharmacyVisitId: visit.id,
+            itemId,
+            itemName: itemId ? null : itemName,
+          },
+        });
+      }
       imported++;
     } catch (e) {
       skipped++;

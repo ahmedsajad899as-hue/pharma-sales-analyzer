@@ -34,6 +34,7 @@ interface PharmacyRow {
   repName: string; repId: number | null;
   pharmacyName: string;
   areaName: string; areaId: number | null;
+  itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
   date: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null;
 }
@@ -486,7 +487,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                 <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-                      {['المندوب', 'الصيدلية', 'المنطقة', 'التاريخ', 'الملاحظات', ''].map(h => (
+                      {['المندوب', 'الصيدلية', 'المنطقة', 'الايتم', 'التاريخ', 'الملاحظات', ''].map(h => (
                         <th key={h} style={th}>{h}</th>
                       ))}
                     </tr>
@@ -503,6 +504,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         </td>
                         <td style={td}><input value={r.pharmacyName} onChange={e => setPharmCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
                         <td style={td}><input value={r.areaName} onChange={e => setPharmCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 100 }} /></td>
+                        <td style={td}><input value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setPharmCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={td}><input value={r.notes} onChange={e => setPharmCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
                         <td style={{ ...td, textAlign: 'center' }}>
