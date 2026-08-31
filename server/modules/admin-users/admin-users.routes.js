@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import {
   listAllUsers, getUser, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
@@ -6,15 +7,19 @@ import {
   getUserRepInfo, getUserCompanyItems,
   deleteUser,
 } from './admin-users.controller.js';
+import { previewUsersImport, commitUsersImport } from './admin-users-import.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
 const router = express.Router();
+const upload = multer({ dest: 'uploads/' });
 
 router.use(requireSuperAdmin);
 
 router.get('/',            listAllUsers);
 router.get('/:id/rep-info',      getUserRepInfo);
 router.get('/:id/company-items', getUserCompanyItems);
+router.post('/import/preview', upload.single('file'), previewUsersImport);
+router.post('/import/commit',  commitUsersImport);
 router.get('/:id',         getUser);
 router.post('/',           createUser);
 router.put('/:id',         updateUser);

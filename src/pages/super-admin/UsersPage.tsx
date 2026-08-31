@@ -3,6 +3,7 @@ import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 import { getVisiblePageNodes, STANDALONE_FEATURES } from '../../config/featureConfig';
 import type { FeatureNode } from '../../config/featureConfig';
+import UsersBulkImportModal from './UsersBulkImportModal';
 
 const ROLES = [
   { value: 'office_manager',          label: 'مدير مكتب' },
@@ -82,6 +83,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [detail,    setDetail]    = useState<UserDetail | null>(null);
 
   const [form,      setForm]      = useState<any | null>(null);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
   const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'features'>(() => {
@@ -2275,10 +2277,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>👥 المستخدمون</h2>
-        <button onClick={() => setForm({ username: '', password: '', displayName: '', role: 'scientific_rep', officeId: '', phone: '' })} style={btnStyle('#0f172a')}>+ إضافة مستخدم</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowBulkImport(true)} style={btnStyle('#0ea5e9')}>📥 استيراد من إكسل</button>
+          <button onClick={() => setForm({ username: '', password: '', displayName: '', role: 'scientific_rep', officeId: '', phone: '' })} style={btnStyle('#0f172a')}>+ إضافة مستخدم</button>
+        </div>
       </div>
+      {showBulkImport && (
+        <UsersBulkImportModal
+          offices={offices}
+          token={token}
+          onClose={() => setShowBulkImport(false)}
+          onImported={() => load(true)}
+        />
+      )}
       <input
         value={search} onChange={e => setSearch(e.target.value)}
         placeholder="🔍 بحث..."
