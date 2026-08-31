@@ -861,6 +861,9 @@ model DoctorVisit {
   planEntryId     Int? // ربط بالبلان (اختياري)
   visitDate       DateTime
   itemId          Int?
+  // اسم الايتم نصاً حين لا يطابق أي ايتم في الكتالوج (مستورَد من حقل note مثلاً)
+  // — نفس فلسفة PharmacyVisitItem.itemName: لا يضيع الايتم المستهدف لمجرد غيابه عن الكتالوج.
+  itemName        String?
   feedback        String   @default("pending")
   // "pending" | "writing" | "stocked" | "interested" | "not_interested" | "unavailable"
   notes           String?

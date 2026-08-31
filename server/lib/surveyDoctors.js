@@ -116,14 +116,16 @@ export async function buildVisitOverlay(scope, dateFilter) {
     // محفوظة لكن تُخفى من شاشة الزيارات حتى يُعاد تفعيل الملف.
     where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
     select: {
-      id: true, visitDate: true, feedback: true, notes: true,
+      id: true, visitDate: true, feedback: true, notes: true, itemName: true,
       item: { select: { id: true, name: true } },
       doctor: { select: { masterSurveyDoctorId: true, name: true } },
     },
     orderBy: { visitDate: 'desc' },
   });
   for (const v of visits) {
-    const entry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item: v.item };
+    // ايتم محفوظ نصاً (لا يطابق الكتالوج) يُعرض كأي ايتم آخر — بمعرّف null.
+    const item = v.item ?? (v.itemName ? { id: null, name: v.itemName } : null);
+    const entry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, notes: v.notes, item };
     const msId = v.doctor?.masterSurveyDoctorId;
     if (msId != null) {
       if (!bySurveyDocId.has(msId)) bySurveyDocId.set(msId, []);

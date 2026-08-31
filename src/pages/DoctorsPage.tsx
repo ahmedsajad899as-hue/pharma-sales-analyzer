@@ -2267,9 +2267,13 @@ export default function DoctorsPage() {
             }}>
               {showOnlyVisited ? <><Icon name="checkCircle" size={13} /> المُزارون فقط</> : <><Icon name="person" size={13} /> جميع الأطباء</>}
             </button>
-            <button onClick={() => setExpandedAreas(
-              expandedAreas.size > 0 ? new Set() : new Set(visitAreas.map(a => String(a.id)))
-            )} style={{
+            {/* «فتح الكل» = عرض المُزارين فقط داخل المناطق التي فيها زيارات فعلاً —
+                فتح 482 طبيباً في منطقة زُير منها 4 لا يفيد أحداً. */}
+            <button onClick={() => {
+              if (expandedAreas.size > 0) { setExpandedAreas(new Set()); return; }
+              setShowOnlyVisited(true);
+              setExpandedAreas(new Set(visitAreas.filter(a => a.visitedCount > 0).map(a => String(a.id))));
+            }} style={{
               padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--c-border)',
               background: '#fff', color: 'var(--c-text-secondary)', cursor: 'pointer', fontSize: 13, fontWeight: 600,
             }}>

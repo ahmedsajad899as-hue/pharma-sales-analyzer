@@ -902,12 +902,16 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
       }
 
       const dateVal = parseVisitDate(r.date);
+      const rowItemName = String(r?.itemName ?? '').trim();
+      const resolvedItemId = r.itemId ?? (rowItemName ? matchItemByText(allItems, rowItemName)?.id ?? null : null);
       await prisma.doctorVisit.create({
         data: {
           doctorId,
           scientificRepId: r.repId,
           visitDate: dateVal ?? new Date(),
-          itemId: r.itemId ?? (r.itemName ? matchItemByText(allItems, r.itemName)?.id ?? null : null),
+          itemId: resolvedItemId,
+          // ايتم غير موجود في الكتالوج (مثل sycocetam) يُحفظ نصاً بدل أن يُفقد
+          itemName: resolvedItemId ? null : (rowItemName || null),
           feedback: r.feedback || 'pending',
           notes: r.notes ? String(r.notes) : null,
           isDoubleVisit: !!r.isDoubleVisit,
