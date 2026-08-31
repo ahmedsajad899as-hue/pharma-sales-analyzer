@@ -129,11 +129,10 @@ interface MarketPricesResult {
   searchedActive?: string | null;
 }
 
-type SubTab = 'overview' | 'sales' | 'visits' | 'science' | 'ai' | 'market';
+type SubTab = 'overview' | 'visits' | 'science' | 'ai' | 'market';
 
 const SUB_TABS: { id: SubTab; label: string; icon: string }[] = [
   { id: 'overview', label: 'نظرة عامة',      icon: '📊' },
-  { id: 'sales',    label: 'المبيع',          icon: '📈' },
   { id: 'visits',   label: 'الزيارات',         icon: '🩺' },
   { id: 'science',  label: 'المعلومات العلمية', icon: '💊' },
   { id: 'ai',       label: 'تحليل ذكي (AI)',   icon: '🤖' },
@@ -576,22 +575,13 @@ export default function ItemAnalysisPage() {
 
           {/* ── Subtab: Overview ───────────────────────── */}
           {subTab === 'overview' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
-              <BreakdownCard title="🌍 المناطق (أعلى 10 بالقيمة)" rows={data.salesByArea.slice(0, 10)} />
-              <BreakdownCard title="👤 المندوبون (أعلى 10 بالقيمة)" rows={data.salesByRep.slice(0, 10)} />
-              <BreakdownCard title="🏪 الصيدليات (أعلى 10)" rows={data.topPharmacies.slice(0, 10)} />
-              <CompetitorsCard competitors={data.competitors} />
-            </div>
-          )}
-
-          {/* ── Subtab: Sales ──────────────────────────── */}
-          {subTab === 'sales' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <MonthlyTrendCard rows={data.salesByMonth} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
-                <BreakdownCard title="📍 كل المناطق" rows={data.salesByArea} maxRows={25} />
-                <BreakdownCard title="🧑‍💼 كل المندوبين" rows={data.salesByRep} maxRows={25} />
-                <BreakdownCard title="🏥 كل الصيدليات" rows={data.topPharmacies} maxRows={25} />
+                <BreakdownCard title="🌍 المناطق (أعلى 25 بالقيمة)" rows={data.salesByArea} maxRows={25} />
+                <BreakdownCard title="👤 المندوبون (أعلى 25 بالقيمة)" rows={data.salesByRep} maxRows={25} />
+                <BreakdownCard title="🏪 الصيدليات (أعلى 25)" rows={data.topPharmacies} maxRows={25} />
+                <CompetitorsCard competitors={data.competitors} />
               </div>
             </div>
           )}
