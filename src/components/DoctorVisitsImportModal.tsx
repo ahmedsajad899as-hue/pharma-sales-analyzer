@@ -16,13 +16,14 @@ const API = import.meta.env.VITE_API_URL || '';
 
 interface RepOpt { id: number; name: string }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; score: number }[] }
-interface DoctorSuggestion { id: number; name: string; score: number; areaName: string | null; specialty: string | null; pharmacyName: string | null }
+interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null }
 interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; suggestions: DoctorSuggestion[] }
 interface DoctorRow {
   _row: number;
   repName: string; repId: number | null;
   doctorName: string; doctorId: number | null; doctorKey?: string;
-  rawDoctorName?: string; // تهجئة الاسم كما وردت في الملف (للاطلاع فقط بعد المطابقة)
+  // قيَم الملف قبل تبنّي هوية الطبيب المسجَّل في التطبيق — للاطلاع فقط (tooltip)
+  rawDoctorName?: string; rawSpecialty?: string; rawAreaName?: string; rawPharmacyName?: string;
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
@@ -190,31 +191,62 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
 
   /**
    * يطبّق قرارات مطابقة أسماء الأطباء على صفوف الأطباء (لا صلة لها بالصيدليات).
-   * عند اختيار طبيب موجود: يُعرَض اسمه كما هو مسجَّل في التطبيق بدل تهجئة الملف —
-   * المطابقة تربط الزيارة بالطبيب ولا تُعيد تسميته إطلاقاً.
+   * عند اختيار طبيب موجود تُتبنّى هويته من التطبيق كاملةً (الاسم/الاختصاص/
+   * المنطقة/الصيدلية) بدل قيَم الملف — المطابقة تربط الزيارة بالطبيب ولا تُعيد
+   * تعريفه. قيَم الملف تبقى في حقول raw* للاطلاع فقط.
    */
   const applyDoctorMatching = () => {
     const choiceByKey = new Map<string, number | null>();
-    const nameByKey   = new Map<string, string>();
+    const docByKey    = new Map<string, DoctorSuggestion>();
     for (const e of pendingDoctorNames) {
       const c = doctorChoice[e.key];
       if (!c) continue;
       choiceByKey.set(e.key, c === 'new' ? null : Number(c));
       if (c !== 'new') {
         const picked = e.suggestions.find(s => String(s.id) === String(c));
-        if (picked) nameByKey.set(e.key, picked.name);
+        if (picked) docByKey.set(e.key, picked);
       }
     }
     setDocRows(rs => rs.map(r => {
       if (!r.doctorKey || !choiceByKey.has(r.doctorKey)) return r;
-      const appName = nameByKey.get(r.doctorKey);
+      const doc = docByKey.get(r.doctorKey);
       return {
         ...r,
         doctorId: choiceByKey.get(r.doctorKey) ?? null,
-        ...(appName ? { rawDoctorName: r.rawDoctorName ?? r.doctorName, doctorName: appName } : {}),
+        ...(doc ? {
+          rawDoctorName:   r.rawDoctorName   ?? r.doctorName,
+          rawSpecialty:    r.rawSpecialty    ?? r.specialty,
+          rawAreaName:     r.rawAreaName     ?? r.areaName,
+          rawPharmacyName: r.rawPharmacyName ?? r.pharmacyName,
+          doctorName:   doc.name,
+          specialty:    doc.specialty    ?? '',
+          areaName:     doc.areaName     ?? '',
+          areaId:       doc.areaId       ?? null,
+          pharmacyName: doc.pharmacyName ?? '',
+        } : {}),
       };
     }));
     setDoctorNamesApplied(true);
+  };
+
+  /**
+   * خانة مقفلة لصف طابق طبيباً مسجَّلاً في التطبيق: تعرض قيمة التطبيق نفسها
+   * (لا قيمة الملف)، وقيمة الملف تظهر في الـtooltip للمقارنة. تُعيد null لصف
+   * غير مطابَق فتُعرض خانة إدخال عادية بدلاً منها.
+   */
+  const lockedCell = (doctorId: number | null, value: string, rawValue: string | undefined, minWidth: number) => {
+    if (!doctorId) return null;
+    const differs = !!rawValue && rawValue !== value;
+    return (
+      <div title={differs ? `في الملف: ${rawValue}` : 'من بيانات الطبيب في التطبيق'}
+        style={{
+          ...cellInp, minWidth, background: '#f8fafc', borderColor: '#e2e8f0',
+          color: value ? '#334155' : '#94a3b8', cursor: 'default',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+        {value || '—'}
+      </div>
+    );
   };
 
   const setDocCell = (i: number, patch: Partial<DoctorRow>) => setDocRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -461,9 +493,14 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                             <input value={r.doctorName} onChange={e => setDocCell(i, { doctorName: e.target.value })} style={{ ...cellInp, minWidth: 140 }} />
                           )}
                         </td>
-                        <td style={td}><input value={r.specialty} onChange={e => setDocCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} /></td>
-                        <td style={td}><input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} /></td>
-                        <td style={td}><input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>
+                        {/* الاختصاص/المنطقة/الصيدلية لطبيب مطابَق تُعرض من بيانات التطبيق
+                            الأصلية ولا تُعدَّل من الملف — الملف يضيف زيارة فقط. */}
+                        <td style={td}>{lockedCell(r.doctorId, r.specialty, r.rawSpecialty, 90)
+                          ?? <input value={r.specialty} onChange={e => setDocCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} />}</td>
+                        <td style={td}>{lockedCell(r.doctorId, r.areaName, r.rawAreaName, 90)
+                          ?? <input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} />}</td>
+                        <td style={td}>{lockedCell(r.doctorId, r.pharmacyName, r.rawPharmacyName, 110)
+                          ?? <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} />}</td>
                         <td style={td}><input value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setDocCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={td}>

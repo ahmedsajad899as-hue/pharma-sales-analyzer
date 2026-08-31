@@ -205,12 +205,17 @@ const NOTE_META_RE    = /(?:associated\s+client|client|status|assigned\s*to|type
 const NOTE_ITEM_KW_RE = /(?:من\s*اجل\s*مادة|بخصوص\s*مادة|مادة\s*ال|مادة|بخصوص)\s*(?:ال\s*)?([A-Za-z][A-Za-z0-9.\- ]{1,40})/i;
 
 /** مقطع «الكاتب» بين نجمتين: «محمود بلال / الكرخ / فارماكتف» — يُطرح من الملاحظات. */
-function isNoteAuthorSegment(seg) {
+function isNoteAuthorSegment(seg, atAuthorPosition = false) {
+  const slashes = (seg.match(/\//g) || []).length;
+  // الشكل المعتاد ثلاثة مقاطع (مندوب/منطقة/شركة). حين يقع المقطع في موضع
+  // الكاتب أصلاً (مواضع زوجية في سلسلة *** المتناوبة) نكتفي بشرطة واحدة،
+  // فبعض التصديرات تكتب مقطعين فقط.
   return seg.length <= 80
-    && (seg.match(/\//g) || []).length >= 2
+    && slashes >= (atAuthorPosition ? 1 : 2)
     && !/[\\()]/.test(seg)
     && !NOTE_META_RE.test(seg)
-    && !/\d{1,2}\/\d{1,2}\/\d{4}/.test(seg);
+    && !/\d{1,2}\/\d{1,2}\/\d{4}/.test(seg)
+    && !PLAN_LINE_START_RE.test(seg); // سطر خطة بفواصل / وبلا توقيت ليس كاتباً
 }
 
 /** يقصّ ذيل بيانات CRM الملصوق بلا فاصل (Status:/Client:/Associated client:). */
@@ -220,8 +225,25 @@ function stripNoteMeta(text) {
 }
 
 const normItemText = s => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
-/** اسم لاتيني قصير = اسم مادة؛ العربي هنا يعني طبيباً/صيدلية/منطقة لا ايتم. */
-const looksLikeItemToken = s => /[A-Za-z]/.test(s) && !/[؀-ۿ]/.test(s) && s.trim().length >= 3;
+/** اسم لاتيني = اسم مادة؛ العربي هنا يعني طبيباً/صيدلية/منطقة لا ايتم.
+ *  يُشترط 3 أحرف لاتينية متتالية حتى لا يُلتقط مثل "5ml" أو "C" كايتم. */
+const looksLikeItemToken = s => /[A-Za-z]{3,}/.test(s) && !/[؀-ۿ]/.test(s);
+
+// «سطر خطة»: بيانات توجيه الزيارة (طبيب \ اختصاص \ صيدلية \ ايتم) لا ملاحظة.
+// الفاصل ليس دائماً \ — بعض الصفوف تستعمل / (شوهد في صف «د. باسم نوري / …»)،
+// فنقبل الفاصلَين معاً، مع اشتراط أن يبدأ السطر بلقب طبيب/صيدلية حتى لا يُبتلع
+// تعليق حرّ يصادف احتواؤه على شرطة مائلة.
+const PLAN_LINE_START_RE = /^\s*(?:د\.|دكتور|الدكتور|عيادة|ص\.|صيدلية|صيدليه)\s*/;
+const PHARMACY_SEG_RE    = /^\s*(?:ص\.|صيدلية|صيدليه)/;
+function isPlanLine(text) {
+  const parts = text.split(/[\\/]/).map(s => s.trim()).filter(Boolean);
+  if (parts.length < 3) return false;                       // أقل من فاصلَين = جملة عادية
+  // الشرطة المائلة العكسية فاصل خاص بهذه السطور، فوجود اثنتين يكفي وحده.
+  if (!PLAN_LINE_START_RE.test(parts[0])) return (text.match(/\\/g) || []).length >= 2;
+  // بدأ بلقب طبيب/صيدلية: نتأكّد أنه سطر توجيه فعلاً (ينتهي بايتم لاتيني أو
+  // يتضمّن مقطع صيدلية) لا جملة حرّة تصادف أنها تبدأ بـ«الدكتور» وفيها شرطات.
+  return looksLikeItemToken(parts[parts.length - 1]) || parts.some(p => PHARMACY_SEG_RE.test(p));
+}
 
 /** يربط نصاً باسم ايتم من كتالوج الحساب (تطابق تام ثم احتواء، الأطول أولاً). */
 function matchItemByText(items, text) {
@@ -260,17 +282,20 @@ function parseCrmNote(rawNote, items = []) {
   const timestamp = firstTs ? firstTs[1].trim() : '';
 
   const segments = raw.split(/\*{3,}/).map(s => s.trim()).filter(Boolean);
+  // سلسلة «*** كاتب *** نص» متناوبة، فالمواضع الزوجية هي مواضع الكُتّاب حين
+  // تبدأ الملاحظة بـ *** — تُستعمل لتخفيف شرط التعرّف على الكاتب لا لفرضه.
+  const alternating = raw.trimStart().startsWith('***');
   const freeTexts = [];
   let planItem = '';
 
-  for (const seg of segments) {
-    if (isNoteAuthorSegment(seg)) continue;                 // مقطع الكاتب
+  for (const [idx, seg] of segments.entries()) {
+    if (isNoteAuthorSegment(seg, alternating && idx % 2 === 0)) continue; // مقطع الكاتب
     const body = stripNoteMeta(seg).replace(NOTE_TS_RE, '').trim();
     if (!body) continue;
-    if ((body.match(/\\/g) || []).length >= 2) {            // سطر خطة مفصول بـ \
-      const last = body.split('\\').pop().trim();
+    if (isPlanLine(body)) {                                 // سطر خطة لا ملاحظة
+      const last = body.split(/[\\/]/).pop().trim();
       if (!planItem && looksLikeItemToken(last)) planItem = last;
-      continue;                                             // بيانات توجيه لا ملاحظة
+      continue;
     }
     freeTexts.push(body.replace(/\s{2,}/g, ' '));
   }
@@ -427,13 +452,33 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     }),
     prisma.doctor.findMany({
       where: { userId: ownerUserId },
-      select: { id: true, name: true, specialty: true, pharmacyName: true, area: { select: { name: true } } },
+      select: { id: true, name: true, specialty: true, pharmacyName: true, areaId: true, area: { select: { name: true } } },
     }),
   ]);
   const linkByKey = new Map(links.map(l => [l.fromKey, l]));
   const candidates = existingDoctorsFull.map(d => ({
-    id: d.id, name: d.name, specialty: d.specialty, pharmacyName: d.pharmacyName, areaName: d.area?.name ?? null,
+    id: d.id, name: d.name, specialty: d.specialty, pharmacyName: d.pharmacyName,
+    areaId: d.areaId ?? null, areaName: d.area?.name ?? null,
   }));
+  const candById = new Map(candidates.map(c => [c.id, c]));
+
+  /**
+   * صف طابق طبيباً موجوداً → كل هويته تُؤخذ من التطبيق لا من الملف: الاسم
+   * والاختصاص والمنطقة والصيدلية. الملف يضيف زيارة فحسب ولا يُعيد تعريف الطبيب،
+   * وقيَم الملف تُحفظ في حقول raw* للاطلاع فقط (tooltip في شبكة المراجعة).
+   */
+  const adoptAppDoctorIdentity = (r, doc) => {
+    r.doctorId = doc.id;
+    r.rawDoctorName   = r.doctorName;
+    r.rawSpecialty    = r.specialty;
+    r.rawAreaName     = r.areaName;
+    r.rawPharmacyName = r.pharmacyName;
+    r.doctorName   = doc.name;
+    r.specialty    = doc.specialty    || '';
+    r.areaName     = doc.areaName     || '';
+    r.areaId       = doc.areaId ?? null;
+    r.pharmacyName = doc.pharmacyName || '';
+  };
 
   // تجميع الصفوف حسب مفتاح التصنيف — يكفي تصنيف كل اسم مختلف مرة واحدة، ثم تُطبَّق
   // النتيجة على كل صفوفه دفعة واحدة (تماماً كتجميع أسماء المندوبين في الواجهة).
@@ -459,11 +504,10 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
 
     const link = linkByKey.get(g.key);
     if (link) {
+      const linkedDoc = link.doctorId ? candById.get(link.doctorId) : null;
       for (const r of g.rows) {
         r.doctorId = link.doctorId ?? null;
-        // الاسم المعروض يصير اسم الطبيب كما هو في التطبيق — تهجئة الملف تُحفظ
-        // في rawDoctorName للاطلاع فقط، ولا تُكتب فوق اسم الطبيب أبداً.
-        if (link.doctor) { r.rawDoctorName = r.doctorName; r.doctorName = link.doctor.name; }
+        if (linkedDoc) adoptAppDoctorIdentity(r, linkedDoc);
       }
       resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
       continue;
@@ -478,7 +522,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       if (areaMatches.length === 1) exact = areaMatches[0];
     }
     if (exact) {
-      for (const r of g.rows) { r.doctorId = exact.id; r.rawDoctorName = r.doctorName; r.doctorName = exact.name; }
+      for (const r of g.rows) adoptAppDoctorIdentity(r, exact);
       resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: { id: exact.id, name: exact.name } });
       continue;
     }
@@ -499,7 +543,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     } else {
       pending.push({
         raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName,
-        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName })),
+        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaId: c.areaId ?? null, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName })),
       });
     }
   }
@@ -851,17 +895,10 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           });
           if (fetched) { doc = fetched; existingDoctors.push(fetched); }
         }
-        if (doc) {
-          await ensureSurveyLink(doc);
-          const upd = {};
-          if (!doc.specialty    && r.specialty)    upd.specialty    = r.specialty;
-          if (!doc.pharmacyName && r.pharmacyName) upd.pharmacyName = r.pharmacyName;
-          if (!doc.areaId       && areaId)         upd.areaId       = areaId;
-          if (Object.keys(upd).length) {
-            await prisma.doctor.update({ where: { id: doc.id }, data: upd });
-            Object.assign(doc, upd);
-          }
-        }
+        // لا تُنسَخ أي قيمة من الملف إلى سجل الطبيب (ولا حتى إلى حقل فارغ):
+        // بيانات الطبيب في التطبيق هي المرجع، والملف يضيف زيارة فقط. عمود
+        // «الصيدلية» في هذه الملفات هو أصلاً اسم العيادة لا صيدلية حقيقية.
+        if (doc) await ensureSurveyLink(doc);
       }
 
       const dateVal = parseVisitDate(r.date);
