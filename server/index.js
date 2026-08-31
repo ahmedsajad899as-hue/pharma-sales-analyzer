@@ -1183,7 +1183,7 @@ app.get('/api/items', async (req, res) => {
     }
     const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
     let items;
-    const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } }, scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } } };
+    const itemSelect = { id: true, name: true, scientificName: true, dosage: true, form: true, price: true, warehousePrice: true, scientificMessage: true, imageUrl: true, companyId: true, company: { select: { id: true, name: true } }, scientificCompanyId: true, scientificCompany: { select: { id: true, name: true } } };
     // القائمة البيضاء لايتمات المستخدم (UserItemAssignment، تُضبَط من تبويب «الايتمات» في
     // صفحة المستخدم): إن اختار المشرف ايتمات محددة فالمستخدم يعمل على تلك فقط من كتالوج
     // شركاته؛ إن لم يختر شيئاً (قائمة فارغة) يعمل على كل ايتمات شركاته — بما فيها أي ايتم

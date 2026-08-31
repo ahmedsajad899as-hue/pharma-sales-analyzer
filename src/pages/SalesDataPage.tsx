@@ -83,12 +83,25 @@ async function apiDeleteFile(id: string): Promise<boolean> {
     return !!j.success;
   } catch { return false; }
 }
+// Catalog item prices — used as a fallback for "قيمة مالية" when the uploaded
+// file itself carries no price column (e.g. warehouse-stock files: quantities
+// per مذخر with no price data at all). Matched to file rows by item name.
+interface CatalogItemPrice { name: string; price: number | null; warehousePrice: number | null; }
+async function apiListItemPrices(): Promise<CatalogItemPrice[]> {
+  try {
+    const r = await fetch(`${API}/api/items`, { headers: authHeaders() });
+    const j = await r.json();
+    const arr = Array.isArray(j) ? j : (Array.isArray(j?.data) ? j.data : []);
+    return arr.map((it: any) => ({ name: String(it.name ?? ''), price: it.price ?? null, warehousePrice: it.warehousePrice ?? null }));
+  } catch { return []; }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`; };
 const toNum = (v: string) => { const n = parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? 0 : n; };
 const fmtNum = (n: number) => n === 0 ? '—' : n.toLocaleString('en');
+const normalizeItemName = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 // ── Pure helpers (module-level for stable useMemo deps) ───────────────────────
 function cellVal(row: Record<string, string>, col: ViewCol): number {
@@ -746,6 +759,22 @@ export default function SalesDataPage() {
   }, [userId]);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Catalog prices (for "قيمة مالية" fallback on files with no price column of their own)
+  const [catalogItemPrices, setCatalogItemPrices] = useState<CatalogItemPrice[]>([]);
+  useEffect(() => {
+    let alive = true;
+    apiListItemPrices().then(list => { if (alive) setCatalogItemPrices(list); });
+    return () => { alive = false; };
+  }, [userId]);
+  const catalogPriceMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of catalogItemPrices) {
+      const val = it.warehousePrice ?? it.price;
+      if (val != null && val > 0) m.set(normalizeItemName(it.name), val);
+    }
+    return m;
+  }, [catalogItemPrices]);
+
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemQuery, setItemQuery]         = useState('');
   const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set());
@@ -1323,13 +1352,20 @@ table{border-collapse:collapse;width:100%}
     return activeFile.fixedCols.find((_, i) => ['code', 'كود', 'رمز', 'barcode', 'sku'].some(k => lower[i].includes(k))) ?? '';
   }, [activeFile]);
 
-  // Returns display value: if showValue is on, multiply qty by price
+  // Returns display value: if showValue is on, multiply qty by price.
+  // Price comes from the file's own price column when it has one; otherwise falls
+  // back to the item's catalog price (سعر المذخر، أو سعر المكتب) matched by name —
+  // needed for files like warehouse-stock sheets that carry no price column at all.
   const cellDisplay = useCallback((row: Record<string, string>, col: ViewCol): number => {
     const qty = cellVal(row, col);
-    if (!showValue || !priceCol) return qty;
-    const price = toNum(row[priceCol] ?? '');
-    return price > 0 ? qty * price : qty;
-  }, [showValue, priceCol]);
+    if (!showValue) return qty;
+    if (priceCol) {
+      const price = toNum(row[priceCol] ?? '');
+      if (price > 0) return qty * price;
+    }
+    const catalogPrice = itemNameCol ? catalogPriceMap.get(normalizeItemName(row[itemNameCol] ?? '')) : undefined;
+    return catalogPrice ? qty * catalogPrice : qty;
+  }, [showValue, priceCol, itemNameCol, catalogPriceMap]);
 
   const rowDisplay = useCallback((row: Record<string, string>, cols: ViewCol[]): number =>
     cols.reduce((s, col) => s + cellDisplay(row, col), 0)
