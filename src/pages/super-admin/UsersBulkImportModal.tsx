@@ -20,10 +20,10 @@ const ROLES: { value: string; label: string }[] = [
 ];
 
 interface PreviewRow {
-  rowIndex: number; username: string; password: string; displayName: string; phone: string;
-  role: string; companyId: number | null; companyName: string;
+  rowIndex: number; rowRange: string; username: string; password: string; displayName: string; phone: string;
+  role: string; companyIds: number[]; companyNames: string[]; primaryCompanyId: number | null;
   itemIds: number[]; itemNames: string[];
-  provinceId: number | null; provinceName: string;
+  provinceIds: number[]; provinceNames: string[];
   areaIds: number[]; areaNames: string[];
   errors: string[]; warnings: string[];
 }
@@ -75,15 +75,23 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
       const wb = XLSX.utils.book_new();
 
       // ── ورقة البيانات (تُملأ من قِبل المستخدم) ──────────────────────────
-      const exampleCompany = companies[0]?.name ?? '';
-      const exampleItems = itemsByCompany.filter(i => i.companyName === exampleCompany).slice(0, 2).map(i => i.name).join('، ');
-      const exampleArea = areasList[0]?.name ?? '';
-      const exampleProvince = exampleArea ? (provinceNameById.get(areasList[0]?.provinceId ?? -1) ?? '') : '';
-      const example = [
-        'ahmed_rep', 'Passw0rd!', 'أحمد محمد', '07701234567', 'مندوب علمي',
-        exampleCompany, exampleItems, exampleProvince, exampleArea,
+      // مثال بصيغة "كتلة": صف الهوية أولاً، ثم صفوف إضافية (اسم المستخدم فيها
+      // فارغ) لكل ايتم/منطقة إضافية — بدل حشر كل الأسماء بخلية واحدة.
+      const c1 = companies[0]?.name ?? '';
+      const c2 = companies[1]?.name ?? '';
+      const c1Items = itemsByCompany.filter(i => i.companyName === c1).slice(0, 2).map(i => i.name);
+      const c2Items = itemsByCompany.filter(i => i.companyName === c2).slice(0, 1).map(i => i.name);
+      const a1 = areasList[0]?.name ?? '';
+      const a2 = areasList[1]?.name ?? '';
+      const a3 = areasList[2]?.name ?? '';
+      const p1 = a1 ? (provinceNameById.get(areasList[0]?.provinceId ?? -1) ?? '') : '';
+
+      const exampleBlock = [
+        ['ahmed_rep', 'Passw0rd!', 'أحمد محمد', '07701234567', 'مندوب علمي', c1, c1Items[0] ?? '', p1, a1],
+        ['', '', '', '', '', '', c1Items[1] ?? '', '', a2],
+        ['', '', '', '', '', c2, c2Items[0] ?? '', '', a3],
       ];
-      const wsData = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, example]);
+      const wsData = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, ...exampleBlock]);
       wsData['!cols'] = TEMPLATE_HEADERS.map(() => ({ wch: 22 }));
       XLSX.utils.book_append_sheet(wb, wsData, 'المستخدمون');
 
@@ -115,14 +123,16 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
       XLSX.utils.book_append_sheet(wb, wsRoles, 'الأدوار');
 
       const legend = [
-        ['ملاحظات حول تعبئة الملف'],
+        ['ملاحظات حول تعبئة الملف — نظام "الكتلة" (لا حاجة للفواصل بين الأسماء)'],
         [''],
-        ['اسم المستخدم وكلمة المرور: حقلان مطلوبان لكل صف — بدونهما يُرفض الصف'],
-        ['الدور: انسخ إحدى القيم من ورقة "الأدوار" (العمود الأول أو الثاني) — إن تُرك فارغاً يُستخدم "مندوب علمي"'],
-        ['الشركة: اسم دقيق من ورقة "الشركات" — اختياري، لكن بدونه لا يمكن ربط ايتمات'],
-        ['الايتمات: أسماء من ورقة "الايتمات" مفصولة بفاصلة (،) — اختياري، إن تُرك فارغاً يعمل المستخدم على كل ايتمات شركته'],
-        ['المحافظة والمنطقة: أسماء من ورقتي "المحافظات" و"المناطق" — يمكن كتابة أكثر من منطقة مفصولة بفاصلة (،)'],
-        ['يمكن حذف صف المثال قبل تعبئة بياناتك الفعلية.'],
+        ['كل مستخدم = كتلة صفوف: الصف الأول يحمل اسم المستخدم وكلمة المرور والاسم الظاهر والهاتف والدور — وأول شركة/ايتم/محافظة/منطقة له إن وُجدت.'],
+        ['لإضافة ايتم إضافي أو منطقة إضافية لنفس المستخدم: أضف صفاً جديداً أسفله واترك عمود "اسم المستخدم" فارغاً — يُعتبر تلقائياً امتداداً لنفس المستخدم أعلاه، ضع فيه الايتم أو المنطقة الإضافية فقط.'],
+        ['أي صف يحتوي "اسم المستخدم" يبدأ مستخدماً جديداً منفصلاً — انظر المثال: 3 صفوف لنفس "ahmed_rep" (شركتان، 3 ايتمات، 3 مناطق) ثم يبدأ المستخدم التالي بعدها.'],
+        ['الشركة: إن ذكرتها في صف فتبقى "سارية" على كل ايتم في الصفوف التالية حتى تذكر شركة أخرى — لا حاجة لتكرارها بكل صف. أي ايتم بلا شركة سارية فوقه يُرفض.'],
+        ['اسم المستخدم وكلمة المرور: حقلان مطلوبان في الصف الأول من كل كتلة — بدونهما تُرفض الكتلة كاملة'],
+        ['الدور: انسخ إحدى القيم من ورقة "الأدوار" — إن تُرك فارغاً يُستخدم "مندوب علمي"'],
+        ['الشركة/الايتم/المحافظة/المنطقة: انسخ الاسم بالضبط من الورقة المرجعية المقابلة (الشركات/الايتمات/المحافظات/المناطق) — كلها اختيارية'],
+        ['يمكن حذف صفوف المثال أعلاه قبل تعبئة بياناتك الفعلية.'],
         ['بعد التعبئة: ارجع لهذه الشاشة واستخدم "استيراد من إكسل" لرفع الملف ومراجعته قبل إنشاء الحسابات فعلياً.'],
       ];
       const wsLegend = XLSX.utils.aoa_to_sheet(legend);
@@ -221,7 +231,7 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
-                    {['#', 'المستخدم', 'الدور', 'الشركة', 'الايتمات', 'المحافظة', 'المنطقة', 'ملاحظات'].map(h => (
+                    {['الصفوف', 'المستخدم', 'الدور', 'الشركات', 'الايتمات', 'المحافظات', 'المناطق', 'ملاحظات'].map(h => (
                       <th key={h} style={{ padding: '8px 10px', textAlign: 'right', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -229,12 +239,12 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
                 <tbody>
                   {rows.map(r => (
                     <tr key={r.rowIndex} style={{ background: r.errors.length ? '#fef2f2' : 'transparent' }}>
-                      <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.rowIndex}</td>
+                      <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{r.rowRange}</td>
                       <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontWeight: 600 }}>{r.username || '—'}</td>
                       <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{ROLES.find(x => x.value === r.role)?.label ?? r.role}</td>
-                      <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.companyName || '—'}</td>
+                      <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.companyNames.length ? r.companyNames.join('، ') : '—'}</td>
                       <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.itemNames.length ? `${r.itemNames.length} ايتم` : '—'}</td>
-                      <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.provinceName || '—'}</td>
+                      <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.provinceNames.length ? r.provinceNames.join('، ') : '—'}</td>
                       <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9' }}>{r.areaNames.length ? r.areaNames.join('، ') : '—'}</td>
                       <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', maxWidth: 260 }}>
                         {r.errors.map((e, i) => <div key={`e${i}`} style={{ color: '#dc2626' }}>⛔ {e}</div>)}
