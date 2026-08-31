@@ -254,15 +254,6 @@ export default function AccountBuilderPage() {
   return (
     <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
 
-      {/* ── Page Header ────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🧮</div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>الحساب</h1>
-          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>إنشاء حسابات ومعادلات خاصة بالإيتمات — محفوظة على حسابك وتظهر على كل أجهزتك</p>
-        </div>
-      </div>
-
       {/* ── Delete confirm dialog ─────────────────────────── */}
       {confirmDeleteId && (() => {
         const acc = accounts.find(a => a.id === confirmDeleteId);

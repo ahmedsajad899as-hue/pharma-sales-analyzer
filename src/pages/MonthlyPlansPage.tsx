@@ -1523,36 +1523,36 @@ export default function MonthlyPlansPage() {
             {voiceCountingDown && (
               <div style={{ margin: '-24px -20px 18px', height: 5, background: '#e2e8f0', borderRadius: '20px 20px 0 0', overflow: 'hidden' }}>
                 <div style={{
-                  height: '100%', background: 'linear-gradient(90deg, #f97316, #ef4444)',
+                  height: '100%', background: 'linear-gradient(90deg, rgba(220,38,38,0.55), var(--c-danger))',
                   borderRadius: 'inherit',
                   animation: 'countdown-bar 2s linear forwards',
                 }} />
               </div>
             )}
 
-            <div style={{ fontSize: 34, marginBottom: 6 }}>
-              {voiceCountingDown ? '⏳' : '🎙️'}
+            <div style={{ fontSize: 34, marginBottom: 6, display: 'flex', justifyContent: 'center' }}>
+              {voiceCountingDown ? <Icon name="loading" size={34} className="icon-spin" /> : <Icon name="mic" size={34} />}
             </div>
             <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: '#1e293b' }}>
               {voiceCountingDown ? 'استعد للتسجيل...' : 'جاري التسجيل الآن'}
             </h2>
-            <p style={{ margin: '0 0 14px', fontSize: 12, color: voiceCountingDown ? '#f97316' : '#64748b', fontWeight: voiceCountingDown ? 700 : 400 }}>
+            <p style={{ margin: '0 0 14px', fontSize: 12, color: voiceCountingDown ? 'var(--c-danger)' : '#64748b', fontWeight: voiceCountingDown ? 700 : 400 }}>
               {voiceCountingDown ? '🔴 سيبدأ التسجيل خلال ثانيتين' : 'تأكد من ذكر هذه المعلومات:'}
             </p>
 
             {/* Info items */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               {[
-                { icon: '🩺', label: 'اسم الطبيب' },
-                { icon: '💊', label: 'الآيتم' },
-                { icon: '📝', label: 'الملاحظات' },
+                { icon: 'doctor', label: 'اسم الطبيب' },
+                { icon: 'drug', label: 'الآيتم' },
+                { icon: 'file', label: 'الملاحظات' },
               ].map(({ icon, label }) => (
                 <div key={label} style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   background: '#f8fafc', borderRadius: 9, padding: '8px 12px',
                   border: '1px solid #e2e8f0',
                 }}>
-                  <span style={{ fontSize: 18 }}>{icon}</span>
+                  <Icon name={icon as any} size={18} />
                   <span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{label}</span>
                 </div>
               ))}
@@ -1591,7 +1591,7 @@ export default function MonthlyPlansPage() {
       {/* ── Top bar: plan selector ── */}
       {/* Field reps: hide top bar entirely once a plan is open */}
       <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 24px', display: activePlan ? 'none' : 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>📅 البلانات الشهرية</h2>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="navMonthlyPlans" size={16} /> البلانات الشهرية</h2>
 
         {/* Rep filter: managers only */}
         {!isFieldRep && (
@@ -1648,22 +1648,22 @@ export default function MonthlyPlansPage() {
           onChange={e => e.target.files?.[0] && uploadVisits(e.target.files[0])} />
         {!uploadedFileName ? (
           <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...btnStyle('var(--c-success)', true), display: 'flex', alignItems: 'center', gap: 6 }}>
-            {uploading ? '⏳ جاري الرفع...' : <><Icon name="import" size={14} /> رفع زيارات Excel</>}
+            {uploading ? <><Icon name="loading" size={14} className="icon-spin" /> جاري الرفع...</> : <><Icon name="import" size={14} /> رفع زيارات Excel</>}
           </button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, color: '#374151', background: '#fff', padding: '4px 8px', borderRadius: 6, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #e2e8f0' }}
-              title={uploadedFileName}>📄 {uploadedFileName}</span>
+            <span style={{ fontSize: 12, color: '#374151', background: '#fff', padding: '4px 8px', borderRadius: 6, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #e2e8f0', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              title={uploadedFileName}><Icon name="file" size={12} /> {uploadedFileName}</span>
             <button onClick={clearUpload} style={{ ...btnStyle('var(--c-danger)', true), padding: '4px 8px', fontSize: 11, display: 'flex', alignItems: 'center' }}><Icon name="delete" size={12} /></button>
           </div>
         )}
         {uploadResult && (
-          <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>
-            ✅ {uploadResult.imported} زيارة
+          <span style={{ fontSize: 12, color: '#059669', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="checkCircle" size={13} /> {uploadResult.imported} زيارة
             {uploadResult.errors.length > 0 && ` | ${uploadResult.errors.length} أخطاء`}
           </span>
         )}
-        {error && <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>⚠️ {error}</span>}
+        {error && <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="warning" size={13} /> {error}</span>}
       </div>
 
       {/* ── Main content ── */}
@@ -1672,8 +1672,8 @@ export default function MonthlyPlansPage() {
           <div>
             {filteredPlans.length === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 60, color: '#94a3b8' }}>
-                <p style={{ fontSize: 48 }}>📅</p>
-                <p style={{ fontSize: 18 }}>لا توجد بلانات — أنشئ بلان جديد</p>
+                <Icon name="calendar" size={48} />
+                <p style={{ fontSize: 18, marginTop: 8 }}>لا توجد بلانات — أنشئ بلان جديد</p>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
@@ -1792,21 +1792,21 @@ export default function MonthlyPlansPage() {
         ) : (
           <>
             {/* Plan header */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
-              <div style={{ position: 'relative', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ position: 'relative', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'stretch' }}>
 
                 {/* Back button */}
                 <button onClick={() => { setActivePlan(null); setSearchQuery(''); setVisitFilter('all'); setSelectMode(false); setSelectedEntries(new Set()); }}
                   title="الرجوع للقائمة"
-                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#475569' }}>
-                  ← {isFieldRep ? '' : 'الرجوع'}
+                  style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, height: 36, boxSizing: 'border-box', padding: '0 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="chevronRight" size={14} /> {isFieldRep ? '' : 'الرجوع'}
                 </button>
 
                 {/* ── Excel: export + import plan ── */}
-                <div style={{ position: 'relative' }}>
+                <div style={{ position: 'relative', display: 'flex' }}>
                   <button onClick={() => setShowExcelMenu(v => !v)}
-                    style={{ ...btnStyle('var(--c-success)'), display: 'flex', alignItems: 'center', gap: 5 }}>
-                    📊 Excel
+                    style={{ ...btnStyle('var(--c-success)'), height: 36, boxSizing: 'border-box', padding: '0 16px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="excel" size={14} /> Excel
                   </button>
                   {showExcelMenu && (
                     <div style={{
@@ -1816,28 +1816,28 @@ export default function MonthlyPlansPage() {
                       direction: 'rtl',
                     }} onClick={() => setShowExcelMenu(false)}>
                       <button onClick={exportPlanExcel} style={menuItemStyle}>
-                        📤 تصدير البلان إلى Excel
+                        <Icon name="export" size={14} /> تصدير البلان إلى Excel
                       </button>
                       <hr style={{ margin: '4px 6px', border: 'none', borderTop: '1px solid #f1f5f9' }} />
                       <button onClick={() => { setShowPlanImportModal(true); setPlanImportResult(null); }} style={menuItemStyle}>
-                        📥 استيراد البلان من Excel
+                        <Icon name="import" size={14} /> استيراد البلان من Excel
                       </button>
                     </div>
                   )}
                 </div>
 
-                {/* ── Suggest + settings (combined group) ── */}
-                <div style={{ display: 'flex', gap: 0 }}>
-                  <button onClick={loadSuggest} disabled={suggestLoading}
-                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '9px 0 0 9px', borderLeft: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
-                    {suggestLoading ? '⏳' : '✨'} اقتراح ذكي
-                  </button>
-                  <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
-                    title="إعدادات الاقتراح"
-                    style={{ ...btnStyle('var(--c-purple)'), borderRadius: '0 9px 9px 0', padding: '8px 9px', fontSize: 14 }}>
-                    ⚙️
-                  </button>
-                </div>
+                {/* ── Suggest ── */}
+                <button onClick={loadSuggest} disabled={suggestLoading}
+                  style={{ ...btnStyle('var(--c-purple)'), height: 36, boxSizing: 'border-box', padding: '0 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {suggestLoading ? <Icon name="loading" size={14} className="icon-spin" /> : <Icon name="netBalance" size={14} />} اقتراح ذكي
+                </button>
+
+                {/* ── Suggest settings ── */}
+                <button onClick={() => { if (!showSuggestSettings) setEditAreaIds(activePlan?.planAreas?.map(pa => pa.area.id) ?? []); setShowSuggestSettings(v => !v); }}
+                  title="إعدادات الاقتراح"
+                  style={{ ...btnStyle('var(--c-purple)'), width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="settings" size={14} />
+                </button>
 
                 {/* ── Voice: icon-only button ── */}
                 <button
@@ -1845,20 +1845,20 @@ export default function MonthlyPlansPage() {
                   title={voiceListening ? 'إيقاف التسجيل' : 'إدخال صوتي'}
                   style={{
                     ...btnStyle(voiceListening ? 'var(--c-danger)' : 'var(--c-accent)'),
-                    padding: '8px 11px', fontSize: 16,
+                    width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                     animation: voiceListening ? 'pulse-mic 1.5s infinite' : 'none',
                   }}>
-                  {voiceListening ? '⏹' : '🎤'}
+                  <Icon name={voiceListening ? 'pause' : 'mic'} size={16} />
                 </button>
 
                 {/* ── Tools overflow menu: managers only ── */}
                 {!isFieldRep && (
-                  <div style={{ position: 'relative', marginRight: 'auto' }}>
+                  <div style={{ position: 'relative' }}>
                     <button
                       onClick={() => setShowToolsMenu(v => !v)}
-                      style={{ ...btnStyle('var(--c-text-secondary)'), padding: '6px 10px', minWidth: 36 }}
+                      style={{ ...btnStyle('var(--c-text-secondary)'), width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                       title="أدوات">
-                      ⋯
+                      <Icon name="more" size={16} />
                     </button>
                     {showToolsMenu && (
                       <div style={{
@@ -1874,14 +1874,14 @@ export default function MonthlyPlansPage() {
                             setEditingPlanAreas(true);
                           }}
                           style={menuItemStyle}>
-                          📍 تعديل المناطق
+                          <Icon name="location" size={14} /> تعديل المناطق
                         </button>
                         <hr style={{ margin: '4px 6px', border: 'none', borderTop: '1px solid #f1f5f9' }} />
                         {/* Import */}
                         <button
                           onClick={() => { setShowImportModal(true); setImportResult(null); }}
                           style={menuItemStyle}>
-                          📥 استيراد تقارير Excel
+                          <Icon name="import" size={14} /> استيراد تقارير Excel
                         </button>
                         <hr style={{ margin: '4px 6px', border: 'none', borderTop: '1px solid #f1f5f9' }} />
                         {/* Extra visits toggle */}
@@ -1914,18 +1914,18 @@ export default function MonthlyPlansPage() {
                     <div style={{ background: '#fff', borderRadius: 14, padding: 20, width: '92%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', direction: 'rtl' }}
                       onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>📍 تعديل مناطق البلان</p>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="location" size={14} /> تعديل مناطق البلان</p>
                         <button onClick={() => setEditingPlanAreas(false)}
                           style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>×</button>
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                         <button onClick={() => setEditAreaIds(allAreas.map(a => a.id))} type="button"
-                          style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          ✓ الكل
+                          style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name="check" size={12} /> الكل
                         </button>
                         <button onClick={() => setEditAreaIds([])} type="button"
-                          style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          ✕ إلغاء
+                          style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name="close" size={12} /> إلغاء
                         </button>
                       </div>
                       <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 8 }}>
@@ -1968,7 +1968,7 @@ export default function MonthlyPlansPage() {
                     boxShadow: '0 -4px 24px rgba(0,0,0,0.18)', direction: 'rtl',
                   }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>⚙️ إعدادات الاقتراح الذكي</p>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="settings" size={15} /> إعدادات الاقتراح الذكي</p>
                       <button onClick={() => setShowSuggestSettings(false)}
                         style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>×</button>
                     </div>
@@ -1978,14 +1978,14 @@ export default function MonthlyPlansPage() {
                     ══════════════════════════════════════════════ */}
                     <div style={{ marginBottom: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-                        <span style={{ fontSize: 14 }}>⚙️</span>
+                        <Icon name="settings" size={14} />
                         <span style={{ fontSize: 12, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: 1 }}>الضوابط الأساسية</span>
                         <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
                       </div>
 
                       {/* Target doctors */}
                       <label style={settingLabelStyle}>
-                        👨‍⚕️ عدد الأطباء المستهدف
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="doctor" size={13} /> عدد الأطباء المستهدف</span>
                         <input type="number" min={1} max={200} value={sTargetDoctors}
                           onChange={e => setSTargetDoctors(+e.target.value)}
                           style={{ ...settingInputStyle, width: 80, textAlign: 'center' }} />
@@ -1993,7 +1993,7 @@ export default function MonthlyPlansPage() {
 
                       {/* Target visits per doctor */}
                       <label style={settingLabelStyle}>
-                        📞 عدد الزيارات لكل طبيب
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="call" size={13} /> عدد الزيارات لكل طبيب</span>
                         <input type="number" min={1} max={20} value={sTargetVisits}
                           onChange={e => setSTargetVisits(+e.target.value)}
                           style={{ ...settingInputStyle, width: 80, textAlign: 'center' }} />
@@ -2005,14 +2005,14 @@ export default function MonthlyPlansPage() {
                     ══════════════════════════════════════════════ */}
                     <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-                        <span style={{ fontSize: 14 }}>🔁</span>
+                        <Icon name="repeat" size={14} />
                         <span style={{ fontSize: 12, fontWeight: 800, color: '#166534', letterSpacing: 0.5 }}>من البلانات السابقة</span>
                         <div style={{ flex: 1, height: 1, background: '#86efac' }} />
                       </div>
 
                       {/* Keep feedback */}
                       <div style={{ marginBottom: 14 }}>
-                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151' }}>✅ فيدباك يُبقى عليه</p>
+                        <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="checkCircle" size={13} /> فيدباك يُبقى عليه</p>
                         <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b' }}>الأطباء الذين آخر فيدباكهم كالتالي يُعادون في البلان الجديد</p>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {([
@@ -2050,7 +2050,7 @@ export default function MonthlyPlansPage() {
                         }
                         return (
                           <div style={{ marginBottom: 14 }}>
-                            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📅 الأشهر السابقة للبحث</p>
+                            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="calendar" size={13} /> الأشهر السابقة للبحث</p>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                               {opts.map(o => {
                                 const on = sLookbackList.includes(o.val);
@@ -2077,7 +2077,7 @@ export default function MonthlyPlansPage() {
                       {/* Note analysis toggle */}
                       <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer', gap: 10 }}>
                         <div style={{ flex: 1 }}>
-                          <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>📝 تحليل ملاحظات الزيارات</p>
+                          <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="file" size={13} /> تحليل ملاحظات الزيارات</p>
                           <p style={{ margin: 0, fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
                             يسحب الأطباء الذين ملاحظاتهم تشير إلى متابعة أو طلب عينات... حتى لو الفيدباك الأخير سلبي
                           </p>
@@ -2085,7 +2085,7 @@ export default function MonthlyPlansPage() {
                         <div onClick={() => setSUseNoteAnalysis(v => !v)}
                           style={{
                             width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
-                            background: sUseNoteAnalysis ? '#8b5cf6' : '#e2e8f0', position: 'relative',
+                            background: sUseNoteAnalysis ? 'var(--c-accent)' : '#e2e8f0', position: 'relative',
                           }}>
                           <div style={{
                             position: 'absolute', top: 3, transition: 'left 0.2s',
@@ -2107,7 +2107,7 @@ export default function MonthlyPlansPage() {
                         <div onClick={() => setSPrioritizeMissed(v => !v)}
                           style={{
                             width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0, marginTop: 2,
-                            background: sPrioritizeMissed ? '#f59e0b' : '#e2e8f0', position: 'relative',
+                            background: sPrioritizeMissed ? 'var(--c-accent)' : '#e2e8f0', position: 'relative',
                           }}>
                           <div style={{
                             position: 'absolute', top: 3, transition: 'left 0.2s',
@@ -2120,7 +2120,7 @@ export default function MonthlyPlansPage() {
 
                       {/* Max repetitions */}
                       <div style={{ marginBottom: 4 }}>
-                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🔄 استبعاد المتكررين بلا نتيجة</p>
+                        <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="repeat" size={13} /> استبعاد المتكررين بلا نتيجة</p>
                         <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b', lineHeight: 1.5 }}>
                           استبعاد الطبيب إذا ظهر في X بلانات متتالية بدون فيدباك إيجابي
                         </p>
@@ -2244,7 +2244,7 @@ export default function MonthlyPlansPage() {
                               <div onClick={() => wishCount > 0 && setSUseWishList(v => !v)}
                                 style={{
                                   width: 44, height: 24, borderRadius: 12, transition: 'background 0.2s', flexShrink: 0,
-                                  background: sUseWishList && wishCount > 0 ? '#f59e0b' : '#e2e8f0',
+                                  background: sUseWishList && wishCount > 0 ? 'var(--c-accent)' : '#e2e8f0',
                                   position: 'relative', cursor: wishCount > 0 ? 'pointer' : 'not-allowed', opacity: wishCount === 0 ? 0.5 : 1,
                                 }}>
                                 <div style={{
@@ -2268,12 +2268,12 @@ export default function MonthlyPlansPage() {
                                   <span style={{ fontSize: 11, color: '#64748b' }}>اختر من تريد تضمينه</span>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button onMouseDown={() => setSWishExcluded(new Set())}
-                                      style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #22c55e', background: '#dcfce7', color: '#166534', cursor: 'pointer' }}>
-                                      ✅ الكل
+                                      style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #22c55e', background: '#dcfce7', color: '#166534', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                      <Icon name="check" size={11} /> الكل
                                     </button>
                                     <button onMouseDown={() => setSWishExcluded(new Set(wishIds))}
-                                      style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #fca5a5', background: '#fee2e2', color: '#991b1b', cursor: 'pointer' }}>
-                                      ✗ لا شيء
+                                      style={{ padding: '2px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid #fca5a5', background: '#fee2e2', color: '#991b1b', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                      <Icon name="close" size={11} /> لا شيء
                                     </button>
                                   </div>
                                 </div>
@@ -2295,7 +2295,7 @@ export default function MonthlyPlansPage() {
                                             {wishNames[id] ?? `طبيب #${id}`}
                                           </p>
                                           {wishItems[id] && (
-                                            <p style={{ margin: 0, fontSize: 10, color: '#64748b' }}>💊 {wishItems[id]}</p>
+                                            <p style={{ margin: 0, fontSize: 10, color: '#64748b', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={9} /> {wishItems[id]}</p>
                                           )}
                                         </div>
                                         <span style={{ fontSize: 11, color: excluded ? '#94a3b8' : '#166534', fontWeight: 600 }}>{excluded ? 'غير مرشح' : 'مرشح'}</span>
@@ -2313,26 +2313,26 @@ export default function MonthlyPlansPage() {
                     {/* ══════════════════════════════════════════════
                         GROUP 4 — المناطق والتركيز
                     ══════════════════════════════════════════════ */}
-                    <div style={{ background: '#faf5ff', border: '1.5px solid #ddd6fe', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ background: 'var(--c-accent-light)', border: '1.5px solid var(--c-purple-border)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-                        <span style={{ fontSize: 14 }}>📍</span>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: '#5b21b6', letterSpacing: 0.5 }}>المناطق والتركيز</span>
-                        <div style={{ flex: 1, height: 1, background: '#c4b5fd' }} />
+                        <Icon name="location" size={14} />
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--c-accent-hover)', letterSpacing: 0.5 }}>المناطق والتركيز</span>
+                        <div style={{ flex: 1, height: 1, background: 'var(--c-purple-border)' }} />
                       </div>
 
                       {/* Restrict to rep areas — OR — plan areas editable checklist */}
                       {activePlan.planAreas && activePlan.planAreas.length > 0 ? (
                         <div style={{ marginBottom: 14 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 مناطق البلان</p>
+                            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={13} /> مناطق البلان</p>
                             <div style={{ display: 'flex', gap: 6 }}>
                               <button onClick={() => setEditAreaIds(allAreas.map(a => a.id))} type="button"
-                                style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                                ✓ الكل
+                                style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Icon name="check" size={11} /> الكل
                               </button>
                               <button onClick={() => setEditAreaIds([])} type="button"
-                                style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                                ✕ إلغاء
+                                style={{ background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Icon name="close" size={11} /> إلغاء
                               </button>
                             </div>
                           </div>
@@ -2361,17 +2361,17 @@ export default function MonthlyPlansPage() {
                             } catch (e: any) { alert(e.message); }
                             finally { setSavingAreas(false); }
                           }} disabled={savingAreas}
-                            style={{ marginTop: 8, width: '100%', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            style={{ marginTop: 8, width: '100%', background: 'var(--c-accent)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                             {savingAreas ? 'جاري الحفظ...' : '💾 حفظ المناطق'}
                           </button>
                         </div>
                       ) : (
                         <label style={{ ...settingLabelStyle, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>📍 تقييد بمناطق المندوب فقط</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#374151', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={13} /> تقييد بمناطق المندوب فقط</span>
                           <div onClick={() => setSRestrictAreas(v => !v)}
                             style={{
                               width: 44, height: 24, borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s',
-                              background: sRestrictAreas ? '#8b5cf6' : '#e2e8f0', position: 'relative',
+                              background: sRestrictAreas ? 'var(--c-accent)' : '#e2e8f0', position: 'relative',
                             }}>
                             <div style={{
                               position: 'absolute', top: 3, transition: 'left 0.2s',
@@ -2385,7 +2385,7 @@ export default function MonthlyPlansPage() {
 
                       {/* Area quota distribution */}
                       {sRepAreas.length > 0 && (
-                        <div style={{ marginBottom: 14, border: '1.5px solid #ddd6fe', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+                        <div style={{ marginBottom: 14, border: '1.5px solid var(--c-purple-border)', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: sAreaQuotasEnabled ? '#f0f9ff' : '#f8fafc' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ fontSize: 16 }}>📊</span>
@@ -2495,7 +2495,7 @@ export default function MonthlyPlansPage() {
                         );
                         const ddBase: React.CSSProperties = {
                           position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 600,
-                          background: '#fff', border: '1.5px solid #c4b5fd', borderRadius: 8,
+                          background: '#fff', border: '1.5px solid var(--c-purple-border)', borderRadius: 8,
                           boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 150, overflowY: 'auto',
                         };
                         const ddItem: React.CSSProperties = { padding: '7px 12px', fontSize: 12, cursor: 'pointer', color: '#374151' };
@@ -2506,12 +2506,12 @@ export default function MonthlyPlansPage() {
                         const inputStyle2: React.CSSProperties = { ...settingInputStyle, borderRadius: 7, marginTop: 4 };
                         return (
                           <div style={{ marginBottom: 4 }}>
-                            <p style={{ margin: '0 0 2px', fontSize: 13, fontWeight: 700, color: '#374151' }}>🎯 تركيز على</p>
+                            <p style={{ margin: '0 0 2px', fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="target" size={13} /> تركيز على</p>
                           <p style={{ margin: '0 0 10px', fontSize: 11, color: '#94a3b8', lineHeight: 1.4 }}>حدد النسبة المئوية لكل فئة — الباقي يُكمَّل من الطاقم العام (مثال: 60% كسور + 40% عشوائي)</p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                               {/* Focus items */}
                               <div>
-                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>💊 ايتمات معينة</p>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="drug" size={12} /> ايتمات معينة</p>
                                 {sFocusItemIds.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                                     {sFocusItemIds.map(x => (
@@ -2549,7 +2549,7 @@ export default function MonthlyPlansPage() {
                               </div>
                               {/* Focus areas */}
                               <div>
-                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>📍 مناطق معينة</p>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={12} /> مناطق معينة</p>
                                 {sFocusAreaIds.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                                     {sFocusAreaIds.map(x => (
@@ -2609,7 +2609,7 @@ export default function MonthlyPlansPage() {
                                     <div style={ddBase}>
                                       {sFocusSpecText.trim() && !sFocusSpecialties.find(x => x.name === sFocusSpecText.trim()) && (
                                         <div onMouseDown={() => { setSFocusSpecialties(prev => [...prev, { name: sFocusSpecText.trim(), pct: 60 }]); setSFocusSpecText(''); setSFocusSpecDD(false); }}
-                                          style={{ ...ddItem, color: '#166534', fontWeight: 600 }}>➕ "{sFocusSpecText.trim()}"</div>
+                                          style={{ ...ddItem, color: '#166534', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="add" size={11} /> "{sFocusSpecText.trim()}"</div>
                                       )}
                                       {filteredSpecs.slice(0, 40).map(s => (
                                         <div key={s}
@@ -2622,7 +2622,7 @@ export default function MonthlyPlansPage() {
                               </div>
                               {/* Focus classes */}
                               <div>
-                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151' }}>🏅 كلاس معين</p>
+                                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="category" size={12} /> كلاس معين</p>
                                 {sFocusClasses.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                                     {sFocusClasses.map(c => (
@@ -2651,7 +2651,7 @@ export default function MonthlyPlansPage() {
                                     <div style={ddBase}>
                                       {sFocusClassText.trim() && !sFocusClasses.find(x => x.name === sFocusClassText.trim()) && (
                                         <div onMouseDown={() => { setSFocusClasses(prev => [...prev, { name: sFocusClassText.trim(), pct: 60 }]); setSFocusClassText(''); setSFocusClassDD(false); }}
-                                          style={{ ...ddItem, color: '#854d0e', fontWeight: 600 }}>➕ "{sFocusClassText.trim()}"</div>
+                                          style={{ ...ddItem, color: '#854d0e', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="add" size={11} /> "{sFocusClassText.trim()}"</div>
                                       )}
                                       {filteredClasses.slice(0, 20).map(c => (
                                         <div key={c}
@@ -2671,11 +2671,11 @@ export default function MonthlyPlansPage() {
                     {/* ══════════════════════════════════════════════
                         GROUP 5 — تعليمات الذكاء الاصطناعي
                     ══════════════════════════════════════════════ */}
-                    <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ background: 'var(--c-danger-bg)', border: '1.5px solid var(--c-danger-border)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-                        <span style={{ fontSize: 14 }}>🤖</span>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: '#92400e', letterSpacing: 0.5 }}>تعليمات الذكاء الاصطناعي</span>
-                        <div style={{ flex: 1, height: 1, background: '#fdba74' }} />
+                        <Icon name="aiBot" size={14} />
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--c-danger)', letterSpacing: 0.5 }}>تعليمات الذكاء الاصطناعي</span>
+                        <div style={{ flex: 1, height: 1, background: 'var(--c-danger-border)' }} />
                       </div>
                       <textarea
                         value={sUserNote}
@@ -2684,15 +2684,15 @@ export default function MonthlyPlansPage() {
                         placeholder="مثال: أضف دكتور أحمد من الكرادة، استبعد أطباء منطقة الدورة، ركز على تخصص باطنية..."
                         style={{
                           width: '100%', boxSizing: 'border-box', resize: 'vertical',
-                          border: '1.5px solid #fed7aa', borderRadius: 8, padding: '8px 10px',
+                          border: '1.5px solid var(--c-danger-border)', borderRadius: 8, padding: '8px 10px',
                           fontSize: 12, lineHeight: 1.6, color: '#374151', outline: 'none',
                           background: '#fff', direction: 'rtl', fontFamily: 'inherit',
                           transition: 'border-color 0.15s',
                         }}
-                        onFocus={e => (e.target.style.borderColor = '#f97316')}
-                        onBlur={e  => (e.target.style.borderColor = '#fed7aa')}
+                        onFocus={e => (e.target.style.borderColor = 'var(--c-danger)')}
+                        onBlur={e  => (e.target.style.borderColor = 'var(--c-danger-border)')}
                       />
-                      <p style={{ margin: '4px 0 0', fontSize: 10, color: '#92400e', lineHeight: 1.4 }}>
+                      <p style={{ margin: '4px 0 0', fontSize: 10, color: 'var(--c-danger)', lineHeight: 1.4 }}>
                         سيتم تحليل ملاحظاتك بالذكاء الاصطناعي وتطبيقها على الاقتراح
                       </p>
                     </div>
@@ -2710,17 +2710,19 @@ export default function MonthlyPlansPage() {
             {/* Voice input panel */}
             {(voiceListening || voiceParsing || voiceResults || voiceError) && (
               <div ref={voicePanelRef} style={{
-                background: voiceListening ? 'linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%)' : '#fff',
-                border: `2px solid ${voiceListening ? '#f97316' : '#e2e8f0'}`,
+                background: voiceListening ? 'var(--c-danger-bg)' : '#fff',
+                border: `2px solid ${voiceListening ? 'var(--c-danger)' : '#e2e8f0'}`,
                 borderRadius: 14, padding: 16, marginBottom: 20,
                 animation: voiceListening ? 'pulse-border 2s infinite' : 'none',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 20 }}>{voiceListening ? '🔴' : voiceParsing ? '⏳' : '🎤'}</span>
+                    <span style={{ display: 'flex', color: voiceListening ? 'var(--c-danger)' : 'inherit' }}>
+                      {voiceListening ? <Icon name="mic" size={20} /> : voiceParsing ? <Icon name="loading" size={20} className="icon-spin" /> : <Icon name="mic" size={20} />}
+                    </span>
                     <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
                       {voiceListening ? 'جاري التسجيل... تحدث الآن'
-                        : voiceParsing ? '⏳ جاري تحليل الكلام بالذكاء الاصطناعي...'
+                        : voiceParsing ? 'جاري تحليل الكلام بالذكاء الاصطناعي...'
                         : 'نتائج التحليل'}
                     </h3>
                     {voiceListening && (
@@ -2736,8 +2738,8 @@ export default function MonthlyPlansPage() {
                 {/* Listening indicator */}
                 {voiceListening && (
                   <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
-                    <div style={{ fontSize: 48, animation: 'pulse-mic 1.5s infinite' }}>🎙️</div>
-                    <p style={{ margin: '8px 0 0', color: '#92400e', fontSize: 13, fontWeight: 600 }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', animation: 'pulse-mic 1.5s infinite', color: 'var(--c-danger)' }}><Icon name="mic" size={48} /></div>
+                    <p style={{ margin: '8px 0 0', color: 'var(--c-danger)', fontSize: 13, fontWeight: 600 }}>
                       تحدث... الاستماع مستمر حتى تضغط إيقاف
                     </p>
                   </div>
@@ -2746,8 +2748,8 @@ export default function MonthlyPlansPage() {
                 {/* Parsing spinner */}
                 {voiceParsing && !voiceListening && (
                   <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                    <div style={{ fontSize: 40, animation: 'pulse-mic 1s infinite' }}>🤖</div>
-                    <p style={{ margin: '10px 0 0', color: '#6366f1', fontSize: 13, fontWeight: 600 }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', animation: 'pulse-mic 1s infinite' }}><Icon name="aiBot" size={40} /></div>
+                    <p style={{ margin: '10px 0 0', color: 'var(--c-accent)', fontSize: 13, fontWeight: 600 }}>
                       جاري تحليل الكلام...
                     </p>
                   </div>
@@ -2756,7 +2758,7 @@ export default function MonthlyPlansPage() {
                 {/* Error state */}
                 {voiceError && !voiceParsing && (
                   <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                    <div style={{ fontSize: 36 }}>⚠️</div>
+                    <div style={{ display: 'flex', justifyContent: 'center' }}><Icon name="warning" size={36} /></div>
                     <p style={{ margin: '8px 0 12px', color: '#dc2626', fontSize: 13, fontWeight: 600 }}>{voiceError}</p>
                     <button onClick={() => setVoiceError(null)}
                       style={btnStyle('var(--c-text-secondary)', true)}>إغلاق</button>
@@ -2797,7 +2799,7 @@ export default function MonthlyPlansPage() {
                                     placeholder="اسم الطبيب"
                                     style={{
                                       fontWeight: 700, fontSize: 13, color: '#1e293b',
-                                      border: '2px solid #6366f1',
+                                      border: '2px solid var(--c-accent)',
                                       borderRadius: 6, padding: '3px 8px', background: '#fff',
                                       width: '100%', direction: 'rtl', outline: 'none',
                                     }}
@@ -2829,8 +2831,8 @@ export default function MonthlyPlansPage() {
                                     ))}
                                   </select>
                                   <button onClick={() => setEditingVoiceName(null)}
-                                    style={{ alignSelf: 'flex-end', fontSize: 11, padding: '2px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>
-                                    ✓ تم
+                                    style={{ alignSelf: 'flex-end', fontSize: 11, padding: '2px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <Icon name="check" size={11} /> تم
                                   </button>
                                 </div>
                               ) : (
@@ -2838,12 +2840,12 @@ export default function MonthlyPlansPage() {
                                   onClick={() => setEditingVoiceName(i)}
                                   title="اضغط لتعديل الاسم أو ربطه بطبيب في البلان"
                                   style={{ margin: 0, fontWeight: 700, fontSize: 13, color: isMatched ? '#166534' : '#92400e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                  {isMatched ? '✅' : willAdd ? '➕' : '⚠️'} {v.doctorName}
-                                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>✏️</span>
+                                  {isMatched ? <Icon name="checkCircle" size={13} /> : willAdd ? <Icon name="add" size={13} /> : <Icon name="warning" size={13} />} {v.doctorName}
+                                  <Icon name="edit" size={10} />
                                 </p>
                               )}
                               {v.itemName && (
-                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6366f1' }}>💊 {v.itemName}</p>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--c-accent)', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={11} /> {v.itemName}</p>
                               )}
                             </div>
                             <select
@@ -2877,7 +2879,7 @@ export default function MonthlyPlansPage() {
                           {matchedList.length > 0 && (
                             <div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: '#166534' }}>✅ موجودين في البلان ({matchedList.length})</span>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: '#166534', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="checkCircle" size={13} /> موجودين في البلان ({matchedList.length})</span>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {matchedList.map(item => renderRow(item, true))}
@@ -2892,8 +2894,8 @@ export default function MonthlyPlansPage() {
                               borderRadius: 12, padding: '10px 12px',
                             }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: '#c2410c' }}>
-                                  ⚠️ غير موجودين في البلان ({unmatchedList.length})
+                                <span style={{ fontSize: 13, fontWeight: 800, color: '#c2410c', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  <Icon name="warning" size={13} /> غير موجودين في البلان ({unmatchedList.length})
                                 </span>
                                 <button
                                   onClick={() => setVoiceAddToPlan(prev => {
@@ -2904,8 +2906,9 @@ export default function MonthlyPlansPage() {
                                   style={{
                                     fontSize: 11, fontWeight: 800, padding: '4px 12px', borderRadius: 20,
                                     background: '#ea580c', color: '#fff', border: 'none', cursor: 'pointer',
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
                                   }}>
-                                  ➕ اضافة الكل للبلان
+                                  <Icon name="add" size={12} /> اضافة الكل للبلان
                                 </button>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -2936,8 +2939,9 @@ export default function MonthlyPlansPage() {
                                         <label htmlFor={`add-${item.i}`} style={{
                                           fontSize: 12, fontWeight: 800, cursor: 'pointer',
                                           color: willAdd ? '#1d4ed8' : '#b91c1c',
+                                          display: 'inline-flex', alignItems: 'center', gap: 4,
                                         }}>
-                                          {willAdd ? '✅ سيتم إضافته للبلان وتسجيل الكول' : '❌ لن يُضاف — اضغط لإضافته للبلان'}
+                                          {willAdd ? <Icon name="checkCircle" size={12} /> : <Icon name="close" size={12} />} {willAdd ? 'سيتم إضافته للبلان وتسجيل الكول' : 'لن يُضاف — اضغط لإضافته للبلان'}
                                         </label>
                                       </div>
                                     </div>
@@ -2958,8 +2962,9 @@ export default function MonthlyPlansPage() {
                         style={{
                           ...btnStyle('var(--c-success)', true),
                           opacity: voiceSaving || (!voiceResults.some(v => v.entryId) && voiceAddToPlan.size === 0) ? 0.5 : 1,
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
                         }}>
-                        {voiceSaving ? '⏳ جاري الحفظ...' : `✅ تأكيد وحفظ ${voiceResults.filter(v => v.entryId).length + voiceAddToPlan.size} زيارة`}
+                        {voiceSaving ? <><Icon name="loading" size={13} className="icon-spin" /> جاري الحفظ...</> : <><Icon name="checkCircle" size={13} /> تأكيد وحفظ {voiceResults.filter(v => v.entryId).length + voiceAddToPlan.size} زيارة</>}
                       </button>
                     </div>
                   </div>
@@ -2988,8 +2993,31 @@ export default function MonthlyPlansPage() {
                 {/* Feedback breakdown */}
                 <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, gridColumn: 'span 2' }}>
                   <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#64748b' }}>توزيع الفيدباك</p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {Object.entries(planStats.feedbackCount).map(([fb, cnt]) => {
+                      const meta = FEEDBACK_LABELS[fb] ?? FEEDBACK_LABELS.pending;
+                      return (
+                        <span key={fb}
+                          onClick={() => setFbPopup({ fb, label: meta.label, meta, doctors: planStats.feedbackDoctors[fb] ?? [] })}
+                          style={{
+                            padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
+                            background: meta.bg, color: meta.color,
+                            cursor: 'pointer', userSelect: 'none',
+                            border: '2px solid transparent',
+                            transition: 'all 0.15s',
+                          }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = meta.color; (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+                        >
+                          {meta.label}: {cnt}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: 10, color: '#cbd5e1' }}>انقر على أي حالة لعرض أسماء الأطباء</p>
+                </div>
 
-                {/* Item calls breakdown */}
+                {/* Item calls breakdown — sibling grid item so gridColumn:'1 / -1' actually spans full width */}
                 {planStats.itemCallStats.length > 0 && (
                   <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, gridColumn: '1 / -1' }}>
                     <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: '#64748b' }}>📦 الكولات حسب الايتم</p>
@@ -3027,9 +3055,10 @@ export default function MonthlyPlansPage() {
                                     fontSize: 12, padding: '3px 10px', borderRadius: 12,
                                     background: '#fff', border: '1px solid #7dd3fc',
                                     color: '#0369a1', cursor: 'pointer', fontWeight: 600,
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
                                   }}
                                 >
-                                  🩺 {d.name}
+                                  <Icon name="doctor" size={11} /> {d.name}
                                 </span>
                               ))}
                             </div>
@@ -3039,29 +3068,6 @@ export default function MonthlyPlansPage() {
                     </div>
                   </div>
                 )}
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {Object.entries(planStats.feedbackCount).map(([fb, cnt]) => {
-                      const meta = FEEDBACK_LABELS[fb] ?? FEEDBACK_LABELS.pending;
-                      return (
-                        <span key={fb}
-                          onClick={() => setFbPopup({ fb, label: meta.label, meta, doctors: planStats.feedbackDoctors[fb] ?? [] })}
-                          style={{
-                            padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-                            background: meta.bg, color: meta.color,
-                            cursor: 'pointer', userSelect: 'none',
-                            border: '2px solid transparent',
-                            transition: 'all 0.15s',
-                          }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = meta.color; (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
-                        >
-                          {meta.label}: {cnt}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <p style={{ margin: '6px 0 0', fontSize: 10, color: '#cbd5e1' }}>انقر على أي حالة لعرض أسماء الأطباء</p>
-                </div>
               </div>
             )}
 
@@ -3086,13 +3092,13 @@ export default function MonthlyPlansPage() {
                         </span>
                       )}
                       {suggest.summary.keep - ((suggest.summary as any).missed ?? 0) > 0 && (
-                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#dcfce7', color: '#166534', border: '1px solid #86efac' }}>
-                          ✅ {suggest.summary.keep - ((suggest.summary as any).missed ?? 0)} محتفظ بهم
+                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#dcfce7', color: '#166534', border: '1px solid #86efac', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name="checkCircle" size={11} /> {suggest.summary.keep - ((suggest.summary as any).missed ?? 0)} محتفظ بهم
                         </span>
                       )}
                       {suggest.summary.new > 0 && (
-                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
-                          ➕ {suggest.summary.new} جديد
+                        <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name="add" size={11} /> {suggest.summary.new} جديد
                         </span>
                       )}
                     </div>
@@ -3101,11 +3107,11 @@ export default function MonthlyPlansPage() {
                   {/* AI Note summary */}
                   {suggest.aiNote && (
                     <div style={{
-                      background: '#faf5ff', border: '1px solid #c4b5fd', borderRadius: 8,
-                      padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#5b21b6',
+                      background: 'var(--c-accent-light)', border: '1px solid var(--c-purple-border)', borderRadius: 8,
+                      padding: '8px 12px', marginBottom: 12, fontSize: 12, color: 'var(--c-accent-hover)',
                     }}>
-                      <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 12 }}>🤖 تعليماتك المطبّقة:</p>
-                      <p style={{ margin: 0, color: '#6d28d9', lineHeight: 1.6 }}>
+                      <p style={{ margin: '0 0 3px', fontWeight: 700, fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="aiBot" size={12} /> تعليماتك المطبّقة:</p>
+                      <p style={{ margin: 0, color: 'var(--c-accent-hover)', lineHeight: 1.6 }}>
                         {suggest.aiNote.parsed?.summary ?? suggest.aiNote.raw}
                       </p>
                       {suggest.aiNote.parsed && (() => {
@@ -3134,17 +3140,17 @@ export default function MonthlyPlansPage() {
                   {pending.length > 0 && (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#64748b' }}>
-                          📋 المقترحون ({pending.length})
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <Icon name="file" size={12} /> المقترحون ({pending.length})
                         </p>
                         <button onClick={() => setSelectedDoctors(prev => {
                             const s = new Set(prev);
                             pending.forEach(d => s.add(d.id));
                             return s;
                           })}
-                          style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6,
-                            padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          ✅ اختيار الكل
+                          style={{ background: 'var(--c-accent)', color: '#fff', border: 'none', borderRadius: 6,
+                            padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name="check" size={12} /> اختيار الكل
                         </button>
                       </div>
                       <div className="mp-suggest-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, maxHeight: 240, overflowY: 'auto', marginBottom: 12 }}>
@@ -3163,8 +3169,8 @@ export default function MonthlyPlansPage() {
                                 <span style={{ fontSize: 10, background: '#fef9c3', color: '#854d0e', borderRadius: 6, padding: '1px 6px', fontWeight: 700, border: '1px solid #fde68a', alignSelf: 'flex-start' }}>{doc.className}</span>
                               )}
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: meta.bg, color: meta.color, fontWeight: 600 }}>
-                                  {doc.fromWishList ? '⭐ مطلوب' : doc._type === 'new' ? '➕ جديد' : meta.label}
+                                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: meta.bg, color: meta.color, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  {doc.fromWishList ? <>⭐ مطلوب</> : doc._type === 'new' ? <><Icon name="add" size={10} /> جديد</> : meta.label}
                                 </span>
                                 <span style={{ fontSize: 11, color: '#94a3b8' }}>اضغط للاختيار</span>
                               </div>
@@ -3178,8 +3184,8 @@ export default function MonthlyPlansPage() {
                   {/* Chosen (selected) */}
                   {chosen.length > 0 && (
                     <>
-                      <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: '#166534' }}>
-                        ✅ المختارون ({chosen.length})
+                      <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Icon name="checkCircle" size={12} /> المختارون ({chosen.length})
                       </p>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                         {chosen.map(doc => (
@@ -3197,8 +3203,8 @@ export default function MonthlyPlansPage() {
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 4, justifyContent: 'flex-end' }}>
                     <button onClick={() => setSuggest(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
-                    <button onClick={applySuggestion} disabled={selectedDoctors.size === 0} style={{ ...btnStyle('var(--c-success)'), opacity: selectedDoctors.size === 0 ? 0.5 : 1 }}>
-                      ✅ إضافة {selectedDoctors.size} طبيب للبلان
+                    <button onClick={applySuggestion} disabled={selectedDoctors.size === 0} style={{ ...btnStyle('var(--c-success)'), opacity: selectedDoctors.size === 0 ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="checkCircle" size={13} /> إضافة {selectedDoctors.size} طبيب للبلان
                     </button>
                   </div>
                 </div>
@@ -3206,17 +3212,17 @@ export default function MonthlyPlansPage() {
             })()}
 
             {/* Analytics summary card */}
-            <div style={{ background: 'linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%)', borderRadius: 14, padding: '16px 20px', marginBottom: 20, color: '#fff', display: 'flex', flexWrap: 'wrap', gap: 0 }}>
+            <div style={{ background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)', borderRadius: 14, padding: '16px 20px', marginBottom: 20, color: '#fff', display: 'flex', flexWrap: 'wrap', gap: 0 }}>
               <div style={{ flex: 1, minWidth: 140, borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 16, marginLeft: 16 }}>
-                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>👤 المندوب العلمي</p>
+                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب العلمي</p>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{activePlan.scientificRep?.name ?? 'بدون مندوب'}</p>
               </div>
               <div style={{ flex: 1, minWidth: 120, borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 16, marginLeft: 16 }}>
-                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>📅 الشهر</p>
+                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={11} /> الشهر</p>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{MONTHS_AR[activePlan.month - 1]} {activePlan.year}</p>
               </div>
               <div style={{ flex: 1, minWidth: 110, borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 16, marginLeft: 16 }}>
-                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>👨‍⚕️ عدد الأطباء</p>
+                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={11} /> عدد الأطباء</p>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 4 }}>
                   {activePlan.entries.length}/
                   {editingPlanField === 'targetDoctors' ? (
@@ -3227,8 +3233,8 @@ export default function MonthlyPlansPage() {
                         onKeyDown={e => { if (e.key==='Enter') savePlanField('targetDoctors'); if (e.key==='Escape') setEditingPlanField(null); }}
                         style={{ width: 60, padding: '2px 5px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.6)', background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 14, textAlign: 'center' }}
                       />
-                      <button onClick={() => savePlanField('targetDoctors')} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}>✓</button>
-                      <button onClick={() => setEditingPlanField(null)} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}>✕</button>
+                      <button onClick={() => savePlanField('targetDoctors')} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px', display: 'inline-flex', alignItems: 'center' }}><Icon name="check" size={11} /></button>
+                      <button onClick={() => setEditingPlanField(null)} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px', display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
                     </>
                   ) : (
                     <span
@@ -3240,7 +3246,7 @@ export default function MonthlyPlansPage() {
                 </p>
               </div>
               <div style={{ flex: 1, minWidth: 110, borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 16, marginLeft: 16 }}>
-                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>📞 إجمالي الكولات المستهدفة</p>
+                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="call" size={11} /> إجمالي الكولات المستهدفة</p>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 4 }}>
                   {activePlan.entries.reduce((s, e) => s + e.targetVisits, 0)}/
                   {editingPlanField === 'targetCalls' ? (
@@ -3251,8 +3257,8 @@ export default function MonthlyPlansPage() {
                         onKeyDown={e => { if (e.key==='Enter') savePlanField('targetCalls'); if (e.key==='Escape') setEditingPlanField(null); }}
                         style={{ width: 60, padding: '2px 5px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.6)', background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 14, textAlign: 'center' }}
                       />
-                      <button onClick={() => savePlanField('targetCalls')} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}>✓</button>
-                      <button onClick={() => setEditingPlanField(null)} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px' }}>✕</button>
+                      <button onClick={() => savePlanField('targetCalls')} style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px', display: 'inline-flex', alignItems: 'center' }}><Icon name="check" size={11} /></button>
+                      <button onClick={() => setEditingPlanField(null)} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12, padding: '2px 6px', display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
                     </>
                   ) : (
                     <span
@@ -3264,7 +3270,7 @@ export default function MonthlyPlansPage() {
                 </p>
               </div>
               <div style={{ flex: 1, minWidth: 110, paddingLeft: 0 }}>
-                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8 }}>✅ كولات منجزة</p>
+                <p style={{ margin: '0 0 2px', fontSize: 11, opacity: 0.8, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="checkCircle" size={11} /> كولات منجزة</p>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>
                   {planStats?.totalVisits ?? 0}
                   <span style={{ fontSize: 12, opacity: 0.7 }}> من {activePlan.entries.reduce((s,e)=>s+e.targetVisits,0)}</span>
@@ -3286,20 +3292,20 @@ export default function MonthlyPlansPage() {
                   }}
                   onMouseEnter={e => { e.currentTarget.style.background = '#dcfce7'; e.currentTarget.style.borderColor = '#4ade80'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#86efac'; }}>
-                  ➕ إضافة طبيب للبلان
+                  <Icon name="add" size={14} /> إضافة طبيب للبلان
                 </button>
               ) : (
                 <div style={{ border: '2px solid #22c55e', borderRadius: 12, background: '#f0fdf4', overflow: 'visible', position: 'relative' }}>
                   {/* Header */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #bbf7d0' }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>➕ إضافة طبيب</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#166534', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="add" size={13} /> إضافة طبيب</span>
                     <button onClick={() => { setAddDoctorOpen(false); setAddDoctorQuery(''); setAddDoctorResults([]); }}
                       style={{ background: 'none', border: 'none', fontSize: 18, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>×</button>
                   </div>
                   {/* Search input */}
                   <div style={{ padding: '8px 12px 10px', position: 'relative' }}>
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <span style={{ position: 'absolute', right: 10, fontSize: 15, color: '#22c55e', pointerEvents: 'none' }}>🔍</span>
+                      <span style={{ position: 'absolute', right: 10, fontSize: 15, color: '#22c55e', pointerEvents: 'none', display: 'flex' }}><Icon name="search" size={15} /></span>
                       <input
                         autoFocus
                         type="text"
@@ -3347,8 +3353,8 @@ export default function MonthlyPlansPage() {
                               onMouseLeave={e => { e.currentTarget.style.background = alreadyIn ? '#f8fafc' : '#fff'; }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                                 <div style={{ flex: 1 }}>
-                                  <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-                                    👨‍⚕️ {doc.name}
+                                  <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                    <Icon name="doctor" size={12} /> {doc.name}
                                   </p>
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                     {doc.specialty && (
@@ -3357,18 +3363,18 @@ export default function MonthlyPlansPage() {
                                       </span>
                                     )}
                                     {doc.area?.name && (
-                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#dbeafe', color: '#1e40af', fontWeight: 600 }}>
-                                        📍 {doc.area.name}
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#dbeafe', color: '#1e40af', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <Icon name="location" size={10} /> {doc.area.name}
                                       </span>
                                     )}
                                     {(doc as any).pharmacyName && (
-                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#fef9c3', color: '#92400e', fontWeight: 600 }}>
-                                        🏪 {(doc as any).pharmacyName}
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#fef9c3', color: '#92400e', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <Icon name="pharmacy" size={10} /> {(doc as any).pharmacyName}
                                       </span>
                                     )}
                                     {doc.targetItem && (
-                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#f0fdf4', color: '#166534', fontWeight: 600 }}>
-                                        💊 {doc.targetItem.name}
+                                      <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 8, background: '#f0fdf4', color: '#166534', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <Icon name="drug" size={10} /> {doc.targetItem.name}
                                       </span>
                                     )}
                                     {doc.className && (
@@ -3385,7 +3391,7 @@ export default function MonthlyPlansPage() {
                                 </div>
                                 <div style={{ flexShrink: 0, marginTop: 2 }}>
                                   {alreadyIn ? (
-                                    <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 700 }}>✅ في البلان</span>
+                                    <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="checkCircle" size={11} /> في البلان</span>
                                   ) : isAdding ? (
                                     <span style={{ fontSize: 11, color: '#64748b' }}>جاري...</span>
                                   ) : (
@@ -3417,12 +3423,12 @@ export default function MonthlyPlansPage() {
                   onClick={() => setMyTargetsOpen(v => !v)}
                   style={{
                     width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '12px 16px', background: 'linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%)',
+                    padding: '12px 16px', background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)',
                     border: 'none', cursor: 'pointer', color: '#fff',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>🎯</span>
+                    <Icon name="target" size={18} />
                     <span style={{ fontWeight: 800, fontSize: 14 }}>تارگتي الشهري — {(() => { const MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']; return MONTHS[(activePlan.month ?? 1) - 1]; })()}</span>
                   </div>
                   <span style={{ fontSize: 12, opacity: 0.85 }}>{myTargetsOpen ? '▲ إخفاء' : '▼ عرض'}</span>
@@ -3431,25 +3437,25 @@ export default function MonthlyPlansPage() {
                   <div style={{ padding: '0 0 8px' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
-                        <tr style={{ background: '#f5f3ff' }}>
-                          <th style={{ padding: '8px 14px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#5b21b6', borderBottom: '1px solid #e0e7ff' }}>الايتم</th>
-                          <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#6366f1', borderBottom: '1px solid #e0e7ff', width: 120 }}>🎯 التارگت</th>
+                        <tr style={{ background: 'var(--c-accent-light)' }}>
+                          <th style={{ padding: '8px 14px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--c-accent-hover)', borderBottom: '1px solid #e0e7ff' }}>الايتم</th>
+                          <th style={{ padding: '8px 14px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: 'var(--c-accent)', borderBottom: '1px solid #e0e7ff', width: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="target" size={12} /> التارگت</th>
                         </tr>
                       </thead>
                       <tbody>
                         {myTargets.map((t, i) => (
                           <tr key={t.id} style={{ borderBottom: '1px solid #f5f3ff', background: i % 2 === 0 ? '#fff' : '#fdfcff' }}>
                             <td style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{t.item.name}</td>
-                            <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: '#6366f1' }}>
+                            <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: 'var(--c-accent)' }}>
                               {t.target.toLocaleString('ar-IQ-u-nu-latn')}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr style={{ background: '#ede9fe', borderTop: '2px solid #c4b5fd' }}>
-                          <td style={{ padding: '9px 14px', fontWeight: 700, fontSize: 13, color: '#5b21b6' }}>الإجمالي</td>
-                          <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 900, fontSize: 15, color: '#4f46e5' }}>
+                        <tr style={{ background: 'var(--c-accent-light)', borderTop: '2px solid var(--c-purple-border)' }}>
+                          <td style={{ padding: '9px 14px', fontWeight: 700, fontSize: 13, color: 'var(--c-accent-hover)' }}>الإجمالي</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 900, fontSize: 15, color: 'var(--c-accent-hover)' }}>
                             {myTargets.reduce((s, t) => s + t.target, 0).toLocaleString('ar-IQ-u-nu-latn')}
                           </td>
                         </tr>
@@ -3477,9 +3483,9 @@ export default function MonthlyPlansPage() {
                         type="text"
                         value={searchQuery}
                         onChange={e => { setSearchQuery(e.target.value); setSearchSuggestOpen(true); }}
-                        onFocus={e => { setSearchSuggestOpen(true); e.target.style.borderColor = '#6366f1'; }}
+                        onFocus={e => { setSearchSuggestOpen(true); e.target.style.borderColor = 'var(--c-accent)'; }}
                         onBlur={e => { setTimeout(() => setSearchSuggestOpen(false), 150); e.target.style.borderColor = '#e2e8f0'; }}
-                        placeholder="🔍  ابحث باسم الطبيب، الصيدلية، الاختصاص، الايتم، المنطقة..."
+                        placeholder="ابحث باسم الطبيب، الصيدلية، الاختصاص، الايتم، المنطقة..."
                         style={{
                           flex: 1, padding: '10px 16px 10px 36px', border: '2px solid #e2e8f0',
                           borderRadius: searchSuggestOpen && suggestions.length > 0 ? '12px 12px 0 0' : 12,
@@ -3488,7 +3494,7 @@ export default function MonthlyPlansPage() {
                           transition: 'border-color 0.15s',
                         }}
                       />
-                      {searchQuery && (
+                      {searchQuery ? (
                         <button
                           onClick={() => setSearchQuery('')}
                           style={{
@@ -3496,15 +3502,19 @@ export default function MonthlyPlansPage() {
                             background: 'none', border: 'none', fontSize: 18, color: '#94a3b8',
                             cursor: 'pointer', lineHeight: 1, padding: 0,
                           }}>×</button>
+                      ) : (
+                        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', display: 'flex', pointerEvents: 'none' }}>
+                          <Icon name="search" size={16} />
+                        </span>
                       )}
                     </div>
                     {/* Autocomplete dropdown */}
                     {searchSuggestOpen && suggestions.length > 0 && (
                       <div style={{
                         position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 400,
-                        background: '#fff', border: '2px solid #6366f1', borderTop: 'none',
+                        background: '#fff', border: '2px solid var(--c-accent)', borderTop: 'none',
                         borderRadius: '0 0 12px 12px',
-                        boxShadow: '0 6px 20px rgba(99,102,241,0.12)', overflow: 'hidden',
+                        boxShadow: '0 6px 20px rgba(26,86,219,0.12)', overflow: 'hidden',
                       }}>
                         {suggestions.map(name => (
                           <div
@@ -3518,7 +3528,7 @@ export default function MonthlyPlansPage() {
                             }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#eef2ff')}
                             onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
-                            <span style={{ color: '#6366f1', fontSize: 14 }}>👨‍⚕️</span>
+                            <Icon name="doctor" size={14} style={{ color: 'var(--c-accent)' }} />
                             {name}
                           </div>
                         ))}
@@ -3528,7 +3538,7 @@ export default function MonthlyPlansPage() {
                 );
               })()}
               {searchQuery && (
-                <p style={{ margin: '5px 4px 0', fontSize: 12, color: '#6366f1', fontWeight: 700 }}>
+                <p style={{ margin: '5px 4px 0', fontSize: 12, color: 'var(--c-accent)', fontWeight: 700 }}>
                   {filteredEntries.length} نتيجة من أصل {activePlan.entries.length}
                 </p>
               )}
@@ -3537,10 +3547,10 @@ export default function MonthlyPlansPage() {
             {/* Visit status filter tabs */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
               {([
-                { key: 'all'         as const, label: '📋 الكل',         count: activePlan.entries.length,                                                              color: '#6366f1' },
-                { key: 'done'        as const, label: '✅ تمت',           count: activePlan.entries.filter(e => e.visits.length >= e.targetVisits).length,            color: '#22c55e' },
-                { key: 'not_done'    as const, label: '⏳ لم تتم',        count: activePlan.entries.filter(e => e.visits.length < e.targetVisits).length,             color: '#f59e0b' },
-                { key: 'voice_added' as const, label: '🎤 خارج البلان',  count: activePlan.entries.filter(e => e.isExtraVisit).length,                               color: '#3b82f6' },
+                { key: 'all'         as const, icon: 'file'     as const, label: 'الكل',         count: activePlan.entries.length,                                                              color: '#6366f1' },
+                { key: 'done'        as const, icon: 'checkCircle' as const, label: 'تمت',           count: activePlan.entries.filter(e => e.visits.length >= e.targetVisits).length,            color: '#22c55e' },
+                { key: 'not_done'    as const, icon: 'pause'    as const, label: 'لم تتم',        count: activePlan.entries.filter(e => e.visits.length < e.targetVisits).length,             color: '#f59e0b' },
+                { key: 'voice_added' as const, icon: 'mic'      as const, label: 'خارج البلان',  count: activePlan.entries.filter(e => e.isExtraVisit).length,                               color: '#3b82f6' },
               ]).map(f => {
                 const active = visitFilter === f.key;
                 return (
@@ -3552,7 +3562,7 @@ export default function MonthlyPlansPage() {
                     color: active ? '#fff' : '#64748b',
                     transition: 'all 0.15s',
                   }}>
-                    {f.label}
+                    <Icon name={f.icon} size={13} /> {f.label}
                     <span style={{
                       background: active ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
                       color: active ? '#fff' : f.color,
@@ -3577,8 +3587,9 @@ export default function MonthlyPlansPage() {
                     border: selectMode ? '2px solid #ef4444' : '2px solid #e2e8f0',
                     background: selectMode ? '#fef2f2' : '#fff',
                     color: selectMode ? '#ef4444' : '#64748b',
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
                   }}>
-                  {selectMode ? '✕ إلغاء التحديد' : '☑ وضع التحديد'}
+                  {selectMode ? <><Icon name="close" size={12} /> إلغاء التحديد</> : <><Icon name="check" size={12} /> وضع التحديد</>}
                 </button>
                 {selectMode && (
                   <>
@@ -3591,7 +3602,7 @@ export default function MonthlyPlansPage() {
                       }}
                       style={{
                         padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                        cursor: 'pointer', border: '2px solid #6366f1', background: '#eff6ff', color: '#4338ca',
+                        cursor: 'pointer', border: '2px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent-hover)',
                       }}>
                       {selectedEntries.size === filteredEntries.length ? 'إلغاء تحديد الكل' : 'تحديد الكل'}
                     </button>
@@ -3601,8 +3612,9 @@ export default function MonthlyPlansPage() {
                         style={{
                           padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                           cursor: 'pointer', border: '2px solid #ef4444', background: '#ef4444', color: '#fff',
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
                         }}>
-                        🗑 حذف المحدد ({selectedEntries.size})
+                        <Icon name="delete" size={12} /> حذف المحدد ({selectedEntries.size})
                       </button>
                     )}
                     <span style={{ fontSize: 12, color: '#94a3b8' }}>
@@ -3617,15 +3629,15 @@ export default function MonthlyPlansPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {activePlan.entries.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#fff', borderRadius: 12, border: '2px dashed #e2e8f0' }}>
-                  <p style={{ fontSize: 32, margin: '0 0 8px' }}>👨‍⚕️</p>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}><Icon name="doctor" size={32} /></div>
                   <p style={{ margin: 0, fontSize: 15 }}>لا يوجد أطباء في هذا البلان</p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: '#cbd5e1' }}>استخدم الاقتراح الذكي أعلاه أو أضف يدوياً</p>
                 </div>
               ) : filteredEntries.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#fff', borderRadius: 12, border: '2px dashed #e2e8f0' }}>
-                  <p style={{ fontSize: 32, margin: '0 0 8px' }}>
-                    {visitFilter === 'done' ? '✅' : visitFilter === 'not_done' ? '⏳' : visitFilter === 'voice_added' ? '🎤' : '🔍'}
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+                    {visitFilter === 'done' ? <Icon name="checkCircle" size={32} /> : visitFilter === 'not_done' ? <Icon name="pause" size={32} /> : visitFilter === 'voice_added' ? <Icon name="mic" size={32} /> : <Icon name="search" size={32} />}
+                  </div>
                   <p style={{ margin: 0, fontSize: 15 }}>
                     {visitFilter === 'done' ? 'لا توجد كولات مكتملة حتى الآن' :
                      visitFilter === 'not_done' ? 'جميع الكولات اكتملت! 🎉' :
@@ -3640,7 +3652,7 @@ export default function MonthlyPlansPage() {
               ) : filteredEntries.map((entry, idx) => {
                 const visitCount = entry.visits.length;
                 const pct = Math.min(100, Math.round((visitCount / (entry.targetVisits || 1)) * 100));
-                const progressColor = pct >= 100 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#6366f1';
+                const progressColor = pct >= 100 ? '#22c55e' : pct >= 50 ? 'var(--c-danger)' : 'var(--c-accent)';
                 const lastVisit = entry.visits[entry.visits.length - 1];
                 const lastFb = FEEDBACK_LABELS[(lastVisit?.feedback ?? 'pending').split(',')[0]] ?? FEEDBACK_LABELS.pending;
                 const isExpanded = expandedEntries.has(entry.id);
@@ -3654,7 +3666,7 @@ export default function MonthlyPlansPage() {
                     style={{
                       background: voiceNewEntries.has(entry.id) ? '#eff6ff' : '#fff',
                       border: highlightEntryId === entry.id
-                        ? '2px solid #6366f1'
+                        ? '2px solid var(--c-accent)'
                         : voiceNewEntries.has(entry.id)
                           ? '2px solid #3b82f6'
                           : '1px solid #e8edf2',
@@ -3691,7 +3703,7 @@ export default function MonthlyPlansPage() {
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           color: '#fff', fontSize: 13, fontWeight: 700, transition: 'all 0.15s',
                         }}>
-                          {selectedEntries.has(entry.id) && '✓'}
+                          {selectedEntries.has(entry.id) && <Icon name="check" size={13} />}
                         </span>
                       )}
                       {/* Expand chevron */}
@@ -3726,7 +3738,8 @@ export default function MonthlyPlansPage() {
                               padding: '2px 8px', borderRadius: 20,
                               verticalAlign: 'middle',
                               boxShadow: '0 1px 4px rgba(37,99,235,0.4)',
-                            }}>🎤 مضاف صوتياً</span>
+                              display: 'inline-flex', alignItems: 'center', gap: 3,
+                            }}><Icon name="mic" size={9} /> مضاف صوتياً</span>
                           )}
                           {entry.isExtraVisit && (
                             <span style={{
@@ -3755,7 +3768,7 @@ export default function MonthlyPlansPage() {
                               background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe',
                               whiteSpace: 'nowrap', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis',
                             }}>
-                            🎯 {targetItemsList.length === 1 ? targetItemsList[0].item.name : `${targetItemsList.length} ايتمات`}
+                            <Icon name="target" size={11} /> {targetItemsList.length === 1 ? targetItemsList[0].item.name : `${targetItemsList.length} ايتمات`}
                           </span>
                         )}
 
@@ -3806,14 +3819,14 @@ export default function MonthlyPlansPage() {
                                 onKeyDown={e => { if (e.key === 'Enter') saveEntryVisits(entry.id); if (e.key === 'Escape') setEditingEntry(null); }}
                                 style={{ width: 50, padding: '2px 5px', border: `2px solid ${progressColor}`, borderRadius: 6, fontSize: 13, fontWeight: 700, textAlign: 'center' }}
                               />
-                              <button onClick={() => saveEntryVisits(entry.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer' }}>✓</button>
-                              <button onClick={() => setEditingEntry(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                              <button onClick={() => saveEntryVisits(entry.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}><Icon name="check" size={11} /></button>
+                              <button onClick={() => setEditingEntry(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
                             </div>
                           ) : (
                             <button
                               onClick={() => { setEditingEntry(entry.id); setEditVisitsVal(entry.targetVisits); }}
                               style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 10px', fontSize: 11, color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                              ✏️ هدف: {entry.targetVisits} زيارات
+                              <Icon name="edit" size={11} /> هدف: {entry.targetVisits} زيارات
                             </button>
                           )}
                           {/* Add visit button */}
@@ -3833,8 +3846,8 @@ export default function MonthlyPlansPage() {
                         <button
                           onClick={(e) => { e.stopPropagation(); removeEntry(entry.id); }}
                           title="إزالة من البلان"
-                          style={{ background: 'none', border: '1px solid #fecaca', color: '#ef4444', cursor: 'pointer', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600, flexShrink: 0 }}
-                        >🗑 إزالة</button>
+                          style={{ background: 'none', border: '1px solid #fecaca', color: '#ef4444', cursor: 'pointer', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                        ><Icon name="delete" size={11} /> إزالة</button>
                       </div>
 
                       <div className="mp-entry-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, overflow: 'visible' }}>
@@ -3855,8 +3868,8 @@ export default function MonthlyPlansPage() {
                               transform: showEntryItems.has(entry.id) ? 'rotate(90deg)' : 'rotate(0deg)',
                               transition: 'transform 0.2s', display: 'inline-block',
                             }}>▶</span>
-                            <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              🎯 الايتمات المستهدفة
+                            <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <Icon name="target" size={11} /> الايتمات المستهدفة
                               {targetItemsList.length > 0 && (
                                 <span style={{ marginRight: 6, padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 800, background: '#eff6ff', color: '#2563eb' }}>{targetItemsList.length}</span>
                               )}
@@ -3925,8 +3938,9 @@ export default function MonthlyPlansPage() {
                                           background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6,
                                           padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
                                           opacity: !newItemName.trim() || addingEntryItem ? 0.5 : 1,
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                         }}>
-                                        {addingEntryItem ? '...' : '✓'}
+                                        {addingEntryItem ? '...' : <Icon name="check" size={12} />}
                                       </button>
                                     </div>
                                   </div>
@@ -3956,8 +3970,8 @@ export default function MonthlyPlansPage() {
 
                         {/* Right col: actual visits */}
                         <div style={{ padding: '10px 16px' }}>
-                          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            📋 الزيارات الفعلية
+                          <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="file" size={11} /> الزيارات الفعلية
                           </p>
 
                           {entry.visits.length === 0 && (
@@ -3986,12 +4000,12 @@ export default function MonthlyPlansPage() {
                                     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                       <select autoFocus value={editVisitItemVal} onChange={e => setEditVisitItemVal(e.target.value)}
                                         onKeyDown={e => { if (e.key==='Enter') saveVisitItem(v.id); if (e.key==='Escape') setEditingVisitItem(null); }}
-                                        style={{ padding: '2px 6px', border: '2px solid #6366f1', borderRadius: 7, fontSize: 11, direction: 'rtl', flex: 1, minWidth: 0 }}>
+                                        style={{ padding: '2px 6px', border: '2px solid var(--c-accent)', borderRadius: 7, fontSize: 11, direction: 'rtl', flex: 1, minWidth: 0 }}>
                                         <option value="">— بدون</option>
                                         {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                                       </select>
-                                      <button onClick={() => saveVisitItem(v.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer' }}>✓</button>
-                                      <button onClick={() => setEditingVisitItem(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                                      <button onClick={() => saveVisitItem(v.id)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}><Icon name="check" size={11} /></button>
+                                      <button onClick={() => setEditingVisitItem(null)} style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 4, padding: '2px 5px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
                                     </div>
                                   ) : (
                                     <span
@@ -4028,9 +4042,9 @@ export default function MonthlyPlansPage() {
                                       }}
                                       onMouseEnter={e => { e.currentTarget.style.background = '#16a34a'; e.currentTarget.style.color = '#fff'; }}
                                       onMouseLeave={e => { e.currentTarget.style.background = '#dcfce7'; e.currentTarget.style.color = '#16a34a'; }}
-                                    >📍</a>
+                                    ><Icon name="location" size={12} /></a>
                                   ) : (
-                                    <span title="لا يوجد موقع مسجل" style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#e2e8f0', flexShrink: 0 }}>📍</span>
+                                    <span title="لا يوجد موقع مسجل" style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#e2e8f0', flexShrink: 0 }}><Icon name="location" size={12} /></span>
                                   )}
                                   {/* Like button — visible to all, clickable by managers only */}
                                   {(() => {
@@ -4080,7 +4094,7 @@ export default function MonthlyPlansPage() {
                                             <div style={{ fontWeight: 700, marginBottom: 4, borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: 3 }}>❤️ المعجبون</div>
                                             {(v.likes || []).length === 0
                                               ? <div style={{ color: '#94a3b8' }}>لا أحد بعد</div>
-                                              : (v.likes || []).map(l => <div key={l.id}>👤 {l.user.username}</div>)
+                                              : (v.likes || []).map(l => <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> {l.user.username}</div>)
                                             }
                                           </div>
                                         )}
@@ -4089,7 +4103,7 @@ export default function MonthlyPlansPage() {
                                   })()}
                                   {/* Delete */}
                                   <button onClick={() => deleteVisit(v.id)} title="حذف"
-                                    style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}>🗑</button>
+                                    style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0, display: 'inline-flex', alignItems: 'center' }}><Icon name="delete" size={13} /></button>
                                 </div>
                                 {/* Notes + Manager Comments */}
                                 {(v.notes || (v.comments && v.comments.length > 0) || isManagerOrAdmin) && (
@@ -4103,14 +4117,14 @@ export default function MonthlyPlansPage() {
                                     )}
                                     {/* Manager comments */}
                                     {(v.comments || []).map(c => (
-                                      <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '3px 10px', background: '#fffbeb', borderTop: '1px dotted #fef3c7' }}>
-                                        <span style={{ fontSize: 10, color: '#d97706', marginTop: 2, flexShrink: 0 }}>🔔</span>
+                                      <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 5, padding: '3px 10px', background: 'var(--c-danger-bg)', borderTop: '1px dotted var(--c-danger-border)' }}>
+                                        <Icon name="alert" size={10} style={{ marginTop: 2, flexShrink: 0, color: 'var(--c-danger)' }} />
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                          <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e' }}>{c.user.username}: </span>
-                                          <span style={{ fontSize: 11, color: '#78350f', lineHeight: 1.4 }}>{c.content}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--c-danger)' }}>{c.user.username}: </span>
+                                          <span style={{ fontSize: 11, color: 'var(--c-danger)', lineHeight: 1.4 }}>{c.content}</span>
                                         </div>
                                         {c.userId === authUser?.id && (
-                                          <button onClick={() => deleteComment(v.id, c.id)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 11, padding: 0, flexShrink: 0 }}>✕</button>
+                                          <button onClick={() => deleteComment(v.id, c.id)} style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 11, padding: 0, flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={10} /></button>
                                         )}
                                       </div>
                                     ))}
@@ -4123,19 +4137,19 @@ export default function MonthlyPlansPage() {
                                           onChange={e => setNewCommentText(e.target.value)}
                                           onKeyDown={e => { if (e.key === 'Enter') submitComment(v.id); if (e.key === 'Escape') { setCommentingVisit(null); setNewCommentText(''); } }}
                                           placeholder="اكتب ملاحظتك..."
-                                          style={{ flex: 1, border: '1px solid #fcd34d', borderRadius: 6, padding: '3px 8px', fontSize: 11, outline: 'none', direction: 'rtl' }}
+                                          style={{ flex: 1, border: '1px solid var(--c-danger-border)', borderRadius: 6, padding: '3px 8px', fontSize: 11, outline: 'none', direction: 'rtl' }}
                                         />
                                         <button onClick={() => submitComment(v.id)} disabled={savingComment || !newCommentText.trim()}
-                                          style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', opacity: !newCommentText.trim() ? 0.5 : 1 }}>
-                                          {savingComment ? '...' : '✓'}
+                                          style={{ background: 'var(--c-danger)', color: '#fff', border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', opacity: !newCommentText.trim() ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                                          {savingComment ? '...' : <Icon name="check" size={11} />}
                                         </button>
                                         <button onClick={() => { setCommentingVisit(null); setNewCommentText(''); }}
-                                          style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 11, cursor: 'pointer' }}>✕</button>
+                                          style={{ background: '#e2e8f0', color: '#64748b', border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={11} /></button>
                                       </div>
                                     ) : isManagerOrAdmin ? (
                                       <button onClick={() => { setCommentingVisit(v.id); setNewCommentText(''); }}
-                                        style={{ background: 'none', border: 'none', color: '#d97706', cursor: 'pointer', fontSize: 10, padding: '2px 10px 5px', fontWeight: 600 }}>
-                                        + إضافة ملاحظة مدير
+                                        style={{ background: 'none', border: 'none', color: 'var(--c-danger)', cursor: 'pointer', fontSize: 10, padding: '2px 10px 5px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <Icon name="add" size={10} /> إضافة ملاحظة مدير
                                       </button>
                                     ) : null}
                                   </div>
@@ -4162,15 +4176,15 @@ export default function MonthlyPlansPage() {
         <div style={overlayStyle} onClick={() => !importing && setShowImportModal(false)}>
           <div style={{ ...modalStyle, maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b' }}>📥 استيراد تقارير من Excel</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="import" size={16} /> استيراد تقارير من Excel</h2>
               <button onClick={() => !importing && setShowImportModal(false)}
                 style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
             </div>
 
             {/* Plan info */}
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-              <p style={{ margin: 0, fontSize: 13, color: '#166534', fontWeight: 700 }}>
-                📅 {activePlan.scientificRep?.name ?? 'بدون مندوب'} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
+              <p style={{ margin: 0, fontSize: 13, color: '#166534', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Icon name="calendar" size={13} /> {activePlan.scientificRep?.name ?? 'بدون مندوب'} — {MONTHS_AR[activePlan.month - 1]} {activePlan.year}
               </p>
               <p style={{ margin: '3px 0 0', fontSize: 12, color: '#15803d' }}>
                 {activePlan.entries.length} طبيب في البلان — الزيارات ستُطابق تلقائياً حسب اسم الطبيب
@@ -4179,7 +4193,7 @@ export default function MonthlyPlansPage() {
 
             {/* Format guide */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>📋 الحقول المعترف بها (يُقبل أي اسم مشابه):</p>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="file" size={12} /> الحقول المعترف بها (يُقبل أي اسم مشابه):</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {[
                   { name: 'اسم الطبيب *', hint: 'doctor / الطبيب / اسم …', required: true },
@@ -4210,12 +4224,12 @@ export default function MonthlyPlansPage() {
                 <input ref={importFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                   onChange={e => e.target.files?.[0] && importPlanVisits(e.target.files[0])} />
                 <button onClick={downloadTemplate}
-                  style={{ ...btnStyle('var(--c-accent)'), flex: 1 }}>
-                  ⬇️ تحميل قالب Excel
+                  style={{ ...btnStyle('var(--c-accent)'), flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                  <Icon name="export" size={14} /> تحميل قالب Excel
                 </button>
                 <button onClick={() => importFileRef.current?.click()} disabled={importing}
-                  style={{ ...btnStyle('var(--c-success)'), flex: 1 }}>
-                  {importing ? '⏳ جاري الاستيراد...' : '📤 رفع ملف Excel'}
+                  style={{ ...btnStyle('var(--c-success)'), flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                  {importing ? <><Icon name="loading" size={14} className="icon-spin" /> جاري الاستيراد...</> : <><Icon name="import" size={14} /> رفع ملف Excel</>}
                 </button>
               </div>
             ) : (
@@ -4223,15 +4237,15 @@ export default function MonthlyPlansPage() {
                 {/* Success summary */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
                   <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: 12, textAlign: 'center' }}>
-                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#166534' }}>✅ تم استيراده</p>
+                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="checkCircle" size={11} /> تم استيراده</p>
                     <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#16a34a' }}>{importResult.imported}</p>
                   </div>
                   <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: 12, textAlign: 'center' }}>
-                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#92400e' }}>⚠️ أخطاء</p>
+                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#92400e', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="warning" size={11} /> أخطاء</p>
                     <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#ea580c' }}>{importResult.errors.length}</p>
                   </div>
                   <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 12, textAlign: 'center' }}>
-                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#64748b' }}>📊 إجمالي الصفوف</p>
+                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#64748b' }}>إجمالي الصفوف</p>
                     <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#374151' }}>{importResult.total}</p>
                   </div>
                 </div>
@@ -4239,8 +4253,8 @@ export default function MonthlyPlansPage() {
                 {/* Unmatched doctors */}
                 {importResult.unmatched.length > 0 && (
                   <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#92400e' }}>
-                      ⚠️ أطباء غير موجودين في البلان ({importResult.unmatched.length}):
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#92400e', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="warning" size={12} /> أطباء غير موجودين في البلان ({importResult.unmatched.length}):
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {importResult.unmatched.map((name, i) => (
@@ -4265,11 +4279,11 @@ export default function MonthlyPlansPage() {
                 )}
 
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportResult(null); }} style={btnStyle('var(--c-accent)')}>
-                    📤 رفع ملف آخر
+                  <button onClick={() => { setImportResult(null); }} style={{ ...btnStyle('var(--c-accent)'), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="import" size={13} /> رفع ملف آخر
                   </button>
-                  <button onClick={() => setShowImportModal(false)} style={btnStyle('var(--c-success)')}>
-                    ✓ تم
+                  <button onClick={() => setShowImportModal(false)} style={{ ...btnStyle('var(--c-success)'), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="check" size={13} /> تم
                   </button>
                 </div>
               </div>
@@ -4284,14 +4298,14 @@ export default function MonthlyPlansPage() {
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 480, width: '94%', direction: 'rtl', maxHeight: '90vh', overflowY: 'auto' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b' }}>📥 استيراد البلان من Excel</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="import" size={16} /> استيراد البلان من Excel</h2>
               <button onClick={() => !planImporting && setShowPlanImportModal(false)}
                 style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>×</button>
             </div>
 
             {/* Format guide */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', marginBottom: 16 }}>
-              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>📋 أعمدة الملف (يُقبل أي اسم مشابه):</p>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="file" size={12} /> أعمدة الملف (يُقبل أي اسم مشابه):</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {[
                   { name: 'اسم الطبيب *', hint: 'doctor / الطبيب / اسم', required: true },
@@ -4315,21 +4329,21 @@ export default function MonthlyPlansPage() {
                 <input ref={planImportFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) importPlanEntries(f); }} />
                 <button onClick={() => planImportFileRef.current?.click()} disabled={planImporting}
-                  style={{ ...btnStyle('var(--c-success)', true), width: '100%', justifyContent: 'center', gap: 8, opacity: planImporting ? 0.6 : 1 }}>
-                  {planImporting ? '⏳ جاري الاستيراد...' : '📂 اختيار ملف Excel'}
+                  style={{ ...btnStyle('var(--c-success)', true), width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: planImporting ? 0.6 : 1 }}>
+                  {planImporting ? <><Icon name="loading" size={14} className="icon-spin" /> جاري الاستيراد...</> : <><Icon name="folder" size={14} /> اختيار ملف Excel</>}
                 </button>
               </div>
             ) : (
               <div>
                 <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: 14, marginBottom: 12 }}>
-                  <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#166534' }}>
-                    ✅ تم استيراد {planImportResult.imported} من أصل {planImportResult.total} طبيب
+                  <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="checkCircle" size={13} /> تم استيراد {planImportResult.imported} من أصل {planImportResult.total} طبيب
                   </p>
                 </div>
                 {planImportResult.unmatched.length > 0 && (
                   <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: 14, marginBottom: 12 }}>
-                    <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#9a3412', fontSize: 13 }}>
-                      ⚠️ لم يُعثر على {planImportResult.unmatched.length} طبيب:
+                    <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#9a3412', fontSize: 13, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="warning" size={13} /> لم يُعثر على {planImportResult.unmatched.length} طبيب:
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {planImportResult.unmatched.map((n, i) => (
@@ -4355,10 +4369,10 @@ export default function MonthlyPlansPage() {
           <div style={overlayStyle} onClick={() => setVisitFormEntry(null)}>
             <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b' }}>
-                  📋 تسجيل زيارة
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="file" size={15} /> تسجيل زيارة
                 </h2>
-                {entry && <p style={{ margin: 0, fontSize: 13, color: '#6366f1', fontWeight: 600 }}>{entry.doctor.name}</p>}
+                {entry && <p style={{ margin: 0, fontSize: 13, color: 'var(--c-accent)', fontWeight: 600 }}>{entry.doctor.name}</p>}
                 <button onClick={() => setVisitFormEntry(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
               </div>
 
@@ -4419,12 +4433,12 @@ export default function MonthlyPlansPage() {
                   border: `1px solid ${visitLocStatus === 'ok' ? '#86efac' : visitLocStatus === 'denied' ? '#fed7aa' : '#e2e8f0'}`,
                   fontSize: 12, color: visitLocStatus === 'ok' ? '#166534' : visitLocStatus === 'denied' ? '#92400e' : '#64748b',
                 }}>
-                  <span style={{ fontSize: 16 }}>
-                    {visitLocStatus === 'getting' ? '⏳' : visitLocStatus === 'ok' ? '📍' : visitLocStatus === 'denied' ? '⚠️' : '📍'}
+                  <span style={{ fontSize: 16, display: 'flex' }}>
+                    {visitLocStatus === 'getting' ? <Icon name="loading" size={16} className="icon-spin" /> : visitLocStatus === 'ok' ? <Icon name="location" size={16} /> : visitLocStatus === 'denied' ? <Icon name="warning" size={16} /> : <Icon name="location" size={16} />}
                   </span>
-                  <span style={{ fontWeight: 600, flex: 1 }}>
+                  <span style={{ fontWeight: 600, flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {visitLocStatus === 'getting' ? 'جاري تحديد الموقع...' :
-                     visitLocStatus === 'ok'      ? `✓ تم تحديد الموقع (${visitLocation!.lat.toFixed(5)}, ${visitLocation!.lng.toFixed(5)})` :
+                     visitLocStatus === 'ok'      ? <><Icon name="check" size={12} /> تم تحديد الموقع ({visitLocation!.lat.toFixed(5)}, {visitLocation!.lng.toFixed(5)})</> :
                      visitLocStatus === 'denied'  ? 'تعذّر تحديد الموقع تلقائياً' :
                      'جاري تحديد الموقع...'}
                   </span>
@@ -4434,17 +4448,17 @@ export default function MonthlyPlansPage() {
                         setVisitLocStatus('getting');
                         setShowManualLoc(false);
                         getLocation().then(loc => { if (loc) { setVisitLocation(loc); setVisitLocStatus('ok'); setShowManualLoc(false); } else { setVisitLocStatus('denied'); } });
-                      }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#92400e', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        🔄 إعادة
+                      }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #fed7aa', background: '#fff7ed', color: '#92400e', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="refresh" size={11} /> إعادة
                       </button>
-                      <button onClick={() => setShowManualLoc(p => !p)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        ✏️ إدخال يدوي
+                      <button onClick={() => setShowManualLoc(p => !p)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="edit" size={11} /> إدخال يدوي
                       </button>
                     </>
                   )}
                   {visitLocStatus === 'ok' && (
-                    <button onClick={() => { setVisitLocation(null); setVisitLocStatus('denied'); setShowManualLoc(false); }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}>
-                      ✕
+                    <button onClick={() => { setVisitLocation(null); setVisitLocStatus('denied'); setShowManualLoc(false); }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+                      <Icon name="close" size={11} />
                     </button>
                   )}
                 </div>
@@ -4482,9 +4496,9 @@ export default function MonthlyPlansPage() {
                           setVisitLocStatus('ok');
                           setShowManualLoc(false);
                         }}
-                        style={{ padding: '5px 12px', borderRadius: 6, background: '#1d4ed8', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}
+                        style={{ padding: '5px 12px', borderRadius: 6, background: '#1d4ed8', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                       >
-                        ✓ تأكيد
+                        <Icon name="check" size={12} /> تأكيد
                       </button>
                     </div>
                     <div style={{ fontSize: 10, color: '#6b7280', marginTop: 5 }}>
@@ -4496,8 +4510,8 @@ export default function MonthlyPlansPage() {
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button onClick={() => setVisitFormEntry(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
-                <button onClick={submitVisit} disabled={savingVisit} style={btnStyle('var(--c-accent)')}>
-                  {savingVisit ? 'جاري الحفظ...' : '✓ حفظ الزيارة'}
+                <button onClick={submitVisit} disabled={savingVisit} style={{ ...btnStyle('var(--c-accent)'), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {savingVisit ? 'جاري الحفظ...' : <><Icon name="check" size={13} /> حفظ الزيارة</>}
                 </button>
               </div>
             </div>
@@ -4509,7 +4523,7 @@ export default function MonthlyPlansPage() {
       {showCreate && (
         <div style={overlayStyle} onClick={() => setShowCreate(false)}>
           <div style={modalStyle} onClick={e => e.stopPropagation()}>
-            <h2 style={{ margin: '0 0 20px', fontSize: 18 }}>📅 إنشاء بلان شهري جديد</h2>
+            <h2 style={{ margin: '0 0 20px', fontSize: 18, display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="calendar" size={17} /> إنشاء بلان شهري جديد</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               {isManagerOrAdmin ? (
                 <label style={{ ...labelStyle, gridColumn: 'span 3' }}>
@@ -4535,12 +4549,12 @@ export default function MonthlyPlansPage() {
                   </label>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                     <button onClick={() => setCAreaIds(allAreas.map(a => a.id))} type="button"
-                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>
-                      ✓ الكل
+                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="check" size={11} /> الكل
                     </button>
                     <button onClick={() => setCAreaIds([])} type="button"
-                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>
-                      ✗ إلغاء
+                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="close" size={11} /> إلغاء
                     </button>
                   </div>
                   <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #e2e8f0', borderRadius: 8, padding: 8 }}>
@@ -4620,7 +4634,7 @@ export default function MonthlyPlansPage() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                     }}>{i + 1}</span>
                     <span style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', flex: 1 }}>{doc.name}</span>
-                    <span style={{ fontSize: 11, color: fbPopup.meta.color, opacity: 0.7 }}>انتقل ←</span>
+                    <span style={{ fontSize: 11, color: fbPopup.meta.color, opacity: 0.7, display: 'inline-flex', alignItems: 'center', gap: 3 }}>انتقل <Icon name="chevronLeft" size={11} /></span>
                   </div>
                 ))}
               </div>
@@ -4638,7 +4652,7 @@ export default function MonthlyPlansPage() {
         <div style={overlayStyle} onClick={() => setDoctorHistoryFor(null)}>
           <div style={{ ...modalStyle, maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b' }}>🗓 سجلّ {doctorHistoryFor.name}</h2>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="calendar" size={15} /> سجلّ {doctorHistoryFor.name}</h2>
               <button onClick={() => setDoctorHistoryFor(null)}
                 style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
             </div>
@@ -4701,7 +4715,7 @@ export default function MonthlyPlansPage() {
         <div style={overlayStyle} onClick={() => setTransferPlan(null)}>
           <div style={{ ...modalStyle, maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📤 تحويل البلان إلى مندوب</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="transfer" size={16} /> تحويل البلان إلى مندوب</h2>
               <button onClick={() => setTransferPlan(null)}
                 style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
             </div>
@@ -4709,14 +4723,14 @@ export default function MonthlyPlansPage() {
               البلان: <strong>{transferPlan.scientificRep?.name ?? 'بدون مندوب'}</strong> — {MONTHS_AR[transferPlan.month - 1]} {transferPlan.year}
             </p>
             {repUsers.length === 0 ? (
-              <p style={{ color: '#ef4444', fontSize: 13, background: '#fee2e2', borderRadius: 8, padding: '10px 14px' }}>
-                ⚠️ لا يوجد حساب مندوب مرتبط بهذا المندوب العلمي ولا يوجد مندوبون تحت إدارتك.
+              <p style={{ color: '#ef4444', fontSize: 13, background: '#fee2e2', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="warning" size={13} /> لا يوجد حساب مندوب مرتبط بهذا المندوب العلمي ولا يوجد مندوبون تحت إدارتك.
               </p>
             ) : (
               <>
                 {noLinkedUser && (
-                  <p style={{ color: '#92400e', fontSize: 12, background: '#fef3c7', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
-                    ⚠️ لا يوجد حساب مرتبط بهذا المندوب مباشرةً — اختر أي حساب مندوب من القائمة.
+                  <p style={{ color: '#92400e', fontSize: 12, background: '#fef3c7', borderRadius: 8, padding: '8px 12px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="warning" size={12} /> لا يوجد حساب مرتبط بهذا المندوب مباشرةً — اختر أي حساب مندوب من القائمة.
                   </p>
                 )}
                 <label style={labelStyle}>
@@ -4735,8 +4749,8 @@ export default function MonthlyPlansPage() {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
               <button onClick={() => setTransferPlan(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
               {repUsers.length > 0 && (
-                <button onClick={doTransfer} disabled={transferring || !transferTarget} style={btnStyle('var(--c-accent)')}>
-                  {transferring ? '⏳...' : '📤 تحويل'}
+                <button onClick={doTransfer} disabled={transferring || !transferTarget} style={{ ...btnStyle('var(--c-accent)'), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {transferring ? <Icon name="loading" size={13} className="icon-spin" /> : <><Icon name="transfer" size={13} /> تحويل</>}
                 </button>
               )}
             </div>
@@ -4748,12 +4762,12 @@ export default function MonthlyPlansPage() {
       {repAreasModal && (
         <div style={overlayStyle} onClick={() => setRepAreasModal(null)}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: '90%', maxWidth: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', direction: 'rtl' }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ margin: '0 0 10px', fontSize: 18 }}>📍 مناطق {repAreasModal.repName}</h2>
+            <h2 style={{ margin: '0 0 10px', fontSize: 18, display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="location" size={17} /> مناطق {repAreasModal.repName}</h2>
             <p style={{ fontSize: 13, color: '#64748b', marginBottom: 14, marginTop: 0 }}>
               حدد المناطق المسموح بها لاقتراح البلان. إذا لم تختر أي منطقة يشمل جميع المناطق.
             </p>
             {repAreasLoading ? (
-              <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>⏳ جاري التحميل...</div>
+              <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Icon name="loading" size={14} className="icon-spin" /> جاري التحميل...</div>
             ) : repAllAreas.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>لا توجد مناطق متاحة</div>
             ) : (
@@ -4773,17 +4787,17 @@ export default function MonthlyPlansPage() {
                           return next;
                         });
                       }}
-                      style={{ width: 16, height: 16, accentColor: '#6366f1' }}
+                      style={{ width: 16, height: 16, accentColor: 'var(--c-accent)' }}
                     />
-                    <span style={{ fontSize: 14 }}>📍 {area.name}</span>
+                    <span style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={13} /> {area.name}</span>
                   </label>
                 ))}
               </div>
             )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
               <button onClick={() => setRepAreasModal(null)} style={btnStyle('var(--c-text-secondary)')}>إلغاء</button>
-              <button onClick={saveRepAreas} disabled={repAreasSaving} style={btnStyle('var(--c-accent)')}>
-                {repAreasSaving ? '⏳...' : '💾 حفظ المناطق'}
+              <button onClick={saveRepAreas} disabled={repAreasSaving} style={{ ...btnStyle('var(--c-accent)'), display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                {repAreasSaving ? <Icon name="loading" size={13} className="icon-spin" /> : '💾 حفظ المناطق'}
               </button>
             </div>
           </div>

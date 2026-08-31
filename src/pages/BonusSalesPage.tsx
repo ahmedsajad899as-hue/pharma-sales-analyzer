@@ -523,15 +523,6 @@ export default function BonusSalesPage() {
     const myPending    = myRows.filter(r => !r.bonusDelivered).length;
     return (
       <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🎁</div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>بونصاتي</h1>
-            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>قائمة الصيدليات المعيَّنة لك لتسليم البونص</p>
-          </div>
-        </div>
-
         {/* KPIs */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
           <BKpi label="إجمالي المعيَّن لي" value={myTotal.toLocaleString('ar-IQ')} />
@@ -601,15 +592,6 @@ export default function BonusSalesPage() {
   // ─────────────────────────────────────────────────────────────
   return (
     <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div style={{ background: '#1e40af', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 20 }}>🎁</div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#1e293b' }}>مبيعات البونص والتعويضات</h1>
-          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>رفع ملفات المبيعات ومقارنتها بملفات التعويضات — مع متابعة تسليم البونص للصيدليات</p>
-        </div>
-      </div>
-
       {/* Upload message */}
       {uploadMsg && (
         <div style={{ background: '#f8fafc', border: `1px solid ${uploadMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 6, padding: '8px 14px', marginBottom: 12, fontSize: 12, color: uploadMsg.startsWith('✅') ? '#15803d' : '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>

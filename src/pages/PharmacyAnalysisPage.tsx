@@ -73,8 +73,9 @@ function fmtDate(d: string) {
 }
 function dayColor(d: number): { bg: string; color: string } {
   if (d < 15)  return { bg: 'var(--c-success-bg)', color: 'var(--c-success)' };
-  if (d < 30)  return { bg: 'var(--c-warning-bg)', color: 'var(--c-warning)' };
-  if (d < 60)  return { bg: '#fff7ed', color: '#c2410c' };
+  // ثلاث درجات من نفس لون الخطر (بدل لون منفصل) — تدرّج بالكثافة لا بالهوية
+  if (d < 30)  return { bg: 'color-mix(in srgb, var(--c-danger) 10%, white)', color: 'var(--c-danger)' };
+  if (d < 60)  return { bg: 'var(--c-warning-bg)', color: 'var(--c-warning)' };
   return              { bg: 'var(--c-danger-bg)', color: 'var(--c-danger)' };
 }
 
@@ -397,7 +398,7 @@ export default function PharmacyAnalysisPage() {
       {pendingFile && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl">
-            <div style={{ fontSize: 22, marginBottom: 6 }}>💱</div>
+            <div style={{ fontSize: 22, marginBottom: 6, display: 'flex', justifyContent: 'center' }}><Icon name="money" size={26} /></div>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--c-text-primary)', marginBottom: 4 }}>عملة الملف</div>
             <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 18 }}>{pendingFile.name}</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 16 }}>
@@ -429,9 +430,9 @@ export default function PharmacyAnalysisPage() {
                   uploadFile(pendingFile, preCurrency, isFinite(rate) && rate > 0 ? rate : 1470);
                   setPendingFile(null);
                 }}
-                style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--c-accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+                style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--c-accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
               >
-                ✔ رفع الملف
+                <Icon name="checkCircle" size={14} /> رفع الملف
               </button>
               <button
                 onClick={() => setPendingFile(null)}
@@ -444,27 +445,18 @@ export default function PharmacyAnalysisPage() {
         </div>
       )}
 
-      {/* ── Page Header ────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <div style={{ background: 'var(--c-accent)', borderRadius: 10, padding: '8px 12px', color: '#fff', display: 'flex', alignItems: 'center' }}><Icon name="navPharmacyAnalysis" size={20} /></div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: 'var(--c-text-primary)' }}>تحليل الصيدليات والمبيعات</h1>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--c-text-secondary)' }}>تحليل شامل عبر الملفات المرفوعة</p>
-        </div>
-      </div>
-
       {/* ── File Selector card ──────────────────────────────── */}
       <div style={CARD}>
         {/* Clear confirm dialog */}
         {showClearConfirm && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !clearing && setShowClearConfirm(false)}>
             <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
+              <div style={{ fontSize: 26, marginBottom: 8, display: 'flex', justifyContent: 'center' }}><Icon name="delete" size={28} /></div>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-primary)', marginBottom: 6 }}>مسح كل البيانات</div>
               <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 20 }}>سيتم حذف جميع الملفات ({files.length}) وبياناتها نهائياً. هل أنت متأكد؟</div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button onClick={clearAllData} disabled={clearing} style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--c-danger)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: clearing ? 'default' : 'pointer', opacity: clearing ? .7 : 1 }}>
-                  {clearing ? '⏳ جاري الحذف...' : '✔ نعم، احذف'}
+                <button onClick={clearAllData} disabled={clearing} style={{ padding: '9px 24px', borderRadius: 8, background: 'var(--c-danger)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: clearing ? 'default' : 'pointer', opacity: clearing ? .7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                  {clearing ? <><Icon name="loading" size={14} className="icon-spin" /> جاري الحذف...</> : <><Icon name="checkCircle" size={14} /> نعم، احذف</>}
                 </button>
                 <button onClick={() => setShowClearConfirm(false)} disabled={clearing} style={{ padding: '9px 20px', borderRadius: 8, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', border: 'none', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}>إلغاء</button>
               </div>
@@ -486,12 +478,12 @@ export default function PharmacyAnalysisPage() {
           return (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deletingFileId && setConfirmDeleteFileId(null)}>
               <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
-                <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
+                <div style={{ fontSize: 26, marginBottom: 8, display: 'flex', justifyContent: 'center' }}><Icon name="delete" size={28} /></div>
                 <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-text-primary)', marginBottom: 6 }}>حذف الملف</div>
                 <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 18, wordBreak: 'break-all' }}>{cf?.originalName}</div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                  <button onClick={() => deleteOneFile(confirmDeleteFileId)} disabled={!!deletingFileId} style={{ padding: '8px 22px', borderRadius: 8, background: 'var(--c-danger)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: deletingFileId ? 'default' : 'pointer', opacity: deletingFileId ? .7 : 1 }}>
-                    {deletingFileId ? '⏳ جاري الحذف...' : '✔ نعم، احذف'}
+                  <button onClick={() => deleteOneFile(confirmDeleteFileId)} disabled={!!deletingFileId} style={{ padding: '8px 22px', borderRadius: 8, background: 'var(--c-danger)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: deletingFileId ? 'default' : 'pointer', opacity: deletingFileId ? .7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                    {deletingFileId ? <><Icon name="loading" size={13} className="icon-spin" /> جاري الحذف...</> : <><Icon name="checkCircle" size={13} /> نعم، احذف</>}
                   </button>
                   <button onClick={() => setConfirmDeleteFileId(null)} disabled={!!deletingFileId} style={{ padding: '8px 18px', borderRadius: 8, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', border: 'none', fontWeight: 500, fontSize: 13, cursor: 'pointer' }}>إلغاء</button>
                 </div>
@@ -512,8 +504,8 @@ export default function PharmacyAnalysisPage() {
                 fontWeight: selFiles.has(f.id) ? 600 : 400,
                 overflow: 'hidden',
               }}>
-                <span onClick={() => toggleFile(f.id)} style={{ padding: '5px 10px', cursor: 'pointer' }}>
-                  {selFiles.has(f.id) ? '✓ ' : ''}{f.originalName}
+                <span onClick={() => toggleFile(f.id)} style={{ padding: '5px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {selFiles.has(f.id) ? <Icon name="check" size={12} /> : ''}{f.originalName}
                   <span style={{ opacity: .55, marginRight: 4 }}>({f.rowCount})</span>
                 </span>
                 <button
@@ -522,10 +514,10 @@ export default function PharmacyAnalysisPage() {
                   style={{
                     padding: '5px 7px', border: 'none', background: 'transparent',
                     cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 13, lineHeight: 1,
-                    borderRight: selFiles.has(f.id) ? '1px solid #bfdbfe' : '1px solid var(--c-border)',
-                    order: -1,
+                    borderRight: selFiles.has(f.id) ? '1px solid var(--c-accent-light)' : '1px solid var(--c-border)',
+                    order: -1, display: 'inline-flex', alignItems: 'center',
                   }}
-                >×</button>
+                ><Icon name="close" size={11} /></button>
               </div>
             ))}
             {files.length === 0 && <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>لا توجد ملفات</span>}
@@ -535,8 +527,8 @@ export default function PharmacyAnalysisPage() {
         {/* Upload row */}
         <div style={{ borderTop: '1px solid var(--c-bg)', marginTop: 10, paddingTop: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={() => setShowUpload(v => !v)} style={{ ...PILL_BTN('#f5f3ff','#6d28d9'), border: '1.5px dashed #a5b4fc' }}>
-              {showUpload ? '✕ إخفاء' : '⬆ رفع ملف جديد'}
+            <button onClick={() => setShowUpload(v => !v)} style={{ ...PILL_BTN('var(--c-accent-light)','var(--c-accent)'), border: '1.5px dashed var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {showUpload ? <><Icon name="close" size={12} /> إخفاء</> : <><Icon name="import" size={12} /> رفع ملف جديد</>}
             </button>
             {uploadMsg && <span style={{ fontSize: 12, color: uploadMsg.ok ? 'var(--c-success)' : 'var(--c-danger)' }}>{uploadMsg.text}</span>}
           </div>
@@ -545,13 +537,13 @@ export default function PharmacyAnalysisPage() {
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
               onClick={() => !uploading && uploadInputRef.current?.click()}
-              style={{ border: `2px dashed ${dragOver ? '#6366f1' : '#c7d2fe'}`, borderRadius: 10, background: dragOver ? '#eef2ff' : '#fafbff', padding: '18px 16px', textAlign: 'center', cursor: uploading ? 'default' : 'pointer', marginTop: 8 }}
+              style={{ border: `2px dashed ${dragOver ? 'var(--c-accent)' : 'color-mix(in srgb, var(--c-accent) 35%, white)'}`, borderRadius: 10, background: dragOver ? 'var(--c-accent-light)' : '#fafbff', padding: '18px 16px', textAlign: 'center', cursor: uploading ? 'default' : 'pointer', marginTop: 8 }}
             >
               <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) { requestUpload(f); e.target.value = ''; } }} />
               {uploading
-                ? <span style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>⏳ جاري الرفع...</span>
-                : <><div style={{ fontSize: 11, fontWeight: 600, color: '#4f46e5' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv</div></>
+                ? <span style={{ color: 'var(--c-accent)', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="loading" size={13} className="icon-spin" /> جاري الرفع...</span>
+                : <><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-accent)' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv</div></>
               }
             </div>
           )}
@@ -588,9 +580,9 @@ export default function PharmacyAnalysisPage() {
           )}
           {!showRateEdit && dispCurrency === 'USD' && (
             <button onClick={() => { setRateInput(String(dispRate)); setShowRateEdit(true); }}
-              style={{ fontSize: 10, color: 'var(--c-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}
+              style={{ fontSize: 10, color: 'var(--c-text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'inline-flex', alignItems: 'center', gap: 3 }}
               title="تعديل سعر الصرف"
-            >✏ {dispRate}</button>
+            ><Icon name="edit" size={11} /> {dispRate}</button>
           )}
           <button
             onClick={() => setDispCurrency(v => v === 'IQD' ? 'USD' : 'IQD')}
@@ -614,7 +606,7 @@ export default function PharmacyAnalysisPage() {
         <div>
           {selFiles.size === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--c-text-muted)' }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+              <div style={{ fontSize: 40, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="folder" size={40} /></div>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-secondary)', marginBottom: 6 }}>لا توجد ملفات محددة</div>
               <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض بيانات الصيدليات</div>
             </div>
@@ -662,7 +654,7 @@ export default function PharmacyAnalysisPage() {
               title="تصدير الصيدليات المعروضة (بعد البحث والترتيب) إلى إكسل"
               style={{ padding: '7px 14px', border: '1px solid var(--c-success)', borderRadius: 6, background: sortedPharmacies.length === 0 ? 'var(--c-bg)' : 'var(--c-success)', color: sortedPharmacies.length === 0 ? 'var(--c-text-muted)' : '#fff', cursor: sortedPharmacies.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
             ><Icon name="export" size={13} /> تصدير إكسل</button>
-            <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: 'var(--c-text-primary)' }}>↻ تحديث</button>
+            <button onClick={() => loadPharmacies()} style={{ padding: '7px 14px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: 'var(--c-text-primary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="refresh" size={13} /> تحديث</button>
             <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{pharmacies.length} صيدلية</span>
           </div>
 
@@ -786,7 +778,7 @@ export default function PharmacyAnalysisPage() {
       {/* ── Pharmacy Detail ───────────────────────────────── */}
       {tab === 'pharmacies' && selectedPharma && (
         <div>
-          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); }} style={BACK_BTN}>← رجوع</button>
+          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); }} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
             <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedPharma}</h2>
             {pharmaDetailLoading ? <Loader /> : pharmaDetail && (
@@ -855,7 +847,7 @@ export default function PharmacyAnalysisPage() {
         <div>
           {selFiles.size === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--c-text-muted)' }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+              <div style={{ fontSize: 40, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="folder" size={40} /></div>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-secondary)', marginBottom: 6 }}>لا توجد ملفات محددة</div>
               <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض بيانات الايتمات</div>
             </div>
@@ -882,7 +874,7 @@ export default function PharmacyAnalysisPage() {
               title="تصدير الايتمات المعروضة (بعد البحث والترتيب) إلى إكسل"
               style={{ padding: '7px 14px', border: '1px solid var(--c-success)', borderRadius: 6, background: sortedItems.length === 0 ? 'var(--c-bg)' : 'var(--c-success)', color: sortedItems.length === 0 ? 'var(--c-text-muted)' : '#fff', cursor: sortedItems.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
             ><Icon name="export" size={13} /> تصدير إكسل</button>
-            <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻ تحديث</button>
+            <button onClick={() => loadItems()} style={{ padding: '7px 14px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="refresh" size={13} /> تحديث</button>
             <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{items.length} ايتم</span>
           </div>
           {itemsLoading ? <Loader /> : (
@@ -928,7 +920,7 @@ export default function PharmacyAnalysisPage() {
       {/* ── Item Detail ───────────────────────────────────── */}
       {tab === 'items' && selectedItem && (
         <div>
-          <button onClick={() => { setSelectedItem(null); setItemDetail(null); }} style={BACK_BTN}>← رجوع</button>
+          <button onClick={() => { setSelectedItem(null); setItemDetail(null); }} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
             <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedItem}</h2>
             {itemDetailLoading ? <Loader /> : itemDetail && (
@@ -972,7 +964,7 @@ export default function PharmacyAnalysisPage() {
         <div>
           {selFiles.size === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--c-text-muted)' }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+              <div style={{ fontSize: 40, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="folder" size={40} /></div>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-secondary)', marginBottom: 6 }}>لا توجد ملفات محددة</div>
               <div style={{ fontSize: 12 }}>اختر ملفاً أو ارفع ملفاً جديداً لعرض التنبيهات</div>
             </div>
@@ -1011,22 +1003,22 @@ export default function PharmacyAnalysisPage() {
               title="تصدير التنبيهات المعروضة (بعد البحث والترتيب) إلى ملف إكسل"
               style={{ padding: '5px 12px', border: '1px solid var(--c-success)', borderRadius: 6, background: sortedAlerts.length === 0 ? 'var(--c-bg)' : 'var(--c-success)', color: sortedAlerts.length === 0 ? 'var(--c-text-muted)' : '#fff', cursor: sortedAlerts.length === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600 }}
             ><Icon name="export" size={13} /> تصدير إكسل</button>
-            <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>↻</button>
+            <button onClick={loadAlerts} style={{ padding: '5px 12px', border: '1px solid var(--c-border)', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center' }}><Icon name="refresh" size={13} /></button>
             <button
               onClick={() => { setShowAlertSettings(v => !v); if (!alertSettings) loadAlertSettings(); }}
               title="إعدادات التنبيهات التلقائية"
-              style={{ padding: '5px 12px', border: '1px solid #4f46e5', borderRadius: 6, background: showAlertSettings ? '#4f46e5' : '#fff', color: showAlertSettings ? '#fff' : '#4f46e5', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-            >⚙️ تلقائي{alertSettings?.enabled ? ' ✓' : ''}</button>
+              style={{ padding: '5px 12px', border: '1px solid var(--c-accent)', borderRadius: 6, background: showAlertSettings ? 'var(--c-accent)' : '#fff', color: showAlertSettings ? '#fff' : 'var(--c-accent)', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            ><Icon name="settings" size={13} /> تلقائي{alertSettings?.enabled ? <Icon name="check" size={12} /> : ''}</button>
             <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{filteredAlerts.length} تنبيه</span>
           </div>
 
           {/* ── إعدادات التنبيهات التلقائية ── */}
           {showAlertSettings && alertSettings && (
-            <div style={{ ...CARD, marginBottom: 12, border: '1px solid #c7d2fe', background: '#f5f3ff' }}>
+            <div style={{ ...CARD, marginBottom: 12, border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <strong style={{ fontSize: 13, color: '#3730a3' }}>⚙️ التنبيهات التلقائية</strong>
+                <strong style={{ fontSize: 13, color: 'var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="settings" size={14} /> التنبيهات التلقائية</strong>
                 <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>يفحص النظام دورياً ويُشعر المعنيين داخل التطبيق</span>
-                <button onClick={() => setShowAlertSettings(false)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--c-text-secondary)' }}>✕</button>
+                <button onClick={() => setShowAlertSettings(false)} style={{ marginRight: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center' }}><Icon name="close" size={13} /></button>
               </div>
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', fontSize: 12 }}>
@@ -1094,12 +1086,12 @@ export default function PharmacyAnalysisPage() {
 
                 <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
                   <button onClick={saveAlertSettings} disabled={alertSaving}
-                    style={{ padding: '5px 14px', border: 'none', borderRadius: 6, background: '#4f46e5', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: alertSaving ? 0.6 : 1 }}>
+                    style={{ padding: '5px 14px', border: 'none', borderRadius: 6, background: 'var(--c-accent)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, opacity: alertSaving ? 0.6 : 1 }}>
                     {alertSaving ? '...' : '💾 حفظ'}
                   </button>
                   <button onClick={runAlertsNow} disabled={alertSaving}
                     title="إرسال فوري للتجربة — يحترم فترة عدم التكرار"
-                    style={{ padding: '5px 14px', border: '1px solid #4f46e5', borderRadius: 6, background: '#fff', color: '#4f46e5', cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: alertSaving ? 0.6 : 1 }}>
+                    style={{ padding: '5px 14px', border: '1px solid var(--c-accent)', borderRadius: 6, background: '#fff', color: 'var(--c-accent)', cursor: 'pointer', fontSize: 12, fontWeight: 600, opacity: alertSaving ? 0.6 : 1 }}>
                     ▶️ إرسال الآن
                   </button>
                 </div>
@@ -1146,7 +1138,9 @@ export default function PharmacyAnalysisPage() {
                   })}
                   {sortedAlerts.length === 0 && (
                     <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-muted)', fontSize: 13 }}>
-                      {alertSearch ? 'لا يوجد تنبيه يطابق البحث.' : `لا توجد صيدلية متأخرة عن ${alertDays} يوم. ✅`}
+                      {alertSearch ? 'لا يوجد تنبيه يطابق البحث.' : (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>لا توجد صيدلية متأخرة عن {alertDays} يوم. <Icon name="checkCircle" size={13} /></span>
+                      )}
                     </td></tr>
                   )}
                 </tbody>

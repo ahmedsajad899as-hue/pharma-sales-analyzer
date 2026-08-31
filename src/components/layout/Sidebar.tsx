@@ -7,23 +7,7 @@ import { NAV_ITEMS, FEATURE_PAGE_MAP, COMM_REP_ORDER } from '../../config/featur
 import { Icon, NAV_ICON_BY_ID } from '../../config/icons';
 import type { IconName } from '../../config/icons';
 import NotificationBell from '../NotificationBell';
-
-function OrdineLogo({ size = 28 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="28" height="28" rx="6" fill="var(--c-primary)"/>
-      {/* Large arc r=12 */}
-      <path d="M 26 14 A 12 12 0 1 1 14 2" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
-      {/* Medium arc r=8.5 */}
-      <path d="M 22.5 14 A 8.5 8.5 0 1 1 14 5.5" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
-      {/* Small arc r=5 */}
-      <path d="M 19 14 A 5 5 0 1 1 14 9" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
-      {/* Free + in top-right gap */}
-      <line x1="16.5" y1="7.5" x2="25.5" y2="7.5" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round"/>
-      <line x1="21" y1="3" x2="21" y2="12" stroke="var(--c-accent)" strokeWidth="2.4" strokeLinecap="round"/>
-    </svg>
-  );
-}
+import OrdineLogo from '../OrdineLogo';
 
 interface SidebarProps {
   activePage: PageId;
@@ -146,14 +130,14 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     scientific_rep:           'مندوب علمي',
     user:                     'مستخدم',
   };
-  const ROLE_ICONS: Record<string, string> = {
-    admin: '👑', manager: '🛡️', company_manager: '🏢', supervisor: '🔍',
-    product_manager: '📦', team_leader: '🎯', office_manager: '🏠',
-    commercial_supervisor: '💼', commercial_team_leader: '📋',
-    commercial_rep: '💰', scientific_rep: '🔬',
+  const ROLE_ICONS: Record<string, IconName> = {
+    admin: 'crown', manager: 'shield', company_manager: 'navOrgStructure', supervisor: 'search',
+    product_manager: 'navDistributorSales', team_leader: 'target', office_manager: 'home',
+    commercial_supervisor: 'folder', commercial_team_leader: 'navMasterSurvey',
+    commercial_rep: 'money', scientific_rep: 'navFms',
   };
   const roleLabel = ROLE_LABELS[role] ?? role;
-  const roleIcon  = ROLE_ICONS[role]  ?? '👤';
+  const roleIcon: IconName = ROLE_ICONS[role] ?? 'person';
 
   // Other saved accounts (excluding the currently active one)
   const otherAccounts = savedAccounts.filter(a => a.user.id !== user?.id);
@@ -195,29 +179,27 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
 
   return (
     <>
+      {/* Reopen button lives in App.tsx's fixed topbar (not floating over content) once
+          the sidebar has slid off-canvas — see .app-topbar-reopen. */}
+
       {/* ── DESKTOP SIDEBAR ── */}
       <aside className={`sidebar sidebar--desktop ${isOpen ? 'sidebar--open' : 'sidebar--closed'}`}>
         <div className="sidebar-brand">
           <span className="sidebar-brand-icon"><OrdineLogo size={28} /></span>
           {isOpen && <span className="sidebar-brand-text">{t.appName}</span>}
           <button className="sidebar-toggle" onClick={onToggle} title={t.sidebar.collapse}>
-            <Icon name={isOpen ? (lang === 'ar' ? 'chevronLeft' : 'chevronRight') : (lang === 'ar' ? 'chevronRight' : 'chevronLeft')} size={14} />
+            <Icon name={lang === 'ar' ? 'chevronRight' : 'chevronLeft'} size={14} />
           </button>
         </div>
 
         <nav className="sidebar-nav">
           {visibleItems.map(item => {
             const isActive = activePage === item.id;
-            const isRepAnalysis = item.id === 'rep-analysis';
             return (
               <button
                 key={item.id}
                 onClick={() => { if (item.id === 'commercial') window.dispatchEvent(new CustomEvent('comm-reset-tab')); onNavigate(item.id); }}
                 className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`}
-                style={isRepAnalysis && !isActive ? {
-                  background: 'rgba(26,86,219,0.12)',
-                  borderRight: '3px solid rgba(26,86,219,0.55)',
-                } : undefined}
               >
                 <Icon name={item.iconName} className="sidebar-nav-icon" size={18} />
                 {isOpen && <span className="sidebar-nav-label">{item.label}</span>}
@@ -236,171 +218,89 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           )}
         </nav>
 
+        {/* Footer — account name/role always stays fully spelled out (not reduced to an
+            icon); only the secondary action buttons below it are compact icons, to keep
+            more room for the main nav list above. */}
         <div className="sidebar-footer" style={{ marginTop: 'auto' }}>
-          {isOpen ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 18 }}>{roleIcon}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: '#e0e8f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
-                  <div style={{ fontSize: 11, color: '#8fa0be' }}>{roleLabel}</div>
-                </div>
-                {showSwitchBtn && (
-                  <button
-                    onClick={() => setShowSwitchPanel(true)}
-                    title="تبديل الحساب"
-                    style={{
-                      background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
-                      borderRadius: 7, padding: '4px 7px', cursor: 'pointer',
-                      color: '#a8c4f4', flexShrink: 0,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                  ><Icon name="transfer" size={14} /></button>
-                )}
-              </div>
-              <div style={{ marginBottom: 6 }}>
-                <button
-                  onClick={onAIToggle}
-                  title={showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
-                  style={{
-                    background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
-                    border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                    borderRadius: 8, padding: '6px 14px', fontSize: 13,
-                    color: showAI ? '#a8c4f4' : '#8fa0be',
-                    cursor: 'pointer', fontWeight: 600, width: '100%',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                >
-                  <Icon name="aiBot" size={15} /> {showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
-                </button>
-              </div>
-              <div style={{ marginBottom: 6 }}>
-                <LangToggleBtn full />
-              </div>
-              {!REP_ANALYSIS_ROLES.has(role) && (
-              <div style={{ marginBottom: 6 }}>
-                <button
-                  onClick={switchEnv}
-                  title={isLocal ? 'فتح نفس الصفحة على Production' : 'فتح نفس الصفحة على Local'}
-                  style={{
-                    background: isLocal ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)',
-                    border: `1px solid ${isLocal ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.4)'}`,
-                    borderRadius: 8, padding: '6px 14px', fontSize: 12,
-                    color: isLocal ? '#fbbf24' : '#4ade80',
-                    cursor: 'pointer', fontWeight: 700, width: '100%',
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}
-                >{isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}</button>
-              </div>
-              )}
-              {canInstall && (
-                <div style={{ marginBottom: 6 }}>
-                  <button
-                    onClick={handleInstall}
-                    style={{
-                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                      border: 'none',
-                      borderRadius: 8, padding: '7px 14px', fontSize: 13,
-                      color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
-                    }}
-                  >
-                    ⬇️ تثبيت التطبيق
-                  </button>
-                </div>
-              )}
-              {showIosBtn && (
-                <div style={{ marginBottom: 6 }}>
-                  <button
-                    onClick={() => setShowIosInstallModal(true)}
-                    style={{
-                      background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                      border: 'none',
-                      borderRadius: 8, padding: '7px 14px', fontSize: 13,
-                      color: '#fff', cursor: 'pointer', fontWeight: 700, width: '100%',
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      boxShadow: '0 2px 8px rgba(22,163,74,0.4)',
-                    }}
-                  >
-                    ⬇️ تثبيت التطبيق
-                  </button>
-                </div>
-              )}
-              <button className="btn btn--secondary" style={{ width: '100%', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }} onClick={logout}>
-                <Icon name="logout" size={14} /> {t.sidebar.logout}
-              </button>
-            </>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-              {showSwitchBtn && (
-                <button
-                  onClick={() => setShowSwitchPanel(true)}
-                  title="تبديل الحساب"
-                  style={{
-                    background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
-                    borderRadius: 8, padding: '6px', cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a8c4f4',
-                  }}
-                ><Icon name="transfer" size={16} /></button>
-              )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}><Icon name={roleIcon} size={18} /></span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#e0e8f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</div>
+              <div style={{ fontSize: 11, color: '#8fa0be' }}>{roleLabel}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+            {showSwitchBtn && (
               <button
-                onClick={onAIToggle}
-                title={showAI ? 'إخفاء المساعد' : 'إظهار المساعد'}
+                onClick={() => setShowSwitchPanel(true)}
+                title="تبديل الحساب"
                 style={{
-                  background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
-                  border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                  borderRadius: 8, padding: '6px',
-                  cursor: 'pointer', width: '100%',
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  background: 'rgba(26,86,219,0.2)', border: '1px solid rgba(26,86,219,0.4)',
+                  cursor: 'pointer', color: '#a8c4f4',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: showAI ? '#a8c4f4' : '#8fa0be',
                 }}
-              ><Icon name="aiBot" size={16} /></button>
-              <LangToggleBtn />
-              {!REP_ANALYSIS_ROLES.has(role) && (
+              ><Icon name="transfer" size={15} /></button>
+            )}
+            <button
+              onClick={onAIToggle}
+              title={showAI ? 'إخفاء المساعد الذكي' : 'إظهار المساعد الذكي'}
+              style={{
+                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                background: showAI ? 'rgba(26,86,219,0.25)' : 'rgba(255,255,255,0.07)',
+                border: `1px solid ${showAI ? 'rgba(26,86,219,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                color: showAI ? '#a8c4f4' : '#8fa0be',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            ><Icon name="aiBot" size={16} /></button>
+            <LangToggleBtn />
+            {!REP_ANALYSIS_ROLES.has(role) && (
               <button
                 onClick={switchEnv}
-                title={isLocal ? 'فتح على Production' : 'فتح على Local'}
+                title={isLocal ? 'فتح نفس الصفحة على Production' : 'فتح نفس الصفحة على Local'}
                 style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
                   background: isLocal ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)',
                   border: `1px solid ${isLocal ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.4)'}`,
-                  borderRadius: 8, padding: '6px', fontSize: 14, cursor: 'pointer', width: '100%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: isLocal ? '#fbbf24' : '#4ade80',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
-              >{isLocal ? '🚀' : '🖥️'}</button>
-              )}
-              {canInstall && (
-                <button
-                  onClick={handleInstall}
-                  title="تثبيت التطبيق"
-                  style={{
-                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                    border: 'none',
-                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-                    boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
-                  }}
-                >⬇️</button>
-              )}
-              {showIosBtn && (
-                <button
-                  onClick={() => setShowIosInstallModal(true)}
-                  title="تثبيت التطبيق"
-                  style={{
-                    background: 'linear-gradient(135deg, #16a34a, #22c55e)',
-                    border: 'none',
-                    borderRadius: 8, padding: '6px', fontSize: 16, cursor: 'pointer', width: '100%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-                    boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
-                  }}
-                >⬇️</button>
-              )}
-              <button className="sidebar-nav-item" onClick={logout} title={t.sidebar.logout} style={{ width: '100%', justifyContent: 'center' }}>
-                <Icon name="logout" className="sidebar-nav-icon" size={17} />
-              </button>
-            </div>
-          )}
+              >{isLocal ? <Icon name="rocket" size={16} /> : <Icon name="monitor" size={16} />}</button>
+            )}
+            {canInstall && (
+              <button
+                onClick={handleInstall}
+                title="تثبيت التطبيق"
+                style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)', border: 'none',
+                  color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
+                }}
+              ><Icon name="export" size={16} /></button>
+            )}
+            {showIosBtn && (
+              <button
+                onClick={() => setShowIosInstallModal(true)}
+                title="تثبيت التطبيق"
+                style={{
+                  width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                  background: 'linear-gradient(135deg, #16a34a, #22c55e)', border: 'none',
+                  color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 2px 6px rgba(22,163,74,0.4)',
+                }}
+              ><Icon name="export" size={16} /></button>
+            )}
+            <button
+              onClick={logout}
+              title={t.sidebar.logout}
+              style={{
+                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+                color: '#8fa0be', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            ><Icon name="logout" size={16} /></button>
+          </div>
         </div>
       </aside>
 
@@ -457,17 +357,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
             </div>
             <nav className="mobile-drawer-nav">
               {visibleItems.map(item => {
-                const isRepAnalysis = item.id === 'rep-analysis';
                 const isActive = activePage === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => handleMobileNavigate(item.id)}
                     className={`mobile-drawer-item ${isActive ? 'mobile-drawer-item--active' : ''}`}
-                    style={isRepAnalysis && !isActive ? {
-                      background: 'rgba(26,86,219,0.10)',
-                      borderRight: '3px solid rgba(26,86,219,0.5)',
-                    } : undefined}
                   >
                     <Icon name={item.iconName} size={20} />
                     <span>{item.label}</span>
@@ -529,9 +424,10 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                   borderRadius: 8, padding: '8px 14px', fontSize: 13,
                   fontWeight: 700, color: isLocal ? '#d97706' : '#16a34a',
                   cursor: 'pointer', width: '100%', textAlign: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}
               >
-                {isLocal ? '🚀 فتح على Production' : '🖥️ فتح على Local'}
+                {isLocal ? <Icon name="rocket" size={14} /> : <Icon name="monitor" size={14} />} {isLocal ? 'فتح على Production' : 'فتح على Local'}
               </button>
               )}
               {canInstall && (
@@ -547,7 +443,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     boxShadow: '0 2px 10px rgba(22,163,74,0.4)',
                   }}
                 >
-                  ⬇️ تثبيت التطبيق
+                  <Icon name="export" size={16} /> تثبيت التطبيق
                 </button>
               )}
               {showIosBtn && (
@@ -563,7 +459,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                     boxShadow: '0 2px 10px rgba(22,163,74,0.4)',
                   }}
                 >
-                  ⬇️ تثبيت التطبيق
+                  <Icon name="export" size={16} /> تثبيت التطبيق
                 </button>
               )}
               <button
@@ -598,32 +494,32 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           >
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>⇄ تبديل الحساب</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="transfer" size={16} /> تبديل الحساب</h2>
               <button
                 onClick={() => setShowSwitchPanel(false)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}
-              >✕</button>
+                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
+              ><Icon name="close" size={18} /></button>
             </div>
 
             {/* Current account */}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>الحساب الحالي</div>
               <div style={{
-                background: '#eef2ff', border: '2px solid #a5b4fc', borderRadius: 12,
+                background: 'var(--c-accent-light)', border: '2px solid var(--c-accent)', borderRadius: 12,
                 padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12,
               }}>
                 <div style={{
-                  width: 38, height: 38, borderRadius: '50%', background: '#6366f1',
+                  width: 38, height: 38, borderRadius: '50%', background: 'var(--c-accent)',
                   color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: 900, fontSize: 17, flexShrink: 0,
                 }}>
                   {(user?.displayName || user?.username || '?')[0].toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#3730a3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-accent-hover)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.displayName || user?.username}
                   </div>
-                  <div style={{ fontSize: 12, color: '#6366f1' }}>{ROLE_LABELS[user?.role ?? ''] ?? user?.role}</div>
+                  <div style={{ fontSize: 12, color: 'var(--c-accent)' }}>{ROLE_LABELS[user?.role ?? ''] ?? user?.role}</div>
                 </div>
                 <NotificationBell />
               </div>
@@ -672,8 +568,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                         style={{
                           background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 8,
                           padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', gap: 4,
                         }}
-                      >تبديل</button>
+                      ><Icon name="transfer" size={12} /> تبديل</button>
                       {/* Remove btn */}
                       <button
                         onClick={e => { e.stopPropagation(); removeSavedAccount(acc.user.id); }}
@@ -681,8 +578,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                         style={{
                           background: 'none', border: 'none', fontSize: 16,
                           cursor: 'pointer', color: '#cbd5e1', padding: '2px 4px', flexShrink: 0,
+                          display: 'flex', alignItems: 'center',
                         }}
-                      >✕</button>
+                      ><Icon name="close" size={14} /></button>
                     </div>
                   ))}
                 </div>
@@ -722,8 +620,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1e293b' }}>📲 إضافة إلى الشاشة الرئيسية</h2>
               <button
                 onClick={() => setShowIosInstallModal(false)}
-                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}
-              >✕</button>
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', lineHeight: 1, display: 'flex', alignItems: 'center' }}
+              ><Icon name="close" size={18} /></button>
             </div>
 
             {/* Steps */}
@@ -744,7 +642,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 num: 3,
                 title: 'اضغط "إضافة إلى الشاشة الرئيسية"',
                 desc: 'ثم اضغط "إضافة" في أعلى يسار النافذة',
-                icon: '🏠',
+                icon: <Icon name="home" size={16} />,
               },
             ].map(step => (
               <div key={step.num} style={{
@@ -801,7 +699,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               whiteSpace: 'nowrap',
             }}
           >
-            ⬇️ تثبيت التطبيق
+            <Icon name="export" size={16} /> تثبيت التطبيق
           </button>
           <style>{`
             @media (max-width: 767px) {

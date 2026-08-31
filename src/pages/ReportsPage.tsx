@@ -4,6 +4,7 @@ import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
+import { Icon } from '../config/icons';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
    drop tatweel/diacritics, strip the definite article «ال», and collapse separators
@@ -1292,11 +1293,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <tr style={{ background: '#1e40af' }}>
                 <th style={{ ...thStyle, textAlign: 'center', width: isMobile ? 26 : 40 }}>#</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>{nameLabel}</th>
-                {hasRep && <th style={thStyle}>👤</th>}
+                {hasRep && <th style={thStyle}><Icon name="person" size={13} /></th>}
                 {effShowQty && (
                   <th style={thStyle} title={t.reports.colSalesQty}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                      <span>📈</span>
+                      <Icon name="uploadSales" size={14} />
                       {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>مبيعات</span>}
                     </div>
                   </th>
@@ -1304,7 +1305,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {effShowVal && (
                   <th style={thStyle} title={t.reports.colSalesVal}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                      <span style={{ fontWeight: 800 }}>💵</span>
+                      <Icon name="money" size={14} />
                       {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>قيمة البيع</span>}
                     </div>
                   </th>
@@ -1312,7 +1313,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {effShowQty && (
                   <th style={thStyle} title={t.reports.colRetQty}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                      <span>📉</span>
+                      <Icon name="uploadReturns" size={14} />
                       {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>ارجاع</span>}
                     </div>
                   </th>
@@ -1320,7 +1321,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {effShowVal && (
                   <th style={thStyle} title={t.reports.colRetVal}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                      <span style={{ fontWeight: 800 }}>💸</span>
+                      <Icon name="money" size={14} />
                       {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>قيمة الارجاع</span>}
                     </div>
                   </th>
@@ -1328,7 +1329,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {effShowQty && (
                   <th style={{ ...thStyle, background: 'rgba(255,255,255,.12)' }} title={t.reports.colNetQty}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                      <span>✅</span>
+                      <Icon name="checkCircle" size={14} />
                       {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>صافي</span>}
                     </div>
                   </th>
@@ -1336,7 +1337,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {effShowVal && (
                   <th style={{ ...thStyle, background: 'rgba(255,255,255,.12)' }} title={t.reports.colNetVal}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                      <span>⚖️</span>
+                      <Icon name="netBalance" size={14} />
                       {!isMobile && <span style={{ fontSize: 10, opacity: .85, fontWeight: 500 }}>صافي القيمة</span>}
                     </div>
                   </th>
@@ -1361,7 +1362,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     <td style={{ ...tdStyle, color: isExcluded ? '#ef4444' : '#94a3b8', userSelect: 'none', fontWeight: isExcluded ? 700 : 400 }}
                       onClick={() => onToggleKey?.(key)}
                       title={isExcluded ? 'انقر لإعادة التضمين' : onToggleKey ? 'انقر للاستبعاد' : undefined}>
-                      {isExcluded ? '✕' : i + 1}
+                      {isExcluded ? <Icon name="close" size={11} /> : i + 1}
                     </td>
                     <td style={{ ...tdNameStyle, textDecoration: isExcluded ? 'line-through' : 'none', color: isExcluded ? '#94a3b8' : '#1e293b' }}>{row.name}</td>
                     {hasRep && <td style={{ ...tdStyle, color: '#374151', fontWeight: 600 }}>{row.repName ?? '—'}</td>}
@@ -1431,9 +1432,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end', width: '100%', justifyContent: 'space-between' }}>
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {[
-        { key: 'sales'   as ReportView, icon: '📈', label: t.reports.colSalesQty, bg: '#3b82f6', glow: '#3b82f644', border: '#1d4ed8' },
-        { key: 'returns' as ReportView, icon: '📉', label: t.reports.colRetQty,  bg: '#ef4444', glow: '#ef444444', border: '#b91c1c' },
-        { key: 'net'     as ReportView, icon: '⚖️', label: t.reports.viewNet,     bg: '#10b981', glow: '#10b98144', border: '#065f46' },
+        { key: 'sales'   as ReportView, icon: 'uploadSales' as const,   label: t.reports.colSalesQty, bg: 'var(--c-accent)',  glow: 'rgba(26,86,219,0.27)',  border: 'var(--c-accent)' },
+        { key: 'returns' as ReportView, icon: 'uploadReturns' as const, label: t.reports.colRetQty,  bg: 'var(--c-danger)',  glow: 'rgba(220,38,38,0.27)',  border: 'var(--c-danger)' },
+        { key: 'net'     as ReportView, icon: 'netBalance' as const,    label: t.reports.viewNet,     bg: 'var(--c-success)', glow: 'rgba(13,159,110,0.27)', border: 'var(--c-success)' },
       ].map(({ key, icon, label, bg, glow, border }) => {
         const isActive = reportView === key;
         const isDisabled = key === 'returns' && !hasReturns;
@@ -1449,8 +1450,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               borderRadius: 12,
               border: isActive ? `2.5px solid ${border}` : '2.5px solid transparent',
               cursor: isDisabled ? 'not-allowed' : 'pointer',
-              background: isActive ? bg : '#f1f5f9',
-              color: isActive ? '#fff' : '#64748b',
+              background: isActive ? bg : 'var(--c-bg)',
+              color: isActive ? '#fff' : 'var(--c-text-secondary)',
               opacity: isDisabled ? 0.4 : 1,
               boxShadow: isActive ? `0 4px 18px ${glow}, 0 2px 6px ${glow}` : '0 1px 3px #0001',
               transform: isActive ? 'scale(1.12) translateY(-3px)' : 'scale(1)',
@@ -1458,7 +1459,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               minWidth: 48,
               position: 'relative',
             }}>
-            <span style={{ fontSize: isActive ? 24 : 17, lineHeight: 1, transition: 'font-size 0.2s' }}>{icon}</span>
+            <Icon name={icon} size={isActive ? 22 : 17} style={{ transition: 'all 0.2s' }} />
             <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: isActive ? 1 : 0.7 }}>{label}</span>
             {isActive && (
               <span style={{
@@ -1481,12 +1482,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
             padding: '7px 12px 6px', borderRadius: 12,
-            border: '2.5px solid #059669', cursor: exporting ? 'not-allowed' : 'pointer',
-            background: exporting ? '#d1fae5' : '#ecfdf5', color: '#065f46',
+            border: '2.5px solid var(--c-success)', cursor: exporting ? 'not-allowed' : 'pointer',
+            background: exporting ? 'var(--c-success-bg)' : 'var(--c-success-bg)', color: 'var(--c-success)',
             opacity: exporting ? 0.6 : 1,
             boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
           }}>
-          <span style={{ fontSize: 17, lineHeight: 1 }}>{exporting ? '⏳' : '📥'}</span>
+          <Icon name={exporting ? 'loading' : 'export'} size={17} className={exporting ? 'icon-spin' : undefined} />
           <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>تصدير</span>
         </button>
       )}
@@ -1498,20 +1499,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
           padding: '7px 12px 6px', borderRadius: 12,
-          border: '2.5px solid #7c3aed', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
-          background: '#f5f3ff', color: '#5b21b6', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
+          border: '2.5px solid var(--c-purple)', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
+          background: 'var(--c-purple-bg)', color: 'var(--c-purple)', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
           boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
         }}>
-        <span style={{ fontSize: 17, lineHeight: 1 }}>{rowPreviewKey === '__top__' ? '⏳' : '📊'}</span>
+        <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={17} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} />
         <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
       </button>
       {!hasReturns && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
-          background: '#fff7ed', border: '1px solid #fed7aa',
-          borderRadius: 8, padding: '5px 10px', fontSize: 12, color: '#9a3412',
+          background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)',
+          borderRadius: 8, padding: '5px 10px', fontSize: 12, color: 'var(--c-warning)',
         }}>
-          <span>↩️</span>
+          <Icon name="warning" size={13} />
           <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
         </div>
       )}
@@ -2435,7 +2436,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
             <th style={{ ...thBD, textAlign: 'center', color: '#94a3b8' }}>#</th>
             <th style={{ ...thBD, textAlign: 'right' }}>{nameLabel}</th>
-            {hasRep && <th style={{ ...thBD, textAlign: 'center' }}>👤</th>}
+            {hasRep && <th style={{ ...thBD, textAlign: 'center' }}><Icon name="person" size={13} /></th>}
             {effShowQtyBD && <th style={{ ...thBD, background: '#dbeafe', color: '#1e40af' }}>{t.reports.colQty}</th>}
             {effShowValBD && <th style={{ ...thBD, background: '#fffbeb', color: '#b45309' }}>{currColHeader}</th>}
           </tr>
@@ -2470,7 +2471,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 textAlign: 'center',
                 letterSpacing: '0.05em',
               }}>
-                ⚠️ {t.reports.zeroItemsMsg} — {zeroRows.length} {t.reports.zeroItemsUnit}
+                <Icon name="warning" size={12} style={{ verticalAlign: 'middle', marginLeft: 4 }} /> {t.reports.zeroItemsMsg} — {zeroRows.length} {t.reports.zeroItemsUnit}
               </td>
             </tr>
           )}
@@ -2499,9 +2500,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <div className="page">
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
-        {([['overall','تحليل شامل'], ['scientific',t.reports.modeScientific], ['commercial',t.reports.modeCommercial]] as [string,string][])
+        {([['overall','تحليل شامل','navReports'], ['scientific',t.reports.modeScientific,'navFms'], ['commercial',t.reports.modeCommercial,'navCommercial']] as [string,string,import('../config/icons').IconName][])
           .filter(([id]) => !(id === 'commercial' && user?.role === 'scientific_rep'))
-          .map(([id, label]) => (
+          .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
             // التبديل كان يمسح التقرير بلا إعادة تحميل، فيبقى التبويب فارغاً حتى
@@ -2522,9 +2523,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             color: mode === id ? '#111827' : '#6b7280',
             fontWeight: mode === id ? 700 : 400, fontSize: 13,
             borderBottom: mode === id ? '2px solid #111827' : '2px solid transparent',
-            marginBottom: -1,
+            marginBottom: -1, display: 'inline-flex', alignItems: 'center', gap: 6,
           }}>
-            {label}
+            <Icon name={icon} size={14} /> {label}
           </button>
         ))}
       </div>
@@ -2622,8 +2623,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
 
           {mode === 'overall' && overallRawBlocked && (
-            <span style={{ fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '4px 10px', whiteSpace: 'nowrap' }}>
-              ⚠️ التحليل الكامل يسري على ملفاتك أنت فقط — هذا الملف محوَّل إليك، فبقيت قيود صاحبه
+            <span style={{ fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '4px 10px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="warning" size={11} /> التحليل الكامل يسري على ملفاتك أنت فقط — هذا الملف محوَّل إليك، فبقيت قيود صاحبه
             </span>
           )}
           {/* زر «تحليل كامل» — يظهر في التحليل الشامل فقط */}
@@ -2636,14 +2637,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 : 'الوضع الحالي: نطاقك المحدَّد فقط — اضغط لتحليل كل بيانات الملف بغض النظر عن التقسيمات'}
               style={{
                 padding: '7px 14px', borderRadius: 6, flexShrink: 0, fontSize: 13, fontWeight: 700,
-                border: `1px solid ${overallRaw ? '#7c3aed' : '#d1d5db'}`,
-                background: overallRaw ? '#7c3aed' : '#fff',
+                border: `1px solid ${overallRaw ? 'var(--c-accent)' : '#d1d5db'}`,
+                background: overallRaw ? 'var(--c-accent)' : '#fff',
                 color: overallRaw ? '#fff' : '#6b7280',
                 cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
-                whiteSpace: 'nowrap',
+                whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >
-              {overallRaw ? '🌐 تحليل كامل' : '🔒 نطاقي فقط'}
+              {overallRaw ? <><Icon name="language" size={13} /> تحليل كامل</> : <><Icon name="blocked" size={13} /> نطاقي فقط</>}
             </button>
           )}
 
@@ -2655,9 +2656,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               padding: '7px 18px', border: '1px solid #374151', borderRadius: 6, flexShrink: 0,
               background: '#fff', color: '#111827', fontSize: 13, fontWeight: 600,
               cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
             }}
           >
-            {loading ? 'جاري...' : 'تحليل'}
+            {loading ? <><Icon name="loading" size={13} className="icon-spin" /> جاري...</> : <><Icon name="search" size={13} /> تحليل</>}
           </button>
 
         </div>
@@ -2678,7 +2680,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             background: '#fecdd3',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16, flexShrink: 0,
-          }}>⚠️</div>
+          }}><Icon name="warning" size={17} /></div>
           <span style={{ flex: 1, color: '#881337', fontSize: 13, fontWeight: 500 }}>{error}</span>
         </div>
       )}
@@ -3014,7 +3016,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     {/* Search input with suggestions */}
                     <div style={{ flex: 1, maxWidth: 340, position: 'relative' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: overallSuggOpen && suggItems.length > 0 ? '10px 10px 0 0' : 10, border: `1.5px solid ${overallSearch ? '#6366f1' : '#e2e8f0'}`, background: overallSearch ? '#f5f3ff' : '#f8fafc', boxShadow: overallSearch ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none', transition: 'border-radius 0.1s' }}>
-                        <span style={{ fontSize: 14 }}>🔍</span>
+                        <Icon name="search" size={14} />
                         <input
                           value={overallSearch}
                           onChange={e => { setOverallSearch(e.target.value); setOverallSuggOpen(true); }}
@@ -3040,8 +3042,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                                 onMouseEnter={e => (e.currentTarget.style.background = '#f5f3ff')}
                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                               >
-                                <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, background: s.type === 'area' ? '#fef9c3' : s.type === 'company' ? '#fce7f3' : '#e0e7ff', color: s.type === 'area' ? '#854d0e' : s.type === 'company' ? '#9d174d' : '#3730a3', fontWeight: 700, flexShrink: 0 }}>
-                                  {s.type === 'area' ? '📍' : s.type === 'company' ? '🏢' : '💊'}
+                                <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 6, background: s.type === 'area' ? '#fef9c3' : s.type === 'company' ? '#fce7f3' : '#e0e7ff', color: s.type === 'area' ? '#854d0e' : s.type === 'company' ? '#9d174d' : '#3730a3', fontWeight: 700, flexShrink: 0, display: 'inline-flex' }}>
+                                  <Icon name={s.type === 'area' ? 'location' : s.type === 'company' ? 'navCommercial' : 'drug'} size={11} />
                                 </span>
                                 {s.name}
                               </div>
@@ -3065,7 +3067,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       onClick={handleOverallPreview}
                       title="معاينة وتصدير التحليلات إلى Excel"
                       style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #10b981', background: '#f0fdf4', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      📊 تصدير
+                      <Icon name="export" size={13} /> تصدير
                     </button>
                   </div>
 
@@ -3074,7 +3076,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                       {overallSelectedTags.map((tag, i) => (
                         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: tag.type === 'area' ? '#fef9c3' : tag.type === 'company' ? '#fce7f3' : '#e0e7ff', color: tag.type === 'area' ? '#854d0e' : tag.type === 'company' ? '#9d174d' : '#3730a3', border: `1px solid ${tag.type === 'area' ? '#fde68a' : tag.type === 'company' ? '#fbcfe8' : '#c7d2fe'}` }}>
-                          {tag.type === 'area' ? '📍' : tag.type === 'company' ? '🏢' : '💊'} {tag.name}
+                          <Icon name={tag.type === 'area' ? 'location' : tag.type === 'company' ? 'navCommercial' : 'drug'} size={10} /> {tag.name}
                           <button onMouseDown={e => { e.preventDefault(); setOverallSelectedTags(prev => prev.filter((_, j) => j !== i)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tag.type === 'area' ? '#b45309' : tag.type === 'company' ? '#be185d' : '#4338ca', fontSize: 14, padding: 0, lineHeight: 1, marginRight: 2 }}>×</button>
                         </span>
                       ))}
@@ -3088,7 +3090,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {/* Sub-tabs: area / item / company */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
               <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-                {([['area', '📍', t.reports.colArea], ['item', '💊', t.reports.colItem], ['company', '🏢', 'الشركة']] as [string, string, string][]).map(([id, icon, label]) => (
+                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
                   <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company')} style={{
                     padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
                     background: overallTab === id ? '#fff' : 'transparent',
@@ -3097,19 +3099,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     borderBottom: overallTab === id ? '2px solid #1e40af' : '2px solid transparent',
                     marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
                   }}>
-                    <span>{icon}</span><span>{label}</span>
+                    <Icon name={icon} size={13} /><span>{label}</span>
                   </button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 4 }}>
                 {overallExcluded.size > 0 && (
-                  <button onClick={() => setOverallExcluded(new Set())} style={{ fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>
-                    ↩ إعادة الكل ({overallExcluded.size})
+                  <button onClick={() => setOverallExcluded(new Set())} style={{ fontSize: 12, padding: '5px 12px', borderRadius: 8, border: '1px solid #fca5a5', background: '#fff1f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="refresh" size={11} /> إعادة الكل ({overallExcluded.size})
                   </button>
                 )}
                 <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
-                  style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309' }}>
-                  {overallViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
+                  style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {overallViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
                 </button>
               </div>
             </div>
@@ -3128,15 +3130,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     else { setShowOverallTargets(false); }
                   }}
                 >
-                  🎯 {showOverallTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
+                  <Icon name="target" size={13} /> {showOverallTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
                 </button>
                 {showOverallTargets && (
                   targetsLoading ? <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>جاري التحميل...</div> : (
                     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af' }}>🎯 مقارنة التارگت بالمبيعات</span>
-                        <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151' }}>
-                          {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="target" size={13} /> مقارنة التارگت بالمبيعات</span>
+                        <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {hideEmptyTargetRows ? <><Icon name="view" size={12} /> إظهار كل الايتمات</> : <><Icon name="blocked" size={12} /> إخفاء الفارغة</>}
                         </button>
                       </div>
                       <div style={{ overflowX: 'auto' }}>
@@ -3224,7 +3226,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {renderViewToggle(true, hasRet)}
             {isNet ? (
               <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-                <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? '✅' : '⚠️'}</div>
+                <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? <Icon name="checkCircle" size={22} style={{ color: '#065f46' }} /> : <Icon name="warning" size={22} style={{ color: '#991b1b' }} />}</div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
@@ -3233,7 +3235,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             ) : (
               <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-                <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>💰</div>
+                <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}><Icon name="money" size={22} style={{ color: reportView === 'returns' ? '#991b1b' : '#065f46' }} /></div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
@@ -3245,7 +3247,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Sub-tabs — Commercial */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
             <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-              {([['area','📍',t.reports.tabByArea], ['item','💊',t.reports.tabByItem]] as [string,string,string][]).map(([id, icon, label]) => (
+              {([['area','location',t.reports.tabByArea], ['item','drug',t.reports.tabByItem]] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
                 <button key={id} onClick={() => setActiveTab(id as 'area' | 'item')} title={label} style={{
                   padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
                   background: activeTab === id ? '#fff' : 'transparent',
@@ -3253,12 +3255,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   fontWeight: activeTab === id ? 700 : 500, fontSize: 13,
                   borderBottom: activeTab === id ? '2px solid #1e40af' : '2px solid transparent',
                   marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
-                }}><span>{icon}</span><span>{label}</span></button>
+                }}><Icon name={icon} size={13} /><span>{label}</span></button>
               ))}
             </div>
             <button onClick={() => setCommViewMode(v => v === 'qty' ? 'value' : 'qty')}
-              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${commViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: commViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: commViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4 }}>
-              {commViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${commViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: commViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: commViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {commViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
             </button>
           </div>
           {isNet ? (
@@ -3281,15 +3283,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   else { setShowTargets(false); }
                 }}
               >
-                🎯 {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
+                <Icon name="target" size={13} /> {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
               </button>
               {showTargets && (
                 targetsLoading ? <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>جاري التحميل...</div> : (
                   <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af' }}>🎯 مقارنة التارگت بالمبيعات</span>
-                      <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151' }} title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت">
-                        {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="target" size={13} /> مقارنة التارگت بالمبيعات</span>
+                      <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت">
+                        {hideEmptyTargetRows ? <><Icon name="view" size={12} /> إظهار كل الايتمات</> : <><Icon name="blocked" size={12} /> إخفاء الفارغة</>}
                       </button>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
@@ -3379,10 +3381,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </button>
             {showInfoTags && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
-                {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green">💰 {r.name}</span>))}
-                {sciReport.assignedAreas.map(a => (<span key={a.id} className="tag tag--purple">📍 {a.name}</span>))}
-                {sciReport.assignedItems.map(i => (<span key={i.id} className="tag tag--orange">💊 {i.name}</span>))}
-                {sciReport.assignedCommercialReps.length === 0 && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}>⚠️ {t.reports.noCommRepsAssigned}</span>)}
+                {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green"><Icon name="money" size={11} /> {r.name}</span>))}
+                {sciReport.assignedAreas.map(a => (<span key={a.id} className="tag tag--purple"><Icon name="location" size={11} /> {a.name}</span>))}
+                {sciReport.assignedItems.map(i => (<span key={i.id} className="tag tag--orange"><Icon name="drug" size={11} /> {i.name}</span>))}
+                {sciReport.assignedCommercialReps.length === 0 && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
               </div>
             )}
           </div>
@@ -3392,7 +3394,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {renderViewToggle(true, hasRet)}
             {isNet ? (
               <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-                <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? '✅' : '⚠️'}</div>
+                <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? <Icon name="checkCircle" size={22} style={{ color: '#065f46' }} /> : <Icon name="warning" size={22} style={{ color: '#991b1b' }} />}</div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
@@ -3401,7 +3403,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               </div>
             ) : (
               <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-                <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>💰</div>
+                <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}><Icon name="money" size={22} style={{ color: reportView === 'returns' ? '#991b1b' : '#065f46' }} /></div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
@@ -3414,7 +3416,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Sub-tabs — Scientific */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
             <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-              {([['area','📍',t.reports.tabByArea], ['item','💊',t.reports.tabByItem], ['rep','👤',t.reports.tabByCommRep]] as [string,string,string][]).map(([id, icon, label]) => (
+              {([['area','location',t.reports.tabByArea], ['item','drug',t.reports.tabByItem], ['rep','person',t.reports.tabByCommRep]] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
                 <button key={id} onClick={() => setActiveTab(id as 'area' | 'item' | 'rep')} title={label} style={{
                   padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
                   background: activeTab === id ? '#fff' : 'transparent',
@@ -3422,12 +3424,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   fontWeight: activeTab === id ? 700 : 500, fontSize: 13,
                   borderBottom: activeTab === id ? '2px solid #1e40af' : '2px solid transparent',
                   marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
-                }}><span>{icon}</span><span>{label}</span></button>
+                }}><Icon name={icon} size={13} /><span>{label}</span></button>
               ))}
             </div>
             <button onClick={() => setSciViewMode(v => v === 'qty' ? 'value' : 'qty')}
-              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${sciViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: sciViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: sciViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4 }}>
-              {sciViewMode === 'qty' ? '🔢 كمية' : '💰 قيمة'}
+              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${sciViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: sciViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: sciViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {sciViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
             </button>
           </div>
           {isNet ? (
@@ -3452,15 +3454,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   else { setShowTargets(false); }
                 }}
               >
-                🎯 {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
+                <Icon name="target" size={13} /> {showTargets ? 'إخفاء مقارنة التارگت' : 'مقارنة التارگت بالمبيعات'}
               </button>
               {showTargets && (
                 targetsLoading ? <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>جاري التحميل...</div> : (
                   <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af' }}>🎯 مقارنة التارگت بالمبيعات</span>
-                      <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151' }} title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت">
-                        {hideEmptyTargetRows ? '👁 إظهار كل الايتمات' : '🚫 إخفاء الفارغة'}
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1e40af', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="target" size={13} /> مقارنة التارگت بالمبيعات</span>
+                      <button onClick={() => setHideEmptyTargetRows(v => !v)} style={{ marginRight: 'auto', padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: hideEmptyTargetRows ? '#1a56db' : '#f1f5f9', color: hideEmptyTargetRows ? '#fff' : '#374151', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="إخفاء الايتمات التي ليس لها مبيع ولا تارگت">
+                        {hideEmptyTargetRows ? <><Icon name="view" size={12} /> إظهار كل الايتمات</> : <><Icon name="blocked" size={12} /> إخفاء الفارغة</>}
                       </button>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
@@ -3538,7 +3540,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <div className="modal modal--wide" style={{ maxWidth: 700 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">{t.reports.exportTitle}</h2>
-              <button className="modal-close" onClick={() => setShowExportModal(false)}>✕</button>
+              <button className="modal-close" onClick={() => setShowExportModal(false)}><Icon name="close" size={16} /></button>
             </div>
 
             <div style={{ padding: '12px 24px 4px', fontSize: 12, color: '#6b7280', background: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
@@ -3549,7 +3551,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {/* Scientific Reps */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <strong style={{ color: '#374151', fontSize: 14 }}>🔬 {t.reports.exportSciLabel} ({sciReps.length})</strong>
+                  <strong style={{ color: '#374151', fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="navFms" size={13} /> {t.reports.exportSciLabel} ({sciReps.length})</strong>
                   <button style={{ fontSize: 12, color: '#10b981', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
                     onClick={() => {
                       const s = new Set(selSciIds);
@@ -3575,8 +3577,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         {toWaNumber(r.phone) && (
                           <button type="button" title={`إرسال تقرير ${r.name} على واتساب`} disabled={exporting}
                             onClick={() => sendRepWhatsApp('sci', r)}
-                            style={{ flexShrink: 0, padding: '6px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 14 }}>
-                            📲
+                            style={{ flexShrink: 0, padding: '6px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>
+                            <Icon name="call" size={14} />
                           </button>
                         )}
                       </div>
@@ -3587,7 +3589,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {/* Commercial Reps */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <strong style={{ color: '#374151', fontSize: 14 }}>💼 {t.reports.exportCommLabel} ({commReps.length})</strong>
+                  <strong style={{ color: '#374151', fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="navCommercial" size={13} /> {t.reports.exportCommLabel} ({commReps.length})</strong>
                   <button style={{ fontSize: 12, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
                     onClick={() => {
                       const s = new Set(selCommIds);
@@ -3613,8 +3615,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         {toWaNumber(r.phone) && (
                           <button type="button" title={`إرسال تقرير ${r.name} على واتساب`} disabled={exporting}
                             onClick={() => sendRepWhatsApp('comm', r)}
-                            style={{ flexShrink: 0, padding: '6px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 14 }}>
-                            📲
+                            style={{ flexShrink: 0, padding: '6px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg,#25D366,#128C7E)', color: '#fff', fontWeight: 700, fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>
+                            <Icon name="call" size={14} />
                           </button>
                         )}
                       </div>
@@ -3624,9 +3626,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </div>
 
             <div style={{ padding: '14px 24px', background: '#f9fafb', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 13, color: '#6b7280' }}>
+              <div style={{ fontSize: 13, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 5 }}>
                 {(selCommIds.size + selSciIds.size) > 0
-                  ? `✅ ${selCommIds.size + selSciIds.size} ${t.reports.exportSelectedCount}`
+                  ? <><Icon name="checkCircle" size={13} /> {selCommIds.size + selSciIds.size} {t.reports.exportSelectedCount}</>
                   : t.reports.exportSelectHint}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -3651,7 +3653,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     opacity: (selCommIds.size + selSciIds.size) === 0 ? 0.5 : 1,
                   }}
                 >
-                  {previewLoading ? '⏳' : '👁️'} معاينة
+                  {previewLoading ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="view" size={13} />} معاينة
                 </button>
                 <button
                   onClick={doExport}
@@ -3697,8 +3699,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             backdropFilter: 'blur(6px)',
             border: '1px solid rgba(255,255,255,0.25)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18, flexShrink: 0,
-          }}>📊</div>
+            color: '#fff', flexShrink: 0,
+          }}><Icon name="navReports" size={18} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
               {t.reports.noActiveFileTitle}

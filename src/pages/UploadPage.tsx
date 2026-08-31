@@ -693,7 +693,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
         </div>
       ) : (
         <div style={{ ...CARD, background: 'var(--c-warning-bg)', borderColor: 'var(--c-warning-border)', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
-          <span>⚠️</span>
+          <Icon name="warning" size={15} style={{ color: 'var(--c-warning)' }} />
           <span style={{ fontSize: 12, color: 'var(--c-warning)', fontWeight: 600 }}>{t.upload.noActiveFile}</span>
           <span style={{ fontSize: 11, color: 'var(--c-warning)' }}>— {t.upload.noActiveFileDesc}</span>
         </div>
@@ -753,7 +753,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           <div style={{ color: '#64748b', fontSize: 13 }}>⏳ {t.upload.uploading}</div>
         ) : dragging ? (
           <div style={{ padding: '28px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, pointerEvents: 'none' }}>
-            <span style={{ fontSize: 48 }}>📂</span>
+            <Icon name="folder" size={48} style={{ color: 'var(--c-accent)' }} />
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-accent)' }}>أفلت الملف هنا</span>
             <span style={{ fontSize: 12, color: '#60a5fa' }}>.xlsx · .xls · .csv</span>
           </div>
@@ -794,7 +794,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       {/* ── Add manual / invoice-image sales ─────────────────── */}
       <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--c-purple-bg)', borderColor: 'var(--c-purple-border)' }}>
         <div style={{ fontSize: 12.5, color: '#6b21a8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>🧾</span>
+          <Icon name="file" size={18} />
           <span>مبيعات من فواتير المذاخر لا تظهر في الملفات؟ أضِفها من صورة الفاتورة أو يدوياً.</span>
         </div>
         <button onClick={() => { setManualMsg(''); setShowManualModal(true); }}
@@ -805,7 +805,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
       {manualMsg && (
         <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
-          ✅ {manualMsg}
+          <Icon name="checkCircle" size={13} style={{ verticalAlign: 'middle', marginLeft: 4 }} /> {manualMsg}
         </div>
       )}
 
@@ -844,7 +844,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
       {error && (
         <div style={{ ...CARD, background: 'var(--c-danger-bg)', borderColor: 'var(--c-danger-border)', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 12, color: 'var(--c-danger)', fontWeight: 600 }}>⚠️ {error}</div>
+          <div style={{ fontSize: 12, color: 'var(--c-danger)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="warning" size={13} /> {error}</div>
           {errorDetail && <div style={{ fontSize: 11, color: 'var(--c-danger)', fontFamily: 'monospace', background: '#fff', borderRadius: 4, padding: '4px 8px' }}>{errorDetail}</div>}
         </div>
       )}
@@ -852,7 +852,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       {/* Upload success */}
       {uploadResult && (uploadResult.salesCount !== undefined || uploadResult.returnsCount !== undefined) && (
         <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-          <span>✅</span>
+          <Icon name="checkCircle" size={15} style={{ color: 'var(--c-success)' }} />
           <strong style={{ color: 'var(--c-success)' }}>{t.upload.uploadSuccessTitle}</strong>
           {uploadResult.salesCount !== undefined && uploadResult.salesCount > 0 && <span style={{ color: 'var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uploadSales" size={13} /> {uploadResult.salesCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
           {uploadResult.returnsCount !== undefined && uploadResult.returnsCount > 0 && <span style={{ color: 'var(--c-danger)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uploadReturns" size={13} /> {uploadResult.returnsCount.toLocaleString('ar-IQ')} {t.upload.rowUnit}</span>}
@@ -863,7 +863,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       {uploadResult?.normalizations && uploadResult.normalizations.length > 0 && (
         <div style={{ ...CARD, background: 'var(--c-warning-bg)', borderColor: '#fcd34d', padding: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', cursor: 'pointer' }} onClick={() => setShowNorm(v => !v)}>
-            <span style={{ fontSize: 14 }}>⚠️</span>
+            <Icon name="warning" size={14} style={{ color: 'var(--c-warning)' }} />
             <span style={{ fontSize: 12, color: 'var(--c-warning)', fontWeight: 600 }}>{t.upload.normCount} {uploadResult.normalizations.length} {t.upload.normSuffix}</span>
             <span style={{ fontSize: 11, color: 'var(--c-warning)', marginRight: 'auto' }}>{showNorm ? '▲' : '▼'}</span>
           </div>
@@ -903,7 +903,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               disabled={catalogLoading}
               style={{ marginRight: 'auto', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 7, padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: catalogLoading ? 'wait' : 'pointer' }}
             >
-              {catalogLoading ? '⏳ جاري التحميل...' : '🗂️ معالجة (ربط / إضافة للكتالوج)'}
+              {catalogLoading ? <><Icon name="loading" size={12} className="icon-spin" /> جاري التحميل...</> : <><Icon name="folder" size={12} /> معالجة (ربط / إضافة للكتالوج)</>}
             </button>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -936,22 +936,24 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               ))}
             </tbody>
           </table>
-          <button onClick={() => dedupNames(true)} disabled={deduping} style={{ ...BTN_PRI, marginTop: 8 }}>
-            {t.upload.dedupApplyBtn}
+          <button onClick={() => dedupNames(true)} disabled={deduping} style={{ ...BTN_PRI, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {deduping ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="transfer" size={13} />} {t.upload.dedupApplyBtn}
           </button>
         </div>
       )}
 
       {cleanResult && (
         <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '7px 14px', fontSize: 12, color: '#065f46', fontWeight: 600 }}>
-          ✓ {t.upload.cleanSuccessPrefix} {cleanResult.areas} {t.upload.cleanSuccessArea} {t.upload.cleanSuccessAnd} {cleanResult.items} {t.upload.cleanSuccessItem}
+          <Icon name="check" size={13} style={{ verticalAlign: 'middle', marginLeft: 4 }} /> {t.upload.cleanSuccessPrefix} {cleanResult.areas} {t.upload.cleanSuccessArea} {t.upload.cleanSuccessAnd} {cleanResult.items} {t.upload.cleanSuccessItem}
         </div>
       )}
 
       {dedupResult && !showDedupDetail && (
         <div style={{ ...CARD, background: 'var(--c-accent-light)', borderColor: '#93c5fd', padding: '7px 14px', fontSize: 12, color: '#1e3a5f', fontWeight: 600, cursor: dedupResult.count > 0 ? 'pointer' : 'default' }}
           onClick={() => dedupResult.count > 0 && setShowDedupDetail(v => !v)}>
-          {dedupResult.count === 0 ? t.upload.dedupNoSimilar : `🔀 ${t.upload.dedupUnified} ${dedupResult.count} ${t.upload.dedupNamesUnit} — اضغط للتفاصيل ▼`}
+          {dedupResult.count === 0 ? t.upload.dedupNoSimilar : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="transfer" size={13} /> {t.upload.dedupUnified} {dedupResult.count} {t.upload.dedupNamesUnit} — اضغط للتفاصيل ▼</span>
+          )}
         </div>
       )}
 
@@ -982,8 +984,10 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
               const typeMeta =
                 f.fileType === 'returns' ? { label: t.upload.typeReturnsLabel, color: 'var(--c-danger)', bg: 'var(--c-danger-bg)', border: 'var(--c-danger-border)' } :
                 f.fileType === 'auto'    ? { label: t.upload.typeAutoLabel,    color: 'var(--c-purple)', bg: 'var(--c-purple-bg)', border: 'var(--c-purple-border)' } :
-                // 'matrix' has no dedicated design-system token (not one of the 4 palette colors) — left as its original cyan hex.
-                f.fileType === 'matrix' ? { label: t.upload.typeMatrixLabel,   color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc' } :
+                // 'matrix' folded from its own cyan into the danger-red family (3-hue reduction) — sales/auto
+                // now share blue (purple already aliases to accent) while returns/matrix share red; the text
+                // label still disambiguates the two red badges, so this doesn't cost the user any information.
+                f.fileType === 'matrix' ? { label: t.upload.typeMatrixLabel,   color: 'var(--c-danger)', bg: 'var(--c-danger-bg)', border: 'var(--c-danger-border)' } :
                                           { label: t.upload.typeSalesLabel,    color: 'var(--c-accent)', bg: 'var(--c-accent-light)', border: 'var(--c-accent)' };
 
               const currIsDollar = (f.currencyMode ?? f.detectedCurrency) === 'USD';
@@ -1028,26 +1032,26 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           padding: '4px 0', direction: 'rtl',
                         }}>
                           {/* Activate/Deactivate */}
-                          <button onClick={() => { onFileActivated(f.id); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
-                            {isActive ? '✅ إلغاء التفعيل' : '⚡ تفعيل الملف'}
+                          <button onClick={() => { onFileActivated(f.id); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {isActive ? <><Icon name="checkCircle" size={13} /> إلغاء التفعيل</> : <><Icon name="target" size={13} /> تفعيل الملف</>}
                           </button>
 
                           {/* Analyze */}
-                          <button onClick={() => { handleAnalyze(f); setOpenMenuId(null); }} disabled={analyzing && analyzeFile?.id === f.id} style={MENU_ITEM_STYLE}>
-                            🤖 تحليل الملف
+                          <button onClick={() => { handleAnalyze(f); setOpenMenuId(null); }} disabled={analyzing && analyzeFile?.id === f.id} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Icon name="aiBot" size={13} /> تحليل الملف
                           </button>
 
                           {/* تعديل الملف — للمالك فقط */}
                           {f.userId === user?.id && (
-                            <button onClick={() => { setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
-                              📝 تعديل الملف
+                            <button onClick={() => { setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="edit" size={13} /> تعديل الملف
                             </button>
                           )}
 
                           {/* Currency convert */}
                           {hasFeature('currency_convert') && (
-                            <button onClick={() => { openCurrencyModal(f); setOpenMenuId(null); }} style={MENU_ITEM_STYLE}>
-                              💱 تحويل العملة
+                            <button onClick={() => { openCurrencyModal(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="money" size={13} /> تحويل العملة
                             </button>
                           )}
 
@@ -1060,8 +1064,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
                           {/* Download my sales — shared recipient */}
                           {isSharedToMe && (
-                            <button onClick={() => { downloadUserSalesExcel(f.id); setOpenMenuId(null); }} disabled={exporting === `${f.id}-me`} style={MENU_ITEM_STYLE}>
-                              📥 تحميل مبيعاتي
+                            <button onClick={() => { downloadUserSalesExcel(f.id); setOpenMenuId(null); }} disabled={exporting === `${f.id}-me`} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="import" size={13} /> تحميل مبيعاتي
                             </button>
                           )}
 
@@ -1071,8 +1075,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                           {confirmId === f.id ? (
                             <div style={{ padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center' }}>
                               <span style={{ fontSize: 11, color: 'var(--c-danger)', fontWeight: 600, flex: 1 }}>{t.upload.confirmDelete}</span>
-                              <button style={{ ...BTN_PRI, background: 'var(--c-danger)', padding: '3px 10px' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
-                                {deleting === f.id ? '⏳' : '✓'}
+                              <button style={{ ...BTN_PRI, background: 'var(--c-danger)', padding: '3px 10px', display: 'inline-flex', alignItems: 'center' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
+                                {deleting === f.id ? <Icon name="loading" size={12} className="icon-spin" /> : <Icon name="check" size={12} />}
                               </button>
                               <button style={{ ...BTN_GHOST, padding: '3px 8px' }} onClick={() => setConfirmId(null)}><Icon name="close" size={12} /></button>
                             </div>
@@ -1096,7 +1100,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         onClick={() => setRepNameFileIds([f.id])}
                         style={{ ...BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)'), cursor: 'pointer' }}
                         title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
-                      >🏬 ميركاتو · مطابقة الأسماء</button>
+                      ><Icon name="pharmacy" size={11} /> ميركاتو · مطابقة الأسماء</button>
                     )}
                     {isActive && <span style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}><Icon name="checkCircle" size={11} /> {t.upload.statusActive}</span>}
                     {isSharedByMe && (
@@ -1109,7 +1113,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         <span style={{ fontSize: 10, transition: 'transform 0.2s', display: 'inline-block', transform: expandedSharesId === f.id ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
                       </button>
                     )}
-                    {isSharedToMe && <span style={BADGE('#fef3c7', 'var(--c-warning)', '#fcd34d')}>📥 مشارك معك</span>}
+                    {isSharedToMe && <span style={BADGE('#fef3c7', 'var(--c-warning)', '#fcd34d')}><Icon name="import" size={11} /> مشارك معك</span>}
                   </div>
 
                   {/* ── Expanded reps row ── */}
@@ -1125,7 +1129,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
 
                   {/* ── Row 2: meta (no row count) ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
-                    <span>📅 {fmtDate(f.uploadedAt)}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={12} /> {fmtDate(f.uploadedAt)}</span>
                     {hasFeature('currency_convert') ? (
                       <button
                         onClick={() => toggleCurrency(f)}
@@ -1158,7 +1162,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         gap: 4,
                       }}
                     >
-                      {isActive ? <><Icon name="checkCircle" size={11} /> نشط</> : <>⚡ تفعيل</>}
+                      {isActive ? <><Icon name="checkCircle" size={11} /> نشط</> : <><Icon name="target" size={11} /> تفعيل</>}
                     </button>
                   </div>
                 </div>
@@ -1296,11 +1300,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 {t.upload.cancel}
               </button>
               <button
-                style={{ padding: '7px 20px', background: 'var(--c-warning)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', opacity: savingCurrency ? 0.7 : 1 }}
+                style={{ padding: '7px 20px', background: 'var(--c-warning)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', opacity: savingCurrency ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 onClick={saveCurrencySettings}
                 disabled={savingCurrency}
               >
-                {savingCurrency ? t.upload.currencySaving : t.upload.currencySave}
+                {savingCurrency ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="checkCircle" size={13} />} {savingCurrency ? t.upload.currencySaving : t.upload.currencySave}
               </button>
             </div>
           </div>
@@ -1318,8 +1322,8 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
-              <strong style={{ color: 'var(--c-warning)', fontSize: 15 }}>
-                ⚠️ تم اكتشاف {autoDedup.length} ايتم متشابه — اختَر ما تريد دمجه (يُحتفظ بالاسم الأطول)
+              <strong style={{ color: 'var(--c-warning)', fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="warning" size={15} /> تم اكتشاف {autoDedup.length} ايتم متشابه — اختَر ما تريد دمجه (يُحتفظ بالاسم الأطول)
               </strong>
               <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--c-warning)', display: 'flex' }}><Icon name="close" size={18} /></button>
             </div>
@@ -1363,7 +1367,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={applyAutoDedup} disabled={autoDedupApplying || autoDedupSel.size === 0}
                 style={{ background: autoDedupSel.size === 0 ? '#cbd5e1' : 'var(--c-warning)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: autoDedupSel.size === 0 ? 'not-allowed' : 'pointer', opacity: autoDedupApplying ? 0.7 : 1 }}>
-                {autoDedupApplying ? '⏳ جاري الدمج...' : `🔀 دمج المحدد (${autoDedupSel.size})`}
+                {autoDedupApplying ? <><Icon name="loading" size={13} className="icon-spin" /> جاري الدمج...</> : <><Icon name="transfer" size={13} /> دمج المحدد ({autoDedupSel.size})</>}
               </button>
               <button onClick={() => setAutoDedup(null)} disabled={autoDedupApplying}
                 style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
@@ -1385,7 +1389,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 12 }}>
-              <strong style={{ color: '#9a3412', fontSize: 15 }}>🗂️ معالجة الايتمات غير الموجودة في الكتالوج</strong>
+              <strong style={{ color: '#9a3412', fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="folder" size={15} /> معالجة الايتمات غير الموجودة في الكتالوج</strong>
               <button onClick={() => setCatalogModal(null)} disabled={catalogApplying} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#9a3412', display: 'flex' }}><Icon name="close" size={18} /></button>
             </div>
             <p style={{ margin: '0 0 12px', fontSize: 11.5, color: '#78716c' }}>
@@ -1393,12 +1397,12 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             </p>
 
             {catalogLoading ? (
-              <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>⏳ جاري التحميل...</div>
+              <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Icon name="loading" size={14} className="icon-spin" /> جاري التحميل...</div>
             ) : (
               <>
                 {catalogModal.companies.length === 0 && (
-                  <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--c-danger)', marginBottom: 10 }}>
-                    ⚠ حسابك غير مرتبط بأي شركة علمية — لا يمكن الإضافة للكتالوج، يمكنك فقط الربط إن وُجدت اقتراحات.
+                  <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: 'var(--c-danger)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="warning" size={13} /> حسابك غير مرتبط بأي شركة علمية — لا يمكن الإضافة للكتالوج، يمكنك فقط الربط إن وُجدت اقتراحات.
                   </div>
                 )}
                 {/* Quick actions */}
@@ -1481,7 +1485,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={applyCatalogResolve} disabled={catalogApplying}
                     style={{ background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 14, fontWeight: 700, cursor: catalogApplying ? 'wait' : 'pointer', opacity: catalogApplying ? 0.7 : 1 }}>
-                    {catalogApplying ? '⏳ جاري التطبيق...' : '✅ تطبيق'}
+                    {catalogApplying ? <><Icon name="loading" size={13} className="icon-spin" /> جاري التطبيق...</> : <><Icon name="checkCircle" size={13} /> تطبيق</>}
                   </button>
                   <button onClick={() => setCatalogModal(null)} disabled={catalogApplying}
                     style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
@@ -1598,7 +1602,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           >
             {/* Header */}
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>🔗 مزامنة الملف مع مندوبين</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="link" size={15} /> مزامنة الملف مع مندوبين</div>
               <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{shareModalFile.originalName}</div>
               <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4, lineHeight: 1.5 }}>
                 اختر مندوبين أو أكثر — كل منهم سيرى بياناته المفلترة حسب مناطقه فقط
@@ -1606,7 +1610,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             </div>
 
             {linkedUsersLoading ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>⏳ جاري التحميل...</div>
+              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Icon name="loading" size={14} className="icon-spin" /> جاري التحميل...</div>
             ) : linkedUsers.length === 0 ? (
               <div style={{ padding: '12px', background: 'var(--c-danger-bg)', borderRadius: 8, color: 'var(--c-danger)', fontSize: 13 }}>
                 لا يوجد مندوبون مرتبطون بك — عيّنهم من لوحة الماستر أولاً
@@ -1652,15 +1656,15 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                               }}
                             >
-                              👤 {u.name}
+                              <Icon name="person" size={11} style={{ verticalAlign: 'middle', marginLeft: 3 }} /> {u.name}
                             </div>
                             <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {ROLE_AR[u.role] ?? u.role}
                               {hasOverride
-                                ? <span style={{ color: '#0891b2', fontWeight: 700, marginRight: 4 }}>· 📍 {overrides!.size} منطقة مخصصة</span>
+                                ? <span style={{ color: '#0891b2', fontWeight: 700, marginRight: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <Icon name="location" size={10} /> {overrides!.size} منطقة مخصصة</span>
                                 : u.areaCount > 0
                                   ? ` · ${u.areaCount} منطقة`
-                                  : <span style={{ color: 'var(--c-warning)', marginRight: 4 }}> · ⚠ لا مناطق</span>
+                                  : <span style={{ color: 'var(--c-warning)', marginRight: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <Icon name="warning" size={10} /> لا مناطق</span>
                               }
                             </div>
                           </div>
@@ -1679,7 +1683,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                                   color: hasOverride ? '#0e7490' : 'var(--c-purple)', cursor: 'pointer',
                                 }}
                               >
-                                {isExpanded ? '▲ إخفاء' : (hasOverride ? `📍 ${overrides!.size} منطقة` : '📍 تخصيص المناطق')}
+                                {isExpanded ? '▲ إخفاء' : (hasOverride ? <><Icon name="location" size={11} /> {overrides!.size} منطقة</> : <><Icon name="location" size={11} /> تخصيص المناطق</>)}
                               </button>
                             )}
                             <button
@@ -1688,7 +1692,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                               style={{ ...BTN_SEC, fontSize: 11, padding: '4px 10px' }}
                               title={`تحميل بيانات ${u.name}`}
                             >
-                              {exporting === `${shareModalFile!.id}-${u.id}` ? '⏳ جاري...' : '📥 تحميل'}
+                              {exporting === `${shareModalFile!.id}-${u.id}` ? <><Icon name="loading" size={11} className="icon-spin" /> جاري...</> : <><Icon name="import" size={11} /> تحميل</>}
                             </button>
                           </div>
                         )}
@@ -1697,7 +1701,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
                         {checked && isExpanded && fileAreas.length > 0 && (
                           <div style={{ borderTop: '1px solid #e0f2fe', background: '#f0f9ff', padding: '8px 12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: '#0369a1' }}>📍 اختر المناطق لـ {u.name}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={11} /> اختر المناطق لـ {u.name}</span>
                               <button onClick={() => {
                                 setCustomAreaOverrides(prev => {
                                   const next = new Map(prev);
@@ -1754,11 +1758,11 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button style={{ ...BTN_GHOST }} onClick={() => setShareModalFile(null)}>إلغاء</button>
               <button
-                style={{ ...BTN_PRI, opacity: saving ? 0.7 : 1 }}
+                style={{ ...BTN_PRI, opacity: saving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}
                 onClick={confirmShare}
                 disabled={saving || linkedUsers.length === 0}
               >
-                {saving ? '⏳ جاري...' : `✓ حفظ المزامنة${selectedUserIds.size > 0 ? ` (${selectedUserIds.size})` : ''}`}
+                {saving ? <><Icon name="loading" size={12} className="icon-spin" /> جاري...</> : <><Icon name="check" size={12} /> حفظ المزامنة{selectedUserIds.size > 0 ? ` (${selectedUserIds.size})` : ''}</>}
               </button>
             </div>
           </div>

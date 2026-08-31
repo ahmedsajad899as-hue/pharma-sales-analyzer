@@ -589,9 +589,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 position: 'absolute', inset: 16, borderRadius: '50%',
                 background: 'linear-gradient(135deg, #ef4444, #dc2626)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 26,
                 boxShadow: '0 4px 16px rgba(239,68,68,0.5)',
-              }}>🎤</div>
+              }}><Icon name="mic" size={28} style={{ color: '#fff' }} /></div>
             </div>
 
             <div>
@@ -629,7 +628,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 gap: 8,
               }}
             >
-              ⏹ إنهاء التسجيل
+              <Icon name="pause" size={16} /> إنهاء التسجيل
             </button>
           </div>
         </div>
@@ -682,7 +681,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
             background: '#fff',
             borderRadius: 16,
             boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-            border: '1.5px solid #e0e7ff',
+            border: '1.5px solid var(--c-purple-border)',
             fontFamily: 'inherit',
             overflow: 'hidden',
             display: 'flex',
@@ -691,7 +690,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         >
           {/* Header */}
           <div style={{
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+            background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)',
             color: '#fff',
             padding: '12px 16px',
             display: 'flex',
@@ -699,7 +698,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
             gap: 8,
             flexShrink: 0,
           }}>
-            <span style={{ fontSize: 18 }}>🤖</span>
+            <Icon name="aiBot" size={18} />
             <span style={{ fontWeight: 700, fontSize: 14 }}>{showHistory ? 'السجل' : 'مساعد AI'}</span>
             <span style={{ marginRight: 'auto', fontSize: 11, opacity: 0.8 }}>
               {activePage}
@@ -716,7 +715,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 flexShrink: 0, fontWeight: 600,
                 opacity: history.length === 0 ? 0.4 : 1,
               }}
-            >🕓 {history.length}</button>
+            ><Icon name="history" size={12} /> {history.length}</button>
           </div>
 
           {/* Scrollable body */}
@@ -733,20 +732,20 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     key={i}
                     onClick={() => { setResult(h.result); setTranscript(h.text); setError(''); setShowHistory(false); }}
                     style={{
-                      background: '#f8faff', border: '1.5px solid #e0e7ff', borderRadius: 10,
+                      background: '#f8faff', border: '1.5px solid var(--c-purple-border)', borderRadius: 10,
                       padding: '9px 12px', cursor: 'pointer', textAlign: 'right',
                       display: 'flex', flexDirection: 'column', gap: 3,
                     }}
                   >
-                    <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>🔍 {h.text}</div>
-                    <div style={{ fontSize: 11, color: '#6366f1' }}>
-                      {h.result.action === 'query_visits' ? '📊 نتائج زيارات'
-                        : h.result.action === 'query_doctors' ? '🩺 قائمة أطباء'
-                        : h.result.action === 'query_unvisited_doctors' ? '⚠️ أطباء لم تتم زيارتهم'
+                    <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="search" size={12} /> {h.text}</div>
+                    <div style={{ fontSize: 11, color: 'var(--c-accent)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {h.result.action === 'query_visits' ? <><Icon name="navSalesData" size={11} /> نتائج زيارات</>
+                        : h.result.action === 'query_doctors' ? <><Icon name="doctor" size={11} /> قائمة أطباء</>
+                        : h.result.action === 'query_unvisited_doctors' ? <><Icon name="warning" size={11} /> أطباء لم تتم زيارتهم</>
                         : h.result.action === 'query_stats' ? '📈 إحصائيات'
-                        : h.result.action === 'query_plan_stats' ? '📋 تقدم البلان'
-                        : h.result.action === 'query_stock' ? '📦 ستوك من ملف المبيعات'
-                        : h.result.action === 'navigate' ? `🔀 انتقال: ${h.result.navigatePage}`
+                        : h.result.action === 'query_plan_stats' ? <><Icon name="navMonthlyPlans" size={11} /> تقدم البلان</>
+                        : h.result.action === 'query_stock' ? <><Icon name="navDistributorSales" size={11} /> ستوك من ملف المبيعات</>
+                        : h.result.action === 'navigate' ? <><Icon name="chevronLeft" size={11} /> انتقال: {h.result.navigatePage}</>
                         : h.result.action === 'page_action' ? `⚡ إجراء: ${h.result.pageAction}`
                         : '💡 رد'}
                     </div>
@@ -769,7 +768,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 border: 'none',
                 background: isRecording
                   ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                  : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  : 'linear-gradient(135deg, var(--c-accent), var(--c-accent-hover))',
                 color: '#fff',
                 fontWeight: 600,
                 fontSize: 13,
@@ -782,8 +781,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
               }}
             >
               {isRecording
-                ? <><span style={{ animation: 'pulse 1s infinite', display: 'inline-block' }}>🔴</span>إيقاف التسجيل</>
-                : <><span>🎤</span>تحدث الآن</>}
+                ? <><span style={{ width: 9, height: 9, borderRadius: '50%', background: '#fecaca', display: 'inline-block', animation: 'pulse 1s infinite' }} />إيقاف التسجيل</>
+                : <><Icon name="mic" size={14} />تحدث الآن</>}
             </button>
 
             <div style={{ display: 'flex', gap: 6 }}>
@@ -795,7 +794,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 placeholder="أو اكتب أمرك هنا..."
                 disabled={isProcessing || isRecording}
                 style={{
-                  flex: 1, border: '1.5px solid #e0e7ff', borderRadius: 8,
+                  flex: 1, border: '1.5px solid var(--c-purple-border)', borderRadius: 8,
                   padding: '7px 10px', fontSize: 13, outline: 'none',
                   direction: 'rtl', background: '#f8faff',
                 }}
@@ -805,16 +804,17 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 disabled={isProcessing || isRecording || !textInput.trim()}
                 style={{
                   padding: '7px 12px', borderRadius: 8, border: 'none',
-                  background: '#4f46e5', color: '#fff', fontSize: 13, cursor: 'pointer',
+                  background: 'var(--c-accent)', color: '#fff', fontSize: 13, cursor: 'pointer',
                   opacity: (!textInput.trim() || isProcessing) ? 0.5 : 1,
+                  display: 'flex', alignItems: 'center', gap: 5,
                 }}
-              >إرسال</button>
+              ><Icon name="navAqdarExport" size={13} />إرسال</button>
             </div>
 
             {/* Processing */}
             {isProcessing && (
-              <div style={{ textAlign: 'center', color: '#6366f1', fontSize: 13, padding: '6px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+              <div style={{ textAlign: 'center', color: 'var(--c-accent)', fontSize: 13, padding: '6px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Icon name="loading" size={14} className="icon-spin" />
                 جاري التحليل والبحث في قاعدة البيانات...
               </div>
             )}
@@ -828,7 +828,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
             {/* Transcript */}
             {transcript && !isProcessing && (
-              <div style={{ background: '#f0f0ff', borderRadius: 8, padding: '7px 10px', fontSize: 12, color: '#4338ca', borderRight: '3px solid #6366f1' }}>
+              <div style={{ background: 'var(--c-accent-light)', borderRadius: 8, padding: '7px 10px', fontSize: 12, color: 'var(--c-accent)', borderRight: '3px solid var(--c-accent)' }}>
                 <span style={{ fontWeight: 600 }}>قلت: </span>{transcript}
               </div>
             )}
@@ -839,8 +839,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
               // ── No entity found ──────────────────────────────
               if (qr && !qr.found) return (
-                <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#92400e' }}>
-                  ⚠️ {qr.message}
+                <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="warning" size={14} /> {qr.message}
                 </div>
               );
 
@@ -849,11 +849,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 const isPharm = qr.visitType === 'pharmacy';
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ background: isPharm ? '#ecfdf5' : '#ede9fe', borderRadius: 10, padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: isPharm ? '#065f46' : '#4c1d95' }}>
-                        {isPharm ? '🏪 زيارات الصيدليات' : '🔍 نتائج البحث'}
+                    <div style={{ background: isPharm ? '#ecfdf5' : 'var(--c-accent-light)', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: isPharm ? '#065f46' : 'var(--c-accent)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {isPharm ? <><Icon name="pharmacy" size={13} /> زيارات الصيدليات</> : <><Icon name="search" size={13} /> نتائج البحث</>}
                       </div>
-                      <div style={{ fontSize: 12, color: isPharm ? '#047857' : '#5b21b6', marginTop: 2 }}>
+                      <div style={{ fontSize: 12, color: isPharm ? '#047857' : 'var(--c-accent)', marginTop: 2 }}>
                         إجمالي الزيارات: <strong>{qr.totalVisits}</strong>
                       </div>
                     </div>
@@ -867,19 +867,19 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span style={{ fontSize: 11, color: '#374151', fontWeight: 600 }}>{fmtDate(pv.date)}</span>
-                              {pv.isDouble && <span style={{ fontSize: 10, background: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '1px 7px' }}>👥 مزدوجة</span>}
+                              {pv.isDouble && <span style={{ fontSize: 10, background: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '1px 7px', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="navUsers" size={10} /> مزدوجة</span>}
                             </div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>🏪 {pv.pharmacyName}</div>
-                            {pv.areaName && pv.areaName !== '—' && <div style={{ fontSize: 11, color: '#6b7280' }}>📍 {pv.areaName}</div>}
-                            <div style={{ fontSize: 11, color: '#6b7280' }}>👤 {pv.repName}</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="pharmacy" size={12} /> {pv.pharmacyName}</div>
+                            {pv.areaName && pv.areaName !== '—' && <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={11} /> {pv.areaName}</div>}
+                            <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> {pv.repName}</div>
                             {pv.itemNames.length > 0 && (
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
                                 {pv.itemNames.map((it, ii) => (
-                                  <span key={ii} style={{ background: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '1px 8px', fontSize: 10, fontWeight: 600 }}>💊 {it}</span>
+                                  <span key={ii} style={{ background: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '1px 8px', fontSize: 10, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={10} /> {it}</span>
                                 ))}
                               </div>
                             )}
-                            {pv.notes && <div style={{ fontSize: 11, color: '#92400e', fontStyle: 'italic' }}>📝 {pv.notes}</div>}
+                            {pv.notes && <div style={{ fontSize: 11, color: 'var(--c-danger)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={11} /> {pv.notes}</div>}
                           </div>
                         );
                       }
@@ -894,15 +894,15 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                             <span style={{ fontSize: 11, color: '#374151', fontWeight: 600 }}>{fmtDate(dv.date)}</span>
                             <span style={{ fontSize: 11, fontWeight: 700 }}>{dv.feedback}</span>
                           </div>
-                          <div style={{ fontSize: 11, color: '#374151' }}>
-                            🩺 {dv.doctorName}{dv.specialty ? ` · ${dv.specialty}` : ''}
-                            {dv.areaName ? ` · 📍 ${dv.areaName}` : ''}
+                          <div style={{ fontSize: 11, color: '#374151', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                            <Icon name="doctor" size={11} /> {dv.doctorName}{dv.specialty ? ` · ${dv.specialty}` : ''}
+                            {dv.areaName ? <> · <Icon name="location" size={11} /> {dv.areaName}</> : ''}
                           </div>
-                          <div style={{ fontSize: 11, color: '#6b7280' }}>
-                            👤 {dv.repName}{dv.itemName && dv.itemName !== '—' ? ` · 💊 ${dv.itemName}` : ''}
-                            {dv.isDouble ? ' · 👥 مزدوجة' : ''}
+                          <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                            <Icon name="person" size={11} /> {dv.repName}{dv.itemName && dv.itemName !== '—' ? <> · <Icon name="drug" size={11} /> {dv.itemName}</> : ''}
+                            {dv.isDouble ? <> · <Icon name="navUsers" size={11} /> مزدوجة</> : ''}
                           </div>
-                          {dv.notes && <div style={{ fontSize: 11, color: '#92400e', fontStyle: 'italic' }}>📝 {dv.notes}</div>}
+                          {dv.notes && <div style={{ fontSize: 11, color: 'var(--c-danger)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={11} /> {dv.notes}</div>}
                         </div>
                       );
                     })}
@@ -926,8 +926,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ background: isPharm ? '#d1fae5' : '#dbeafe', borderRadius: 10, padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: isPharm ? '#065f46' : '#1e3a8a' }}>
-                        {isPharm ? '🏪' : '📊'} نتائج مجمّعة حسب {groupLabel}
+                      <div style={{ fontWeight: 700, fontSize: 13, color: isPharm ? '#065f46' : '#1e3a8a', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {isPharm ? <Icon name="pharmacy" size={13} /> : <Icon name="navSalesData" size={13} />} نتائج مجمّعة حسب {groupLabel}
                       </div>
                       <div style={{ fontSize: 12, color: isPharm ? '#047857' : '#1d4ed8', marginTop: 2 }}>
                         إجمالي: <strong>{qr.totalVisits}</strong> زيارة في <strong>{qr.groups?.length}</strong> مجموعة
@@ -936,8 +936,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     {(qr.groups as GroupRow[])?.map((g, gi) => (
                       <div key={gi} style={{ border: `1.5px solid ${isPharm ? '#6ee7b7' : '#bfdbfe'}`, borderRadius: 12, overflow: 'hidden' }}>
                         <div style={{ background: isPharm ? '#ecfdf5' : '#eff6ff', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: isPharm ? '#065f46' : '#1e40af' }}>
-                            {isPharm ? '🏪 ' : ''}{g.groupKey}
+                          <span style={{ fontWeight: 700, fontSize: 13, color: isPharm ? '#065f46' : '#1e40af', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {isPharm ? <Icon name="pharmacy" size={12} /> : ''}{g.groupKey}
                           </span>
                           <span style={{ background: isPharm ? '#10b981' : '#3b82f6', color: '#fff', borderRadius: 20, padding: '1px 9px', fontSize: 11, fontWeight: 700 }}>{g.count}</span>
                         </div>
@@ -953,18 +953,18 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                                 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ fontSize: 11, color: '#374151', fontWeight: 600 }}>{fmtDate(pv.date)}</span>
-                                    {pv.isDouble && <span style={{ fontSize: 10, color: '#047857' }}>👥</span>}
+                                    {pv.isDouble && <Icon name="navUsers" size={10} style={{ color: '#047857' }} />}
                                   </div>
-                                  {pv.areaName && pv.areaName !== '—' && <div style={{ fontSize: 11, color: '#6b7280' }}>📍 {pv.areaName}</div>}
-                                  <div style={{ fontSize: 11, color: '#6b7280' }}>👤 {pv.repName}</div>
+                                  {pv.areaName && pv.areaName !== '—' && <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={11} /> {pv.areaName}</div>}
+                                  <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> {pv.repName}</div>
                                   {pv.itemNames.length > 0 && (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                                       {pv.itemNames.map((it, ii) => (
-                                        <span key={ii} style={{ background: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '1px 7px', fontSize: 10 }}>💊 {it}</span>
+                                        <span key={ii} style={{ background: '#d1fae5', color: '#065f46', borderRadius: 20, padding: '1px 7px', fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={10} /> {it}</span>
                                       ))}
                                     </div>
                                   )}
-                                  {pv.notes && <div style={{ fontSize: 11, color: '#92400e', fontStyle: 'italic' }}>📝 {pv.notes}</div>}
+                                  {pv.notes && <div style={{ fontSize: 11, color: 'var(--c-danger)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={11} /> {pv.notes}</div>}
                                 </div>
                               );
                             }
@@ -980,15 +980,15 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                                   <span style={{ fontSize: 11, color: '#374151', fontWeight: 600 }}>{fmtDate(dv.date)}</span>
                                   <span style={{ fontSize: 11, fontWeight: 700 }}>{dv.feedback}</span>
                                 </div>
-                                <div style={{ fontSize: 11, color: '#374151' }}>
-                                  🩺 {dv.doctorName}{dv.specialty ? ` · ${dv.specialty}` : ''}
-                                  {dv.areaName ? ` · 📍 ${dv.areaName}` : ''}
+                                <div style={{ fontSize: 11, color: '#374151', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                  <Icon name="doctor" size={11} /> {dv.doctorName}{dv.specialty ? ` · ${dv.specialty}` : ''}
+                                  {dv.areaName ? <> · <Icon name="location" size={11} /> {dv.areaName}</> : ''}
                                 </div>
-                                <div style={{ fontSize: 11, color: '#6b7280' }}>
-                                  👤 {dv.repName}{dv.itemName && dv.itemName !== '—' ? ` · 💊 ${dv.itemName}` : ''}
-                                  {dv.isDouble ? ' · 👥' : ''}
+                                <div style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                                  <Icon name="person" size={11} /> {dv.repName}{dv.itemName && dv.itemName !== '—' ? <> · <Icon name="drug" size={11} /> {dv.itemName}</> : ''}
+                                  {dv.isDouble ? <> · <Icon name="navUsers" size={11} /></> : ''}
                                 </div>
-                                {dv.notes && <div style={{ fontSize: 11, color: '#92400e', fontStyle: 'italic' }}>📝 {dv.notes}</div>}
+                                {dv.notes && <div style={{ fontSize: 11, color: 'var(--c-danger)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={11} /> {dv.notes}</div>}
                               </div>
                             );
                           })}
@@ -1002,36 +1002,36 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
               // ── unvisited_doctors ──────────────────────────────────────
               if (qr?.type === 'unvisited_doctors') {
                 if (qr.allVisited || qr.totalDoctors === 0) return (
-                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#15803d', fontWeight: 600, textAlign: 'center' }}>
-                    🎉 جميع الأطباء تمت زيارتهم في هذه الفترة!
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#15803d', fontWeight: 600, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Icon name="checkCircle" size={16} /> جميع الأطباء تمت زيارتهم في هذه الفترة!
                   </div>
                 );
                 const areaGroups = qr.groups as { areaName: string; doctors: DoctorListRow[] }[] | undefined;
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: '#9a3412' }}>⚠️ أطباء لم تتم زيارتهم</div>
-                      <div style={{ fontSize: 12, color: '#c2410c', marginTop: 2 }}>
+                    <div style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="warning" size={13} /> أطباء لم تتم زيارتهم</div>
+                      <div style={{ fontSize: 12, color: 'var(--c-danger)', marginTop: 2 }}>
                         إجمالي: <strong>{qr.totalDoctors}</strong> طبيب • {areaGroups?.length ?? 0} منطقة
                       </div>
                     </div>
                     {areaGroups?.map((grp, gi) => (
-                      <div key={gi} style={{ border: '1.5px solid #fed7aa', borderRadius: 12, overflow: 'hidden' }}>
-                        <div style={{ background: '#fff7ed', padding: '7px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 700, fontSize: 12, color: '#9a3412' }}>📍 {grp.areaName}</span>
-                          <span style={{ background: '#f97316', color: '#fff', borderRadius: 20, padding: '1px 9px', fontSize: 11, fontWeight: 700 }}>{grp.doctors.length}</span>
+                      <div key={gi} style={{ border: '1.5px solid var(--c-danger-border)', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--c-danger-bg)', padding: '7px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={12} /> {grp.areaName}</span>
+                          <span style={{ background: 'var(--c-danger)', color: '#fff', borderRadius: 20, padding: '1px 9px', fontSize: 11, fontWeight: 700 }}>{grp.doctors.length}</span>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           {grp.doctors.map((d, di) => (
                             <div key={di} style={{
-                              borderTop: di > 0 ? '1px solid #fed7aa' : undefined,
+                              borderTop: di > 0 ? '1px solid var(--c-danger-border)' : undefined,
                               padding: '7px 12px', background: '#fffbf5',
                               display: 'flex', flexDirection: 'column', gap: 2,
                             }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>🩺 {d.name}</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={13} /> {d.name}</div>
                               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                                 {d.specialty && <span style={{ fontSize: 11, color: '#6b7280' }}>🔬 {d.specialty}</span>}
-                                {d.phone && <span style={{ fontSize: 11, color: '#6b7280' }}>📞 {d.phone}</span>}
+                                {d.phone && <span style={{ fontSize: 11, color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="call" size={11} /> {d.phone}</span>}
                               </div>
                             </div>
                           ))}
@@ -1052,7 +1052,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                       </div>
                     )}
                     <div style={{ background: '#ecfdf5', borderRadius: 10, padding: '10px 12px', border: '1px solid #a7f3d0' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>🩺 قائمة الأطباء</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="doctor" size={13} /> قائمة الأطباء</div>
                       <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>
                         إجمالي: <strong>{qr.totalDoctors}</strong> طبيب
                       </div>
@@ -1062,12 +1062,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                         border: '1px solid #d1fae5', borderRadius: 10, padding: '8px 11px',
                         background: '#f0fdf4', display: 'flex', flexDirection: 'column', gap: 3,
                       }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>🩺 {d.name}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={13} /> {d.name}</div>
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                           {d.specialty && <span style={{ fontSize: 11, color: '#374151' }}>🔬 {d.specialty}</span>}
-                          {d.areaName && <span style={{ fontSize: 11, color: '#6b7280' }}>📍 {d.areaName}</span>}
-                          {d.pharmacyName && <span style={{ fontSize: 11, color: '#6b7280' }}>🏥 {d.pharmacyName}</span>}
-                          {d.phone && <span style={{ fontSize: 11, color: '#6b7280' }}>📞 {d.phone}</span>}
+                          {d.areaName && <span style={{ fontSize: 11, color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={11} /> {d.areaName}</span>}
+                          {d.pharmacyName && <span style={{ fontSize: 11, color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="navDoctors" size={11} /> {d.pharmacyName}</span>}
+                          {d.phone && <span style={{ fontSize: 11, color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="call" size={11} /> {d.phone}</span>}
                         </div>
                       </div>
                     ))}
@@ -1084,8 +1084,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 const sm = qr.summary;
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
-                      📊 {result.responseText}
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="navSalesData" size={12} /> {result.responseText}
                     </div>
                     {sm && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -1101,8 +1101,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                       {invList.map((inv: any, i: number) => (
                         <div key={i} style={{ background: '#f8fafc', borderRadius: 10, padding: '8px 12px', fontSize: 12, borderRight: `3px solid ${inv.status?.includes('✅') ? '#10b981' : inv.status?.includes('🔄') ? '#f59e0b' : '#6366f1'}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                            <span>🏥 {inv.pharmacyName}</span>
-                            <span style={{ color: '#6366f1' }}>{inv.totalAmount} د.ع</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="navDoctors" size={12} /> {inv.pharmacyName}</span>
+                            <span style={{ color: 'var(--c-accent)' }}>{inv.totalAmount} د.ع</span>
                           </div>
                           <div style={{ color: '#64748b', marginTop: 3 }}>
                             <span>{inv.areaName} · </span><span>{inv.status} · </span>
@@ -1122,8 +1122,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 const groupColors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6'];
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
-                      📊 {result.responseText}
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="navSalesData" size={12} /> {result.responseText}
                     </div>
                     {sm2 && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -1143,8 +1143,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                             <span style={{ fontSize: 11, color: '#64748b' }}>{g.count} فاتورة</span>
                           </div>
                           <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
-                            <span>💰 إجمالي: <b>{g.totalAmount}</b></span>
-                            <span style={{ color: '#10b981' }}>✔ محصّل: <b>{g.collected}</b></span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="money" size={11} /> إجمالي: <b>{g.totalAmount}</b></span>
+                            <span style={{ color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="check" size={11} /> محصّل: <b>{g.collected}</b></span>
                             <span style={{ color: '#ef4444' }}>⏳ متبقي: <b>{g.remaining}</b></span>
                           </div>
                         </div>
@@ -1160,8 +1160,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 const salesItems = qr.items ?? [];
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
-                      🛒 {result.responseText}
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="navSalesData" size={12} /> {result.responseText}
                     </div>
                     {sm && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
@@ -1181,14 +1181,14 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                       {salesItems.map((it: any, i: number) => (
                         <div key={i} style={{ background: '#f0fdf4', borderRadius: 10, padding: '8px 11px', fontSize: 12, borderRight: '3px solid #10b981' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                            <span>💊 {it.brandName}</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={12} /> {it.brandName}</span>
                             <span style={{ color: '#10b981' }}>{it.totalPrice} د.ع</span>
                           </div>
                           <div style={{ color: '#64748b', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             {it.company && it.company !== '—' && <span>🏭 {it.company}</span>}
-                            <span>📦 كمية: {it.quantity}{it.bonusQty > 0 ? ` + بونص ${it.bonusQty}` : ''}</span>
-                            <span>🏪 {it.pharmacyName}</span>
-                            {it.areaName && it.areaName !== '—' && <span>📍 {it.areaName}</span>}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="navDistributorSales" size={11} /> كمية: {it.quantity}{it.bonusQty > 0 ? ` + بونص ${it.bonusQty}` : ''}</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="pharmacy" size={11} /> {it.pharmacyName}</span>
+                            {it.areaName && it.areaName !== '—' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={11} /> {it.areaName}</span>}
                           </div>
                         </div>
                       ))}
@@ -1204,8 +1204,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 const gColors = ['#10b981','#6366f1','#0ea5e9','#f59e0b','#ef4444','#8b5cf6'];
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
-                      🛒 {result.responseText}
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="navSalesData" size={12} /> {result.responseText}
                     </div>
                     {sm && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
@@ -1225,11 +1225,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                       {grps.map((g: any, idx: number) => (
                         <div key={g.groupKey} style={{ background: '#f8fafc', borderRadius: 11, padding: '9px 12px', borderRight: `3px solid ${gColors[idx % gColors.length]}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 13 }}>
-                            <span style={{ color: gColors[idx % gColors.length] }}>💊 {g.groupKey}</span>
+                            <span style={{ color: gColors[idx % gColors.length], display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={12} /> {g.groupKey}</span>
                             <span style={{ color: '#64748b', fontSize: 11 }}>{g.totalQty} وحدة</span>
                           </div>
-                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-                            💰 إجمالي: <b style={{ color: '#10b981' }}>{g.totalValue} د.ع</b>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="money" size={11} /> إجمالي: <b style={{ color: '#10b981' }}>{g.totalValue} د.ع</b>
                           </div>
                         </div>
                       ))}
@@ -1244,8 +1244,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 const recs = qr.records ?? [];
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6 }}>
-                      🔄 {result.responseText}
+                    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="refresh" size={12} /> {result.responseText}
                     </div>
                     {sm && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -1264,11 +1264,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                       {recs.map((r: any, i: number) => (
                         <div key={i} style={{ background: '#fef2f2', borderRadius: 10, padding: '8px 11px', fontSize: 12, borderRight: '3px solid #ef4444' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                            <span>🏥 {r.pharmacyName}</span>
-                            <span style={{ color: '#ef4444' }}>🔄 {r.returnedAmount} د.ع</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="navDoctors" size={12} /> {r.pharmacyName}</span>
+                            <span style={{ color: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="refresh" size={11} /> {r.returnedAmount} د.ع</span>
                           </div>
                           <div style={{ color: '#64748b', marginTop: 3 }}>
-                            {r.areaName && r.areaName !== '—' && <span>📍 {r.areaName} · </span>}
+                            {r.areaName && r.areaName !== '—' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={11} /> {r.areaName} · </span>}
                             <span>فاتورة: {r.invoiceNumber}</span>
                           </div>
                           {r.returnedItems?.length > 0 && (
@@ -1294,17 +1294,17 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ background: '#ecfdf5', borderRadius: 10, padding: '9px 12px', border: '1px solid #a7f3d0' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>🗺️ صيدليات السيرفي</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={13} /> صيدليات السيرفي</div>
                       <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>إجمالي: <strong>{sm?.totalPharmacies}</strong> صيدلية</div>
                     </div>
                     <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
                       {pharms.map((p: any, i: number) => (
                         <div key={i} style={{ background: '#f0fdf4', borderRadius: 10, padding: '8px 11px', fontSize: 12, borderRight: '3px solid #34d399' }}>
-                          <div style={{ fontWeight: 700, color: '#065f46' }}>🏥 {p.name}</div>
+                          <div style={{ fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="navDoctors" size={12} /> {p.name}</div>
                           <div style={{ color: '#64748b', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {p.areaName && p.areaName !== '—' && <span>📍 {p.areaName}</span>}
-                            {p.ownerName && <span>👤 {p.ownerName}</span>}
-                            {p.phone && <span>📞 {p.phone}</span>}
+                            {p.areaName && p.areaName !== '—' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={11} /> {p.areaName}</span>}
+                            {p.ownerName && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="person" size={11} /> {p.ownerName}</span>}
+                            {p.phone && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="call" size={11} /> {p.phone}</span>}
                           </div>
                         </div>
                       ))}
@@ -1321,21 +1321,21 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ background: '#ecfdf5', borderRadius: 10, padding: '9px 12px', border: '1px solid #a7f3d0' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>🗺️ صيدليات السيرفي حسب المنطقة</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#065f46', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={13} /> صيدليات السيرفي حسب المنطقة</div>
                       <div style={{ fontSize: 12, color: '#047857', marginTop: 2 }}>إجمالي: <strong>{sm?.totalPharmacies}</strong> صيدلية</div>
                     </div>
                     <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {grps.map((g: any, idx: number) => (
                         <div key={g.areaName} style={{ background: '#f8fafc', borderRadius: 12, padding: '10px 12px', borderRight: `3px solid ${gColors[idx % gColors.length]}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                            <span style={{ fontWeight: 700, fontSize: 13, color: gColors[idx % gColors.length] }}>📍 {g.areaName}</span>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: gColors[idx % gColors.length], display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={12} /> {g.areaName}</span>
                             <span style={{ fontSize: 11, background: gColors[idx % gColors.length], color: '#fff', borderRadius: 20, padding: '1px 9px' }}>{g.count}</span>
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                             {g.pharmacies.slice(0, 5).map((p: any, pi: number) => (
                               <div key={pi} style={{ fontSize: 11, color: '#374151', display: 'flex', gap: 6 }}>
-                                <span>🏥 {p.name}</span>
-                                {p.phone && <span style={{ color: '#6b7280' }}>📞 {p.phone}</span>}
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="navDoctors" size={11} /> {p.name}</span>
+                                {p.phone && <span style={{ color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="call" size={11} /> {p.phone}</span>}
                               </div>
                             ))}
                             {g.pharmacies.length > 5 && (
@@ -1351,7 +1351,6 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
               // ── stats_summary ─────────────────────────────────────────
               if (qr?.type === 'stats_summary') {
-                const statColors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
                 const renderBar = (items: { key: string; count: number }[], color: string) => {
                   if (!items || items.length === 0) return null;
                   const max = Math.max(...items.map(i => i.count), 1);
@@ -1380,25 +1379,25 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {/* Total count card */}
-                    <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', borderRadius: 12, padding: '14px 16px', color: '#fff', textAlign: 'center' }}>
+                    <div style={{ background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)', borderRadius: 12, padding: '14px 16px', color: '#fff', textAlign: 'center' }}>
                       <div style={{ fontSize: 32, fontWeight: 800 }}>{qr.totalVisits ?? 0}</div>
                       <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>
                         {qr.visitType === 'pharmacy' ? 'إجمالي زيارات الصيدليات' : 'إجمالي الزيارات'}
                       </div>
                       {qr.doctorVisits !== undefined && qr.pharmacyVisits !== undefined && (
-                        <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
-                          🩺 أطباء: {qr.doctorVisits} · 🏪 صيدليات: {qr.pharmacyVisits}
+                        <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          <Icon name="doctor" size={11} /> أطباء: {qr.doctorVisits} · <Icon name="pharmacy" size={11} /> صيدليات: {qr.pharmacyVisits}
                         </div>
                       )}
                     </div>
 
                     {/* Breakdown if grouped */}
                     {hasBreakdown && groupLabel && (
-                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #e0e7ff' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>
-                          📊 توزيع حسب {groupLabel}
+                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid var(--c-purple-border)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <Icon name="navSalesData" size={12} /> توزيع حسب {groupLabel}
                         </div>
-                        {renderBar(qr.breakdown!, statColors[0])}
+                        {renderBar(qr.breakdown!, 'var(--c-accent)')}
                       </div>
                     )}
 
@@ -1406,26 +1405,26 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     {!hasBreakdown && (
                       <>
                         {qr.topAreas && qr.topAreas.length > 0 && (
-                          <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #e0e7ff' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>📍 أكثر المناطق زيارة</div>
-                            {renderBar(qr.topAreas, '#6366f1')}
+                          <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid var(--c-purple-border)' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="location" size={12} /> أكثر المناطق زيارة</div>
+                            {renderBar(qr.topAreas, 'var(--c-accent)')}
                           </div>
                         )}
                         {qr.topItems && qr.topItems.length > 0 && (
                           <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #a7f3d0' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8 }}>💊 أكثر الإيتمات زيارة</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="drug" size={12} /> أكثر الإيتمات زيارة</div>
                             {renderBar(qr.topItems, '#10b981')}
                           </div>
                         )}
                         {qr.topReps && qr.topReps.length > 0 && (
-                          <div style={{ background: '#fffbeb', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #fde68a' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>👤 أكثر المندوبين زيارة</div>
-                            {renderBar(qr.topReps, '#f59e0b')}
+                          <div style={{ background: 'var(--c-danger-bg)', borderRadius: 10, padding: '10px 12px', border: '1.5px solid var(--c-danger-border)' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-danger)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="person" size={12} /> أكثر المندوبين زيارة</div>
+                            {renderBar(qr.topReps, 'var(--c-danger)')}
                           </div>
                         )}
                         {qr.feedbackBreakdown && qr.feedbackBreakdown.length > 0 && (
                           <div style={{ background: '#fdf2f8', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #f9a8d4' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#9d174d', marginBottom: 8 }}>📝 توزيع التفاعل</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#9d174d', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="edit" size={12} /> توزيع التفاعل</div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                               {qr.feedbackBreakdown.map((fb, i) => (
                                 <div key={i} style={{ background: '#fff', border: '1px solid #f9a8d4', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600, color: '#9d174d' }}>
@@ -1456,7 +1455,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ background: '#eff6ff', borderRadius: 10, padding: '10px 12px', border: '1px solid #bfdbfe' }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a' }}>📦 ستوك من ملف: {qr.fileName || 'بيانات المبيعات'}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="navDistributorSales" size={13} /> ستوك من ملف: {qr.fileName || 'بيانات المبيعات'}</div>
                       <div style={{ fontSize: 11, color: '#1e40af', marginTop: 3 }}>
                         {rows.length} ايتم · إجمالي الكمية: <strong>{fmtN(totalSum)}</strong> · {cols.length} مخزن
                       </div>
@@ -1520,8 +1519,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
                 if (!qr.found) {
                   return (
-                    <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>
-                      ❌ {qr.message || 'لا توجد سجلات مطابقة.'}
+                    <div style={{ background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--c-danger-border)' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} /> {qr.message || 'لا توجد سجلات مطابقة.'}</span>
                       {filterChips.length > 0 && (
                         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {filterChips.map((c, i) => (
@@ -1537,8 +1536,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {/* Header */}
-                    <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>📦 تحليل مبيعات الموزعين</div>
+                    <div style={{ background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="navDistributorSales" size={13} /> تحليل مبيعات الموزعين</div>
                       <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>{t.records} سجل</div>
                       {filterChips.length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
@@ -1553,19 +1552,19 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                       {showCol('sold') && (
                         <div style={{ background: '#f0fdf4', border: '1.5px solid #a7f3d0', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                          <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, marginBottom: 4 }}>📤 المبيع</div>
+                          <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="export" size={11} /> المبيع</div>
                           <div style={{ fontSize: 18, fontWeight: 800, color: '#064e3b' }}>{fmtN(t.sold)}</div>
                         </div>
                       )}
                       {showCol('returns') && (
                         <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                          <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700, marginBottom: 4 }}>↩️ الإرجاع</div>
+                          <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="import" size={11} /> الإرجاع</div>
                           <div style={{ fontSize: 18, fontWeight: 800, color: '#7f1d1d' }}>{fmtN(t.returns)}</div>
                         </div>
                       )}
                       {showCol('net') && (
                         <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                          <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700, marginBottom: 4 }}>✨ الصافي</div>
+                          <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="netBalance" size={11} /> الصافي</div>
                           <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{fmtN(t.net)}</div>
                         </div>
                       )}
@@ -1642,8 +1641,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
                 if (!qr.found) {
                   return (
-                    <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>
-                      ❌ {qr.message || 'لا توجد سجلات مطابقة.'}
+                    <div style={{ background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--c-danger-border)' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} /> {qr.message || 'لا توجد سجلات مطابقة.'}</span>
                       {filterChips.length > 0 && (
                         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {filterChips.map((c, i) => (
@@ -1663,8 +1662,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {/* Header */}
-                    <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>📊 تقرير مبيعات</div>
+                    <div style={{ background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="navSalesData" size={13} /> تقرير مبيعات</div>
                       <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
                         {t.records || 0} سجل · {qr.fileCount ? `${qr.fileCount} ملف نشط` : 'كل الملفات'}
                       </div>
@@ -1680,18 +1679,18 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     {/* Totals cards (qty + value) */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div style={{ background: '#f0fdf4', border: '1.5px solid #a7f3d0', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, marginBottom: 4 }}>📤 المبيع</div>
+                        <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="export" size={11} /> المبيع</div>
                         <div style={{ fontSize: 16, fontWeight: 800, color: '#064e3b' }}>{fmtN(t.saleQty)} وحدة</div>
                         <div style={{ fontSize: 11, color: '#047857', fontWeight: 700 }}>{fmtV(t.saleValue)}</div>
                       </div>
                       <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700, marginBottom: 4 }}>↩️ المرتجع</div>
+                        <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="import" size={11} /> المرتجع</div>
                         <div style={{ fontSize: 16, fontWeight: 800, color: '#7f1d1d' }}>{fmtN(t.returnQty)} وحدة</div>
                         <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 700 }}>{fmtV(t.returnValue)}</div>
                       </div>
                     </div>
                     <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700, marginBottom: 4 }}>✨ الصافي</div>
+                      <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="netBalance" size={11} /> الصافي</div>
                       <div style={{ fontSize: 18, fontWeight: 800, color: '#1e3a8a' }}>{fmtN(t.netQty)} وحدة · {fmtV(t.netValue)}</div>
                     </div>
 
@@ -1739,17 +1738,20 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
               if (qr?.type === 'plan_stats') {
                 if (!qr.found) {
-                  return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا يوجد بلان'}</div>;
+                  return <div style={{ background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--c-danger-border)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} /> {qr.message || 'لا يوجد بلان'}</div>;
                 }
                 const monthNames = ['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
                 const mName = monthNames[qr.month || 0] || `شهر ${qr.month}`;
+                // ⚠ intentionally kept as raw green/amber/red 3-way: this is a genuine
+                // data-category distinction (high/medium/low completion), folding amber
+                // into red would make "medium" and "low" indistinguishable.
                 const pctColor = (p: number) => p >= 80 ? '#10b981' : p >= 50 ? '#f59e0b' : '#ef4444';
 
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {/* Header */}
-                    <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', borderRadius: 12, padding: '14px 16px', color: '#fff', textAlign: 'center' }}>
-                      <div style={{ fontSize: 13, opacity: 0.9, marginBottom: 4 }}>📋 تقدم البلان — {mName} {qr.year}</div>
+                    <div style={{ background: 'linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-hover) 100%)', borderRadius: 12, padding: '14px 16px', color: '#fff', textAlign: 'center' }}>
+                      <div style={{ fontSize: 13, opacity: 0.9, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="navMonthlyPlans" size={13} /> تقدم البلان — {mName} {qr.year}</div>
                       <div style={{ fontSize: 36, fontWeight: 800 }}>{qr.completionPct}%</div>
                       <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>نسبة تحقيق الزيارات</div>
                     </div>
@@ -1757,12 +1759,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     {/* Summary cards */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div style={{ background: '#f0f9ff', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #bae6fd', textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: '#0369a1', marginBottom: 2 }}>🩺 الأطباء</div>
+                        <div style={{ fontSize: 11, color: '#0369a1', marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="doctor" size={11} /> الأطباء</div>
                         <div style={{ fontSize: 20, fontWeight: 800, color: '#0c4a6e' }}>{qr.visitedDoctors}/{qr.totalDoctors}</div>
                         <div style={{ fontSize: 11, color: '#0369a1' }}>تغطية {qr.doctorCoveragePct}%</div>
                       </div>
                       <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #a7f3d0', textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: '#065f46', marginBottom: 2 }}>📞 الكولات</div>
+                        <div style={{ fontSize: 11, color: '#065f46', marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Icon name="call" size={11} /> الكولات</div>
                         <div style={{ fontSize: 20, fontWeight: 800, color: '#064e3b' }}>{qr.totalActualVisits}/{qr.totalTargetVisits}</div>
                         <div style={{ fontSize: 11, color: '#065f46' }}>تحقيق {qr.completionPct}%</div>
                       </div>
@@ -1770,9 +1772,9 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
                     {/* By Area */}
                     {qr.byArea && qr.byArea.length > 0 && (
-                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #e0e7ff' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>
-                          📍 {qr.filteredAreaName ? `منطقة ${qr.filteredAreaName}` : 'حسب المنطقة'}
+                      <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', border: '1.5px solid var(--c-purple-border)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <Icon name="location" size={12} /> {qr.filteredAreaName ? `منطقة ${qr.filteredAreaName}` : 'حسب المنطقة'}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {qr.byArea.map((a, i) => (
@@ -1793,8 +1795,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                     {/* By Item */}
                     {qr.byItem && qr.byItem.length > 0 && (
                       <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #a7f3d0' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8 }}>
-                          💊 {qr.filteredItemName ? `ايتم ${qr.filteredItemName}` : 'حسب الإيتم'}
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <Icon name="drug" size={12} /> {qr.filteredItemName ? `ايتم ${qr.filteredItemName}` : 'حسب الإيتم'}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {qr.byItem.map((it, i) => (
@@ -1819,15 +1821,15 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
               if (qr?.type === 'pharmacy_net_list' || qr?.type === 'pharmacy_net_grouped') {
                 const fmtN = (n: number) => Number(n || 0).toLocaleString('en-US');
                 if (!qr.found) {
-                  return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا توجد بيانات صيدليه نت.'}</div>;
+                  return <div style={{ background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--c-danger-border)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} /> {qr.message || 'لا توجد بيانات صيدليه نت.'}</div>;
                 }
                 const summary: any = qr.summary || {};
                 const groups: any[] = (qr.groups as any[]) || [];
                 const rows: any[] = (qr as any).pharmacies || [];
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>🏪 صيدليه نت</div>
+                    <div style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="pharmacy" size={13} /> صيدليه نت</div>
                       <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
                         {summary.totalPharmacies || 0} صيدلية · {summary.totalOrders || 0} طلبية · {summary.totalQty || 0} وحدة
                       </div>
@@ -1888,7 +1890,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
               if (qr?.type === 'bonus_list' || qr?.type === 'bonus_stats') {
                 const fmtN = (n: number) => Number(n || 0).toLocaleString('en-US');
                 if (!qr.found) {
-                  return <div style={{ background: '#fef2f2', color: '#991b1b', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid #fecaca' }}>❌ {qr.message || 'لا توجد بيانات بونص.'}</div>;
+                  return <div style={{ background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 10, padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--c-danger-border)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} /> {qr.message || 'لا توجد بيانات بونص.'}</div>;
                 }
                 const summary: any = qr.summary || {};
                 const rows: any[] = (qr as any).rows || [];
@@ -1896,7 +1898,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%)', borderRadius: 12, padding: '12px 14px', color: '#fff' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>🎁 البونص</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="navBonusSales" size={13} /> البونص</div>
                       <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
                         {summary.totalRows || 0} سجل · بونص: {summary.withBonus || 0} · مُسلَّم: {summary.delivered || 0} · معلَّق: {summary.pending || 0}
                       </div>
@@ -1909,7 +1911,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                               <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'right', color: '#1e40af', fontWeight: 700 }}>{(qr as any).groupBy === 'area' ? 'المنطقة' : (qr as any).groupBy === 'item' ? 'الإيتم' : (qr as any).groupBy === 'rep' ? 'المندوب' : 'الصيدلية'}</th>
                               <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>لديه بونص</th>
                               <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#15803d', fontWeight: 700 }}>مُسلَّم</th>
-                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: '#b45309', fontWeight: 700 }}>معلَّق</th>
+                              <th style={{ padding: '6px 8px', borderBottom: '2px solid #bfdbfe', textAlign: 'center', color: 'var(--c-danger)', fontWeight: 700 }}>معلَّق</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1918,7 +1920,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                                 <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1e293b' }}>{g.groupKey}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>{fmtN(g.withBonus)}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'center', color: '#15803d', fontWeight: 700 }}>{fmtN(g.delivered)}</td>
-                                <td style={{ padding: '6px 8px', textAlign: 'center', color: g.pending > 0 ? '#b45309' : '#64748b', fontWeight: g.pending > 0 ? 700 : 400 }}>{fmtN(g.pending)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', color: g.pending > 0 ? 'var(--c-danger)' : '#64748b', fontWeight: g.pending > 0 ? 700 : 400 }}>{fmtN(g.pending)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1945,8 +1947,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                                 <td style={{ padding: '6px 8px', textAlign: 'center', color: '#1e40af', fontWeight: 700 }}>{fmtN(r.bonusQty)}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                                   {r.bonusDelivered
-                                    ? <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>✓ مُسلَّم</span>
-                                    : <span style={{ background: '#fef9c3', color: '#92400e', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>معلَّق</span>}
+                                    ? <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="check" size={10} /> مُسلَّم</span>
+                                    : <span style={{ background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 5, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>معلَّق</span>}
                                 </td>
                               </tr>
                             ))}
@@ -1962,20 +1964,20 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
               return (
                 <div style={{
                   background: result.action === 'navigate' ? '#f0fdf4' : '#f8faff',
-                  border: `1.5px solid ${result.action === 'navigate' ? '#bbf7d0' : '#e0e7ff'}`,
+                  border: `1.5px solid ${result.action === 'navigate' ? '#bbf7d0' : 'var(--c-purple-border)'}`,
                   borderRadius: 10, padding: '10px 12px',
                 }}>
-                  <p style={{ margin: 0, fontSize: 13, color: '#1e293b', lineHeight: 1.6 }}>
-                    {result.action === 'navigate' ? '✅ ' : '💡 '}{result.responseText}
+                  <p style={{ margin: 0, fontSize: 13, color: '#1e293b', lineHeight: 1.6, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                    {result.action === 'navigate' ? <Icon name="checkCircle" size={14} style={{ flexShrink: 0, marginTop: 1 }} /> : <span>💡</span>}{result.responseText}
                   </p>
                   {result.needsClarification && result.question && (
                     <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <p style={{ margin: 0, fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>{result.question}</p>
+                      <p style={{ margin: 0, fontSize: 12, color: 'var(--c-accent)', fontWeight: 600 }}>{result.question}</p>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <input type="text" value={clarInput} onChange={e => setClarInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') handleClarification(); }}
-                          placeholder="أجب هنا..." style={{ flex: 1, border: '1.5px solid #d8b4fe', borderRadius: 7, padding: '5px 8px', fontSize: 12, outline: 'none', direction: 'rtl' }} />
-                        <button onClick={handleClarification} style={{ padding: '5px 10px', borderRadius: 7, border: 'none', background: '#7c3aed', color: '#fff', fontSize: 12, cursor: 'pointer' }}>إرسال</button>
+                          placeholder="أجب هنا..." style={{ flex: 1, border: '1.5px solid var(--c-purple-border)', borderRadius: 7, padding: '5px 8px', fontSize: 12, outline: 'none', direction: 'rtl' }} />
+                        <button onClick={handleClarification} style={{ padding: '5px 10px', borderRadius: 7, border: 'none', background: 'var(--c-accent)', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="navAqdarExport" size={12} />إرسال</button>
                       </div>
                     </div>
                   )}
@@ -1985,8 +1987,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
             {/* Reset */}
             {(result || error) && (
-              <button onClick={reset} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 12, cursor: 'pointer', alignSelf: 'flex-end', padding: '2px 4px' }}>
-                مسح ↺
+              <button onClick={reset} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 12, cursor: 'pointer', alignSelf: 'flex-end', padding: '2px 4px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                مسح <Icon name="refresh" size={12} />
               </button>
             )}
             </> /* end !showHistory */}

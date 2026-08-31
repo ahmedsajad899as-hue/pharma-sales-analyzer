@@ -42,14 +42,14 @@ function Spinner() {
   );
 }
 
-function Toast({ msg, onClose }: { msg: string; onClose: () => void }) {
+function Toast({ msg, onClose }: { msg: React.ReactNode; onClose: () => void }) {
   useEffect(() => { const t = setTimeout(onClose, 2500); return () => clearTimeout(t); }, [onClose]);
   return (
     <div style={{
       position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
       background: 'var(--c-text-primary)', color: '#fff', padding: '12px 24px', borderRadius: 24,
       fontSize: 14, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
-      direction: 'rtl', whiteSpace: 'nowrap',
+      direction: 'rtl', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
     }}>{msg}</div>
   );
 }
@@ -81,7 +81,7 @@ export default function SurveyPage() {
   const [selectedSurvey, setSelectedSurvey] = useState<SurveyDetail | null>(null);
   const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'drug_prices'>('doctors');
   const [loading,        setLoading]        = useState(true);
-  const [toast,          setToast]          = useState<string | null>(null);
+  const [toast,          setToast]          = useState<React.ReactNode | null>(null);
 
   // Rep selector (for company_manager)
   const [reps,          setReps]          = useState<{ userId: number; name: string; linkedRepId: number }[]>([]);
@@ -111,7 +111,7 @@ export default function SurveyPage() {
     [selectedSurvey !== null, () => setSelectedSurvey(null)],
   ]);
 
-  const showToast = (msg: string) => setToast(msg);
+  const showToast = (msg: React.ReactNode) => setToast(msg);
 
   // ── Fetch drug entries ──
   const loadDrugEntries = useCallback(async (id: number, search = '', page = 1) => {
@@ -196,9 +196,9 @@ export default function SurveyPage() {
     try {
       const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/import-all${repParam}`, { method: 'POST', headers: H() });
       const d = await r.json();
-      showToast(d.success ? `✅ ${d.message}` : `❌ ${d.error ?? 'خطأ'}`);
+      showToast(d.success ? <><Icon name="checkCircle" size={14} /> {d.message}</> : <><Icon name="close" size={14} /> {d.error ?? 'خطأ'}</>);
     } catch {
-      showToast('❌ حدث خطأ أثناء الاستيراد');
+      showToast(<><Icon name="close" size={14} /> حدث خطأ أثناء الاستيراد</>);
     } finally { setImportingAll(false); }
   };
 
@@ -210,9 +210,9 @@ export default function SurveyPage() {
     try {
       const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/pharmacies/import-all${repParam}`, { method: 'POST', headers: H() });
       const d = await r.json();
-      showToast(d.success ? `✅ ${d.message}` : `❌ ${d.error ?? 'خطأ'}`);
+      showToast(d.success ? <><Icon name="checkCircle" size={14} /> {d.message}</> : <><Icon name="close" size={14} /> {d.error ?? 'خطأ'}</>);
     } catch {
-      showToast('❌ حدث خطأ أثناء الاستيراد');
+      showToast(<><Icon name="close" size={14} /> حدث خطأ أثناء الاستيراد</>);
     } finally { setImportingAllPharm(false); }
   };
 
@@ -220,14 +220,14 @@ export default function SurveyPage() {
     if (!selectedSurvey) return;
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import${repParam}`, { method: 'POST', headers: H() });
     const d = await r.json();
-    showToast(d.success ? `✅ ${d.message || 'أُضيف الطبيب لقائمة أطبائك'}` : `❌ ${d.error ?? 'خطأ'}`);
+    showToast(d.success ? <><Icon name="checkCircle" size={14} /> {d.message || 'أُضيف الطبيب لقائمة أطبائك'}</> : <><Icon name="close" size={14} /> {d.error ?? 'خطأ'}</>);
   };
 
   const importPharmacy = async (pharmaId: number) => {
     if (!selectedSurvey) return;
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/pharmacies/${pharmaId}/import${repParam}`, { method: 'POST', headers: H() });
     const d = await r.json();
-    showToast(d.success ? `✅ ${d.message || 'أُضيفت الصيدلية لقائمتك'}` : `❌ ${d.error ?? 'خطأ'}`);
+    showToast(d.success ? <><Icon name="checkCircle" size={14} /> {d.message || 'أُضيفت الصيدلية لقائمتك'}</> : <><Icon name="close" size={14} /> {d.error ?? 'خطأ'}</>);
   };
 
   // ── Edit Doctor Form ──
@@ -248,7 +248,7 @@ export default function SurveyPage() {
       const method = isNew ? 'POST' : 'PUT';
       const r = await fetch(url, { method, headers: H(), body: JSON.stringify(form) });
       const d = await r.json();
-      if (d.success) { showToast(isNew ? '✅ تم إضافة الطبيب' : '✅ تم التعديل'); reloadSurvey(); onClose(); }
+      if (d.success) { showToast(<><Icon name="checkCircle" size={14} /> {isNew ? 'تم إضافة الطبيب' : 'تم التعديل'}</>); reloadSurvey(); onClose(); }
       else showToast(d.error ?? 'خطأ');
       setSaving(false);
     };
@@ -271,7 +271,9 @@ export default function SurveyPage() {
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
           <button onClick={onClose} style={btnSecondary}>إلغاء</button>
-          <button onClick={save} disabled={saving || !form.name.trim()} style={btnPrimary}>{saving ? 'جاري الحفظ...' : 'حفظ'}</button>
+          <button onClick={save} disabled={saving || !form.name.trim()} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saving ? 'جاري الحفظ...' : <><Icon name="check" size={14} /> حفظ</>}
+          </button>
         </div>
       </ModalOverlay>
     );
@@ -295,7 +297,7 @@ export default function SurveyPage() {
       const method = isNew ? 'POST' : 'PUT';
       const r = await fetch(url, { method, headers: H(), body: JSON.stringify(form) });
       const d = await r.json();
-      if (d.success) { showToast(isNew ? '✅ تم إضافة الصيدلية' : '✅ تم التعديل'); reloadSurvey(); onClose(); }
+      if (d.success) { showToast(<><Icon name="checkCircle" size={14} /> {isNew ? 'تم إضافة الصيدلية' : 'تم التعديل'}</>); reloadSurvey(); onClose(); }
       else showToast(d.error ?? 'خطأ');
       setSaving(false);
     };
@@ -318,7 +320,9 @@ export default function SurveyPage() {
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
           <button onClick={onClose} style={btnSecondary}>إلغاء</button>
-          <button onClick={save} disabled={saving || !form.name.trim()} style={btnPrimary}>{saving ? 'جاري الحفظ...' : 'حفظ'}</button>
+          <button onClick={save} disabled={saving || !form.name.trim()} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saving ? 'جاري الحفظ...' : <><Icon name="check" size={14} /> حفظ</>}
+          </button>
         </div>
       </ModalOverlay>
     );
@@ -479,20 +483,25 @@ export default function SurveyPage() {
             </>
           )}
           {tab === 'drug_prices' && (
-            <input
-              placeholder="🔍 ابحث عن دواء..."
-              value={drugSearch}
-              onChange={e => {
-                const v = e.target.value;
-                setDrugSearch(v);
-                if (drugSearchTimer.current) clearTimeout(drugSearchTimer.current);
-                drugSearchTimer.current = setTimeout(() => {
-                  setDrugEntriesPage(1);
-                  loadDrugEntries(selectedSurvey.id, v, 1);
-                }, 350);
-              }}
-              style={inputStyleInline}
-            />
+            <div style={{ position: 'relative' }}>
+              <span style={{ position: 'absolute', top: '50%', right: 10, transform: 'translateY(-50%)', display: 'flex', color: 'var(--c-text-muted)', pointerEvents: 'none' }}>
+                <Icon name="search" size={13} />
+              </span>
+              <input
+                placeholder="ابحث عن دواء..."
+                value={drugSearch}
+                onChange={e => {
+                  const v = e.target.value;
+                  setDrugSearch(v);
+                  if (drugSearchTimer.current) clearTimeout(drugSearchTimer.current);
+                  drugSearchTimer.current = setTimeout(() => {
+                    setDrugEntriesPage(1);
+                    loadDrugEntries(selectedSurvey.id, v, 1);
+                  }, 350);
+                }}
+                style={{ ...inputStyleInline, paddingRight: 30 }}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -559,7 +568,7 @@ export default function SurveyPage() {
                       {p.ownerName && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={12} /> {p.ownerName}</span>}
                       {p.areaName  && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={12} /> {p.areaName}</span>}
                       {p.phone     && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="call" size={12} /> {p.phone}</span>}
-                      {p.address   && <span style={infoChip}>🏠 {p.address}</span>}
+                      {p.address   && <span style={{ ...infoChip, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="home" size={12} /> {p.address}</span>}
                     </div>
                     {p.notes && <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--c-text-secondary)', lineHeight: 1.5 }}>{p.notes}</p>}
                     {p.lastEditedBy && (
@@ -605,9 +614,16 @@ export default function SurveyPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'var(--c-bg)' }}>
-                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','سعر المكتب→مذخر','سعر مذخر→صيدلية','سعر صيدلية→مريض','ملاحظات'].map(h => (
-                      <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', borderBottom: '2px solid var(--c-border-light)', whiteSpace: 'nowrap', fontSize: 12 }}>{h}</th>
-                    ))}
+                    {['الاسم التجاري','الاسم العلمي','الشكل','التعبئة','الشركة','سعر المكتب→مذخر','سعر مذخر→صيدلية','سعر صيدلية→مريض','ملاحظات'].map(h => {
+                      const parts = h.split('→');
+                      return (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', borderBottom: '2px solid var(--c-border-light)', whiteSpace: 'nowrap', fontSize: 12 }}>
+                          {parts.length === 2
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{parts[0]}<Icon name="chevronRight" size={11} />{parts[1]}</span>
+                            : h}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>

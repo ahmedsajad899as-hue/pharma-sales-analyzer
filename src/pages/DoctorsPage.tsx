@@ -1534,11 +1534,8 @@ export default function DoctorsPage() {
 
   return (
     <div className="page-container" dir="rtl">
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--c-text-primary)' }}>🏥 قائمة السيرفي</h1>
-        </div>
+      {/* Header — title moved to the app-level topbar; this row now just hosts the tab's action buttons */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         {activeTab === 'list' && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => { setShowImportPanel(v => !v); setImportResult(null); }}
@@ -1551,20 +1548,20 @@ export default function DoctorsPage() {
         )}
         {activeTab === 'visits' && visitAnalysisType === 'doctors' && (
           <button onClick={() => loadVisits(true)} disabled={visitLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: visitLoading ? 0.7 : 1 }}>
-            {visitLoading ? '⏳ تحديث...' : '↻ تحديث'}
+            style={{ ...btnStyle('var(--c-accent)'), opacity: visitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh" size={14} className={visitLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'visits' && visitAnalysisType === 'pharmacies' && (
           <button onClick={() => loadPharmVisits(true)} disabled={pharmVisitLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: pharmVisitLoading ? 0.7 : 1 }}>
-            {pharmVisitLoading ? '⏳ تحديث...' : '↻ تحديث'}
+            style={{ ...btnStyle('var(--c-accent)'), opacity: pharmVisitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh" size={14} className={pharmVisitLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'pharmacies' && (
           <button onClick={loadSurveyPharmacies} disabled={surveyPharmLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: surveyPharmLoading ? 0.7 : 1 }}>
-            {surveyPharmLoading ? '⏳ تحديث...' : '↻ تحديث'}
+            style={{ ...btnStyle('var(--c-accent)'), opacity: surveyPharmLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh" size={14} className={surveyPharmLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'archive' && showArchiveTab && (
@@ -1591,19 +1588,20 @@ export default function DoctorsPage() {
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--c-border)', paddingBottom: 0 }}>
         {([
-          ...(showVisitAnalysis                    ? [['visits',      '📍 الزيارات']]          : []),
-          ...(showDoctorsList                       ? [['list',        '📋 الأطباء']]            : []),
-          ...(showArchiveTab                        ? [['archive',     '📚 أرشيف']]              : []),
-          ...(isCommercialRep && showMyVisits       ? [['myvisits',    '📝 زياراتي']]            : []),
-          ...(isCommercialRep && showPharmacies     ? [['pharmacies',  '🏪 الصيدليات']]         : []),
-        ] as ['list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive', string][]).map(([tab, label]) => (
+          ...(showVisitAnalysis                    ? [{ tab: 'visits',     icon: 'location'      as const, label: 'الزيارات' }]  : []),
+          ...(showDoctorsList                       ? [{ tab: 'list',       icon: 'navMasterSurvey' as const, label: 'الأطباء' }]  : []),
+          ...(showArchiveTab                        ? [{ tab: 'archive',    icon: 'folder'        as const, label: 'أرشيف' }]      : []),
+          ...(isCommercialRep && showMyVisits       ? [{ tab: 'myvisits',   icon: 'edit'          as const, label: 'زياراتي' }]   : []),
+          ...(isCommercialRep && showPharmacies     ? [{ tab: 'pharmacies', icon: 'pharmacy'      as const, label: 'الصيدليات' }] : []),
+        ] as { tab: 'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'; icon: import('../config/icons').IconName; label: string }[]).map(({ tab, icon, label }) => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             background: 'none', border: 'none', cursor: 'pointer',
             padding: '7px 10px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', flex: 1,
             color: activeTab === tab ? 'var(--c-accent)' : 'var(--c-text-secondary)',
             borderBottom: activeTab === tab ? '2px solid var(--c-accent)' : '2px solid transparent',
             marginBottom: -2, transition: 'all 0.15s',
-          }}>{label}</button>
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          }}><Icon name={icon} size={13} /> {label}</button>
         ))}
       </div>
 
@@ -1612,7 +1610,7 @@ export default function DoctorsPage() {
       {/* Excel import panel */}
       {showImportPanel && (
         <div style={{ background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
-          <h3 style={{ margin: '0 0 8px', fontSize: 15, color: 'var(--c-success)' }}>📊 استيراد قائمة السيرفي من Excel</h3>
+          <h3 style={{ margin: '0 0 8px', fontSize: 15, color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="file" size={15} /> استيراد قائمة السيرفي من Excel</h3>
           <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--c-success)', lineHeight: 1.7 }}>
             النظام يكتشف الأعمدة تلقائياً من ملفك. ارفع الملف وسيظهر لك أي أعمدة تم التعرف عليها.
             <br />
@@ -1624,14 +1622,14 @@ export default function DoctorsPage() {
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
               onChange={e => e.target.files?.[0] && importExcel(e.target.files[0])} />
             <button onClick={() => fileRef.current?.click()} disabled={importing}
-              style={{ ...btnStyle('var(--c-accent)'), opacity: importing ? 0.7 : 1 }}>
-              {importing ? '⏳ جاري الاستيراد...' : '📂 اختر ملف Excel'}
+              style={{ ...btnStyle('var(--c-accent)'), opacity: importing ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {importing ? <><Icon name="loading" size={13} className="icon-spin" /> جاري الاستيراد...</> : <><Icon name="folder" size={13} /> اختر ملف Excel</>}
             </button>
             {importResult && !importResult.error && (
-              <div style={{ fontSize: 13, color: importResult.imported > 0 ? 'var(--c-success)' : 'var(--c-warning)', fontWeight: 600 }}>
+              <div style={{ fontSize: 13, color: importResult.imported > 0 ? 'var(--c-success)' : 'var(--c-warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
                 {importResult.imported > 0
-                  ? `✅ تم استيراد ${importResult.imported} طبيب`
-                  : '⚠️ لم يتم استيراد أي طبيب'}
+                  ? <><Icon name="checkCircle" size={13} /> تم استيراد {importResult.imported} طبيب</>
+                  : <><Icon name="warning" size={13} /> لم يتم استيراد أي طبيب</>}
                 {(importResult.skipped ?? 0) > 0 && <span style={{ color: 'var(--c-warning)', marginRight: 8 }}> | تخطي صفوف: {importResult.skipped}</span>}
                 {(importResult.errors?.length ?? 0) > 0 && <span style={{ color: 'var(--c-danger)', marginRight: 8 }}> | أخطاء: {importResult.errors.length}</span>}
               </div>
@@ -1639,11 +1637,11 @@ export default function DoctorsPage() {
           </div>
           {importResult?.colMap && (
             <div style={{ marginTop: 12, background: '#fff', borderRadius: 8, padding: 12, border: '1px solid var(--c-success-bg)' }}>
-              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: 'var(--c-text-secondary)' }}>🔍 الأعمدة المكتشفة في ملفك:</p>
+              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="search" size={12} /> الأعمدة المكتشفة في ملفك:</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {Object.entries(importResult.colMap).map(([field, col]) => (
-                  <span key={field} style={{ padding: '3px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: col ? 'var(--c-success-bg)' : 'var(--c-danger-bg)', color: col ? 'var(--c-success)' : 'var(--c-danger)' }}>
-                    {fieldLabels[field] ?? field}: {col ? `"${col}"` : '❌ غير موجود'}
+                  <span key={field} style={{ padding: '3px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: col ? 'var(--c-success-bg)' : 'var(--c-danger-bg)', color: col ? 'var(--c-success)' : 'var(--c-danger)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {fieldLabels[field] ?? field}: {col ? `"${col}"` : <><Icon name="close" size={11} /> غير موجود</>}
                   </span>
                 ))}
               </div>
@@ -1651,7 +1649,7 @@ export default function DoctorsPage() {
           )}
           {importResult?.error && (
             <div style={{ marginTop: 10, background: 'var(--c-danger-bg)', borderRadius: 8, padding: 12, fontSize: 13 }}>
-              <p style={{ margin: '0 0 6px', fontWeight: 700, color: 'var(--c-danger)' }}>❌ {importResult.error}</p>
+              <p style={{ margin: '0 0 6px', fontWeight: 700, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="close" size={13} /> {importResult.error}</p>
               {importResult.hint && <p style={{ margin: '0 0 8px', color: 'var(--c-danger)' }}>{importResult.hint}</p>}
               {importResult.detectedCols && (
                 <div>
@@ -1734,22 +1732,22 @@ export default function DoctorsPage() {
                 <div style={{ display: 'flex', gap: 12, marginTop: 5, flexWrap: 'wrap' }}>
                   {showDoctorFields && d.specialty && (
                     <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      🩺 {d.specialty}
+                      <Icon name="doctor" size={11} /> {d.specialty}
                     </span>
                   )}
                   {showDoctorFields && d.area && (
                     <span style={{ fontSize: 11, color: 'var(--c-accent)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      📍 {d.area.name}
+                      <Icon name="location" size={11} /> {d.area.name}
                     </span>
                   )}
                   {showDoctorFields && d.pharmacyName && (
-                    <span style={{ fontSize: 11, color: '#0891b2', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      🏪 {d.pharmacyName}
+                    <span style={{ fontSize: 11, color: 'var(--c-accent)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Icon name="pharmacy" size={11} /> {d.pharmacyName}
                     </span>
                   )}
                   {showDoctorFields && d.targetItem && (
-                    <span style={{ fontSize: 11, background: 'var(--c-purple-bg)', color: 'var(--c-purple)', borderRadius: 8, padding: '1px 8px', fontWeight: 600 }}>
-                      💊 {d.targetItem.name}
+                    <span style={{ fontSize: 11, background: 'var(--c-purple-bg)', color: 'var(--c-purple)', borderRadius: 8, padding: '1px 8px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      <Icon name="drug" size={11} /> {d.targetItem.name}
                     </span>
                   )}
                   {showDoctorFields && d.className && (
@@ -1774,13 +1772,13 @@ export default function DoctorsPage() {
                 <button onClick={() => openEdit(d)} title="تعديل" style={{
                   fontSize: 15, padding: '4px 8px', borderRadius: 8,
                   border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
-                  cursor: 'pointer',
-                }}>✏️</button>
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+                }}><Icon name="edit" size={13} /></button>
                 <button onClick={() => remove(d.id)} title="حذف" style={{
                   fontSize: 15, padding: '4px 8px', borderRadius: 8,
                   border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)',
-                  cursor: 'pointer',
-                }}>🗑</button>
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+                }}><Icon name="delete" size={13} /></button>
               </div>
             </div>
           ))}
@@ -1794,7 +1792,7 @@ export default function DoctorsPage() {
           {/* Rep selector (managers only) */}
           {!isFieldRep && managerReps.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6 }}>👤 المندوب</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setVisitRepFilter(null)}
@@ -1826,26 +1824,29 @@ export default function DoctorsPage() {
                 onClick={() => setShowVisitsImportModal(true)}
                 title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
                 style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
                   padding: '6px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                   border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', marginInlineEnd: 4,
-                }}>📥 استيراد من إكسل</button>
+                }}><Icon name="import" size={13} /> استيراد من إكسل</button>
             )}
             <button
               onClick={() => setVisitAnalysisType('doctors')}
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
                 padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 border: `1.5px solid ${visitAnalysisType === 'doctors' ? 'var(--c-accent)' : 'var(--c-border)'}`,
                 background: visitAnalysisType === 'doctors' ? 'var(--c-accent-light)' : 'var(--c-bg)',
                 color: visitAnalysisType === 'doctors' ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-              }}>👨‍⚕️ الأطباء</button>
+              }}><Icon name="doctor" size={14} /> الأطباء</button>
             <button
               onClick={() => setVisitAnalysisType('pharmacies')}
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
                 padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 border: `1.5px solid ${visitAnalysisType === 'pharmacies' ? 'var(--c-accent)' : 'var(--c-border)'}`,
                 background: visitAnalysisType === 'pharmacies' ? 'var(--c-accent-light)' : 'var(--c-bg)',
                 color: visitAnalysisType === 'pharmacies' ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-              }}>🏪 الصيدليات</button>
+              }}><Icon name="pharmacy" size={14} /> الصيدليات</button>
           </div>
 
           {/* ─── DOCTORS ANALYSIS ───────────────────────────── */}
@@ -1866,7 +1867,7 @@ export default function DoctorsPage() {
             return (
               !showVisitMonthPicker ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0 }}>📅</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
                   <button
                     style={{
                       fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
@@ -1883,7 +1884,7 @@ export default function DoctorsPage() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0 }}>📅</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
                   <button
                     onClick={() => { setVisitMonthFilter(null); setShowVisitMonthPicker(false); }}
                     style={{
@@ -1926,10 +1927,10 @@ export default function DoctorsPage() {
             return (
               <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'إجمالي الأطباء', value: total,   icon: '👥', accent: 'var(--c-accent)', clickable: 'total' },
-                  { label: 'تمت زيارتهم',    value: visited, icon: '✅', accent: 'var(--c-accent)', clickable: 'visited' },
-                  { label: 'يكتبون الايتم',  value: writing, icon: '✍️', accent: 'var(--c-accent)', clickable: 'writing' },
-                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: '📊', accent: 'var(--c-accent)', clickable: 'coverage' },
+                  { label: 'إجمالي الأطباء', value: total,   icon: 'doctor' as const,      accent: 'var(--c-accent)',  clickable: 'total' },
+                  { label: 'تمت زيارتهم',    value: visited, icon: 'checkCircle' as const, accent: 'var(--c-success)', clickable: 'visited' },
+                  { label: 'يكتبون الايتم',  value: writing, icon: 'edit' as const,        accent: 'var(--c-purple)',  clickable: 'writing' },
+                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: 'navSalesData' as const, accent: 'var(--c-warning)', clickable: 'coverage' },
                 ].map(s => {
                   const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : s.clickable === 'total' ? showTotalPopup : false;
                   const borderColor  = isActiveCard ? s.accent : 'var(--c-border)';
@@ -1949,7 +1950,7 @@ export default function DoctorsPage() {
                       cursor: s.clickable ? 'pointer' : 'default',
                       position: 'relative', transition: 'border-color 0.15s',
                     }}>
-                    <div style={{ fontSize: 22 }}>{s.icon}</div>
+                    <div style={{ color: s.accent, display: 'flex', justifyContent: 'center' }}><Icon name={s.icon} size={22} /></div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
                     <div style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 2 }}>{s.label}</div>
                     {s.clickable && <div style={{ fontSize: 10, color: 'var(--c-accent)', marginTop: 3 }}>▾</div>}
@@ -1971,7 +1972,7 @@ export default function DoctorsPage() {
                               display: 'flex', flexDirection: 'column', direction: 'rtl',
                             }}>
                           <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--c-border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-accent)' }}>👥 توزيع الأطباء بالمناطق</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="person" size={14} /> توزيع الأطباء بالمناطق</span>
                             <button onClick={() => setShowTotalPopup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 18, lineHeight: 1, display: 'flex' }}><Icon name="close" size={18} /></button>
                           </div>
                           <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
@@ -1982,7 +1983,7 @@ export default function DoctorsPage() {
                                 <div key={String(area.id)} style={{ padding: '7px 16px', borderBottom: idx < sorted.length - 1 ? '1px solid var(--c-bg)' : 'none' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>📍</span>
+                                      <Icon name="location" size={12} style={{ color: 'var(--c-text-muted)' }} />
                                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text-primary)' }}>{area.name}</span>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2024,7 +2025,7 @@ export default function DoctorsPage() {
                             }}>
                           <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--c-border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--c-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>✅</div>
+                              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--c-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: '#fff' }}><Icon name="checkCircle" size={17} /></div>
                               <div>
                                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>الأطباء المُزارون</div>
                                 <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{visitedDocs.length} طبيب</div>
@@ -2058,20 +2059,20 @@ export default function DoctorsPage() {
                                         )}
                                       </div>
                                       {item && (
-                                        <span style={{ fontSize: 10, background: '#fceaea', color: '#8B1C1C', borderRadius: 20, padding: '3px 9px', fontWeight: 700, whiteSpace: 'nowrap', border: '1px solid #f5c6c6' }}>💊 {item.name}</span>
+                                        <span style={{ fontSize: 10, background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 20, padding: '3px 9px', fontWeight: 700, whiteSpace: 'nowrap', border: '1px solid var(--c-danger-border)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={10} /> {item.name}</span>
                                       )}
                                     </div>
                                     {/* Collapsible detail chips */}
                                     {isExpanded && hasDetails && (
                                       <div style={{ paddingRight: 29, display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
                                         {doc.specialty && (
-                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-border)' }}>🩺 {doc.specialty}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-border)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {doc.specialty}</span>
                                         )}
                                         {doc.area && (
-                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#FFF0F0', color: '#8B1C1C', borderRadius: 6, padding: '3px 8px', border: '1px solid #f5c6c6' }}>📍 {doc.area.name}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-danger-border)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {doc.area.name}</span>
                                         )}
                                         {(doc as any).pharmacyName && (
-                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-accent)' }}>🏥 {(doc as any).pharmacyName}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="navDoctors" size={10} /> {(doc as any).pharmacyName}</span>
                                         )}
                                       </div>
                                     )}
@@ -2100,7 +2101,7 @@ export default function DoctorsPage() {
                             display: 'flex', flexDirection: 'column', direction: 'rtl',
                           }}>
                         <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--c-border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, marginBottom: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>📊 التغطية بالمناطق</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="navSalesData" size={14} /> التغطية بالمناطق</span>
                           <button onClick={() => setShowCoveragePopup(false)}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 18, lineHeight: 1, display: 'flex' }}><Icon name="close" size={18} /></button>
                         </div>
@@ -2159,7 +2160,7 @@ export default function DoctorsPage() {
                           {/* Header */}
                           <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--c-border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ width: 32, height: 32, borderRadius: 8, background: '#8B1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>✏️</div>
+                              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--c-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: '#fff' }}><Icon name="edit" size={16} /></div>
                               <div>
                                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>الأطباء الكاتبون</div>
                                 <div style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{filtered.length}{writingItemFilter ? `/${allWritingDocs.length}` : ''} طبيب</div>
@@ -2175,8 +2176,8 @@ export default function DoctorsPage() {
                                 onClick={() => setWritingItemFilter(null)}
                                 style={{
                                   fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
-                                  border: `1.5px solid ${writingItemFilter === null ? '#8B1C1C' : '#E0E0E0'}`,
-                                  background: writingItemFilter === null ? '#8B1C1C' : '#fff',
+                                  border: `1.5px solid ${writingItemFilter === null ? 'var(--c-danger)' : '#E0E0E0'}`,
+                                  background: writingItemFilter === null ? 'var(--c-danger)' : '#fff',
                                   color: writingItemFilter === null ? '#fff' : 'var(--c-text-secondary)',
                                   cursor: 'pointer', transition: 'all 0.15s',
                                 }}>الكل</button>
@@ -2185,11 +2186,11 @@ export default function DoctorsPage() {
                                   onClick={() => setWritingItemFilter(prev => prev === name ? null : name)}
                                   style={{
                                     fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20,
-                                    border: `1.5px solid ${writingItemFilter === name ? '#8B1C1C' : '#E0E0E0'}`,
-                                    background: writingItemFilter === name ? '#fceaea' : '#fff',
-                                    color: writingItemFilter === name ? '#8B1C1C' : 'var(--c-text-secondary)',
+                                    border: `1.5px solid ${writingItemFilter === name ? 'var(--c-danger)' : '#E0E0E0'}`,
+                                    background: writingItemFilter === name ? 'var(--c-danger-bg)' : '#fff',
+                                    color: writingItemFilter === name ? 'var(--c-danger)' : 'var(--c-text-secondary)',
                                     cursor: 'pointer', transition: 'all 0.15s',
-                                  }}>💊 {name}</button>
+                                  }}><Icon name="drug" size={11} style={{ verticalAlign: 'middle', marginLeft: 3 }} /> {name}</button>
                               ))}
                             </div>
                           )}
@@ -2210,27 +2211,27 @@ export default function DoctorsPage() {
                                     {/* Name row */}
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: hasDetails ? 5 : 0 }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                        <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#8B1C1C', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                        <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--c-danger)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
                                         <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>{doc.name}</span>
                                         {hasDetails && (
                                           <button onClick={() => toggleDocExpand(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: 'var(--c-text-muted)', fontSize: 11, lineHeight: 1, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</button>
                                         )}
                                       </div>
                                       {doc._item && !writingItemFilter && (
-                                        <span style={{ fontSize: 10, background: '#fceaea', color: '#8B1C1C', borderRadius: 20, padding: '3px 9px', fontWeight: 700, whiteSpace: 'nowrap', border: '1px solid #f5c6c6' }}>💊 {doc._item.name}</span>
+                                        <span style={{ fontSize: 10, background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 20, padding: '3px 9px', fontWeight: 700, whiteSpace: 'nowrap', border: '1px solid var(--c-danger-border)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={10} /> {doc._item.name}</span>
                                       )}
                                     </div>
                                     {/* Collapsible detail chips */}
                                     {isExpanded && hasDetails && (
                                       <div style={{ paddingRight: 29, display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
                                         {doc.specialty && (
-                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-border)' }}>🩺 {doc.specialty}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-border)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {doc.specialty}</span>
                                         )}
                                         {doc.area && (
-                                          <span style={{ fontSize: 10, fontWeight: 600, background: '#FFF0F0', color: '#8B1C1C', borderRadius: 6, padding: '3px 8px', border: '1px solid #f5c6c6' }}>📍 {doc.area.name}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-danger-border)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {doc.area.name}</span>
                                         )}
                                         {(doc as any).pharmacyName && (
-                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-accent)' }}>🏥 {(doc as any).pharmacyName}</span>
+                                          <span style={{ fontSize: 10, fontWeight: 600, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '3px 8px', border: '1px solid var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="navDoctors" size={10} /> {(doc as any).pharmacyName}</span>
                                         )}
                                       </div>
                                     )}
@@ -2264,7 +2265,7 @@ export default function DoctorsPage() {
               background: showOnlyVisited ? 'var(--c-success-bg)' : '#fff', color: showOnlyVisited ? 'var(--c-success)' : 'var(--c-text-secondary)',
               cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'all 0.15s',
             }}>
-              {showOnlyVisited ? '✅ المُزارون فقط' : '👥 جميع الأطباء'}
+              {showOnlyVisited ? <><Icon name="checkCircle" size={13} /> المُزارون فقط</> : <><Icon name="person" size={13} /> جميع الأطباء</>}
             </button>
             <button onClick={() => setExpandedAreas(
               expandedAreas.size > 0 ? new Set() : new Set(visitAreas.map(a => String(a.id)))
@@ -2302,7 +2303,7 @@ export default function DoctorsPage() {
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 18 }}>📋</span>
+                    <Icon name="navMasterSurvey" size={18} style={{ color: 'var(--c-accent)' }} />
                     <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-accent)' }}>أطباء مطلوبون في البلان</span>
                     <span style={{
                       background: 'var(--c-accent)', color: '#fff', borderRadius: 99,
@@ -2330,7 +2331,7 @@ export default function DoctorsPage() {
                       color: wishSyncMsg ? (wishSyncMsg.ok ? 'var(--c-success)' : 'var(--c-danger)') : 'var(--c-accent)',
                       cursor: wishSyncing ? 'default' : 'pointer', fontWeight: 600,
                     }}
-                  >{wishSyncing ? '⏳ جاري...' : wishSyncMsg ? wishSyncMsg.text : '☁ مزامنة'}</button>
+                  >{wishSyncing ? <><Icon name="loading" size={12} className="icon-spin" /> جاري...</> : wishSyncMsg ? wishSyncMsg.text : <><Icon name="refresh" size={12} /> مزامنة</>}</button>
                 </div>
 
                 {/* Cards grid */}
@@ -2389,25 +2390,25 @@ export default function DoctorsPage() {
                               <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
                                 {specialty && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                    <span style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>🩺</span>
+                                    <Icon name="doctor" size={12} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
                                     <span style={{ color: 'var(--c-text-secondary)', fontWeight: 600 }}>{specialty}</span>
                                   </div>
                                 )}
                                 {pharmacyName && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                    <span style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>🏥</span>
+                                    <Icon name="navDoctors" size={12} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
                                     <span style={{ color: 'var(--c-text-secondary)', fontWeight: 600 }}>{pharmacyName}</span>
                                   </div>
                                 )}
                                 {areaName && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                    <span style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>📍</span>
+                                    <Icon name="location" size={12} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
                                     <span style={{ color: 'var(--c-text-secondary)', fontWeight: 600 }}>{areaName}</span>
                                   </div>
                                 )}
                                 {addedBy && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
-                                    <span style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>👤</span>
+                                    <Icon name="person" size={12} style={{ color: 'var(--c-text-muted)', flexShrink: 0 }} />
                                     <span style={{ color: 'var(--c-text-secondary)', fontWeight: 600 }}>{addedBy}</span>
                                   </div>
                                 )}
@@ -2475,7 +2476,7 @@ export default function DoctorsPage() {
                   padding: '7px 12px', background: 'var(--c-accent-light)', borderRadius: 9,
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}>
-                  <span>💡</span>
+                  <Icon name="help" size={14} />
                   <span>هؤلاء الأطباء محفوظون لتذكير المدير بتضمينهم في البلان القادم</span>
                 </div>
               </div>
@@ -2495,7 +2496,7 @@ export default function DoctorsPage() {
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: teamWishPanelOpen ? 'var(--c-accent-light)' : 'var(--c-bg)', cursor: 'pointer', userSelect: 'none' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 17 }}>👥</span>
+                  <Icon name="person" size={17} style={{ color: 'var(--c-accent)' }} />
                   <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-accent)' }}>قائمة طلبات المندوبين</span>
                   {teamWishLoaded && teamWishList.length > 0 && (
                     <span style={{ background: 'var(--c-accent)', color: '#fff', borderRadius: 99, fontSize: 11, fontWeight: 700, padding: '2px 9px' }}>
@@ -2510,7 +2511,7 @@ export default function DoctorsPage() {
                       disabled={teamWishLoading}
                       title="تحديث"
                       style={{ background: '#fff', border: '1px solid var(--c-accent)', borderRadius: 7, padding: '3px 9px', fontSize: 11, color: 'var(--c-accent)', cursor: teamWishLoading ? 'default' : 'pointer', fontWeight: 600 }}
-                    >{teamWishLoading ? '⏳' : '🔄 تحديث'}</button>
+                    >{teamWishLoading ? <Icon name="loading" size={11} className="icon-spin" /> : <><Icon name="refresh" size={11} /> تحديث</>}</button>
                   )}
                   <span style={{ fontSize: 13, color: 'var(--c-text-muted)', display: 'inline-block', transition: 'transform 0.2s', transform: teamWishPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
                 </div>
@@ -2520,7 +2521,7 @@ export default function DoctorsPage() {
               {teamWishPanelOpen && (
                 <div style={{ padding: '12px 14px', background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {teamWishLoading ? (
-                    <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>⏳ جاري تحميل البيانات...</div>
+                    <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--c-text-muted)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Icon name="loading" size={13} className="icon-spin" /> جاري تحميل البيانات...</div>
                   ) : !teamWishLoaded ? null
                   : teamWishList.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '18px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>لا يوجد مندوبون معيّنون</div>
@@ -2545,7 +2546,7 @@ export default function DoctorsPage() {
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 13px', background: isOpen ? '#f0f4ff' : 'var(--c-bg)', cursor: 'pointer' }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 13 }}>👤</span>
+                              <Icon name="person" size={13} />
                               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text-primary)' }}>{teamEntry.rep.name}</span>
                               <span style={{ background: wishCount > 0 ? 'var(--c-accent)' : 'var(--c-border)', color: wishCount > 0 ? '#fff' : 'var(--c-text-muted)', borderRadius: 99, fontSize: 11, fontWeight: 700, padding: '1px 8px', minWidth: 20, textAlign: 'center' }}>
                                 {rw?.loading ? '...' : wishCount}
@@ -2557,7 +2558,7 @@ export default function DoctorsPage() {
                           {isOpen && (
                             <div style={{ padding: '10px 13px', background: '#fff', borderTop: '1px solid var(--c-accent-light)' }}>
                               {rw?.loading ? (
-                                <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--c-text-muted)', fontSize: 12 }}>⏳ جاري التحميل...</div>
+                                <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--c-text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="loading" size={12} className="icon-spin" /> جاري التحميل...</div>
                               ) : wishCount === 0 ? (
                                 <div style={{ textAlign: 'center', padding: '10px 0', color: 'var(--c-text-muted)', fontSize: 12 }}>لا يوجد أطباء مطلوبون</div>
                               ) : (
@@ -2569,7 +2570,7 @@ export default function DoctorsPage() {
                                       <div key={w.doctorId} style={{ background: 'var(--c-bg)', borderRadius: 9, padding: '9px 11px', border: '1px solid var(--c-border)', position: 'relative' }}>
                                         <span style={{ position: 'absolute', top: 6, right: 8, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 99, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>{idx + 1}</span>
                                         <div style={{ marginTop: 13, marginBottom: 3, fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)' }}>{w.doctorName}</div>
-                                        {w.itemName && <div style={{ fontSize: 10, color: 'var(--c-accent)', fontWeight: 600, marginBottom: 3 }}>💊 {w.itemName}</div>}
+                                        {w.itemName && <div style={{ fontSize: 10, color: 'var(--c-accent)', fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={10} /> {w.itemName}</div>}
                                         {hasDetails && (
                                           <div>
                                             <button
@@ -2586,9 +2587,9 @@ export default function DoctorsPage() {
                                             </button>
                                             {detailOpen && (
                                               <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                {w.specialty && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)' }}>🩺 {w.specialty}</div>}
-                                                {w.pharmacyName && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)' }}>🏥 {w.pharmacyName}</div>}
-                                                {w.areaName && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)' }}>📍 {w.areaName}</div>}
+                                                {w.specialty && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {w.specialty}</div>}
+                                                {w.pharmacyName && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="navDoctors" size={10} /> {w.pharmacyName}</div>}
+                                                {w.areaName && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {w.areaName}</div>}
                                               </div>
                                             )}
                                           </div>
@@ -2610,14 +2611,14 @@ export default function DoctorsPage() {
           )}
           {visitLoading && visitAreas.length === 0 && (
             <div style={{ textAlign: 'center', padding: 60, color: 'var(--c-text-muted)' }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+              <div style={{ fontSize: 32, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="loading" size={32} className="icon-spin" /></div>
               جاري التحميل...
             </div>
           )}
 
           {!visitLoading && visitAreas.length === 0 && (
             <div style={{ textAlign: 'center', padding: 60, color: 'var(--c-text-muted)' }}>
-              <div style={{ fontSize: 44, marginBottom: 12 }}>📭</div>
+              <div style={{ fontSize: 44, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="empty" size={44} /></div>
               لا توجد بيانات زيارات
             </div>
           )}
@@ -2728,8 +2729,8 @@ export default function DoctorsPage() {
                                     const c = exact ? (exact.totalValue > 0 ? 'var(--c-success)' : 'var(--c-warning)') : 'var(--c-accent)';
                                     return (
                                       <button onClick={e => { e.stopPropagation(); setPharmComparePopup({ docName: doc.name, pharmName: doc.pharmacyName!, areaName: doc.area?.name ?? null, exact, similar }); }}
-                                        title="مقارنة بيانات المبيع" style={{ background: `color-mix(in srgb, ${c} 15%, transparent)`, border: `2px solid ${c}`, borderRadius: 7, padding: '2px 7px', fontSize: 11, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4, fontWeight: 700 }}>
-                                        📊
+                                        title="مقارنة بيانات المبيع" style={{ background: `color-mix(in srgb, ${c} 15%, transparent)`, border: `2px solid ${c}`, borderRadius: 7, padding: '2px 7px', fontSize: 11, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4, fontWeight: 700, display: 'inline-flex' }}>
+                                        <Icon name="navSalesData" size={12} />
                                       </button>
                                     );
                                   })()}
@@ -2847,7 +2848,7 @@ export default function DoctorsPage() {
                 return (
                   !showPharmMonthPicker ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0 }}>📅</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
                       <button style={{
                         fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                         border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
@@ -2863,7 +2864,7 @@ export default function DoctorsPage() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0 }}>📅</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
                       <button onClick={() => { setPharmVisitMonthFilter(null); setShowPharmMonthPicker(false); }} style={{
                         fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
                         border: `1px solid ${pharmVisitMonthFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
@@ -2895,16 +2896,16 @@ export default function DoctorsPage() {
                 return (
                   <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
                     {[
-                      { label: 'إجمالي الصيدليات', value: totalPharma, icon: '🏪', accent: 'var(--c-accent)' },
-                      { label: 'إجمالي الزيارات',  value: totalVisits, icon: '📍', accent: 'var(--c-accent)' },
-                      { label: 'عدد المناطق',       value: pharmVisitAreas.length, icon: '🗺️', accent: 'var(--c-accent)' },
+                      { label: 'إجمالي الصيدليات', value: totalPharma, icon: 'pharmacy' as const, accent: 'var(--c-accent)' },
+                      { label: 'إجمالي الزيارات',  value: totalVisits, icon: 'location' as const, accent: 'var(--c-accent)' },
+                      { label: 'عدد المناطق',       value: pharmVisitAreas.length, icon: 'navOrgStructure' as const, accent: 'var(--c-accent)' },
                     ].map(s => (
                       <div key={s.label} style={{
                         flex: '1 1 110px', background: '#fff', borderRadius: 12,
                         padding: '12px 16px', border: `1.5px solid var(--c-border)`,
                         textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
                       }}>
-                        <div style={{ fontSize: 20 }}>{s.icon}</div>
+                        <div style={{ fontSize: 20, display: 'flex', justifyContent: 'center', color: s.accent }}><Icon name={s.icon} size={20} /></div>
                         <div style={{ fontSize: 20, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
                         <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 2 }}>{s.label}</div>
                       </div>
@@ -2935,7 +2936,7 @@ export default function DoctorsPage() {
               {/* Loading — first load only */}
               {pharmVisitLoading && pharmVisitAreas.length === 0 && (
                 <div style={{ textAlign: 'center', padding: 60, color: 'var(--c-text-muted)' }}>
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                  <div style={{ fontSize: 32, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="loading" size={32} className="icon-spin" /></div>
                   جاري التحميل...
                 </div>
               )}
@@ -2943,7 +2944,7 @@ export default function DoctorsPage() {
               {/* Empty */}
               {!pharmVisitLoading && pharmVisitAreas.length === 0 && (
                 <div style={{ textAlign: 'center', padding: 60, color: 'var(--c-text-muted)' }}>
-                  <div style={{ fontSize: 44, marginBottom: 12 }}>🏪</div>
+                  <div style={{ fontSize: 44, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="pharmacy" size={44} /></div>
                   لا توجد بيانات زيارات صيدليات
                 </div>
               )}
@@ -2977,15 +2978,15 @@ export default function DoctorsPage() {
                         width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
                         background: 'var(--c-accent-light)', display: 'flex', alignItems: 'center',
                         justifyContent: 'center', fontSize: 18,
-                      }}>🏪</div>
+                      }}><Icon name="pharmacy" size={18} style={{ color: 'var(--c-accent)' }} /></div>
                       <div style={{ flex: 1, textAlign: 'right' }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)' }}>{area.name}</div>
                         <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, color: 'var(--c-accent)', background: 'var(--c-accent-light)', borderRadius: 20, padding: '2px 9px' }}>
-                            🏪 {area.totalPharmacies} صيدلية
+                          <span style={{ fontSize: 12, color: 'var(--c-accent)', background: 'var(--c-accent-light)', borderRadius: 20, padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <Icon name="pharmacy" size={11} /> {area.totalPharmacies} صيدلية
                           </span>
-                          <span style={{ fontSize: 12, color: 'var(--c-success)', background: 'var(--c-success-bg)', borderRadius: 20, padding: '2px 9px' }}>
-                            📍 {area.totalVisits} زيارة
+                          <span style={{ fontSize: 12, color: 'var(--c-success)', background: 'var(--c-success-bg)', borderRadius: 20, padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <Icon name="location" size={11} /> {area.totalVisits} زيارة
                           </span>
                         </div>
                       </div>
@@ -3046,7 +3047,7 @@ export default function DoctorsPage() {
                                           <td style={{ padding: '5px 8px' }}>
                                             {v.items.length > 0
                                               ? v.items.map(it => (
-                                                  <span key={it.id} style={{ fontSize: 11, background: 'var(--c-purple-bg)', color: 'var(--c-purple)', borderRadius: 8, padding: '2px 7px', marginLeft: 4, fontWeight: 600 }}>💊 {it.name}</span>
+                                                  <span key={it.id} style={{ fontSize: 11, background: 'var(--c-purple-bg)', color: 'var(--c-purple)', borderRadius: 8, padding: '2px 7px', marginLeft: 4, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="drug" size={10} /> {it.name}</span>
                                                 ))
                                               : <span style={{ color: 'var(--c-text-muted)' }}>—</span>
                                             }
@@ -3077,14 +3078,14 @@ export default function DoctorsPage() {
         <div>
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            <button onClick={openAddPharm} style={btnStyle('var(--c-success)')}>＋ إضافة صيدلية</button>
-            <button onClick={() => { setShowPharmImport(v => !v); setPharmImportResult(null); }} style={btnStyle('var(--c-accent)')}>📊 استيراد Excel</button>
+            <button onClick={openAddPharm} style={{ ...btnStyle('var(--c-success)'), display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={14} /> إضافة صيدلية</button>
+            <button onClick={() => { setShowPharmImport(v => !v); setPharmImportResult(null); }} style={{ ...btnStyle('var(--c-accent)'), display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="file" size={14} /> استيراد Excel</button>
           </div>
 
           {/* Import panel */}
           {showPharmImport && (
             <div style={{ background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', borderRadius: 12, padding: 18, marginBottom: 18 }}>
-              <h3 style={{ margin: '0 0 8px', fontSize: 14, color: 'var(--c-success)' }}>📊 استيراد قائمة الصيدليات من Excel</h3>
+              <h3 style={{ margin: '0 0 8px', fontSize: 14, color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="file" size={14} /> استيراد قائمة الصيدليات من Excel</h3>
               <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--c-success)', lineHeight: 1.7 }}>
                 الأعمدة المدعومة: <strong>الاسم *</strong> · المالك · الهاتف · العنوان · المنطقة · ملاحظات
               </p>
@@ -3092,12 +3093,12 @@ export default function DoctorsPage() {
                 <input ref={pharmFileRef} type="file" accept=".xlsx,.xls,.csv" disabled={pharmImporting}
                   onChange={e => { const f = e.target.files?.[0]; if (f) importPharmExcel(f); }}
                   style={{ fontSize: 13 }} />
-                {pharmImporting && <span style={{ fontSize: 13, color: 'var(--c-success)' }}>⏳ جاري الاستيراد...</span>}
+                {pharmImporting && <span style={{ fontSize: 13, color: 'var(--c-success)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="loading" size={13} className="icon-spin" /> جاري الاستيراد...</span>}
               </div>
               {pharmImportResult && (
                 <div style={{ marginTop: 12, fontSize: 13 }}>
-                  <div style={{ color: 'var(--c-success)', fontWeight: 700 }}>
-                    ✅ تم استيراد {pharmImportResult.imported} صيدلية
+                  <div style={{ color: 'var(--c-success)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="checkCircle" size={13} /> تم استيراد {pharmImportResult.imported} صيدلية
                     {pharmImportResult.skipped > 0 && <span style={{ color: 'var(--c-warning)', marginRight: 8 }}>· تم تخطي {pharmImportResult.skipped} موجود مسبقاً</span>}
                   </div>
                   {pharmImportResult.detectedCols && (
@@ -3150,7 +3151,7 @@ export default function DoctorsPage() {
           {/* Loading */}
           {surveyPharmLoading && (
             <div style={{ textAlign: 'center', padding: 60, color: 'var(--c-text-muted)' }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+              <div style={{ fontSize: 32, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="loading" size={32} className="icon-spin" /></div>
               جاري التحميل...
             </div>
           )}
@@ -3165,7 +3166,7 @@ export default function DoctorsPage() {
             });
             if (filtered.length === 0) return (
               <div style={{ textAlign: 'center', padding: 60, color: 'var(--c-text-muted)' }}>
-                <div style={{ fontSize: 44, marginBottom: 12 }}>🏪</div>
+                <div style={{ fontSize: 44, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="pharmacy" size={44} /></div>
                 {surveyPharmacies.length === 0 ? 'لا توجد صيدليات — أضف أو استورد من Excel' : 'لا توجد نتائج للبحث'}
               </div>
             );
@@ -3184,25 +3185,25 @@ export default function DoctorsPage() {
                       {/* Edit / Delete buttons */}
                       <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4 }}>
                         <button onClick={() => openEditPharm(p)} title="تعديل"
-                          style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: 'var(--c-text-secondary)' }}>✏️</button>
+                          style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center' }}><Icon name="edit" size={11} /></button>
                         <button onClick={() => deletePharm(p.id)} title="حذف"
-                          style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: 'var(--c-danger)' }}>🗑</button>
+                          style={{ background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', borderRadius: 7, padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: 'var(--c-danger)', display: 'inline-flex', alignItems: 'center' }}><Icon name="delete" size={11} /></button>
                       </div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 8, paddingLeft: 56 }}>🏪 {p.name}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 8, paddingLeft: 56, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pharmacy" size={14} /> {p.name}</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {p.ownerName && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--c-text-secondary)' }}>
-                            <span style={{ color: 'var(--c-text-muted)' }}>👤</span><span>{p.ownerName}</span>
+                            <Icon name="person" size={12} style={{ color: 'var(--c-text-muted)' }} /><span>{p.ownerName}</span>
                           </div>
                         )}
                         {p.phone && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--c-text-secondary)' }}>
-                            <span style={{ color: 'var(--c-text-muted)' }}>📞</span><span dir="ltr">{p.phone}</span>
+                            <Icon name="call" size={12} style={{ color: 'var(--c-text-muted)' }} /><span dir="ltr">{p.phone}</span>
                           </div>
                         )}
                         {p.address && (
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 13, color: 'var(--c-text-secondary)' }}>
-                            <span style={{ color: 'var(--c-text-muted)', marginTop: 1 }}>📍</span><span>{p.address}</span>
+                            <Icon name="location" size={12} style={{ color: 'var(--c-text-muted)', marginTop: 1 }} /><span>{p.address}</span>
                           </div>
                         )}
                         {p.areaName && (
@@ -3226,14 +3227,14 @@ export default function DoctorsPage() {
       {activeTab === 'myvisits' && showMyVisits && (
         <div style={{ background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 8px rgba(0,0,0,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-            <span style={{ fontSize: 24 }}>📝</span>
+            <Icon name="edit" size={22} style={{ color: 'var(--c-text-primary)' }} />
             <div>
               <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--c-text-primary)' }}>زياراتي الميدانية</div>
               <div style={{ fontSize: 13, color: 'var(--c-text-secondary)', marginTop: 2 }}>سجل زياراتك للأطباء والصيدليات</div>
             </div>
           </div>
           <div style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: '40px 0', fontSize: 14 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🚀</div>
+            <div style={{ fontSize: 40, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="rocket" size={40} /></div>
             قريباً — سيتم إضافة سجل الزيارات الميدانية
           </div>
         </div>
@@ -3268,7 +3269,7 @@ export default function DoctorsPage() {
             {/* Rep selector (managers only) */}
             {!isFieldRep && managerReps.length > 0 && (
               <div style={{ marginBottom: 14, direction: 'rtl' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6 }}>👤 المندوب</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button
                     onClick={() => { setArchiveRepFilter(null); setArchiveAreaFilter('all'); }}
@@ -3297,10 +3298,10 @@ export default function DoctorsPage() {
               const allDocsFlat = archiveAreas.flatMap(a => a.doctors);
               const allUniqueItems = [...new Set(allDocsFlat.filter(d => d.isWriting).flatMap(d => d.writingItems))];
               const stats = [
-                { icon: '👥', val: archiveTotal,          key: null,       label: 'إجمالي' },
-                { icon: '✅', val: archiveTotalVisited,   key: 'visited',  label: 'زيارة' },
-                { icon: '✍',  val: archiveTotalWriting,   key: 'writing',  label: 'كتابة' },
-                { icon: '💊', val: allUniqueItems.length, key: 'items',    label: 'إيتم' },
+                { icon: 'person' as const,      val: archiveTotal,          key: null,       label: 'إجمالي' },
+                { icon: 'checkCircle' as const, val: archiveTotalVisited,   key: 'visited',  label: 'زيارة' },
+                { icon: 'edit' as const,        val: archiveTotalWriting,   key: 'writing',  label: 'كتابة' },
+                { icon: 'drug' as const,        val: allUniqueItems.length, key: 'items',    label: 'إيتم' },
               ] as const;
               return (
                 <div style={{ display: 'flex', background: '#fff', border: '1px solid var(--c-border)', borderRadius: 10, marginBottom: 16, overflow: 'hidden', direction: 'rtl' }}>
@@ -3315,7 +3316,7 @@ export default function DoctorsPage() {
                       }}
                       onMouseEnter={e => { if (s.key && (s.val as number) > 0) (e.currentTarget as HTMLDivElement).style.background = 'var(--c-bg)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = '#fff'; }}>
-                      <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 2 }}>{s.icon} {s.label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}><Icon name={s.icon} size={11} /> {s.label}</div>
                       <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-text-primary)', lineHeight: 1 }}>{s.val}</div>
                     </div>
                   ))}
@@ -3343,18 +3344,18 @@ export default function DoctorsPage() {
                 </button>
               )}
               <button onClick={loadArchive} disabled={archiveLoading} title="تحديث"
-                style={{ padding: '7px 11px', borderRadius: 8, border: '1px solid var(--c-border)', background: 'var(--c-bg)', color: 'var(--c-text-secondary)', fontSize: 14, cursor: 'pointer', opacity: archiveLoading ? 0.5 : 1 }}>
-                {archiveLoading ? '⏳' : '↻'}
+                style={{ padding: '7px 11px', borderRadius: 8, border: '1px solid var(--c-border)', background: 'var(--c-bg)', color: 'var(--c-text-secondary)', fontSize: 14, cursor: 'pointer', opacity: archiveLoading ? 0.5 : 1, display: 'inline-flex', alignItems: 'center' }}>
+                {archiveLoading ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="refresh" size={13} />}
               </button>
             </div>
 
             {/* Import from visits result banner */}
             {importFromVisitsResult && (
               <div style={{ background: importFromVisitsResult.imported > 0 ? 'var(--c-success-bg)' : 'var(--c-bg)', border: `1px solid ${importFromVisitsResult.imported > 0 ? 'var(--c-success-border)' : 'var(--c-border)'}`, borderRadius: 8, padding: '8px 14px', marginBottom: 12, direction: 'rtl', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>
+                <span style={{ fontSize: 13, color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   {importFromVisitsResult.imported > 0
-                    ? `✅ تم استيراد ${importFromVisitsResult.imported} طبيب جديد من أصل ${importFromVisitsResult.total}`
-                    : `ℹ️ جميع الأطباء (${importFromVisitsResult.total}) موجودون في الأرشيف مسبقاً`}
+                    ? <><Icon name="checkCircle" size={13} /> تم استيراد {importFromVisitsResult.imported} طبيب جديد من أصل {importFromVisitsResult.total}</>
+                    : <>جميع الأطباء ({importFromVisitsResult.total}) موجودون في الأرشيف مسبقاً</>}
                 </span>
                 <button onClick={() => setImportFromVisitsResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--c-text-muted)', lineHeight: 1, padding: '0 4px', display: 'flex' }}><Icon name="close" size={14} /></button>
               </div>
@@ -3380,10 +3381,10 @@ export default function DoctorsPage() {
                         <span style={{ position: 'absolute', top: 5, right: 7, fontSize: 10, color: 'var(--c-text-muted)', fontWeight: 600 }}>{idx + 1}</span>
                         <div style={{ marginTop: 12, fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>{d.name}</div>
                         {d.specialty && <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 1 }}>{d.specialty}</div>}
-                        {d.areaName && <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginTop: 1 }}>📍 {d.areaName}</div>}
-                        {d.isVisited && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', marginTop: 3 }}>✅{d.visitItems?.length > 0 ? ` ${d.visitItems.join(' · ')}` : ''}</div>}
+                        {d.areaName && <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginTop: 1, display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {d.areaName}</div>}
+                        {d.isVisited && <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="checkCircle" size={10} />{d.visitItems?.length > 0 ? ` ${d.visitItems.join(' · ')}` : ''}</div>}
                         {d.isWriting && d.writingItems.length > 0 && (
-                          <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', marginTop: 2 }}>✍ {d.writingItems.join(' · ')}</div>
+                          <div style={{ fontSize: 10, color: 'var(--c-text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 3 }}><Icon name="edit" size={10} /> {d.writingItems.join(' · ')}</div>
                         )}
                       </div>
                     ))}
@@ -3396,7 +3397,7 @@ export default function DoctorsPage() {
               <div style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: 40 }}>جاري التحميل...</div>
             ) : filteredAreas.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 20px', direction: 'rtl' }}>
-                <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
+                <div style={{ fontSize: 48, marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="folder" size={48} /></div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 8 }}>الأرشيف فارغ</div>
                 <div style={{ fontSize: 13, color: 'var(--c-text-secondary)', marginBottom: 20 }}>أضف أطباء من السيرفي لتتبّعهم هنا بشكل مستقل عن الكولات</div>
                 <button onClick={() => setShowAddModal(true)}
@@ -3501,8 +3502,8 @@ export default function DoctorsPage() {
                                           const c = exact ? (exact.totalValue > 0 ? 'var(--c-success)' : 'var(--c-warning)') : 'var(--c-accent)';
                                           return (
                                             <button onClick={e => { e.stopPropagation(); setPharmComparePopup({ docName: doc.name, pharmName: doc.pharmacyName!, areaName: doc.areaName ?? null, exact, similar }); }}
-                                              title="مقارنة بيانات المبيع" style={{ background: `color-mix(in srgb, ${c} 15%, transparent)`, border: `2px solid ${c}`, borderRadius: 7, padding: '2px 7px', fontSize: 11, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4, fontWeight: 700 }}>
-                                              📊
+                                              title="مقارنة بيانات المبيع" style={{ background: `color-mix(in srgb, ${c} 15%, transparent)`, border: `2px solid ${c}`, borderRadius: 7, padding: '2px 7px', fontSize: 11, color: c, cursor: 'pointer', flexShrink: 0, lineHeight: 1.4, fontWeight: 700, display: 'inline-flex' }}>
+                                              <Icon name="navSalesData" size={12} />
                                             </button>
                                           );
                                         })()}
@@ -3521,7 +3522,7 @@ export default function DoctorsPage() {
                                         color: doc.isVisited ? 'var(--c-success)' : 'var(--c-text-muted)',
                                         transition: 'all .15s',
                                       }}>
-                                      {doc.isVisited ? '✔ زيارة' : 'زيارة'}
+                                      {doc.isVisited ? <><Icon name="check" size={11} /> زيارة</> : 'زيارة'}
                                     </button>
                                     <button onClick={() => patchArchive(doc, { isWriting: !doc.isWriting })}
                                       title="يكتب"
@@ -3532,7 +3533,7 @@ export default function DoctorsPage() {
                                         color: doc.isWriting ? 'var(--c-accent)' : 'var(--c-text-muted)',
                                         transition: 'all .15s',
                                       }}>
-                                      {doc.isWriting ? '✎ كتابة' : 'كتابة'}
+                                      {doc.isWriting ? <><Icon name="edit" size={11} /> كتابة</> : 'كتابة'}
                                     </button>
                                   </div>
 
@@ -3676,11 +3677,11 @@ export default function DoctorsPage() {
                                   </button>
                                   <button onClick={() => openEditDoc(doc)} title="تعديل"
                                     style={{ background: 'transparent', border: '1px solid var(--c-border)', borderRadius: 6, width: 28, height: 28, fontSize: 13, cursor: 'pointer', color: 'var(--c-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
-                                    ✎
+                                    <Icon name="edit" size={13} />
                                   </button>
                                   <button onClick={() => removeFromArchive(doc.surveyDoctorId)} title="إزالة"
                                     style={{ background: 'transparent', border: '1px solid var(--c-border)', borderRadius: 6, width: 28, height: 28, fontSize: 13, cursor: 'pointer', color: 'var(--c-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, transition: 'all .15s' }}>
-                                    ×
+                                    <Icon name="close" size={13} />
                                   </button>
                                 </div>
                               </div>
@@ -3700,11 +3701,11 @@ export default function DoctorsPage() {
       {/* ── Archive Sub-Popups (visited / writing / items) ─── */}
       {archiveSubPopup !== null && (() => {
         const allDocsFlat = archiveAreas.flatMap(a => a.doctors);
-        let title = '';
+        let title: React.ReactNode = '';
         let body: React.ReactNode = null;
 
         if (archiveSubPopup === 'visited') {
-          title = '✅ زيارات';
+          title = <><Icon name="checkCircle" size={16} style={{ verticalAlign: 'middle', marginLeft: 6 }} /> زيارات</>;
           const visitedDocs = allDocsFlat.filter(d => d.isVisited);
           if (visitedDocs.length === 0) {
             body = <div style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: 30 }}>لا يوجد</div>;
@@ -3719,8 +3720,8 @@ export default function DoctorsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[...areaMap.entries()].map(([areaName, docs]) => (
                   <div key={areaName}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', background: 'var(--c-bg)', borderRadius: 6, padding: '4px 10px', marginBottom: 5, direction: 'rtl', border: '1px solid var(--c-border)' }}>
-                      📍 {areaName} <span style={{ fontWeight: 400 }}>({docs.length})</span>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', background: 'var(--c-bg)', borderRadius: 6, padding: '4px 10px', marginBottom: 5, direction: 'rtl', border: '1px solid var(--c-border)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="location" size={11} /> {areaName} <span style={{ fontWeight: 400 }}>({docs.length})</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {docs.map(d => (
@@ -3746,7 +3747,7 @@ export default function DoctorsPage() {
             );
           }
         } else if (archiveSubPopup === 'writing') {
-          title = '✍ كتابة';
+          title = <><Icon name="edit" size={16} style={{ verticalAlign: 'middle', marginLeft: 6 }} /> كتابة</>;
           const writingDocs = allDocsFlat.filter(d => d.isWriting);
           if (writingDocs.length === 0) {
             body = <div style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: 30 }}>لا يوجد</div>;
@@ -3761,8 +3762,8 @@ export default function DoctorsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[...areaMap.entries()].map(([areaName, docs]) => (
                   <div key={areaName}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', background: 'var(--c-bg)', borderRadius: 6, padding: '4px 10px', marginBottom: 5, direction: 'rtl', border: '1px solid var(--c-border)' }}>
-                      📍 {areaName} <span style={{ fontWeight: 400 }}>({docs.length})</span>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', background: 'var(--c-bg)', borderRadius: 6, padding: '4px 10px', marginBottom: 5, direction: 'rtl', border: '1px solid var(--c-border)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="location" size={11} /> {areaName} <span style={{ fontWeight: 400 }}>({docs.length})</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {docs.map(d => (
@@ -3783,7 +3784,7 @@ export default function DoctorsPage() {
             );
           }
         } else if (archiveSubPopup === 'items') {
-          title = '💊 إيتمات';
+          title = <><Icon name="drug" size={16} style={{ verticalAlign: 'middle', marginLeft: 6 }} /> إيتمات</>;
           const writingDocs = allDocsFlat.filter(d => d.isWriting && d.writingItems.length > 0);
           const itemMap = new Map<string, typeof writingDocs>();
           writingDocs.forEach(d => {
@@ -3917,8 +3918,8 @@ export default function DoctorsPage() {
                     style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${dupMatch ? 'var(--c-warning)' : newDocErr && !newDocName.trim() ? 'var(--c-danger)' : 'var(--c-border)'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--c-bg)' }}
                     placeholder="اسم الطبيب" />
                   {dupMatch && (
-                    <div style={{ marginTop: 5, fontSize: 11, color: 'var(--c-warning)', background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)', borderRadius: 6, padding: '5px 9px' }}>
-                      ⚠️ الاسم موجود مسبقاً في {dupMatch.areaName || 'الأرشيف'}
+                    <div style={{ marginTop: 5, fontSize: 11, color: 'var(--c-warning)', background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)', borderRadius: 6, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="warning" size={11} /> الاسم موجود مسبقاً في {dupMatch.areaName || 'الأرشيف'}
                     </div>
                   )}
                 </div>
@@ -3994,7 +3995,7 @@ export default function DoctorsPage() {
         <div style={overlayStyle} onClick={() => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }}>
           <div style={{ ...modalStyle, maxWidth: 560, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📚 إضافة أطباء من السيرفي</h2>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="folder" size={17} /> إضافة أطباء من السيرفي</h2>
               <button onClick={() => { setShowAddModal(false); setShowAreaDropdown(false); setSurveyDocSelectedAreas(new Set()); }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--c-text-secondary)', display: 'flex' }}><Icon name="close" size={18} /></button>
             </div>
 
@@ -4012,7 +4013,7 @@ export default function DoctorsPage() {
                   <div style={{ position: 'relative' }}>
                     <button onClick={() => setShowAreaDropdown(v => !v)}
                       style={{ padding: '7px 12px', borderRadius: 8, border: '1.5px solid var(--c-border)', fontSize: 13, direction: 'rtl', background: selectedCount > 0 ? 'var(--c-purple-bg)' : '#fff', color: selectedCount > 0 ? 'var(--c-purple)' : 'var(--c-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-                      📍 {label} <span style={{ fontSize: 10 }}>▼</span>
+                      <Icon name="location" size={12} /> {label} <span style={{ fontSize: 10 }}>▼</span>
                     </button>
                     {showAreaDropdown && (
                       <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 999, background: '#fff', border: '1.5px solid var(--c-border)', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', minWidth: 200, maxHeight: 260, overflowY: 'auto', padding: '6px 0' }}>
@@ -4069,8 +4070,8 @@ export default function DoctorsPage() {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--c-bg)', borderRadius: 10, border: '1px solid var(--c-border)', marginBottom: 2 }}>
                       <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{filtered2.length} طبيب</span>
                       <button onClick={() => addAllToArchive(filteredIds)} disabled={importingAll}
-                        style={{ padding: '5px 14px', background: importingAll ? 'var(--c-purple)' : 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: importingAll ? 'not-allowed' : 'pointer', opacity: importingAll ? 0.7 : 1 }}>
-                        {importingAll ? '⏳ جاري الاستيراد...' : '⬇️ استيراد الكل'}
+                        style={{ padding: '5px 14px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: importingAll ? 'not-allowed' : 'pointer', opacity: importingAll ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        {importingAll ? <><Icon name="loading" size={12} className="icon-spin" /> جاري الاستيراد...</> : <><Icon name="import" size={12} /> استيراد الكل</>}
                       </button>
                     </div>
                     {filtered2.map(d => (
@@ -4078,14 +4079,14 @@ export default function DoctorsPage() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>{d.name}</div>
                           <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-                            {d.specialty && <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>🩺 {d.specialty}</span>}
-                            {d.areaName  && <span style={{ fontSize: 11, color: 'var(--c-accent)' }}>📍 {d.areaName}</span>}
-                            {d.pharmacyName && <span style={{ fontSize: 11, color: '#0891b2' }}>🏪 {d.pharmacyName}</span>}
+                            {d.specialty && <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {d.specialty}</span>}
+                            {d.areaName  && <span style={{ fontSize: 11, color: 'var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {d.areaName}</span>}
+                            {d.pharmacyName && <span style={{ fontSize: 11, color: 'var(--c-accent)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="pharmacy" size={10} /> {d.pharmacyName}</span>}
                           </div>
                         </div>
                         <button onClick={() => addToArchive(d.id)} disabled={addingIds.has(d.id)}
-                          style={{ padding: '5px 12px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: addingIds.has(d.id) ? 0.6 : 1, flexShrink: 0 }}>
-                          {addingIds.has(d.id) ? '...' : '＋'}
+                          style={{ padding: '5px 12px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: addingIds.has(d.id) ? 0.6 : 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
+                          {addingIds.has(d.id) ? '...' : <Icon name="add" size={12} />}
                         </button>
                       </div>
                     ))}
@@ -4101,8 +4102,8 @@ export default function DoctorsPage() {
       {pharmModal && (
         <div style={overlayStyle} onClick={() => setPharmModal(null)}>
           <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ margin: '0 0 18px', fontSize: 17 }}>
-              {pharmModal === 'add' ? '＋ إضافة صيدلية' : '✏️ تعديل الصيدلية'}
+            <h2 style={{ margin: '0 0 18px', fontSize: 17, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {pharmModal === 'add' ? <><Icon name="add" size={16} /> إضافة صيدلية</> : <><Icon name="edit" size={16} /> تعديل الصيدلية</>}
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <label style={labelStyle}>
@@ -4127,14 +4128,14 @@ export default function DoctorsPage() {
               </label>
             </div>
             {pharmSaveErr && (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--c-danger-bg)', borderRadius: 8, color: 'var(--c-danger)', fontSize: 13 }}>
-                ⚠️ {pharmSaveErr}
+              <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--c-danger-bg)', borderRadius: 8, color: 'var(--c-danger)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Icon name="warning" size={13} /> {pharmSaveErr}
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
               <button onClick={() => setPharmModal(null)} style={{ ...btnStyle('var(--c-text-muted)'), background: 'var(--c-bg)', color: 'var(--c-text-secondary)' }}>إلغاء</button>
-              <button onClick={savePharm} disabled={pharmSaving} style={{ ...btnStyle('var(--c-success)'), opacity: pharmSaving ? 0.7 : 1 }}>
-                {pharmSaving ? '⏳ جاري الحفظ...' : '💾 حفظ'}
+              <button onClick={savePharm} disabled={pharmSaving} style={{ ...btnStyle('var(--c-success)'), opacity: pharmSaving ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {pharmSaving ? <><Icon name="loading" size={13} className="icon-spin" /> جاري الحفظ...</> : <><Icon name="checkCircle" size={13} /> حفظ</>}
               </button>
             </div>
           </div>
@@ -4175,7 +4176,7 @@ export default function DoctorsPage() {
                     onBlur={() => setTimeout(() => setFAreaShowSugg(false), 180)}
                     onFocus={() => { if (fAreaSugg.length > 0) setFAreaShowSugg(true); }}
                   />
-                  {fAreaId && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--c-success)', fontWeight: 700 }}>✓</span>}
+                  {fAreaId && <Icon name="check" size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--c-success)' }} />}
                   {!fAreaId && fAreaName.trim() && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--c-warning)', fontWeight: 600 }}>جديد</span>}
                   {fAreaShowSugg && fAreaSugg.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginTop: 2, overflow: 'hidden' }}>
@@ -4216,7 +4217,7 @@ export default function DoctorsPage() {
                     onBlur={() => setTimeout(() => setFItemShowSugg(false), 180)}
                     onFocus={() => { if (fItemSugg.length > 0) setFItemShowSugg(true); }}
                   />
-                  {fItemId && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--c-success)', fontWeight: 700 }}>✓</span>}
+                  {fItemId && <Icon name="check" size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--c-success)' }} />}
                   {!fItemId && fItemName.trim() && <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--c-warning)', fontWeight: 600 }}>جديد</span>}
                   {fItemShowSugg && fItemSugg.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 300, background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', marginTop: 2, overflow: 'hidden' }}>
@@ -4272,8 +4273,8 @@ export default function DoctorsPage() {
             <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--c-border-light)', background: 'var(--c-bg)', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>🏪 إحصائية صيدليات المنطقة</div>
-                  <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginTop: 2 }}>📍 {areaStatsPopup.areaName}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="pharmacy" size={13} /> إحصائية صيدليات المنطقة</div>
+                  <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="location" size={11} /> {areaStatsPopup.areaName}</div>
                 </div>
                 <button onClick={() => setAreaStatsPopup(null)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 22, lineHeight: 1, padding: '0 4px', display: 'flex' }}><Icon name="close" size={20} /></button>
@@ -4303,12 +4304,12 @@ export default function DoctorsPage() {
               {areaStatsPopup.withSales.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-success)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    ✅ مع مبيع ({areaStatsPopup.withSales.length})
+                    <Icon name="checkCircle" size={12} /> مع مبيع ({areaStatsPopup.withSales.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {areaStatsPopup.withSales.map((n, i) => (
                       <div key={i} style={{ fontSize: 12, padding: '6px 10px', background: 'var(--c-success-bg)', borderRadius: 8, color: 'var(--c-success)', border: '1px solid var(--c-success-border)' }}>
-                        🏪 {n}
+                        <Icon name="pharmacy" size={11} style={{ verticalAlign: 'middle', marginLeft: 3 }} /> {n}
                       </div>
                     ))}
                   </div>
@@ -4318,12 +4319,12 @@ export default function DoctorsPage() {
               {areaStatsPopup.withReturnsOnly.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-warning)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    🔄 ارجاع فقط ({areaStatsPopup.withReturnsOnly.length})
+                    <Icon name="refresh" size={12} /> ارجاع فقط ({areaStatsPopup.withReturnsOnly.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {areaStatsPopup.withReturnsOnly.map((n, i) => (
                       <div key={i} style={{ fontSize: 12, padding: '6px 10px', background: 'var(--c-warning-bg)', borderRadius: 8, color: 'var(--c-warning)', border: '1px solid var(--c-warning-border)' }}>
-                        🏪 {n}
+                        <Icon name="pharmacy" size={11} style={{ verticalAlign: 'middle', marginLeft: 3 }} /> {n}
                       </div>
                     ))}
                   </div>
@@ -4333,12 +4334,12 @@ export default function DoctorsPage() {
               {areaStatsPopup.noData.length > 0 && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-danger)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    ❌ بدون مبيع ({areaStatsPopup.noData.length})
+                    <Icon name="close" size={12} /> بدون مبيع ({areaStatsPopup.noData.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {areaStatsPopup.noData.map((n, i) => (
                       <div key={i} style={{ fontSize: 12, padding: '6px 10px', background: 'var(--c-danger-bg)', borderRadius: 8, color: 'var(--c-danger)', border: '1px solid var(--c-danger-border)' }}>
-                        🏪 {n}
+                        <Icon name="pharmacy" size={11} style={{ verticalAlign: 'middle', marginLeft: 3 }} /> {n}
                       </div>
                     ))}
                   </div>
@@ -4373,19 +4374,19 @@ export default function DoctorsPage() {
             <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--c-border-light)', background: 'var(--c-bg)', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>📊 مقارنة بيانات المبيع</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="navSalesData" size={13} /> مقارنة بيانات المبيع</div>
                   <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginTop: 3 }}>د. {pharmComparePopup.docName}</div>
                 </div>
                 <button onClick={() => setPharmComparePopup(null)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 22, lineHeight: 1, padding: '0 4px', display: 'flex' }}><Icon name="close" size={20} /></button>
               </div>
               <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontWeight: 600 }}>
-                  🏪 {pharmComparePopup.pharmName}
+                <span style={{ fontSize: 11, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="pharmacy" size={11} /> {pharmComparePopup.pharmName}
                 </span>
                 {pharmComparePopup.areaName && (
-                  <span style={{ fontSize: 11, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '2px 8px' }}>
-                    📍 {pharmComparePopup.areaName}
+                  <span style={{ fontSize: 11, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="location" size={11} /> {pharmComparePopup.areaName}
                   </span>
                 )}
               </div>
@@ -4395,7 +4396,7 @@ export default function DoctorsPage() {
               {pharmComparePopup.exact ? (
                 <>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-success)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ fontSize: 14 }}>✅</span> تم العثور على الصيدلية في بيانات المبيع
+                    <Icon name="checkCircle" size={14} /> تم العثور على الصيدلية في بيانات المبيع
                   </div>
                   {/* Summary cards */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
@@ -4412,24 +4413,24 @@ export default function DoctorsPage() {
                     ))}
                   </div>
                   {pharmComparePopup.exact.areaName && (
-                    <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginBottom: 10 }}>
-                      📍 المنطقة في ملف المبيع: <strong>{pharmComparePopup.exact.areaName}</strong>
+                    <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="location" size={11} /> المنطقة في ملف المبيع: <strong>{pharmComparePopup.exact.areaName}</strong>
                     </div>
                   )}
                   {/* Item breakdown with dates */}
                   {pharmDetailLoading && pharmDetailFor === pharmComparePopup.exact.name ? (
-                    <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--c-text-muted)', fontSize: 12 }}>⏳ جاري تحميل تفاصيل الطلبيات...</div>
+                    <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--c-text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="loading" size={12} className="icon-spin" /> جاري تحميل تفاصيل الطلبيات...</div>
                   ) : pharmDetail && pharmDetailFor === pharmComparePopup.exact.name && pharmDetail.byItem.length > 0 ? (
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span>📦</span> تفاصيل الإيتمات والطلبيات
+                        <Icon name="file" size={12} /> تفاصيل الإيتمات والطلبيات
                       </div>
                       {pharmDetail.byItem.map((item, idx) => {
                         const salesOrders   = item.orders.filter(o => o.type !== 'return');
                         const returnOrders  = item.orders.filter(o => o.type === 'return');
                         return (
                           <div key={idx} style={{ background: 'var(--c-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, border: '1px solid var(--c-border)' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 6 }}>💊 {item.name}</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={11} /> {item.name}</div>
                             {salesOrders.length > 0 && (
                               <div style={{ marginBottom: returnOrders.length > 0 ? 6 : 0 }}>
                                 <div style={{ fontSize: 10, color: 'var(--c-success)', fontWeight: 700, marginBottom: 3 }}>مبيع ({salesOrders.length})</div>
@@ -4462,7 +4463,7 @@ export default function DoctorsPage() {
                 </>
               ) : (
                 <div style={{ padding: '12px', background: 'var(--c-warning-bg)', borderRadius: 10, marginBottom: 12, fontSize: 12, color: 'var(--c-warning)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                  <Icon name="warning" size={15} style={{ flexShrink: 0 }} />
                   <span>لم يتم العثور على هذه الصيدلية بشكل مباشر في بيانات المبيع</span>
                 </div>
               )}
@@ -4470,22 +4471,22 @@ export default function DoctorsPage() {
               {pharmComparePopup.similar.length > 0 && (
                 <div style={{ marginTop: pharmComparePopup.exact ? 8 : 0 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span>🔍</span> صيدليات مشابهة في الاسم ({pharmComparePopup.similar.length})
+                    <Icon name="search" size={12} /> صيدليات مشابهة في الاسم ({pharmComparePopup.similar.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {pharmComparePopup.similar.map((p, i) => (
                       <div key={i} style={{ background: 'var(--c-bg)', borderRadius: 10, padding: '10px 12px', border: '1px solid var(--c-border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)' }}>🏪 {p.name}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="pharmacy" size={11} /> {p.name}</div>
                           <button onClick={() => loadPharmDetail(p.name)}
-                            style={{ background: pharmDetailFor === p.name ? 'var(--c-accent-light)' : 'none', border: '1px solid var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontSize: 10, color: 'var(--c-accent)', cursor: 'pointer', flexShrink: 0 }}>
-                            {pharmDetailFor === p.name && pharmDetailLoading ? '⏳' : 'تفاصيل'}
+                            style={{ background: pharmDetailFor === p.name ? 'var(--c-accent-light)' : 'none', border: '1px solid var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontSize: 10, color: 'var(--c-accent)', cursor: 'pointer', flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
+                            {pharmDetailFor === p.name && pharmDetailLoading ? <Icon name="loading" size={10} className="icon-spin" /> : 'تفاصيل'}
                           </button>
                         </div>
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
                           {p.totalValue > 0 && <span style={{ fontSize: 11, color: 'var(--c-success)', fontWeight: 600 }}>مبيع: {p.totalValue.toLocaleString()} د.ع</span>}
                           {p.returnsValue > 0 && <span style={{ fontSize: 11, color: 'var(--c-danger)', fontWeight: 600 }}>ارجاع: {p.returnsValue.toLocaleString()} د.ع</span>}
-                          {p.areaName && <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>📍 {p.areaName}</span>}
+                          {p.areaName && <span style={{ fontSize: 11, color: 'var(--c-text-muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {p.areaName}</span>}
                         </div>
                         {/* Inline detail for this similar pharmacy */}
                         {pharmDetailFor === p.name && !pharmDetailLoading && pharmDetail && pharmDetail.byItem.length > 0 && (
@@ -4495,7 +4496,7 @@ export default function DoctorsPage() {
                               const returnOrders = item.orders.filter(o => o.type === 'return');
                               return (
                                 <div key={idx} style={{ background: '#fff', borderRadius: 8, padding: '8px 10px', marginBottom: 6, border: '1px solid var(--c-border)' }}>
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 5 }}>💊 {item.name}</div>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={10} /> {item.name}</div>
                                   {salesOrders.length > 0 && (
                                     <div style={{ marginBottom: returnOrders.length > 0 ? 5 : 0 }}>
                                       <div style={{ fontSize: 10, color: 'var(--c-success)', fontWeight: 700, marginBottom: 2 }}>مبيع ({salesOrders.length})</div>
@@ -4558,7 +4559,7 @@ export default function DoctorsPage() {
           background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', borderRadius: 10, padding: '10px 14px',
           color: 'var(--c-success)', fontSize: 12.5, whiteSpace: 'pre-line', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
         }}>
-          ✅ {visitsImportMsg}
+          <Icon name="checkCircle" size={13} style={{ verticalAlign: 'middle', marginLeft: 4 }} /> {visitsImportMsg}
         </div>
       )}
     </div>

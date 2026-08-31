@@ -270,11 +270,7 @@ export default function UsersPage() {
   if (isCompanyManager) {
     return (
       <div className="page">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">👥 أعضاء الشركة</h1>
-            <p className="page-subtitle">المندوبون والمديرون في شركتك</p>
-          </div>
+        <div className="page-header" style={{ justifyContent: 'flex-end' }}>
           <button onClick={load} style={{ fontSize: 13, padding: '6px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' }}>🔄 تحديث</button>
         </div>
 
@@ -408,11 +404,7 @@ export default function UsersPage() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{t.users.title}</h1>
-          <p className="page-subtitle">{t.users.subtitle}</p>
-        </div>
+      <div className="page-header" style={{ justifyContent: 'flex-end' }}>
         <button className="btn btn--primary" onClick={openAdd}>{t.users.addBtn}</button>
       </div>
 
