@@ -3447,6 +3447,42 @@ select.comm-input { cursor: pointer; }
 
 .sl-hint { font-size: 11.5px; color: var(--c-text-secondary); }
 .sl-hint--block { margin: -4px 2px 12px; line-height: 1.7; }
+.sl-hint--tight { margin: 2px 2px 0; }
+
+/* ── شريط أدوات تبويب «الدفعات»: صفوف مفصولة بخط رفيع بدل حشر كل الأزرار
+   بصف واحد — كل صف مخصّص لنوع إجراء واحد فقط لسهولة القراءة. ── */
+.sl-toolbar {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.sl-toolbar-row { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+.sl-toolbar-row + .sl-toolbar-row { margin-top: 12px; }
+.sl-toolbar-divider { height: 1px; background: var(--c-border-light); margin: 14px 0; }
+
+/* أزرار الرفع كحبّات (chips) بأيقونة دائرية ملوّنة — تمييز سريع بالنوع
+   (أزرق=افتتاحي / أخضر=تعزيز / أحمر=مبيع) بدل أيقونات رمادية متشابهة تتكدّس. */
+.sl-action-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.sl-action {
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: 0 0 auto;
+  padding: 5px 14px 5px 6px; border-radius: 20px; border: 1.5px solid var(--c-border);
+  background: var(--c-surface); color: var(--c-text-secondary);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+}
+.sl-action:hover:not(:disabled) { border-color: var(--c-text-muted); color: var(--c-text-primary); transform: none; box-shadow: none; }
+.sl-action:disabled { opacity: 0.55; cursor: not-allowed; }
+.sl-action-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+}
+.sl-action--blue  .sl-action-icon { background: var(--c-accent-light); color: var(--c-accent); }
+.sl-action--green .sl-action-icon { background: var(--c-success-bg); color: var(--c-success); }
+.sl-action--red    .sl-action-icon { background: var(--c-danger-bg); color: var(--c-danger); }
+
+.sl-manual-btn { margin-inline-start: auto; white-space: nowrap; }
 
 .sl-empty {
   background: var(--c-surface);
@@ -3523,4 +3559,6 @@ select.comm-input { cursor: pointer; }
   .sl-field, .sl-field--grow, .sl-field--sm { min-width: 100%; }
   .sl-field--xs { min-width: 46%; }
   .sl-table th, .sl-table td { padding: 6px 8px; font-size: 12px; }
+  .sl-toolbar-row { gap: 12px; }
+  .sl-manual-btn { margin-inline-start: 0; width: 100%; justify-content: center; }
 }

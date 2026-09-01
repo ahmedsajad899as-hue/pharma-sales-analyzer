@@ -672,62 +672,74 @@ function BatchesTab(p: {
 
   return (
     <>
-      <div className="sl-filters">
-        <div className="sl-field sl-field--sm">
-          <label className="sl-label">تاريخ السريان</label>
-          <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        </div>
+      <div className="sl-toolbar">
+        {/* صف 1: التاريخ + الاستيراد من ملف Stock موجود (المسار الأكثر استخداماً) */}
+        <div className="sl-toolbar-row">
+          <div className="sl-field sl-field--sm">
+            <label className="sl-label">تاريخ السريان</label>
+            <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
 
-        {p.canBaseline && (
-          <div className="sl-field sl-field--grow">
-            <label className="sl-label">افتتاحي من ملف Stock</label>
-            <div className="sl-inline">
-              <select className="form-input sl-input" value={stockFileId}
-                onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">اختر ملف…</option>
-                {p.stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-              <button className="btn btn--primary btn--sm" disabled={!stockFileId || p.busy === 'baseline'}
-                onClick={() => stockFileId && p.onBaselineFromStock(stockFileId, date)}>
-                <Icon name={p.busy === 'baseline' ? 'refresh' : 'import'} size={13} className={p.busy === 'baseline' ? 'sl-spin' : undefined} /> استيراد
-              </button>
+          {p.canBaseline && (
+            <div className="sl-field sl-field--grow">
+              <label className="sl-label">استيراد الافتتاحي من ملف Stock موجود</label>
+              <div className="sl-inline">
+                <select className="form-input sl-input" value={stockFileId}
+                  onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">اختر ملف…</option>
+                  {p.stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                <button className="btn btn--primary btn--sm" disabled={!stockFileId || p.busy === 'baseline'}
+                  onClick={() => stockFileId && p.onBaselineFromStock(stockFileId, date)}>
+                  <Icon name={p.busy === 'baseline' ? 'refresh' : 'import'} size={13} className={p.busy === 'baseline' ? 'sl-spin' : undefined} /> استيراد
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-
-        <div className="sl-field">
-          <label className="sl-label">رفع حركة</label>
-          <div className="sl-inline">
-            {p.canBaseline && (
-              <button className="btn btn--secondary btn--sm" disabled={uploading} onClick={() => pick(baseRef)}
-                title="رفع ستوك افتتاحي من ملف Excel — يصفّر أزواج (مذخر+ايتم) الواردة فيه">
-                <Icon name="import" size={13} /> افتتاحي
-              </button>
-            )}
-            {p.canUpload && (
-              <>
-                <button className="btn btn--secondary btn--sm" disabled={uploading} onClick={() => pick(inRef)}
-                  title="رفع تعزيز داخل إلى المذاخر — يزيد الرصيد">
-                  <Icon name="uploadSales" size={13} /> تعزيز
-                </button>
-                <button className="btn btn--secondary btn--sm" disabled={uploading} onClick={() => pick(outRef)}
-                  title="رفع مبيع خارج من المذاخر — ينقص الرصيد">
-                  <Icon name="uploadReturns" size={13} /> مبيع
-                </button>
-              </>
-            )}
-            {p.canManual && (
-              <button className="btn btn--secondary btn--sm" onClick={() => setShowManual(true)} title="إدخال حركة يدوية سطراً سطراً">
-                <Icon name="edit" size={13} /> يدوي
-              </button>
-            )}
-            {uploading && <Icon name="refresh" size={14} className="sl-spin" />}
-          </div>
+          )}
         </div>
-      </div>
-      <div className="sl-hint sl-hint--block">
-        أعمدة ملف الحركات: <b>المذخر</b> · المنطقة · الشركة · <b>الايتم</b> · <b>الكمية</b> · التاريخ (الغامق إلزامي).
-        ستوك افتتاحي جديد يصفّر أزواج (مذخر+ايتم) الواردة فيه ويهمل حركاتها الأقدم من تاريخ السريان.
+
+        {(p.canBaseline || p.canUpload || p.canManual) && <div className="sl-toolbar-divider" />}
+
+        {/* صف 2: رفع حركة من ملف Excel، أو إدخال يدوي — مجموعتان منفصلتان بصرياً */}
+        <div className="sl-toolbar-row">
+          {(p.canBaseline || p.canUpload) && (
+            <div className="sl-field">
+              <span className="sl-label">أو ارفع ملف حركة</span>
+              <div className="sl-action-group">
+                {p.canBaseline && (
+                  <button className="sl-action sl-action--blue" disabled={uploading} onClick={() => pick(baseRef)}
+                    title="رفع ستوك افتتاحي من ملف Excel — يصفّر أزواج (مذخر+ايتم) الواردة فيه">
+                    <span className="sl-action-icon"><Icon name="import" size={12} /></span> ملف افتتاحي
+                  </button>
+                )}
+                {p.canUpload && (
+                  <>
+                    <button className="sl-action sl-action--green" disabled={uploading} onClick={() => pick(inRef)}
+                      title="رفع تعزيز داخل إلى المذاخر — يزيد الرصيد">
+                      <span className="sl-action-icon"><Icon name="uploadSales" size={12} /></span> تعزيز
+                    </button>
+                    <button className="sl-action sl-action--red" disabled={uploading} onClick={() => pick(outRef)}
+                      title="رفع مبيع خارج من المذاخر — ينقص الرصيد">
+                      <span className="sl-action-icon"><Icon name="uploadReturns" size={12} /></span> مبيع
+                    </button>
+                  </>
+                )}
+                {uploading && <Icon name="refresh" size={14} className="sl-spin" />}
+              </div>
+            </div>
+          )}
+
+          {p.canManual && (
+            <button className="btn btn--secondary btn--sm sl-manual-btn" onClick={() => setShowManual(true)} title="إدخال حركة يدوية سطراً سطراً">
+              <Icon name="edit" size={13} /> إدخال يدوي
+            </button>
+          )}
+        </div>
+
+        <div className="sl-hint sl-hint--block sl-hint--tight">
+          أعمدة ملف الحركات: <b>المذخر</b> · المنطقة · الشركة · <b>الايتم</b> · <b>الكمية</b> · التاريخ (الغامق إلزامي).
+          ستوك افتتاحي جديد يصفّر أزواج (مذخر+ايتم) الواردة فيه ويهمل حركاتها الأقدم من تاريخ السريان.
+        </div>
       </div>
 
       <input ref={baseRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'baseline', 'استُورد الستوك الافتتاحي')} />
