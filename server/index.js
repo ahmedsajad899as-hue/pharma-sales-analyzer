@@ -57,6 +57,7 @@ import pharmacyAnalysisRoutes   from './modules/pharmacy-analysis/pharmacy-analy
 import itemAnalysisRoutes        from './modules/item-analysis/item-analysis.routes.js';
 import targetsRoutes              from './modules/targets/targets.routes.js';
 import bonusSalesRoutes           from './modules/bonus-sales/bonus-sales.routes.js';
+import stockLedgerRoutes         from './modules/stock-ledger/stock-ledger.routes.js';
 
 dotenv.config();
 
@@ -949,6 +950,7 @@ app.use('/api/pharmacy-analysis',   pharmacyAnalysisRoutes);
 app.use('/api/item-analysis',       itemAnalysisRoutes);
 app.use('/api/targets',           targetsRoutes);
 app.use('/api/bonus-sales',       bonusSalesRoutes);
+app.use('/api/stock-ledger',      stockLedgerRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

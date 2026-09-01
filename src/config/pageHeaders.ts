@@ -24,6 +24,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'master-survey':      { title: 'السيرفيات', subtitle: 'قوائم الأطباء والصيدليات المشتركة من الإدارة' },
   'fms':                { title: 'FMS — عينات شهرية' },
   'sales-data':         { title: 'بيانات المبيعات', subtitle: 'تحليل ملفات Excel مع البحث المتعدد' },
+  'stock-ledger':       { title: 'رصيد المذاخر', subtitle: 'المتبقّي فعلاً في كل مذخر ومتى يحتاج طلبية جديدة' },
   'distributor-sales':  { title: 'تحليل مبيعات الموزعين', subtitle: 'رفع وتحليل ملفات Excel بتنسيق امازون / فريق' },
   'file-filter':        { title: 'تنقية الملفات' },
   'pharmacy-analysis':  { title: 'تحليل الصيدليات والمبيعات' },

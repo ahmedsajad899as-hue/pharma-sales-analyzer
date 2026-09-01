@@ -39,6 +39,7 @@ const _importAI              = () => import('./components/AIAssistant');
 const _importSurvey          = () => import('./pages/SurveyPage');
 const _importFMS             = () => import('./pages/FMSPage');
 const _importSalesData       = () => import('./pages/SalesDataPage');
+const _importStockLedger     = () => import('./pages/StockLedgerPage');
 const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 const _importFileFilter          = () => import('./pages/FileFilterPage');
 const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
@@ -63,6 +64,7 @@ const AIAssistant         = lazyWithRetry(_importAI);
 const SurveyPage          = lazyWithRetry(_importSurvey);
 const FMSPage             = lazyWithRetry(_importFMS);
 const SalesDataPage           = lazyWithRetry(_importSalesData);
+const StockLedgerPage         = lazyWithRetry(_importStockLedger);
 const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
 const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
@@ -119,6 +121,7 @@ export type PageId =
   | 'master-survey'
   | 'fms'
   | 'sales-data'
+  | 'stock-ledger'
   | 'distributor-sales'
   | 'file-filter'
   | 'pharmacy-analysis'
@@ -475,6 +478,7 @@ function AppInner() {
     { id: 'master-survey',   node: <SurveyPage /> },
     { id: 'fms',             node: <FMSPage /> },
     { id: 'sales-data',      node: <SalesDataPage /> },
+    { id: 'stock-ledger',    node: <StockLedgerPage /> },
     { id: 'distributor-sales', node: <DistributorSalesPage /> },
     { id: 'file-filter',        node: <FileFilterPage /> },
     { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },

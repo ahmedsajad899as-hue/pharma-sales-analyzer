@@ -103,6 +103,10 @@ model User {
   // Sales Data Files (uploaded Excel sheets — synced across devices)
   salesDataFiles SalesDataFile[]
 
+  // Stock Ledger (رصيد المذاخر) — الستوك الافتتاحي والحركات
+  stockWarehouses StockWarehouse[]
+  stockBatches    StockMovementBatch[]
+
   // الحساب (Account Builder) — synced across devices
   accountBuilderAccounts AccountBuilderAccount[]
 
@@ -2046,4 +2050,99 @@ model FileEditSnapshot {
   file UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   @@map("file_edit_snapshots")
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  Stock Ledger — رصيد المذاخر                                             ║
+// ║  المتبقي = آخر ستوك افتتاحي مرفوع + التعزيزات الداخلة − المبيع الخارج،   ║
+// ║  محسوباً من تاريخ الستوك الافتتاحي فصاعداً (الحركات الأقدم منه تُهمل).    ║
+// ║  StockBalance مُشتق بالكامل — يُعاد بناؤه دائماً من StockMovement عبر     ║
+// ║  recomputeBalances() ولا يُعدَّل تراكمياً أبداً.                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// هوية المذخر الثابتة عبر كل الملفات: (المنطقة + الاسم) بعد التطبيع
+model StockWarehouse {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String // الاسم كما ظهر أول مرة (للعرض)
+  nameKey   String // normalizeArabic(name) — مفتاح المطابقة
+  region    String
+  regionKey String
+  createdAt DateTime @default(now())
+
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balances  StockBalance[]
+  movements StockMovement[]
+
+  @@unique([userId, regionKey, nameKey])
+  @@index([userId])
+  @@map("stock_warehouses")
+}
+
+// دفعة رفع واحدة (ستوك افتتاحي / تعزيز / مبيع) — حذفها يعيد حساب الأرصدة
+model StockMovementBatch {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  kind         String // 'baseline' | 'in' | 'out'
+  name         String // اسم يظهر على الشريحة
+  sourceFileId Int? // SalesDataFile الذي اشتُق منه الستوك الافتتاحي (إن وجد)
+  movementDate DateTime // تاريخ سريان الدفعة — يحدد ما يُهمل وما يُحتسب
+  rowCount     Int      @default(0)
+  unmatched    String? // JSON — أسماء مذاخر/ايتمات لم تُطابق + الاقتراحات
+  uploadedAt   DateTime @default(now())
+
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+
+  @@index([userId])
+  @@map("stock_movement_batches")
+}
+
+model StockMovement {
+  id           Int      @id @default(autoincrement())
+  batchId      Int
+  userId       Int
+  warehouseId  Int
+  itemKey      String // normalizeItemKey(itemName) — مفتاح المطابقة الفعلي
+  itemName     String // الاسم كما ظهر
+  companyName  String?
+  itemId       Int? // ربط بكتالوج Item عند نجاح resolveItemName
+  qty          Float
+  direction    String // 'baseline' | 'in' | 'out'
+  movementDate DateTime
+  rawRow       String? // JSON — الصف الأصلي كما ورد
+
+  batch     StockMovementBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  warehouse StockWarehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([batchId])
+  @@index([warehouseId, itemKey])
+  @@index([direction])
+  @@map("stock_movements")
+}
+
+// الرصيد الجاري لكل (مذخر + ايتم) — مُشتق، يُعاد بناؤه بالكامل
+model StockBalance {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  warehouseId    Int
+  itemKey        String
+  itemName       String
+  companyName    String?
+  itemId         Int?
+  opening        Float     @default(0) // آخر ستوك افتتاحي مرفوع لهذا الزوج
+  openingAt      DateTime? // تاريخه — الحركات قبله تُهمل
+  inQty          Float     @default(0) // مجموع التعزيزات بعده
+  outQty         Float     @default(0) // مجموع الخروج بعده
+  remaining      Float     @default(0) // opening + inQty − outQty
+  lastMovementAt DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  warehouse StockWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, itemKey])
+  @@index([userId])
+  @@index([userId, remaining])
+  @@map("stock_balances")
 }

@@ -608,7 +608,7 @@ function isSalesSheet(sheetName) {
  * Robustly parse a numeric value coming from Excel.
  * Handles: Arabic numerals, comma-thousands separators, spaces, currency symbols.
  */
-function parseNumeric(val) {
+export function parseNumeric(val) {
   if (val === null || val === undefined || val === '') return 0;
   if (typeof val === 'number') return isFinite(val) ? val : 0;
   const str = String(val)
@@ -629,7 +629,7 @@ function parseNumeric(val) {
  * Also handles string dates in common formats.
  * Returns undefined if unparseable.
  */
-function parseExcelDate(val) {
+export function parseExcelDate(val) {
   if (!val) return undefined;
   if (val instanceof Date && isFinite(val.getTime())) return val;
   if (typeof val === 'number') {
@@ -947,7 +947,7 @@ export function mercatoColumnMap(headers) {
  * @param {string[]} headers   - Actual Excel column headers
  * @param {object}   overrides - Manual overrides from request
  */
-function resolveColumns(headers, overrides) {
+export function resolveColumns(headers, overrides) {
   const result = {};
   const lowerHeaders = headers.map(h => String(h).toLowerCase().trim());
 
@@ -1009,7 +1009,7 @@ function scoreHeaderRow(cells, overrides) {
  *
  * @returns {number} absolute sheet row index to pass as sheet_to_json `range`
  */
-function detectHeaderRow(ws, overrides = {}) {
+export function detectHeaderRow(ws, overrides = {}) {
   if (!ws || !ws['!ref']) return 0;
   let range;
   try { range = XLSX.utils.decode_range(ws['!ref']); } catch { return 0; }
