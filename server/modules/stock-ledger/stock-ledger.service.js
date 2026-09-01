@@ -108,7 +108,8 @@ function looksLikeBadRegion(region) {
   const r = String(region ?? '').trim();
   if (!r || r === 'غير محدد') return true;
   if (r.length <= 2) return true;
-  if (/^ستوك\b/.test(r)) return true;
+  // \b لا يعمل بعد حرف عربي (\w في JS لا يشمل العربية) — لهذا فحص مسافة/نهاية صريح
+  if (/^ستوك(?:\s|$)/.test(r)) return true;
   return false;
 }
 
