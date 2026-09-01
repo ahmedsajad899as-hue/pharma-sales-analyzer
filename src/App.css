@@ -3382,3 +3382,145 @@ select.comm-input { cursor: pointer; }
   box-shadow: 0 0 0 3px rgba(255,255,255,0.4), 0 6px 20px rgba(99,102,241,0.5) !important;
   transition: all 0.18s ease !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STOCK LEDGER (رصيد المذاخر) — هوية بصرية رسمية مضغوطة على نفس نظام
+   التصميم المستخدم في صفحة Stock. كل الألوان من التوكنات (accent / success /
+   danger / gray) بلا هاردكود، والأزرار كلها btn--sm بأيقونات بدل الإيموجي.
+   ══════════════════════════════════════════════════════════════════════════ */
+.sl-page { padding: 18px 20px 60px; max-width: 1500px; }
+
+.sl-alert { margin-bottom: 12px; display: flex; align-items: center; gap: 6px; font-size: 13px; }
+
+/* ── شريط المؤشرات: صف واحد مضغوط بدل 4 بطاقات كبيرة ── */
+.sl-kpis {
+  display: flex; align-items: stretch; flex-wrap: wrap;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 4px;
+  margin-bottom: 12px;
+}
+.sl-kpi { padding: 2px 18px; border-left: 1px solid var(--c-border-light); min-width: 110px; }
+.sl-kpi:last-of-type { border-left: none; }
+.sl-kpi-value { font-size: 19px; font-weight: 700; color: var(--c-text-primary); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.sl-kpi-value--danger { color: var(--c-danger); }
+.sl-kpi-label { font-size: 11.5px; color: var(--c-text-secondary); margin-top: 2px; }
+.sl-kpis-note {
+  margin-inline-start: auto; align-self: center;
+  padding: 0 14px; font-size: 11.5px; color: var(--c-text-muted);
+}
+.sl-kpis--modal { box-shadow: none; margin-bottom: 4px; }
+.sl-kpis--modal .sl-kpi { flex: 1; min-width: 84px; text-align: center; padding: 2px 8px; }
+
+/* ── شريط التبويبات + التحديث ── */
+.sl-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.sl-bar .tabs { margin-bottom: 0; }
+.sl-page .tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13px; }
+.sl-tab-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 19px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--c-danger); color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+}
+
+/* ── صف الفلاتر/الأدوات ── */
+.sl-filters {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.sl-field { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+.sl-field--grow { flex: 1; min-width: 200px; }
+.sl-field--sm { min-width: 130px; }
+.sl-field--xs { min-width: 96px; max-width: 130px; }
+.sl-label { font-size: 11.5px; font-weight: 600; color: var(--c-text-secondary); }
+.sl-input { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
+.sl-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sl-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-inline-start: auto; }
+.sl-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding-bottom: 4px; }
+.sl-badge--solid { background: var(--c-danger); color: #fff; }
+
+.sl-hint { font-size: 11.5px; color: var(--c-text-secondary); }
+.sl-hint--block { margin: -4px 2px 12px; line-height: 1.7; }
+
+.sl-empty {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 34px 20px; text-align: center;
+  font-size: 13px; color: var(--c-text-secondary);
+}
+.sl-empty--flat { border: none; box-shadow: none; border-radius: 0; }
+
+/* ── الجداول: نفس .data-table لكن بكثافة أعلى وأرقام مصفوفة ── */
+.sl-table-wrap { margin-bottom: 14px; }
+.sl-table-wrap--scroll { max-height: 330px; overflow-y: auto; }
+.sl-table { font-variant-numeric: tabular-nums; }
+.sl-table th { padding: 9px 12px; font-size: 11.5px; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.sl-table td { padding: 7px 12px; font-size: 13px; }
+.sl-table .sl-dim    { color: var(--c-text-secondary); font-size: 12px; }
+.sl-table .sl-strong { font-weight: 700; }
+.sl-table .sl-in     { color: var(--c-success); }
+.sl-table .sl-out    { color: var(--c-danger); }
+.sl-table .sl-suggest{ font-weight: 700; color: var(--c-accent); }
+
+.sl-row { cursor: pointer; }
+.sl-row--out  { background: var(--c-danger-bg); }
+.sl-row--warn { background: rgba(26, 86, 219, 0.045); }
+
+.sl-table-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 14px; border-top: 1px solid var(--c-border-light);
+  font-size: 11.5px; color: var(--c-text-secondary);
+}
+
+/* ── شريط نسبة المتبقي داخل الجدول ── */
+.sl-pct { display: flex; align-items: center; gap: 7px; min-width: 92px; }
+.sl-pct-track { flex: 1; height: 5px; border-radius: 999px; background: var(--c-border-light); overflow: hidden; }
+.sl-pct-fill { display: block; height: 100%; border-radius: 999px; background: var(--c-accent); }
+.sl-pct-fill--low { background: var(--c-danger); }
+.sl-pct-num { font-size: 11.5px; color: var(--c-text-secondary); min-width: 30px; }
+
+/* ── رأس مجموعة (مذخر / قائمة الدفعات) ── */
+.sl-groups { display: grid; gap: 12px; }
+.sl-group-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; border-bottom: 1px solid var(--c-border-light); background: #f8fafd;
+}
+.sl-group-title { font-size: 13.5px; font-weight: 700; color: var(--c-text-primary); }
+
+/* ── لوحة مراجعة غير المطابق ── */
+.sl-review {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-right: 3px solid var(--c-danger);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 14px; margin-bottom: 12px;
+}
+.sl-review-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+.sl-review-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--c-danger); }
+.sl-review-body { margin-top: 10px; display: grid; gap: 10px; font-size: 12.5px; }
+.sl-review-sub { font-weight: 600; margin-bottom: 4px; color: var(--c-text-primary); }
+.sl-review-line { padding: 3px 0; border-bottom: 1px solid var(--c-border-light); }
+
+/* ── دوران أيقونة التحميل ── */
+@keyframes sl-spin { to { transform: rotate(360deg); } }
+.sl-spin { animation: sl-spin 0.9s linear infinite; }
+
+@media (max-width: 767px) {
+  .sl-page { padding: 12px 10px 60px; }
+  .sl-kpi { padding: 2px 12px; min-width: 88px; }
+  .sl-kpi-value { font-size: 16px; }
+  .sl-kpis-note { display: none; }
+  .sl-actions { margin-inline-start: 0; }
+  .sl-field, .sl-field--grow, .sl-field--sm { min-width: 100%; }
+  .sl-field--xs { min-width: 46%; }
+  .sl-table th, .sl-table td { padding: 6px 8px; font-size: 12px; }
+}

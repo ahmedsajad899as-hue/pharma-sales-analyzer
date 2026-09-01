@@ -6,12 +6,17 @@
  * صفحة Stock تعرض لقطة ساكنة؛ هذه الصفحة تضيف البُعد الزمني: كل ما يخرج من
  * المذخر يُنقص الرصيد، وكل تعزيز يزيده، وإعادة رفع الستوك تصفّر الأزواج الواردة
  * فيه وحدها. الحساب كله في الخادم (server/modules/stock-ledger).
+ *
+ * الهوية البصرية: نفس نظام App.css المستخدَم في صفحة Stock — بلا عنوان داخلي
+ * (الشريط العلوي يعرضه)، شريط مؤشرات مضغوط، أزرار btn--sm بأيقونات Lucide بدل
+ * الإيموجي، وألوان محصورة في توكنات accent / success / danger / gray بلا هاردكود.
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { Icon } from '../config/icons';
+import type { IconName } from '../config/icons';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -61,16 +66,17 @@ interface Movement {
 }
 
 // ── ثوابت العرض ────────────────────────────────────────────────
-const KIND_META = {
-  baseline: { label: 'ستوك افتتاحي', color: 'var(--c-accent)',  bg: 'var(--c-accent-light)', icon: '📦' },
-  in:       { label: 'تعزيز',        color: 'var(--c-success)', bg: 'var(--c-success-bg)',   icon: '⬆️' },
-  out:      { label: 'مبيع',         color: 'var(--c-danger)',  bg: 'var(--c-danger-bg)',    icon: '⬇️' },
-} as const;
+// النوع والحالة يُعرضان بشارات (badge) من نظام التصميم — بلا ألوان هاردكود.
+const KIND_META: Record<'baseline' | 'in' | 'out', { label: string; badge: string; icon: IconName }> = {
+  baseline: { label: 'افتتاحي', badge: 'badge--blue',  icon: 'import' },
+  in:       { label: 'تعزيز',   badge: 'badge--green', icon: 'uploadSales' },
+  out:      { label: 'مبيع',    badge: 'badge--red',   icon: 'uploadReturns' },
+};
 
-const SEV_META: Record<Severity, { label: string; color: string; bg: string }> = {
-  out:      { label: 'نفد',    color: '#b91c1c', bg: '#fee2e2' },
-  critical: { label: 'حرج',    color: '#c2410c', bg: '#ffedd5' },
-  low:      { label: 'منخفض',  color: '#a16207', bg: '#fef3c7' },
+const SEV_META: Record<Severity, { label: string; badge: string; color: string }> = {
+  out:      { label: 'نفد',   badge: 'badge--red sl-badge--solid', color: 'var(--c-danger)' },
+  critical: { label: 'حرج',   badge: 'badge--red',                 color: 'var(--c-danger)' },
+  low:      { label: 'منخفض', badge: 'badge--gray',                color: 'var(--c-text-secondary)' },
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -248,56 +254,44 @@ export default function StockLedgerPage() {
     finally { setBusy(null); }
   };
 
+  const TABS: { id: 'balances' | 'alerts' | 'batches'; label: string; icon: IconName; count?: number }[] = [
+    { id: 'balances', label: 'الأرصدة',   icon: 'netBalance' },
+    { id: 'alerts',   label: 'التنبيهات', icon: 'alert', count: alerts?.totalItems ?? 0 },
+    { id: 'batches',  label: 'الدفعات',   icon: 'folder' },
+  ];
+
   return (
-    <div className="page" dir="rtl" style={{ maxWidth: 1500 }}>
-      <div className="page-header">
-        <div>
-          <div className="page-title">📉 رصيد المذاخر</div>
-          <div className="page-subtitle">
-            المتبقي = الستوك الافتتاحي + التعزيزات − المبيع الخارج · تنبيه عند اقتراب النفاد
-          </div>
+    <div className="sl-page" dir="rtl">
+      {err && <div className="alert alert--error sl-alert"><Icon name="warning" size={14} /> {err}</div>}
+      {msg && <div className="alert alert--success sl-alert"><Icon name="check" size={14} /> {msg}</div>}
+
+      {/* ── شريط المؤشرات ── */}
+      <div className="sl-kpis">
+        <Kpi label="المذاخر" value={fmtNum(kpis.warehouses)} />
+        <Kpi label="مذخر × ايتم" value={fmtNum(kpis.pairs)} />
+        <Kpi label="مجموع المتبقي" value={fmtNum(Math.round(kpis.remaining))} />
+        <Kpi label="تحتاج طلبية" value={fmtNum(kpis.alerts)} danger={kpis.alerts > 0} />
+        <div className="sl-kpis-note">المتبقي = الافتتاحي + التعزيز − المبيع</div>
+      </div>
+
+      {/* ── التبويبات + التحديث ── */}
+      <div className="sl-bar">
+        <div className="tabs">
+          {TABS.map(t => (
+            (t.id !== 'alerts' || hasFeature('stock_ledger_alerts')) && (
+              <button key={t.id} className={`tab ${tab === t.id ? 'tab--active' : ''}`} onClick={() => setTab(t.id)}>
+                <Icon name={t.icon} size={14} /> {t.label}
+                {t.count ? <span className="sl-tab-count">{t.count}</span> : null}
+              </button>
+            )
+          ))}
         </div>
-        <button className="btn btn--secondary" onClick={reloadAll} disabled={loading}>
-          <Icon name="loading" size={15} /> تحديث
+        <button className="btn btn--secondary btn--sm" onClick={reloadAll} disabled={loading} title="إعادة تحميل الأرصدة والتنبيهات">
+          <Icon name="refresh" size={13} className={loading ? 'sl-spin' : undefined} /> تحديث
         </button>
       </div>
 
-      {err && <div className="alert alert--error" style={{ marginBottom: 12 }}>⚠️ {err}</div>}
-      {msg && <div className="alert alert--success" style={{ marginBottom: 12 }}>✓ {msg}</div>}
-
-      {/* ── بطاقات المؤشرات ── */}
-      <div className="stats-grid stats-grid--4" style={{ marginBottom: 16 }}>
-        {[
-          { icon: '🏬', label: 'المذاخر المتتبَّعة', value: fmtNum(kpis.warehouses), cls: 'stat-card-icon--blue',  color: 'var(--c-accent)' },
-          { icon: '🔗', label: 'أزواج (مذخر × ايتم)', value: fmtNum(kpis.pairs),     cls: 'stat-card-icon--purple', color: 'var(--c-purple)' },
-          { icon: '📦', label: 'مجموع المتبقي',       value: fmtNum(Math.round(kpis.remaining)), cls: 'stat-card-icon--green', color: 'var(--c-success)' },
-          { icon: '🚨', label: 'تحتاج طلبية',         value: fmtNum(kpis.alerts),    cls: 'stat-card-icon--red',   color: 'var(--c-danger)' },
-        ].map((k, i) => (
-          <div key={i} className="stat-card">
-            <div className={`stat-card-icon ${k.cls}`}>{k.icon}</div>
-            <div className="stat-card-body">
-              <div className="stat-card-value" style={{ color: k.color }}>{k.value}</div>
-              <div className="stat-card-label">{k.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="tabs">
-        {([
-          ['balances', '📊 الأرصدة'],
-          ['alerts', `🚨 تنبيهات الطلبيات${alerts?.totalItems ? ` (${alerts.totalItems})` : ''}`],
-          ['batches', '🗂️ الدفعات والرفع'],
-        ] as const).map(([id, label]) => (
-          (id !== 'alerts' || hasFeature('stock_ledger_alerts')) && (
-            <button key={id} className={`tab ${tab === id ? 'tab--active' : ''}`} onClick={() => setTab(id)}>
-              {label}
-            </button>
-          )
-        ))}
-      </div>
-
-      {loading && <div className="card" style={{ textAlign: 'center', color: 'var(--c-accent)' }}>⏳ جاري التحميل...</div>}
+      {loading && <div className="sl-empty">جارٍ التحميل…</div>}
 
       {!loading && tab === 'balances' && (
         <BalancesTab
@@ -334,6 +328,16 @@ export default function StockLedgerPage() {
           canDelete={hasFeature('stock_ledger_delete')}
         />
       )}
+    </div>
+  );
+}
+
+/** خلية مؤشر واحدة — رقم فوق تسمية، بلا أيقونة ملوّنة ولا بطاقة مستقلة */
+function Kpi({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div className="sl-kpi">
+      <div className={`sl-kpi-value${danger ? ' sl-kpi-value--danger' : ''}`}>{value}</div>
+      <div className="sl-kpi-label">{label}</div>
     </div>
   );
 }
@@ -379,85 +383,94 @@ function BalancesTab(p: {
 
   return (
     <>
-      <div className="filter-card" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 14 }}>
-        <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
-          <label className="form-label">بحث (ايتم أو مذخر)</label>
-          <input className="form-input" value={p.search} onChange={e => p.setSearch(e.target.value)} placeholder="اكتب للبحث..." />
+      <div className="sl-filters">
+        <div className="sl-field sl-field--grow">
+          <label className="sl-label">بحث</label>
+          <input className="form-input sl-input" value={p.search} onChange={e => p.setSearch(e.target.value)} placeholder="ايتم أو مذخر…" />
         </div>
-        <div className="form-group">
-          <label className="form-label">المنطقة</label>
-          <select className="form-input" value={p.fRegion} onChange={e => p.setFRegion(e.target.value)} style={{ width: 'auto', minWidth: 140 }}>
+        <div className="sl-field">
+          <label className="sl-label">المنطقة</label>
+          <select className="form-input sl-input" value={p.fRegion} onChange={e => p.setFRegion(e.target.value)}>
             <option value="all">الكل</option>
             {p.regions.map(r => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
-        <div className="form-group">
-          <label className="form-label">المذخر</label>
-          <select className="form-input" value={String(p.fWarehouse)}
-            onChange={e => p.setFWarehouse(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            style={{ width: 'auto', minWidth: 170 }}>
+        <div className="sl-field">
+          <label className="sl-label">المذخر</label>
+          <select className="form-input sl-input" value={String(p.fWarehouse)}
+            onChange={e => p.setFWarehouse(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
             <option value="all">الكل</option>
             {p.warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </div>
-        <div className="form-group">
-          <label className="form-label">الشركة</label>
-          <select className="form-input" value={p.fCompany} onChange={e => p.setFCompany(e.target.value)} style={{ width: 'auto', minWidth: 140 }}>
+        <div className="sl-field">
+          <label className="sl-label">الشركة</label>
+          <select className="form-input sl-input" value={p.fCompany} onChange={e => p.setFCompany(e.target.value)}>
             <option value="all">الكل</option>
             {p.companies.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, paddingBottom: 8, cursor: 'pointer' }}>
-          <input type="checkbox" checked={p.onlyAlerting} onChange={e => p.setOnlyAlerting(e.target.checked)} />
-          التي تحتاج طلبية فقط
-        </label>
-        {p.canExport && (
-          <button className="btn btn--secondary" onClick={exportXlsx} disabled={!p.rows.length} style={{ marginBottom: 4 }}>
-            ⬇️ تصدير Excel
+        <div className="sl-actions">
+          <button
+            className={`filter-chip${p.onlyAlerting ? ' filter-chip--active' : ''}`}
+            onClick={() => p.setOnlyAlerting(!p.onlyAlerting)}
+            title="عرض ما يحتاج طلبية فقط"
+          >
+            <Icon name="alert" size={12} /> تحتاج طلبية
           </button>
-        )}
+          {p.canExport && (
+            <button className="btn btn--secondary btn--sm" onClick={exportXlsx} disabled={!p.rows.length} title="تصدير الأرصدة إلى Excel">
+              <Icon name="export" size={13} /> تصدير
+            </button>
+          )}
+        </div>
       </div>
 
       {!p.rows.length ? (
-        <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-secondary)' }}>
-          لا توجد أرصدة بعد — ابدأ من تبويب «الدفعات والرفع» باستيراد الستوك الافتتاحي من ملف Stock.
-        </div>
+        <div className="sl-empty">لا توجد أرصدة بعد — ابدأ من تبويب «الدفعات» باستيراد الستوك الافتتاحي من ملف Stock.</div>
       ) : (
-        <div className="card" style={{ padding: 0 }}>
-          <div className="table-wrapper">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>المنطقة</th><th>المذخر</th><th>الشركة</th><th>الايتم</th>
-                  <th>الافتتاحي</th><th>تعزيز ↑</th><th>مبيع ↓</th><th>المتبقي</th><th>%</th><th>آخر حركة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.rows.slice(0, limit).map((b, i) => {
-                  const alerting = p.alertingKeys.has(`${b.warehouseId}|${b.itemKey}`);
-                  const neg = b.remaining <= 0;
-                  return (
-                    <tr key={i} onClick={() => openHistory(b)} style={{ cursor: 'pointer', background: neg ? '#fef2f2' : alerting ? '#fffbeb' : undefined }}>
-                      <td>{b.region}</td>
-                      <td style={{ fontWeight: 600 }}>{b.warehouse}</td>
-                      <td style={{ color: 'var(--c-text-secondary)', fontSize: 12 }}>{b.companyName ?? '—'}</td>
-                      <td>{b.itemName}</td>
-                      <td>{fmtNum(b.opening)}</td>
-                      <td style={{ color: b.inQty ? 'var(--c-success)' : undefined }}>{b.inQty ? fmtNum(b.inQty) : '—'}</td>
-                      <td style={{ color: b.outQty ? 'var(--c-danger)' : undefined }}>{b.outQty ? fmtNum(b.outQty) : '—'}</td>
-                      <td style={{ fontWeight: 700, color: neg ? '#b91c1c' : alerting ? '#a16207' : 'var(--c-text-primary)' }}>
-                        {fmtNum(b.remaining)}
-                      </td>
-                      <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{b.pctLeft === null ? '—' : `${b.pctLeft}%`}</td>
-                      <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{fmtDate(b.lastMovementAt)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--c-text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>عرض {Math.min(limit, p.rows.length)} من {fmtNum(p.rows.length)} — انقر أي صف لعرض سجل حركاته</span>
+        <div className="table-wrapper sl-table-wrap">
+          <table className="data-table sl-table">
+            <thead>
+              <tr>
+                <th>المنطقة</th><th>المذخر</th><th>الشركة</th><th>الايتم</th>
+                <th>الافتتاحي</th><th>تعزيز</th><th>مبيع</th><th>المتبقي</th><th>المتبقي %</th><th>آخر حركة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {p.rows.slice(0, limit).map((b, i) => {
+                const alerting = p.alertingKeys.has(`${b.warehouseId}|${b.itemKey}`);
+                const out = b.remaining <= 0;
+                return (
+                  <tr key={i} onClick={() => openHistory(b)} title="عرض سجل الحركات"
+                    className={`sl-row${out ? ' sl-row--out' : alerting ? ' sl-row--warn' : ''}`}>
+                    <td className="sl-dim">{b.region}</td>
+                    <td className="sl-strong">{b.warehouse}</td>
+                    <td className="sl-dim">{b.companyName ?? '—'}</td>
+                    <td>{b.itemName}</td>
+                    <td>{fmtNum(b.opening)}</td>
+                    <td className={b.inQty ? 'sl-in' : 'sl-dim'}>{b.inQty ? fmtNum(b.inQty) : '—'}</td>
+                    <td className={b.outQty ? 'sl-out' : 'sl-dim'}>{b.outQty ? fmtNum(b.outQty) : '—'}</td>
+                    <td className={`sl-strong${out ? ' sl-out' : ''}`}>{fmtNum(b.remaining)}</td>
+                    <td>
+                      {b.pctLeft === null ? <span className="sl-dim">—</span> : (
+                        <div className="sl-pct">
+                          <span className="sl-pct-track">
+                            <span className={`sl-pct-fill${out || alerting ? ' sl-pct-fill--low' : ''}`}
+                              style={{ width: `${Math.max(0, Math.min(100, b.pctLeft))}%` }} />
+                          </span>
+                          <span className="sl-pct-num">{b.pctLeft}%</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="sl-dim">{fmtDate(b.lastMovementAt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="sl-table-foot">
+            <span>عرض {Math.min(limit, p.rows.length)} من {fmtNum(p.rows.length)} — انقر أي صف لسجل حركاته</span>
             {limit < p.rows.length && (
               <button className="btn btn--secondary btn--sm" onClick={() => setLimit(l => l + 200)}>عرض المزيد</button>
             )}
@@ -478,41 +491,30 @@ function HistoryModal({ data, onClose }: { data: { row: Balance; movements: Move
         <div className="modal-header">
           <div>
             <div style={{ fontWeight: 700 }}>{row.itemName}</div>
-            <div style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{row.warehouse} — {row.region}</div>
+            <div className="sl-hint">{row.warehouse} — {row.region}</div>
           </div>
           <button className="btn-icon btn-icon--red" onClick={onClose}><Icon name="close" size={16} /></button>
         </div>
         <div className="modal-body">
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            {[
-              ['الافتتاحي', fmtNum(row.opening), 'var(--c-accent)'],
-              ['تعزيزات', fmtNum(row.inQty), 'var(--c-success)'],
-              ['مبيع', fmtNum(row.outQty), 'var(--c-danger)'],
-              ['المتبقي', fmtNum(row.remaining), row.remaining <= 0 ? '#b91c1c' : 'var(--c-text-primary)'],
-            ].map(([l, v, c], i) => (
-              <div key={i} className="card card--compact" style={{ flex: 1, minWidth: 100, textAlign: 'center' }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: c as string }}>{v}</div>
-                <div style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{l}</div>
-              </div>
-            ))}
+          <div className="sl-kpis sl-kpis--modal">
+            <Kpi label="الافتتاحي" value={fmtNum(row.opening)} />
+            <Kpi label="تعزيزات" value={fmtNum(row.inQty)} />
+            <Kpi label="مبيع" value={fmtNum(row.outQty)} />
+            <Kpi label="المتبقي" value={fmtNum(row.remaining)} danger={row.remaining <= 0} />
           </div>
-          <div className="table-wrapper" style={{ maxHeight: 340 }}>
-            <table className="table">
+          <div className="table-wrapper sl-table-wrap sl-table-wrap--scroll">
+            <table className="data-table sl-table">
               <thead><tr><th>التاريخ</th><th>النوع</th><th>الكمية</th><th>الدفعة</th></tr></thead>
               <tbody>
                 {movements.map(m => (
                   <tr key={m.id}>
-                    <td>{fmtDate(m.movementDate)}</td>
-                    <td>
-                      <span style={{ background: KIND_META[m.direction].bg, color: KIND_META[m.direction].color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
-                        {KIND_META[m.direction].icon} {KIND_META[m.direction].label}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{fmtNum(m.qty)}</td>
-                    <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{m.batch?.name}</td>
+                    <td className="sl-dim">{fmtDate(m.movementDate)}</td>
+                    <td><span className={`badge ${KIND_META[m.direction].badge}`}>{KIND_META[m.direction].label}</span></td>
+                    <td className="sl-strong">{fmtNum(m.qty)}</td>
+                    <td className="sl-dim">{m.batch?.name}</td>
                   </tr>
                 ))}
-                {!movements.length && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--c-text-secondary)' }}>لا حركات</td></tr>}
+                {!movements.length && <tr><td colSpan={4} className="empty-row">لا حركات</td></tr>}
               </tbody>
             </table>
           </div>
@@ -565,81 +567,73 @@ function AlertsTab(p: {
 
   return (
     <>
-      <div className="filter-card" style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end', marginBottom: 14 }}>
-        <div className="form-group">
-          <label className="form-label">نسبة من الستوك الأصلي (%)</label>
-          <input className="form-input" type="number" min={0} max={100} value={p.pct}
-            onChange={e => p.setPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} style={{ width: 110 }} />
+      <div className="sl-filters">
+        <div className="sl-field sl-field--xs">
+          <label className="sl-label">أقل من % من الافتتاحي</label>
+          <input className="form-input sl-input" type="number" min={0} max={100} value={p.pct}
+            onChange={e => p.setPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
         </div>
-        <div className="form-group">
-          <label className="form-label">أو كمية متبقية أقل من</label>
-          <input className="form-input" type="number" min={0} value={p.qty}
-            onChange={e => p.setQty(Math.max(0, Number(e.target.value) || 0))} style={{ width: 110 }} />
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', paddingBottom: 10, flex: 1, minWidth: 220 }}>
-          يُطلق التنبيه بأيّ الشرطين تحقق أولاً — فايتم ستوكه 1000 لا يُعامَل كايتم ستوكه 30.
+        <div className="sl-field sl-field--xs">
+          <label className="sl-label">أو كمية أقل من</label>
+          <input className="form-input sl-input" type="number" min={0} value={p.qty}
+            onChange={e => p.setQty(Math.max(0, Number(e.target.value) || 0))} />
         </div>
         {p.data && (
-          <div style={{ display: 'flex', gap: 8, paddingBottom: 6 }}>
+          <div className="sl-badges">
             {(['out', 'critical', 'low'] as Severity[]).map(s => (
-              <span key={s} style={{ background: SEV_META[s].bg, color: SEV_META[s].color, padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700 }}>
-                {SEV_META[s].label}: {p.data!.totals[s]}
-              </span>
+              <span key={s} className={`badge ${SEV_META[s].badge}`}>{SEV_META[s].label} {p.data!.totals[s]}</span>
             ))}
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, paddingBottom: 4 }}>
-          <button className="btn btn--secondary" onClick={copyList} disabled={!groups.length}>📋 نسخ القائمة</button>
-          {p.canExport && <button className="btn btn--primary" onClick={exportXlsx} disabled={!groups.length}>⬇️ تصدير Excel</button>}
+        <div className="sl-actions">
+          <button className="btn btn--secondary btn--sm" onClick={copyList} disabled={!groups.length} title="نسخ قائمة الطلبيات كنص">
+            <Icon name="file" size={13} /> نسخ
+          </button>
+          {p.canExport && (
+            <button className="btn btn--secondary btn--sm" onClick={exportXlsx} disabled={!groups.length} title="تصدير التنبيهات إلى Excel">
+              <Icon name="export" size={13} /> تصدير
+            </button>
+          )}
         </div>
       </div>
+      <div className="sl-hint sl-hint--block">يُطلق التنبيه بأيّ الشرطين تحقق أولاً — فايتم ستوكه 1000 لا يُعامَل كايتم ستوكه 30.</div>
 
       {!groups.length ? (
-        <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--c-success)' }}>
-          ✓ لا يوجد مذخر يحتاج طلبية بهذه العتبات
-        </div>
+        <div className="sl-empty">لا يوجد مذخر يحتاج طلبية بهذه العتبات.</div>
       ) : (
-        <div style={{ display: 'grid', gap: 12 }}>
+        <div className="sl-groups">
           {groups.map(g => (
-            <div key={g.warehouseId} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <div key={g.warehouseId} className="table-wrapper sl-table-wrap">
+              <div className="sl-group-head">
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>🏬 {g.warehouse}</div>
-                  <div style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{g.region} — {g.total} ايتم يحتاج طلبية</div>
+                  <div className="sl-group-title">{g.warehouse}</div>
+                  <div className="sl-hint">{g.region} — {g.total} ايتم يحتاج طلبية</div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="sl-badges">
                   {(['out', 'critical', 'low'] as Severity[]).filter(s => g.counts[s] > 0).map(s => (
-                    <span key={s} style={{ background: SEV_META[s].bg, color: SEV_META[s].color, padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
-                      {SEV_META[s].label} {g.counts[s]}
-                    </span>
+                    <span key={s} className={`badge ${SEV_META[s].badge}`}>{SEV_META[s].label} {g.counts[s]}</span>
                   ))}
                 </div>
               </div>
-              <div className="table-wrapper">
-                <table className="table">
-                  <thead>
-                    <tr><th>الحالة</th><th>الايتم</th><th>الشركة</th><th>الافتتاحي</th><th>المتبقي</th><th>%</th><th>الكمية المقترحة</th><th>آخر حركة</th></tr>
-                  </thead>
-                  <tbody>
-                    {g.items.map((it, i) => (
-                      <tr key={i}>
-                        <td>
-                          <span style={{ background: SEV_META[it.severity].bg, color: SEV_META[it.severity].color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
-                            {SEV_META[it.severity].label}
-                          </span>
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{it.itemName}</td>
-                        <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{it.companyName ?? '—'}</td>
-                        <td>{fmtNum(it.opening)}</td>
-                        <td style={{ fontWeight: 700, color: SEV_META[it.severity].color }}>{fmtNum(it.remaining)}</td>
-                        <td style={{ fontSize: 12 }}>{it.pctLeft}%</td>
-                        <td style={{ fontWeight: 700, color: 'var(--c-accent)' }}>{fmtNum(it.suggestedQty)}</td>
-                        <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{fmtDate(it.lastMovementAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <table className="data-table sl-table">
+                <thead>
+                  <tr><th>الحالة</th><th>الايتم</th><th>الشركة</th><th>الافتتاحي</th><th>المتبقي</th><th>%</th><th>الكمية المقترحة</th><th>آخر حركة</th></tr>
+                </thead>
+                <tbody>
+                  {g.items.map((it, i) => (
+                    <tr key={i}>
+                      <td><span className={`badge ${SEV_META[it.severity].badge}`}>{SEV_META[it.severity].label}</span></td>
+                      <td className="sl-strong">{it.itemName}</td>
+                      <td className="sl-dim">{it.companyName ?? '—'}</td>
+                      <td>{fmtNum(it.opening)}</td>
+                      <td className="sl-strong" style={{ color: SEV_META[it.severity].color }}>{fmtNum(it.remaining)}</td>
+                      <td className="sl-dim">{it.pctLeft}%</td>
+                      <td className="sl-suggest">{fmtNum(it.suggestedQty)}</td>
+                      <td className="sl-dim">{fmtDate(it.lastMovementAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ))}
         </div>
@@ -673,106 +667,104 @@ function BatchesTab(p: {
     e.target.value = '';
   };
 
+  const uploading = p.busy === 'upload';
   const reviewBatches = p.batches.filter(b => b.unmatched);
 
   return (
     <>
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-          <div className="form-group">
-            <label className="form-label">تاريخ سريان الدفعة</label>
-            <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} style={{ width: 'auto' }} />
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', paddingBottom: 10, flex: 1, minWidth: 240 }}>
-            ستوك افتتاحي جديد يصفّر أزواج (مذخر+ايتم) الواردة فيه ويهمل حركاتها الأقدم من هذا التاريخ.
-          </div>
+      <div className="sl-filters">
+        <div className="sl-field sl-field--sm">
+          <label className="sl-label">تاريخ السريان</label>
+          <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--c-border)' }}>
-          {p.canBaseline && (
-            <>
-              <div className="form-group" style={{ minWidth: 260 }}>
-                <label className="form-label">📦 تحديث الستوك من ملف Stock موجود</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <select className="form-input" value={stockFileId}
-                    onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')} style={{ minWidth: 200 }}>
-                    <option value="">اختر ملف...</option>
-                    {p.stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  </select>
-                  <button className="btn btn--primary" disabled={!stockFileId || p.busy === 'baseline'}
-                    onClick={() => stockFileId && p.onBaselineFromStock(stockFileId, date)}>
-                    {p.busy === 'baseline' ? '⏳' : 'استيراد'}
-                  </button>
-                </div>
-              </div>
-              <button className="btn btn--secondary" style={{ marginBottom: 4 }} disabled={p.busy === 'upload'} onClick={() => pick(baseRef)}>
-                📥 ستوك افتتاحي من ملف Excel
+        {p.canBaseline && (
+          <div className="sl-field sl-field--grow">
+            <label className="sl-label">افتتاحي من ملف Stock</label>
+            <div className="sl-inline">
+              <select className="form-input sl-input" value={stockFileId}
+                onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}>
+                <option value="">اختر ملف…</option>
+                {p.stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <button className="btn btn--primary btn--sm" disabled={!stockFileId || p.busy === 'baseline'}
+                onClick={() => stockFileId && p.onBaselineFromStock(stockFileId, date)}>
+                <Icon name={p.busy === 'baseline' ? 'refresh' : 'import'} size={13} className={p.busy === 'baseline' ? 'sl-spin' : undefined} /> استيراد
               </button>
-            </>
-          )}
-          {p.canUpload && (
-            <>
-              <button className="btn btn--danger" style={{ marginBottom: 4 }} disabled={p.busy === 'upload'} onClick={() => pick(outRef)}>
-                ⬇️ رفع مبيع من المذاخر
+            </div>
+          </div>
+        )}
+
+        <div className="sl-field">
+          <label className="sl-label">رفع حركة</label>
+          <div className="sl-inline">
+            {p.canBaseline && (
+              <button className="btn btn--secondary btn--sm" disabled={uploading} onClick={() => pick(baseRef)}
+                title="رفع ستوك افتتاحي من ملف Excel — يصفّر أزواج (مذخر+ايتم) الواردة فيه">
+                <Icon name="import" size={13} /> افتتاحي
               </button>
-              <button className="btn btn--success" style={{ marginBottom: 4 }} disabled={p.busy === 'upload'} onClick={() => pick(inRef)}>
-                ⬆️ رفع تعزيز للمذاخر
+            )}
+            {p.canUpload && (
+              <>
+                <button className="btn btn--secondary btn--sm" disabled={uploading} onClick={() => pick(inRef)}
+                  title="رفع تعزيز داخل إلى المذاخر — يزيد الرصيد">
+                  <Icon name="uploadSales" size={13} /> تعزيز
+                </button>
+                <button className="btn btn--secondary btn--sm" disabled={uploading} onClick={() => pick(outRef)}
+                  title="رفع مبيع خارج من المذاخر — ينقص الرصيد">
+                  <Icon name="uploadReturns" size={13} /> مبيع
+                </button>
+              </>
+            )}
+            {p.canManual && (
+              <button className="btn btn--secondary btn--sm" onClick={() => setShowManual(true)} title="إدخال حركة يدوية سطراً سطراً">
+                <Icon name="edit" size={13} /> يدوي
               </button>
-            </>
-          )}
-          {p.canManual && (
-            <button className="btn btn--secondary" style={{ marginBottom: 4 }} onClick={() => setShowManual(true)}>
-              ✍️ إدخال حركة يدوية
-            </button>
-          )}
+            )}
+            {uploading && <Icon name="refresh" size={14} className="sl-spin" />}
+          </div>
         </div>
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--c-text-secondary)' }}>
-          أعمدة ملف الحركات: <b>المذخر</b> · المنطقة · الشركة · <b>الايتم</b> · <b>الكمية</b> · التاريخ (الغامق إلزامي).
-        </div>
-        <input ref={baseRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'baseline', 'استُورد الستوك الافتتاحي')} />
-        <input ref={outRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'out', 'أُضيف المبيع')} />
-        <input ref={inRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'in', 'أُضيف التعزيز')} />
       </div>
+      <div className="sl-hint sl-hint--block">
+        أعمدة ملف الحركات: <b>المذخر</b> · المنطقة · الشركة · <b>الايتم</b> · <b>الكمية</b> · التاريخ (الغامق إلزامي).
+        ستوك افتتاحي جديد يصفّر أزواج (مذخر+ايتم) الواردة فيه ويهمل حركاتها الأقدم من تاريخ السريان.
+      </div>
+
+      <input ref={baseRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'baseline', 'استُورد الستوك الافتتاحي')} />
+      <input ref={outRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'out', 'أُضيف المبيع')} />
+      <input ref={inRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => onPicked(e, 'in', 'أُضيف التعزيز')} />
 
       {reviewBatches.length > 0 && <ReviewPanel batches={reviewBatches} />}
 
-      <div className="card" style={{ padding: 0 }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--c-border)', fontWeight: 700 }}>
-          🗂️ الدفعات المرفوعة ({p.batches.length})
+      <div className="table-wrapper sl-table-wrap">
+        <div className="sl-group-head">
+          <div className="sl-group-title">الدفعات المرفوعة ({p.batches.length})</div>
         </div>
         {!p.batches.length ? (
-          <div style={{ padding: 32, textAlign: 'center', color: 'var(--c-text-secondary)' }}>
-            لا دفعات بعد — ابدأ باستيراد الستوك الافتتاحي من ملف Stock.
-          </div>
+          <div className="sl-empty sl-empty--flat">لا دفعات بعد — ابدأ باستيراد الستوك الافتتاحي من ملف Stock.</div>
         ) : (
-          <div className="table-wrapper">
-            <table className="table">
-              <thead><tr><th>النوع</th><th>الاسم</th><th>تاريخ السريان</th><th>الأسطر</th><th>رُفعت</th><th></th></tr></thead>
-              <tbody>
-                {p.batches.map(b => (
-                  <tr key={b.id}>
-                    <td>
-                      <span style={{ background: KIND_META[b.kind].bg, color: KIND_META[b.kind].color, padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {KIND_META[b.kind].icon} {KIND_META[b.kind].label}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{b.name}</td>
-                    <td>{fmtDate(b.movementDate)}</td>
-                    <td>{fmtNum(b.rowCount)}</td>
-                    <td style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{fmtDate(b.uploadedAt)}</td>
-                    <td>
-                      {p.canDelete && (
-                        <button className="btn-icon btn-icon--red" title="حذف الدفعة وإعادة الحساب"
-                          disabled={p.busy === `del-${b.id}`} onClick={() => p.onDelete(b)}>
-                          <Icon name="delete" size={15} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <table className="data-table sl-table">
+            <thead><tr><th>النوع</th><th>الاسم</th><th>تاريخ السريان</th><th>الأسطر</th><th>رُفعت</th><th></th></tr></thead>
+            <tbody>
+              {p.batches.map(b => (
+                <tr key={b.id}>
+                  <td><span className={`badge ${KIND_META[b.kind].badge}`}>{KIND_META[b.kind].label}</span></td>
+                  <td className="sl-strong">{b.name}</td>
+                  <td>{fmtDate(b.movementDate)}</td>
+                  <td>{fmtNum(b.rowCount)}</td>
+                  <td className="sl-dim">{fmtDate(b.uploadedAt)}</td>
+                  <td>
+                    {p.canDelete && (
+                      <button className="btn-icon btn-icon--red" title="حذف الدفعة وإعادة الحساب"
+                        disabled={p.busy === `del-${b.id}`} onClick={() => p.onDelete(b)}>
+                        <Icon name="delete" size={14} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -795,25 +787,23 @@ function ReviewPanel({ batches }: { batches: Batch[] }) {
   const orphans = batches.flatMap(b => b.unmatched?.itemsWithoutBaseline ?? []);
 
   return (
-    <div className="card" style={{ marginBottom: 14, borderRight: '4px solid var(--c-warning)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
-        <div style={{ fontWeight: 700 }}>
-          ⚠️ مراجعة غير المطابق — {created.length} مذخر جديد · {fuzzy.length} رُبط بالتشابه · {orphans.length} ايتم بلا ستوك افتتاحي
+    <div className="sl-review">
+      <div className="sl-review-head" onClick={() => setOpen(o => !o)}>
+        <div className="sl-review-title">
+          <Icon name="warning" size={14} /> مراجعة غير المطابق — {created.length} مذخر جديد · {fuzzy.length} رُبط بالتشابه · {orphans.length} ايتم بلا افتتاحي
         </div>
-        <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{open ? 'إخفاء ▲' : 'عرض ▼'}</span>
+        <span className="sl-hint">{open ? 'إخفاء ▲' : 'عرض ▼'}</span>
       </div>
       {open && (
-        <div style={{ marginTop: 12, display: 'grid', gap: 12, fontSize: 13 }}>
+        <div className="sl-review-body">
           {created.length > 0 && (
             <div>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>مذاخر أُنشئت جديدة (تأكد أنها ليست تكراراً لاسم موجود):</div>
+              <div className="sl-review-sub">مذاخر أُنشئت جديدة (تأكد أنها ليست تكراراً لاسم موجود):</div>
               {created.map((c, i) => (
-                <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid var(--c-border)' }}>
+                <div key={i} className="sl-review-line">
                   <b>{c.name}</b> — {c.region}
                   {c.suggestions.length > 0 && (
-                    <span style={{ color: 'var(--c-warning)', fontSize: 12 }}>
-                      {' '}· قريب من: {c.suggestions.map(s => `${s.name} (${s.region})`).join('، ')}
-                    </span>
+                    <span className="sl-dim"> · قريب من: {c.suggestions.map(s => `${s.name} (${s.region})`).join('، ')}</span>
                   )}
                 </div>
               ))}
@@ -821,21 +811,17 @@ function ReviewPanel({ batches }: { batches: Batch[] }) {
           )}
           {fuzzy.length > 0 && (
             <div>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>رُبطت تلقائياً بالتشابه:</div>
-              {fuzzy.map((f, i) => (
-                <div key={i} style={{ padding: '3px 0', color: 'var(--c-text-secondary)' }}>{f.raw} ← {f.matchedTo}</div>
-              ))}
+              <div className="sl-review-sub">رُبطت تلقائياً بالتشابه:</div>
+              {fuzzy.map((f, i) => <div key={i} className="sl-review-line sl-dim">{f.raw} ← {f.matchedTo}</div>)}
             </div>
           )}
           {orphans.length > 0 && (
             <div>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>ايتمات تحرّكت بلا ستوك افتتاحي (رصيدها سالب حتى ترفع ستوكها):</div>
+              <div className="sl-review-sub">ايتمات تحرّكت بلا ستوك افتتاحي (رصيدها سالب حتى ترفع ستوكها):</div>
               {orphans.slice(0, 40).map((o, i) => (
-                <div key={i} style={{ padding: '3px 0', color: 'var(--c-text-secondary)' }}>
-                  {o.itemName} — {o.warehouse} ({o.region}) · خرج {fmtNum(o.qty)}
-                </div>
+                <div key={i} className="sl-review-line sl-dim">{o.itemName} — {o.warehouse} ({o.region}) · خرج {fmtNum(o.qty)}</div>
               ))}
-              {orphans.length > 40 && <div style={{ color: 'var(--c-text-secondary)' }}>... و{orphans.length - 40} غيرها</div>}
+              {orphans.length > 40 && <div className="sl-review-line sl-dim">… و{orphans.length - 40} غيرها</div>}
             </div>
           )}
         </div>
@@ -870,28 +856,28 @@ function ManualModal(p: {
     <div className="modal-overlay" onClick={p.onClose}>
       <div className="modal" style={{ maxWidth: 780 }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <div style={{ fontWeight: 700 }}>✍️ إدخال حركة يدوية — {fmtDate(p.date)}</div>
+          <div style={{ fontWeight: 700 }}>إدخال حركة يدوية — {fmtDate(p.date)}</div>
           <button className="btn-icon btn-icon--red" onClick={p.onClose}><Icon name="close" size={16} /></button>
         </div>
         <div className="modal-body">
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div className="tabs">
             {(['out', 'in', 'baseline'] as const).map(k => (
-              <button key={k} className={`btn ${kind === k ? 'btn--primary' : 'btn--secondary'}`} onClick={() => setKind(k)}>
-                {KIND_META[k].icon} {KIND_META[k].label}
+              <button key={k} className={`tab ${kind === k ? 'tab--active' : ''}`} onClick={() => setKind(k)}>
+                <Icon name={KIND_META[k].icon} size={13} /> {KIND_META[k].label}
               </button>
             ))}
           </div>
-          <div className="table-wrapper" style={{ maxHeight: 320 }}>
-            <table className="table">
+          <div className="table-wrapper sl-table-wrap sl-table-wrap--scroll">
+            <table className="data-table sl-table">
               <thead><tr><th>المذخر *</th><th>المنطقة</th><th>الايتم *</th><th>الشركة</th><th>الكمية *</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td><input className="form-input" value={r.warehouse} onChange={e => set(i, 'warehouse', e.target.value)} /></td>
-                    <td><input className="form-input" value={r.region} onChange={e => set(i, 'region', e.target.value)} /></td>
-                    <td><input className="form-input" value={r.itemName} onChange={e => set(i, 'itemName', e.target.value)} /></td>
-                    <td><input className="form-input" value={r.companyName} onChange={e => set(i, 'companyName', e.target.value)} /></td>
-                    <td><input className="form-input" type="number" min={0} value={r.qty} onChange={e => set(i, 'qty', e.target.value)} style={{ width: 90 }} /></td>
+                    <td><input className="form-input sl-input" value={r.warehouse} onChange={e => set(i, 'warehouse', e.target.value)} /></td>
+                    <td><input className="form-input sl-input" value={r.region} onChange={e => set(i, 'region', e.target.value)} /></td>
+                    <td><input className="form-input sl-input" value={r.itemName} onChange={e => set(i, 'itemName', e.target.value)} /></td>
+                    <td><input className="form-input sl-input" value={r.companyName} onChange={e => set(i, 'companyName', e.target.value)} /></td>
+                    <td><input className="form-input sl-input" type="number" min={0} value={r.qty} onChange={e => set(i, 'qty', e.target.value)} style={{ width: 80 }} /></td>
                     <td>
                       {rows.length > 1 && (
                         <button className="btn-icon btn-icon--red" onClick={() => setRows(rs => rs.filter((_, j) => j !== i))}>
@@ -904,16 +890,18 @@ function ManualModal(p: {
               </tbody>
             </table>
           </div>
-          <button className="btn btn--secondary btn--sm" style={{ marginTop: 10 }} onClick={addRow}>+ سطر جديد</button>
+          <button className="btn btn--secondary btn--sm" style={{ alignSelf: 'flex-start' }} onClick={addRow}>
+            <Icon name="add" size={13} /> سطر جديد
+          </button>
         </div>
         <div className="modal-footer">
-          <button className="btn btn--secondary" onClick={p.onClose}>إلغاء</button>
-          <button className="btn btn--primary" disabled={!valid.length || p.busy}
+          <button className="btn btn--secondary btn--sm" onClick={p.onClose}>إلغاء</button>
+          <button className="btn btn--primary btn--sm" disabled={!valid.length || p.busy}
             onClick={() => p.onSave(kind, valid.map(r => ({
               warehouse: r.warehouse, region: r.region, itemName: r.itemName,
               companyName: r.companyName, qty: Number(r.qty),
             })))}>
-            {p.busy ? '⏳ جاري الحفظ...' : `حفظ ${valid.length} سطر`}
+            {p.busy ? 'جارٍ الحفظ…' : `حفظ ${valid.length} سطر`}
           </button>
         </div>
       </div>
