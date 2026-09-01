@@ -282,11 +282,12 @@ function parseMatrixSheet(ws: WS, sheetName: string, fileBase: string): MatrixSh
   // ── 2) صف المناطق = الصف الذي فوق صف الرؤوس ───────────────────────────────
   const rRowIdx = hRowIdx - 1 >= range.s.r ? hRowIdx - 1 : -1;
 
-  const mergeEndAt = new Map<number, number>();
+  // مدى الدمج لكل عمود في صف المناطق (المفتاح = أي عمود داخل المدى)
+  const mergeSpanAt = new Map<number, { s: number; e: number }>();
   if (rRowIdx >= 0) {
     for (const m of (ws['!merges'] ?? [])) {
       if (m.s.r <= rRowIdx && m.e.r >= rRowIdx) {
-        mergeEndAt.set(m.s.c, Math.max(m.e.c, mergeEndAt.get(m.s.c) ?? -1));
+        for (let c = m.s.c; c <= m.e.c; c++) mergeSpanAt.set(c, { s: m.s.c, e: m.e.c });
       }
     }
   }
@@ -294,37 +295,59 @@ function parseMatrixSheet(ws: WS, sheetName: string, fileBase: string): MatrixSh
   const regionByCol: string[] = new Array(nCols).fill('');
   let bannerTitle = '';
   if (rRowIdx >= 0) {
-    const cells: { c: number; name: string }[] = [];
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const v = txt(rRowIdx, c);
-      if (v) cells.push({ c, name: v });
-    }
-    for (let i = 0; i < cells.length; i++) {
-      const { c: start, name } = cells[i];
-      const nextStart = cells[i + 1]?.c ?? nCols;
-      let end: number;
-      const mEnd = mergeEndAt.get(start);
-      if (mEnd !== undefined) {
-        // (أ) مدى الدمج الحقيقي — الأدق
-        end = Math.min(mEnd, nextStart - 1);
-      } else {
-        // (ب) اللون: امتد ما دام لون رأس المذخر = لون خلية المنطقة
-        const key = fillKey(ws, rRowIdx, start);
-        end = start;
-        if (key) {
-          while (end + 1 < nextStart &&
-                 (fillKey(ws, hRowIdx, end + 1) === key || fillKey(ws, rRowIdx, end + 1) === key)) end++;
-        }
-        // (ج) احتياطي: امتد حتى بداية المنطقة التالية
-        if (end === start) end = nextStart - 1;
-      }
-      // خلية تغطي أعمدة التعريف أيضاً = عنوان الملف وليست منطقة
-      if (start <= 1 && (end - start + 1) >= nCols * 0.5) {
-        if (!bannerTitle) bannerTitle = name;
+    // لون العمود في منطقة الرؤوس: لون خلية صف المناطق، وإلا لون رأس المذخر
+    const colFill = (c: number) => fillKey(ws, rRowIdx, c) || fillKey(ws, hRowIdx, c);
+
+    // (أ) تقسيم الأعمدة إلى «كتل»: مدى الدمج إن وُجد، وإلا سلسلة متصلة بنفس اللون.
+    //     اسم المنطقة قد يقع في أي عمود داخل كتلته (وليس في أولها) — ولهذا كان
+    //     التمديد يميناً فقط يُسقط الأعمدة التي تسبق الاسم.
+    const blocks: { s: number; e: number }[] = [];
+    for (let c = range.s.c; c <= range.e.c; ) {
+      const mSpan = mergeSpanAt.get(c);
+      if (mSpan) {
+        blocks.push({ s: Math.max(mSpan.s, range.s.c), e: Math.min(mSpan.e, range.e.c) });
+        c = mSpan.e + 1;
         continue;
       }
-      if (isTotalHeader(name)) continue;
-      for (let c = start; c <= end && c < nCols; c++) regionByCol[c] = name;
+      const key = colFill(c);
+      let e = c;
+      // سلسلة بنفس اللون، ما لم تدخل في مدى دمج
+      while (e + 1 <= range.e.c && !mergeSpanAt.has(e + 1) && colFill(e + 1) === key) e++;
+      blocks.push({ s: c, e });
+      c = e + 1;
+    }
+
+    for (const blk of blocks) {
+      // أسماء المناطق الواقعة داخل هذه الكتلة (بترتيب الأعمدة)
+      const labels: { c: number; name: string }[] = [];
+      for (let c = blk.s; c <= blk.e; c++) {
+        const v = txt(rRowIdx, c);
+        if (v && !isTotalHeader(v)) labels.push({ c, name: v });
+      }
+      if (!labels.length) continue;
+
+      // خلية تغطي أعمدة التعريف أيضاً = عنوان الملف وليست منطقة
+      if (blk.s <= 1 && (blk.e - blk.s + 1) >= nCols * 0.5) {
+        if (!bannerTitle) bannerTitle = labels[0].name;
+        continue;
+      }
+
+      const longs = labels.filter(l => l.name.length > 2);
+      if (labels.length === 1 || longs.length <= 1) {
+        // (ب) اسم واحد للكتلة كاملة. قد يكون مقسّماً على خليتين مثل
+        //     «ح» + «الحارثية» — تُدمج مع تقديم الاسم الطويل على الحرف المفرد.
+        const name = [...longs, ...labels.filter(l => l.name.length <= 2)]
+          .map(l => l.name).join(' ').replace(/\s+/g, ' ').trim();
+        for (let c = blk.s; c <= blk.e && c < nCols; c++) regionByCol[c] = name;
+      } else {
+        // (ج) عدة مناطق حقيقية بنفس اللون ومتلاصقة: كل اسم يبدأ مداه من عموده،
+        //     والأول يبتلع الأعمدة التي تسبقه في الكتلة.
+        for (let i = 0; i < labels.length; i++) {
+          const start = i === 0 ? blk.s : labels[i].c;
+          const end = i + 1 < labels.length ? labels[i + 1].c - 1 : blk.e;
+          for (let c = start; c <= end && c < nCols; c++) regionByCol[c] = labels[i].name;
+        }
+      }
     }
   }
 
