@@ -37,6 +37,25 @@ const COUNTRY_SUFFIXES = [
 ].sort((a, b) => b.length - a.length);
 
 /**
+ * قيم نصية شائعة تعني عملياً «لا قيمة» رغم كونها نصاً غير فارغ — تصدر عادةً
+ * من تصدير قاعدة بيانات (NULL/N-A) بدل ترك الخانة فارغة في ملف الإكسل. بدون
+ * هذا الفلتر يُعامَلها النظام كاسم شركة حقيقي وينشئ شركة وهمية باسم «null»
+ * (شوهد فعلياً في تبويب «الشركة» بتحليل ملفات المندوبين).
+ */
+const PLACEHOLDER_COMPANY_VALUES = new Set([
+  'null', 'nul', 'n/a', 'n\\a', 'na', 'undefined', 'nan', 'none',
+  '-', '--', '?', '؟', 'unknown', 'not available', 'not applicable',
+  'غير محدد', 'غير معروف', 'بدون', 'لا يوجد',
+]);
+
+/** يُرجع true إن كانت القيمة الخام تعني عملياً «لا شركة» (فارغة أو نص شائع كـ null/N-A). */
+export function isPlaceholderCompanyValue(raw) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return true;
+  return PLACEHOLDER_COMPANY_VALUES.has(s);
+}
+
+/**
  * يستخرج اسم الشركة من «كود الايتم» في الملف.
  *   "ALBALSAMIRAQIN/A" → "ALBALSAM"
  *   "AL-HAYATIRAQIN/A" → "AL-HAYAT"
@@ -48,7 +67,7 @@ const COUNTRY_SUFFIXES = [
  */
 export function extractCompanyFromCode(code) {
   let s = String(code ?? '').trim();
-  if (!s) return '';
+  if (!s || isPlaceholderCompanyValue(s)) return '';
 
   // 1) لاحقة N/A بصيغها المختلفة
   s = s.replace(/\s*N\s*[^A-Za-z0-9]?\s*A\s*$/i, '').trim();

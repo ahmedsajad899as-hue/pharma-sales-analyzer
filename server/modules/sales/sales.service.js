@@ -19,6 +19,7 @@ import {
   getAllCompanies,
 } from './sales.repository.js';
 import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
+import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { loadResolutionContext, resolveItemName, normalizeItemKey } from '../../lib/itemResolver.js';
@@ -258,6 +259,10 @@ export async function processUploadedFile(file, options = {}) {
   const salesRows   = [];   // recordType = 'sale'
   const returnsRows = [];   // recordType = 'return'
   const skippedRows = [];
+  // اسم الايتم لكل صف كانت قيمة عمود «الشركة» فيه نصاً غير فارغ لكنه بلا معنى
+  // فعلي (null/N-A/undefined...) — تُعرض للمستخدم بعد الرفع ليحدد شركتها يدوياً
+  // بدل ربطها بشركة وهمية بصمت.
+  const unclearCompanyItems = new Set();
 
   for (let i = 0; i < allRawEntries.length; i++) {
     const { raw, forceReturn, colMap: rc } = allRawEntries[i];
@@ -307,13 +312,19 @@ export async function processUploadedFile(file, options = {}) {
       || String(raw['_sheetName'] || '').trim()
       || 'غير محدد';
 
+    const itemNameVal   = String(raw[rc.item] || '').trim() || 'غير محدد';
+    const companyRawVal = String(raw[rc.company] || '').trim();
+    if (companyRawVal && isPlaceholderCompanyValue(companyRawVal)) {
+      unclearCompanyItems.add(itemNameVal);
+    }
+
     const parsed = {
       repName:    String(raw[rc.repName]    || '').trim() || 'غير محدد',
       // اسم الشيت يُستعمل كمنطقة حين لا يوجد عمود منطقة ولا محافظة في الصف
       area:       areaVal,
       province:   provinceVal,
-      item:       String(raw[rc.item]       || '').trim() || 'غير محدد',
-      company:    (String(raw[rc.company]   || '').trim()) || undefined,
+      item:       itemNameVal,
+      company:    (companyRawVal && !isPlaceholderCompanyValue(companyRawVal)) ? companyRawVal : undefined,
       quantity:   qty,
       totalValue: totalVal,
       customer:   (String(raw[rc.customer] || '').trim()) || undefined,
@@ -350,13 +361,13 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 3b–7. Shared finishing logic ─────────────────────────
-  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null });
+  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems] });
 }
 
 // ─── _finishProcessing ─────────────────────────────────────────────────────────
 // Everything from fuzzy normalisation to bulk insert — shared by both the
 // standard tabular path and the matrix (cross-tabular) path.
-async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null }) {
+async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [] }) {
   const validRows = [...salesRows, ...returnsRows];
 
   // ── 3b. Fuzzy-name normalisation ─────────────────────────────────────────────
@@ -576,6 +587,7 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     skipped:        skippedRows,
     normalizations: normalizationLog,
     unknownItems:   tempItemNames,
+    unclearCompanyItems,
     uploadedFile: {
       id:           uploadedFile.id,
       originalName: uploadedFile.originalName,
@@ -728,10 +740,11 @@ function isTotalHeader(val) {
  * Returns empty string if no company can be inferred.
  */
 function extractCompanyFromCode(code) {
-  if (!code) return '';
+  if (!code || isPlaceholderCompanyValue(code)) return '';
   // Take the leading alphabetic sequence before / - N _ or digit
   const match = String(code).match(/^([A-Za-z\u0600-\u06FF]+)/);
-  return match ? match[1].trim() : '';
+  const result = match ? match[1].trim() : '';
+  return isPlaceholderCompanyValue(result) ? '' : result;
 }
 
 /**
@@ -1325,7 +1338,7 @@ export async function checkManualNames({ rows, userId = null }) {
   const list = Array.isArray(rows) ? rows : [];
   const uniq = key => [...new Set(list.map(r => String(r?.[key] ?? '').trim()).filter(Boolean))];
   const itemNames    = uniq('item');
-  const companyNames = uniq('company');
+  const companyNames = uniq('company').filter(c => !isPlaceholderCompanyValue(c));
 
   // ── سياق الايتمات ──
   let ctx = null;
@@ -1419,7 +1432,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       repName:  normalizeAr(r.repName) || 'غير محدد',
       area:     normalizeAr(r.area)    || 'غير محدد',
       item:     normalizeAr(itemName),
-      company:  r.company  ? normalizeAr(r.company)  : undefined,
+      company:  (r.company && !isPlaceholderCompanyValue(r.company)) ? normalizeAr(r.company) : undefined,
       customer: r.pharmacy ? normalizeAr(cleanPharmacyName(r.pharmacy)) : undefined, // pharmacy = buyer = Customer (strip prefixes)
       quantity,
       totalValue,

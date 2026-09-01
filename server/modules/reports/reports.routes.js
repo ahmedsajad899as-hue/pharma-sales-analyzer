@@ -11,7 +11,7 @@ import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
-import { extractCompanyFromCode } from '../../lib/companyResolver.js';
+import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
 
 const router = Router();
@@ -233,12 +233,12 @@ router.get('/overall', async (req, res) => {
         // this is the real source of truth when present, even if its value is a
         // messy concatenation like "HUMANISTurkeyN/A".
         for (const key of COLUMN_ALIASES.company) {
-          if (raw[key] && String(raw[key]).trim()) return String(raw[key]).trim();
+          if (raw[key] && String(raw[key]).trim() && !isPlaceholderCompanyValue(raw[key])) return String(raw[key]).trim();
         }
         // Priority 2: known "item/material code" columns, which on some files
         // carry the company name instead (e.g. "رقم المادة" → "HUMANISTurkeyN/A").
         for (const key of COMPANY_CODE_KEYS) {
-          if (raw[key] && String(raw[key]).trim()) return String(raw[key]).trim();
+          if (raw[key] && String(raw[key]).trim() && !isPlaceholderCompanyValue(raw[key])) return String(raw[key]).trim();
         }
         // Priority 3: scan remaining keys for one whose value looks like a company
         // code (Latin letters only, no spaces). Restricted to "code"/"كود" headers —
@@ -247,7 +247,7 @@ router.get('/overall', async (req, res) => {
         // numbers as the "company name".
         for (const [k, v] of Object.entries(raw)) {
           const val = String(v || '').trim();
-          if (val && /^[A-Za-z0-9/\-_]+$/.test(val) && val.length > 3 && val.length < 40) {
+          if (val && !isPlaceholderCompanyValue(val) && /^[A-Za-z0-9/\-_]+$/.test(val) && val.length > 3 && val.length < 40) {
             const keyLower = k.toLowerCase();
             const looksLikeInvoiceOrOrder = keyLower.includes('فاتورة') || keyLower.includes('فاتوره') || keyLower.includes('invoice') || keyLower.includes('طلب') || keyLower.includes('order');
             if (!looksLikeInvoiceOrOrder && (keyLower.includes('code') || keyLower.includes('كود'))) {
@@ -285,8 +285,9 @@ router.get('/overall', async (req, res) => {
     // بصف — والتجميع بالنص الحرفي لا يرى أنها نفس الشركة.
     const companyDisplayByKey = new Map();
     const canonicalCompany = (raw) => {
-      if (!raw) return null;
+      if (!raw || isPlaceholderCompanyValue(raw)) return null;
       const stripped = extractCompanyFromCode(raw) || raw;
+      if (isPlaceholderCompanyValue(stripped)) return null;
       const key = normalizeItemKey(stripped);
       if (!key) return null;
       if (!companyDisplayByKey.has(key)) companyDisplayByKey.set(key, stripped);
