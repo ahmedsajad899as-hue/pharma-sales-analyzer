@@ -163,7 +163,9 @@ export async function processUploadedFile(file, options = {}) {
 
   // ── 1. Parse workbook ────────────────────────────────────
   const fileBuffer = file.buffer || readFileSync(file.path);
-  const workbook   = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true });
+  // cellStyles: true → يحمّل !rows (تشمل hidden) من ملف الإكسل، لازمة لاحترام
+  // فلتر الإكسل (AutoFilter) عند القراءة أدناه (skipHidden).
+  const workbook   = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true, cellStyles: true });
 
   console.log(`[upload] fileType="${fileType}" | sheets in workbook:`, workbook.SheetNames);
 
@@ -228,8 +230,21 @@ export async function processUploadedFile(file, options = {}) {
     const ws = workbook.Sheets[sheetName];
     // Skip leading title/metadata rows: start parsing from the detected header row.
     const headerRowIdx = detectHeaderRow(ws, columnMapping);
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRowIdx });
+    let rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRowIdx });
     if (rows.length === 0) continue;
+    // فلتر الإكسل (AutoFilter): الصفوف التي أخفاها المستخدم بفلتر في الملف الأصلي
+    // (قبل الرفع) تبقى مستبعدة هنا فلا تُستورد — أي فلتره في الإكسل يستمر مفعوله
+    // داخل التطبيق. لا نلمس الأعمدة المخفية (قد تكون مخفية لأسباب شكلية فقط
+    // وبياناتها ما زالت مطلوبة)، فقط الصفوف عبر ws['!rows'][r].hidden.
+    const hiddenRowInfo = ws['!rows'];
+    if (hiddenRowInfo && hiddenRowInfo.length) {
+      const beforeFilter = rows.length;
+      rows = rows.filter(row => !hiddenRowInfo[row.__rowNum__]?.hidden);
+      if (rows.length < beforeFilter) {
+        console.log(`[upload] Sheet "${sheetName}": استبعدنا ${beforeFilter - rows.length} صف مخفي بفلتر الإكسل (AutoFilter).`);
+      }
+      if (rows.length === 0) continue;
+    }
     // Resolve columns independently per sheet (each sheet may have different header names)
     const sheetHeaders = Object.keys(rows[0]);
     const sheetColMap  = resolveColumns(sheetHeaders, columnMapping);
