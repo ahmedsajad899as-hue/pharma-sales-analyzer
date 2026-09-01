@@ -656,6 +656,14 @@ type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
 interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; }
 
+// مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
+// تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
+// (كلٌ منهما يُوحِّد الأسماء داخلياً فقط، فـ"HUMANIS" و"humanis" يمكن أن تصلا
+// بصيغتين مختلفتين رغم كونهما نفس الشركة) — بدون هذا التطبيع تظهر كصفّين.
+const normReportName = (s: string) => s.trim()
+  .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ـ/g, '')
+  .replace(/[ً-ٟ]/g, '').replace(/\s+/g, ' ').toLowerCase();
+
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
 export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
@@ -1239,7 +1247,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   /* ─── Net breakdown table ─── */
   const renderNetTable = (sales: BreakdownRow[], returns: BreakdownRow[], nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value' | 'both', excludedKeys?: Set<string>, onToggleKey?: (key: string) => void, rowType?: 'area' | 'item' | 'rep') => {
     const hasRep = sales.some(r => r.repName) || returns.some(r => r.repName);
-    const rowKey = (r: BreakdownRow) => hasRep ? `${r.name}||${r.repName ?? ''}` : r.name;
+    const rowKey = (r: BreakdownRow) => hasRep ? `${normReportName(r.name)}||${r.repName ?? ''}` : normReportName(r.name);
     const salesMap  = Object.fromEntries(sales.map(r => [rowKey(r), r]));
     const retMap    = Object.fromEntries(returns.map(r => [rowKey(r), r]));
     const allKeys = [...new Set([...sales.map(rowKey), ...returns.map(rowKey)])].filter(key => {
@@ -2831,10 +2839,25 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           : filterRowsByText(overallReturns?.byCompany ?? []);
 
         // ─── Cross-tab exclusion propagation ──────────────────────────────────
-        // Classify each excluded key by which tab it came from
-        const excItemNames    = overallExcluded.size > 0 ? new Set([...overallExcluded].filter(k => overallSales.byItem.some(r => r.name === k)))    : new Set<string>();
-        const excAreaNames    = overallExcluded.size > 0 ? new Set([...overallExcluded].filter(k => overallSales.byArea.some(r => r.name === k)))    : new Set<string>();
-        const excCompanyNames = overallExcluded.size > 0 ? new Set([...overallExcluded].filter(k => overallSales.byCompany.some(r => r.name === k))) : new Set<string>();
+        // Classify each excluded key (normalised — see normReportName) by which tab it
+        // came from, and collect every RAW name variant that maps to it — the same
+        // company/area/item can appear under different casing in the sales-side vs.
+        // returns-side arrays (two independently-normalised backend calls), so a single
+        // exact-name lookup would miss the returns-only variant.
+        const excItemNames    = new Set<string>();
+        const excAreaNames    = new Set<string>();
+        const excCompanyNames = new Set<string>();
+        if (overallExcluded.size > 0) {
+          const collect = (rows: BreakdownRow[] | undefined, target: Set<string>) => {
+            for (const r of rows ?? []) if (overallExcluded.has(normReportName(r.name))) target.add(r.name);
+          };
+          collect(overallSales.byItem,    excItemNames);
+          collect(overallReturns?.byItem, excItemNames);
+          collect(overallSales.byArea,    excAreaNames);
+          collect(overallReturns?.byArea, excAreaNames);
+          collect(overallSales.byCompany,    excCompanyNames);
+          collect(overallReturns?.byCompany, excCompanyNames);
+        }
 
         // Items that belong to excluded companies (used to propagate company exclusion)
         const itemsOfExcCompanies = excCompanyNames.size > 0
