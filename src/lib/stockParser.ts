@@ -333,6 +333,12 @@ function parseMatrixSheet(ws: WS, sheetName: string, fileBase: string): MatrixSh
       }
 
       const longs = labels.filter(l => l.name.length > 2);
+      if (!longs.length) {
+        // كل ما وُجد في هذه الكتلة شظايا حرف/حرفين («ح» وحدها بلا شريكتها
+        // الطويلة — كتلة الألوان لم تلتقطها) — تركها بلا اسم أفضل من منطقة
+        // مبتورة تتجمّد للأبد في StockWarehouse.region؛ تسقط لاحتياطي الملف.
+        continue;
+      }
       if (labels.length === 1 || longs.length <= 1) {
         // (ب) اسم واحد للكتلة كاملة. قد يكون مقسّماً على خليتين مثل
         //     «ح» + «الحارثية» — تُدمج مع تقديم الاسم الطويل على الحرف المفرد.

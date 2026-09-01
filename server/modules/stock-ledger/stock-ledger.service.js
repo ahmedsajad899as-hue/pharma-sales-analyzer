@@ -99,6 +99,20 @@ const whKey = (s) => normalizeArabic(String(s ?? '')).toLowerCase();
 const regKey = (s) => normalizeAreaName(String(s ?? '')) || '';
 
 /**
+ * منطقة «فاسدة»: بقايا خلل تحليل قديم انجمدت في StockWarehouse.region ولا تُصحَّح
+ * تلقائياً بعدها أبداً (المطابقة بالاسم تعيد استعمال السجل القديم كما هو). الأنماط:
+ * فارغة/'غير محدد'، أو شظية حرف واحد/حرفين من دمج خلايا فاشل (راجع stockParser.ts)،
+ * أو عنوان/اسم ملف الستوك نفسه استُعمل احتياطياً بدل اسم منطقة حقيقي ("ستوك ...").
+ */
+function looksLikeBadRegion(region) {
+  const r = String(region ?? '').trim();
+  if (!r || r === 'غير محدد') return true;
+  if (r.length <= 2) return true;
+  if (/^ستوك\b/.test(r)) return true;
+  return false;
+}
+
+/**
  * قاموس مذاخر قابل للتوسع أثناء الاستيراد.
  * المطابقة: (المنطقة + الاسم) تام ← الاسم تام ووحيد بغضّ النظر عن المنطقة
  * ← تشابه داخل نفس المنطقة ← إنشاء جديد.
@@ -108,6 +122,7 @@ function makeWarehouseResolver(existing, userId) {
   const byKey = new Map();     // `${regionKey}||${nameKey}` ← warehouse
   const byRegion = new Map();  // regionKey ← warehouse[]
   const toCreate = [];
+  const toHeal = new Map();    // warehouseId ← warehouse (منطقته صُحّحت، تحتاج تحديث بقاعدة البيانات)
   const fuzzyLinked = [];
   const created = [];
 
@@ -117,6 +132,20 @@ function makeWarehouseResolver(existing, userId) {
     byRegion.get(w.regionKey).push(w);
   };
   for (const w of existing) index(w);
+
+  /**
+   * تصحيح ذاتي: مذخر موجود منطقته فاسدة (مجمّدة من استيراد قديم معطوب)، وهذا الصف
+   * يحمل منطقة صريحة وسليمة لنفس المذخر — يُصحَّح فوراً بدل تجميد الخطأ للأبد.
+   * لا يُصحَّح إن كانت المنطقة الحالية تبدو سليمة أصلاً (تفادي التذبذب بين صياغتين).
+   */
+  function maybeHeal(w, rawRegion) {
+    if (!w.id) return; // مذخر معلّق لم يُنشأ بعد — سيُنشأ بمنطقته الصحيحة مباشرة
+    const incoming = String(rawRegion ?? '').trim();
+    if (!incoming || looksLikeBadRegion(incoming) || !looksLikeBadRegion(w.region)) return;
+    w.region = incoming;
+    w.regionKey = regKey(incoming);
+    toHeal.set(w.id, w);
+  }
 
   function resolve(name, region) {
     const nk = whKey(name);
@@ -133,7 +162,10 @@ function makeWarehouseResolver(existing, userId) {
     // وحده لا يجب أن يُنشئ مذخراً مكرراً بلا ستوك افتتاحي. عند وجود أكثر من مذخر
     // بهذا الاسم في مناطق مختلفة (لبس حقيقي) يستمر للمطابقة بالتشابه ثم الإنشاء.
     const sameName = [...byKey.values()].filter(w => w.nameKey === nk);
-    if (sameName.length === 1) return sameName[0];
+    if (sameName.length === 1) {
+      maybeHeal(sameName[0], region);
+      return sameName[0];
+    }
 
     // تشابه داخل نفس المنطقة — يُقبل فقط عند وجود مرشّح واحد
     const pool = rk ? (byRegion.get(rk) ?? []) : [...byKey.values()];
@@ -143,6 +175,7 @@ function makeWarehouseResolver(existing, userId) {
         raw: region ? name + ' (' + region + ')' : name,
         matchedTo: cands[0].name + ' — ' + cands[0].region,
       });
+      maybeHeal(cands[0], region);
       return cands[0];
     }
 
@@ -162,7 +195,7 @@ function makeWarehouseResolver(existing, userId) {
     return pending;
   }
 
-  /** ينشئ المذاخر الجديدة في قاعدة البيانات ويملأ ids الكائنات المعلّقة */
+  /** ينشئ المذاخر الجديدة في قاعدة البيانات، ويحفظ تصحيحات المنطقة الذاتية */
   async function flush() {
     for (const w of toCreate) {
       if (w.id) continue;
@@ -173,9 +206,15 @@ function makeWarehouseResolver(existing, userId) {
       });
       w.id = row.id;
     }
+    for (const w of toHeal.values()) {
+      await prisma.stockWarehouse.update({
+        where: { id: w.id },
+        data: { region: w.region, regionKey: w.regionKey },
+      });
+    }
   }
 
-  return { resolve, flush, report: () => ({ fuzzyLinked, created }) };
+  return { resolve, flush, report: () => ({ fuzzyLinked, created, healed: [...toHeal.values()].map(w => ({ name: w.name, region: w.region })) }) };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -261,7 +300,7 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
       itemName: o.itemName, warehouse: o.warehouse.name, region: o.warehouse.region, qty: o.outQty,
     }));
   }
-  const hasIssues = unmatched.created.length || unmatched.fuzzyLinked.length || unmatched.itemsWithoutBaseline.length;
+  const hasIssues = unmatched.created.length || unmatched.fuzzyLinked.length || unmatched.itemsWithoutBaseline.length || unmatched.healed.length;
   await repo.finalizeBatch(batch.id, { rowCount: movements.length, unmatched: hasIssues ? unmatched : null });
 
   return {

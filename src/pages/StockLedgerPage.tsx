@@ -53,6 +53,7 @@ interface Unmatched {
   created: { name: string; region: string; suggestions: { name: string; region: string }[] }[];
   fuzzyLinked: { raw: string; matchedTo: string }[];
   itemsWithoutBaseline: { itemName: string; warehouse: string; region: string; qty: number }[];
+  healed?: { name: string; region: string }[];
 }
 interface Batch {
   id: number; kind: 'baseline' | 'in' | 'out'; name: string;
@@ -205,6 +206,7 @@ export default function StockLedgerPage() {
     if (u?.created?.length) notes.push(`${u.created.length} مذخر جديد`);
     if (u?.fuzzyLinked?.length) notes.push(`${u.fuzzyLinked.length} رُبط بالتشابه`);
     if (u?.itemsWithoutBaseline?.length) notes.push(`${u.itemsWithoutBaseline.length} ايتم بلا ستوك افتتاحي`);
+    if (u?.healed?.length) notes.push(`صُححت منطقة ${u.healed.length} مذخر`);
     flash(`${label}: ${fmtNum(res?.rowCount ?? 0)} سطر${notes.length ? ' — للمراجعة: ' + notes.join('، ') : ''}`);
     await reloadAll();
   };
@@ -797,17 +799,24 @@ function ReviewPanel({ batches }: { batches: Batch[] }) {
   const created = batches.flatMap(b => b.unmatched?.created ?? []);
   const fuzzy = batches.flatMap(b => b.unmatched?.fuzzyLinked ?? []);
   const orphans = batches.flatMap(b => b.unmatched?.itemsWithoutBaseline ?? []);
+  const healed = batches.flatMap(b => b.unmatched?.healed ?? []);
 
   return (
     <div className="sl-review">
       <div className="sl-review-head" onClick={() => setOpen(o => !o)}>
         <div className="sl-review-title">
-          <Icon name="warning" size={14} /> مراجعة غير المطابق — {created.length} مذخر جديد · {fuzzy.length} رُبط بالتشابه · {orphans.length} ايتم بلا افتتاحي
+          <Icon name="warning" size={14} /> مراجعة غير المطابق — {created.length} مذخر جديد · {fuzzy.length} رُبط بالتشابه · {orphans.length} ايتم بلا افتتاحي{healed.length ? ` · ${healed.length} صُححت منطقته` : ''}
         </div>
         <span className="sl-hint">{open ? 'إخفاء ▲' : 'عرض ▼'}</span>
       </div>
       {open && (
         <div className="sl-review-body">
+          {healed.length > 0 && (
+            <div>
+              <div className="sl-review-sub">مذاخر كانت منطقتها فاسدة (من استيراد قديم معطوب) وصُححت تلقائياً الآن:</div>
+              {healed.map((h, i) => <div key={i} className="sl-review-line sl-dim">{h.name} ← {h.region}</div>)}
+            </div>
+          )}
           {created.length > 0 && (
             <div>
               <div className="sl-review-sub">مذاخر أُنشئت جديدة (تأكد أنها ليست تكراراً لاسم موجود):</div>
