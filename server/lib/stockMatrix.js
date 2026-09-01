@@ -12,6 +12,8 @@
  * (المصدر الأصلي: src/pages/SalesDataPage.tsx — detectCompanyCol / detectItemNameCol)
  */
 
+import { isPlaceholderCompanyValue } from './companyResolver.js';
+
 export const COMPANY_KW = ['company', 'comp', 'شركة', 'الشركة', 'شركه', 'الشركه', 'vendor', 'supplier', 'brand', 'manufacture', 'principal', 'item code', 'itemcode'];
 export const ITEM_KW_EXACT = ['item', 'الايتم', 'اسم الايتم', 'اسم المادة', 'اسم الماده', 'المادة', 'مادة', 'المواد', 'مواد', 'name', 'product', 'منتج', 'المنتج', 'الاصناف', 'اصناف', 'صنف', 'الدواء', 'دواء'];
 export const ITEM_KW_PART = ['item', 'الايتم', 'اسم', 'نام', 'name', 'product', 'مادة', 'دواء', 'صنف'];
@@ -85,7 +87,8 @@ export function flattenStockMatrix(file) {
   for (const row of rows) {
     const itemName = String(row?.[itemCol] ?? '').trim();
     if (!itemName) continue;
-    const companyName = companyCol ? (String(row?.[companyCol] ?? '').trim() || null) : null;
+    const companyNameRaw = companyCol ? String(row?.[companyCol] ?? '').trim() : '';
+    const companyName = (companyNameRaw && !isPlaceholderCompanyValue(companyNameRaw)) ? companyNameRaw : null;
 
     for (const col of areaCols) {
       if (!col?.key) continue;

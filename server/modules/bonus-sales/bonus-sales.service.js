@@ -12,6 +12,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 
 // ─── Arabic normalisation ─────────────────────────────────────
 function norm(str) {
@@ -160,7 +161,7 @@ export function parseFile(buffer, originalName) {
       : null;
 
     rows.push({
-      companyName:  String(get('companyName') ?? '').trim() || null,
+      companyName:  (get('companyName') && !isPlaceholderCompanyValue(get('companyName'))) ? String(get('companyName')).trim() : null,
       itemName:     String(get('itemName')    ?? '').trim() || null,
       invoiceDate:  parseExcelDate(get('invoiceDate')),
       invoiceNo,

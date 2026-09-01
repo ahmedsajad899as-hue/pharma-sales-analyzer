@@ -54,7 +54,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'upload':          return <UploadPage activeFileIds={activeFileIds} onFileActivated={onFileActivated} />;
+      case 'upload':          return <UploadPage activeFileIds={activeFileIds} onFileActivated={onFileActivated} onSwitchToItems={() => handleTabChange('items')} />;
       case 'representatives': return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;
       case 'scientific-reps': return <ScientificRepsPage activeFileIds={activeFileIds} />;
       case 'reports':         return <ReportsPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;

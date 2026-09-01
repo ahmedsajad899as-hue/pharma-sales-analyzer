@@ -21,6 +21,7 @@ import {
 } from '../../lib/itemResolver.js';
 import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { flattenStockMatrix } from '../../lib/stockMatrix.js';
+import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import * as repo from './stock-ledger.repository.js';
 
 // COLUMN_ALIASES.customer يضع «صيدلية/زبون» قبل «مذخر»، وresolveColumns يأخذ أول
@@ -81,7 +82,7 @@ export function parseMovementFile(buffer, defaultDate) {
       warehouse,
       region: String(raw[cm.area] ?? '').trim(),
       itemName,
-      companyName: String(raw[cm.company] ?? '').trim() || null,
+      companyName: (raw[cm.company] && !isPlaceholderCompanyValue(raw[cm.company])) ? String(raw[cm.company]).trim() : null,
       qty,
       movementDate: parseExcelDate(raw[cm.date]) ?? defaultDate,
       rawRow: raw,

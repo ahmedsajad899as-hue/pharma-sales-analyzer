@@ -30,11 +30,12 @@ interface UploadedFile {
 interface Props {
   activeFileIds: number[];
   onFileActivated: (id: number | null) => void;
+  onSwitchToItems?: () => void;
 }
 
 const API = '';
 
-export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
+export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToItems }: Props) {
   const { token, hasFeature, user } = useAuth();
   const { t } = useLanguage();
   const [dragging, setDragging]   = useState(false);
@@ -52,6 +53,7 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
     returnsCount?: number;
     normalizations?: Array<{ from: string; to: string; source: string; entityType: string }>;
     unknownItems?: string[];
+    unclearCompanyItems?: string[];
   } | null>(null);
   const [showNorm, setShowNorm] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -120,11 +122,13 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
       const newFileId = data.data?.uploadedFile?.id ?? data.uploadedFile?.id;
       const norms = data.data?.normalizations ?? data.normalizations ?? [];
       const unknownItems = data.data?.unknownItems ?? data.unknownItems ?? [];
+      const unclearCompanyItems = data.data?.unclearCompanyItems ?? data.unclearCompanyItems ?? [];
       setUploadResult({
         salesCount:  data.data?.salesCount,
         returnsCount: data.data?.returnsCount,
         normalizations: norms,
         unknownItems,
+        unclearCompanyItems,
       });
       setShowNorm(norms.length > 0);
       setTimeout(() => { setUploadResult(null); setShowNorm(false); }, 18000);
@@ -908,6 +912,31 @@ export default function UploadPage({ activeFileIds, onFileActivated }: Props) {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {uploadResult.unknownItems.map((name, i) => (
+              <span key={i} style={BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)')}>{name}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Items with an unclear company value (e.g. "null"/"N-A" in the source file) —
+          skipped instead of being turned into a fake company; user assigns manually. */}
+      {uploadResult?.unclearCompanyItems && uploadResult.unclearCompanyItems.length > 0 && (
+        <div style={{ ...CARD, background: '#fff7ed', borderColor: '#fb923c', padding: '8px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, color: '#9a3412', fontWeight: 700 }}>
+              ⚠️ {uploadResult.unclearCompanyItems.length} ايتم كانت قيمة الشركة له غير واضحة بالملف (مثل null/N-A) — لم يُربط بأي شركة تلقائياً، مبيعاته وإرجاعاته محفوظة بالكامل
+            </div>
+            {onSwitchToItems && (
+              <button
+                onClick={onSwitchToItems}
+                style={{ marginRight: 'auto', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 7, padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+              >
+                <Icon name="folder" size={12} /> تحديد الشركة من صفحة الايتمات
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {uploadResult.unclearCompanyItems.map((name, i) => (
               <span key={i} style={BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)')}>{name}</span>
             ))}
           </div>
