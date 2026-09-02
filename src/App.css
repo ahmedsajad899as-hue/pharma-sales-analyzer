@@ -3441,6 +3441,11 @@ select.comm-input { cursor: pointer; }
 .sl-label { font-size: 11.5px; font-weight: 600; color: var(--c-text-secondary); }
 .sl-input { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
 .sl-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sl-inline--nowrap { flex-wrap: nowrap; }
+.sl-date-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sl-date-caption { font-size: 11.5px; color: var(--c-text-secondary); white-space: nowrap; }
+.sl-date-input { width: 150px; flex-shrink: 0; }
+.sl-select-grow { flex: 1; min-width: 140px; }
 .sl-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-inline-start: auto; }
 .sl-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding-bottom: 4px; }
 .sl-badge--solid { background: var(--c-danger); color: #fff; }
@@ -3561,4 +3566,6 @@ select.comm-input { cursor: pointer; }
   .sl-table th, .sl-table td { padding: 6px 8px; font-size: 12px; }
   .sl-toolbar-row { gap: 12px; }
   .sl-manual-btn { margin-inline-start: 0; width: 100%; justify-content: center; }
+  .sl-inline--nowrap { flex-wrap: wrap; }
+  .sl-date-group, .sl-date-input, .sl-select-grow { width: 100%; }
 }

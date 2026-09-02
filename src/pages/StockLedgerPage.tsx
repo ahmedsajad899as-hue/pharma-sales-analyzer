@@ -766,18 +766,17 @@ function BatchesTab(p: {
   return (
     <>
       <div className="sl-toolbar">
-        {/* صف 1: التاريخ + الاستيراد من ملف Stock موجود (المسار الأكثر استخداماً) */}
-        <div className="sl-toolbar-row">
-          <div className="sl-field sl-field--sm">
-            <label className="sl-label">تاريخ السريان</label>
-            <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
-          </div>
-
-          {p.canBaseline && (
+        {/* صف 1: التاريخ أمام اختيار ملف Stock ثم زر الاستيراد — كلّها معاً بصف واحد */}
+        {p.canBaseline && (
+          <div className="sl-toolbar-row">
             <div className="sl-field sl-field--grow">
               <label className="sl-label">استيراد الافتتاحي من ملف Stock موجود</label>
-              <div className="sl-inline">
-                <select className="form-input sl-input" value={stockFileId}
+              <div className="sl-inline sl-inline--nowrap">
+                <div className="sl-date-group">
+                  <span className="sl-date-caption">تاريخ السريان</span>
+                  <input className="form-input sl-input sl-date-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+                </div>
+                <select className="form-input sl-input sl-select-grow" value={stockFileId}
                   onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}>
                   <option value="">اختر ملف…</option>
                   {p.stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -788,8 +787,17 @@ function BatchesTab(p: {
                 </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {!p.canBaseline && (
+          <div className="sl-toolbar-row">
+            <div className="sl-field sl-field--sm">
+              <label className="sl-label">تاريخ السريان</label>
+              <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+          </div>
+        )}
 
         {(p.canBaseline || p.canUpload || p.canManual) && <div className="sl-toolbar-divider" />}
 
