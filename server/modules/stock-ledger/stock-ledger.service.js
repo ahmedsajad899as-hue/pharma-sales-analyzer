@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 import prisma from '../../lib/prisma.js';
 import {
   resolveColumns, detectHeaderRow, parseNumeric, parseExcelDate,
+  detectMercatoFormat, mercatoColumnMap,
 } from '../sales/sales.service.js';
 import {
   normalizeArabic, normalizeAreaName, normalizeItemKey,
@@ -52,6 +53,14 @@ function resolveWarehouseCol(headers, fallbackCustomerCol) {
 
 /**
  * يحلّل ملف Excel طولي: المذخر | المنطقة | الشركة | الايتم | الكمية | التاريخ
+ *
+ * يكتشف صيغة ميركاتو تلقائياً (نفس محرّك وحدة المبيعات: detectMercatoFormat/
+ * mercatoColumnMap) — ملف طلبيات مذاخر عامة، حيث «اسم الشركة» = الصيدلية لا
+ * شركة، و«الصنف» = الشركة الحقيقية، و«المنطقة»/«المدينة» تخصّان الصيدلية لا
+ * المذخر (فتُهمَل تماماً كمنطقة له)، والكمية = المدفوعة + البونص (البونص يخرج
+ * فعلياً من المذخر أيضاً). حقول إضافية (رقم/حالة الطلبية، حالة المادة، اسم
+ * الصيدلية) تُرفَق بالصف لاستعمال filterMercatoRows لاحقاً في ingestRows.
+ *
  * @returns {{rows: object[], headers: string[], colMap: object, skipped: number}}
  */
 export function parseMovementFile(buffer, defaultDate) {
@@ -66,10 +75,16 @@ export function parseMovementFile(buffer, defaultDate) {
 
   const headers = Object.keys(json[0]);
   const cm = resolveColumns(headers, {});
+  const isMercato = detectMercatoFormat(headers);
+  if (isMercato) Object.assign(cm, mercatoColumnMap(headers));
   const whCol = resolveWarehouseCol(headers, cm.customer);
   const colMap = {
     warehouse: whCol, region: cm.area, item: cm.item,
     quantity: cm.quantity, company: cm.company, date: cm.date,
+    ...(isMercato ? {
+      orderNumber: cm.orderNumber, orderStatus: cm.orderStatus,
+      itemStatus: cm.itemStatus, bonusQty: cm.bonusQty, pharmacy: cm.customer,
+    } : {}),
   };
 
   const rows = [];
@@ -77,16 +92,24 @@ export function parseMovementFile(buffer, defaultDate) {
   for (const raw of json) {
     const warehouse = String(raw[whCol] ?? '').trim();
     const itemName = String(raw[cm.item] ?? '').trim();
-    const qty = Math.abs(parseNumeric(raw[cm.quantity]));
+    const paidQty = Math.abs(parseNumeric(raw[cm.quantity]));
+    const bonusQty = isMercato && cm.bonusQty ? Math.abs(parseNumeric(raw[cm.bonusQty])) : 0;
+    const qty = paidQty + bonusQty;
     if (!warehouse || !itemName || qty <= 0) { skipped++; continue; }
     rows.push({
       warehouse,
-      region: String(raw[cm.area] ?? '').trim(),
+      region: isMercato ? '' : String(raw[cm.area] ?? '').trim(),
       itemName,
       companyName: (raw[cm.company] && !isPlaceholderCompanyValue(raw[cm.company])) ? String(raw[cm.company]).trim() : null,
       qty,
       movementDate: parseExcelDate(raw[cm.date]) ?? defaultDate,
       rawRow: raw,
+      ...(isMercato ? {
+        orderNumber: cm.orderNumber ? String(raw[cm.orderNumber] ?? '').trim() : '',
+        orderStatus: cm.orderStatus ? String(raw[cm.orderStatus] ?? '').trim() : '',
+        itemStatus: cm.itemStatus ? String(raw[cm.itemStatus] ?? '').trim() : '',
+        pharmacyName: cm.customer ? String(raw[cm.customer] ?? '').trim() : '',
+      } : {}),
     });
   }
   return { rows, headers, colMap, skipped };
@@ -427,18 +450,70 @@ export async function saveStockCompanyNameLinks(userId, links) {
   return { saved };
 }
 
+// ─── ميركاتو: احتساب الطلبيات كمبيع حسب حالتها + منع تكرار الاحتساب ───────────
+// ملف ميركاتو (طلبيات مذاخر عامة) يحمل حالة الطلبية وحالة كل مادة فيها، ويُعاد
+// رفعه بمرور الوقت مع تحدّث الحالات. سطر (طلبية+صيدلية+مادة) يُحتسب مبيعاً مرة
+// واحدة فقط، نهائياً — راجع StockOrderLine (وجود السطر = احتُسب سلفاً).
+const MERCATO_SALE_STATUSES = new Set(['جاهزة للتسليم', 'تم التوصيل']);
+const MERCATO_EXCLUDED_ITEM_STATUSES = new Set(['نعتذر عن التجهيز', 'المادة غير متوفرة']);
+// «تغيرت الكمية» ليست هنا عمداً — تُحتسب مبيعاً بالكمية كما وردت (قرار المستخدم).
+
+/**
+ * يصفّي صفوف ميركاتو (تحمل orderNumber) حسب حالتها وسجل الاحتساب السابق —
+ * قراءة فقط، لا تكتب شيئاً. صفوف بلا orderNumber (ملفات عادية) تمرّ بلا أي
+ * تأثير. تُستدعى بشكل مستقل في classifyMovementRows (معاينة) وingestRows
+ * (تنفيذ فعلي ذاتي الحماية بصرف النظر عن نقطة الدخول).
+ */
+async function filterMercatoRows(rows, userId) {
+  const mercatoRows = (rows || []).filter(r => r?.orderNumber);
+  if (!mercatoRows.length) return { eligible: rows, skippedAlready: 0, skippedNotReady: 0 };
+
+  const keyOf = (r) => ({
+    orderNumber: String(r.orderNumber).trim(),
+    pharmacyKey: normalizeItemKey(r.pharmacyName || ''),
+    itemKey: normalizeItemKey(r.itemName),
+  });
+
+  const orderNumbers = [...new Set(mercatoRows.map(r => keyOf(r).orderNumber))];
+  const existing = await prisma.stockOrderLine.findMany({
+    where: { userId, orderNumber: { in: orderNumbers } },
+    select: { orderNumber: true, pharmacyKey: true, itemKey: true },
+  });
+  const countedSet = new Set(existing.map(e => `${e.orderNumber}|${e.pharmacyKey}|${e.itemKey}`));
+
+  const eligible = [];
+  let skippedAlready = 0, skippedNotReady = 0;
+  for (const r of rows) {
+    if (!r?.orderNumber) { eligible.push(r); continue; }
+    const k = keyOf(r);
+    if (countedSet.has(`${k.orderNumber}|${k.pharmacyKey}|${k.itemKey}`)) { skippedAlready++; continue; }
+    const orderOk = MERCATO_SALE_STATUSES.has(String(r.orderStatus ?? '').trim());
+    const itemOk = !MERCATO_EXCLUDED_ITEM_STATUSES.has(String(r.itemStatus ?? '').trim());
+    if (!orderOk || !itemOk) { skippedNotReady++; continue; } // لم يكتمل تجهيزها بعد — تُعاد المحاولة في رفعة لاحقة
+    eligible.push(r);
+  }
+  return { eligible, skippedAlready, skippedNotReady };
+}
+
 /**
  * يصنّف صفوف ملف مُحلَّل عبر المحاور الثلاثة معاً (مذاخر/ايتمات/شركات) — معاينة
  * قبل الحفظ لواجهة الرفع على مرحلتين (استخراج ← تأكيد المشكوك فيه ← حفظ).
+ * صفوف ميركاتو غير المؤهَّلة (مُحتسبة سابقاً أو لم يكتمل تجهيزها) تُستبعد أولاً
+ * فلا يُسأل المستخدم عن أسماء تخصّها.
  */
 export async function classifyMovementRows({ rows, userId }) {
+  const mercato = await filterMercatoRows(rows, userId);
+  const eligibleRows = mercato.eligible;
   const itemCtx = await loadItemCtx(userId);
   const [warehouses, items, companies] = await Promise.all([
-    classifyWarehouseRows(rows, userId),
-    classifyItemNames(rows, userId, itemCtx),
-    classifyCompanyNames(rows, userId),
+    classifyWarehouseRows(eligibleRows, userId),
+    classifyItemNames(eligibleRows, userId, itemCtx),
+    classifyCompanyNames(eligibleRows, userId),
   ]);
-  return { pending: { warehouses: warehouses.pending, items: items.pending, companies: companies.pending } };
+  return {
+    pending: { warehouses: warehouses.pending, items: items.pending, companies: companies.pending },
+    mercato: { skippedAlready: mercato.skippedAlready, skippedNotReady: mercato.skippedNotReady },
+  };
 }
 
 /**
@@ -454,6 +529,19 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
   const direction = DIRECTIONS[kind];
   if (!direction) throw new Error('نوع الدفعة غير صالح');
   if (!rows.length) throw new Error('لا توجد صفوف صالحة في الملف');
+
+  // ميركاتو: تصفية ذاتية الحماية بصرف النظر عن نقطة الدخول — صفوف مُحتسبة
+  // سابقاً أو غير جاهزة (حالة الطلبية/المادة) تُستبعد دائماً هنا، حتى لو
+  // استُدعيت هذه الدالة مباشرة بلا مرور بـclassifyMovementRows أولاً.
+  const mercato = await filterMercatoRows(rows, userId);
+  rows = mercato.eligible;
+  if (!rows.length) {
+    // وضع طبيعي متوقَّع (إعادة رفع نفس الملف للتحقق من التحديثات) — لا خطأ
+    return {
+      batchId: null, rowCount: 0, warehouseCount: 0, unmatched: null,
+      mercato: { skippedAlready: mercato.skippedAlready, skippedNotReady: mercato.skippedNotReady, countedNow: 0 },
+    };
+  }
 
   // المذاخر: تُحمَّل مذاخر المستخدم + روابط أسمائه المحفوظة (WarehouseNameLink) —
   // أي قرار حفظه المستخدم عبر نافذة التأكيد (قُبيل هذا النداء مباشرة في نفس
@@ -524,6 +612,11 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
       qty: r.qty,
       movementDate: r.movementDate ?? movementDate,
       rawRow: r.rawRow ? JSON.stringify(r.rawRow) : null,
+      // ميركاتو فقط — مفتاح StockOrderLine الخام (لا القانوني) لأنه هو ما فحصه
+      // filterMercatoRows أعلاه؛ orderNumber=null لصفوف الملفات العادية.
+      orderNumber: r.orderNumber || null,
+      pharmacyName: r.pharmacyName || null,
+      orderItemKey: r.orderNumber ? normalizeItemKey(r.itemName) : null,
     });
   }
   await wh.flush();
@@ -534,7 +627,23 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
     itemKey: p.itemKey, itemName: p.itemName, companyName: p.companyName, itemId: p.itemId,
     qty: p.qty, direction, movementDate: p.movementDate, rawRow: p.rawRow,
   }));
-  await repo.bulkInsertMovements(movements);
+
+  // صفوف ميركاتو تُدرج فرداً (لا createMany) لالتقاط id الحركة فوراً وربطه بثقة
+  // تامة بـStockOrderLine — لا يمكن الاعتماد على ترتيب/تسلسل createMany لهذا.
+  // بقية الصفوف (الغالبية عادةً) تُدرج بالجملة كالمعتاد.
+  const mercatoIdx = new Set();
+  prepared.forEach((p, i) => { if (p.orderNumber) mercatoIdx.add(i); });
+  await repo.bulkInsertMovements(movements.filter((_, i) => !mercatoIdx.has(i)));
+  for (const i of mercatoIdx) {
+    const p = prepared[i];
+    const created = await prisma.stockMovement.create({ data: movements[i] });
+    const pharmacyKey = normalizeItemKey(p.pharmacyName || '');
+    await prisma.stockOrderLine.upsert({
+      where: { userId_orderNumber_pharmacyKey_itemKey: { userId, orderNumber: p.orderNumber, pharmacyKey, itemKey: p.orderItemKey } },
+      update: {},
+      create: { userId, orderNumber: p.orderNumber, pharmacyKey, pharmacyName: p.pharmacyName || '', itemKey: p.orderItemKey, qty: p.qty, movementId: created.id },
+    }).catch(() => {});
+  }
 
   const warehouseIds = [...new Set(movements.map(m => m.warehouseId))];
   await recomputeBalances(userId, warehouseIds);
@@ -559,6 +668,7 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
     rowCount: movements.length,
     warehouseCount: warehouseIds.length,
     unmatched: hasIssues ? unmatched : null,
+    mercato: { skippedAlready: mercato.skippedAlready, skippedNotReady: mercato.skippedNotReady, countedNow: mercatoIdx.size },
   };
 }
 

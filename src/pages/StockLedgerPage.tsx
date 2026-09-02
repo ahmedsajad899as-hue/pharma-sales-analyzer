@@ -216,6 +216,10 @@ export default function StockLedgerPage() {
     if (u?.fuzzyLinked?.length) notes.push(`${u.fuzzyLinked.length} رُبط بالتشابه`);
     if (u?.itemsWithoutBaseline?.length) notes.push(`${u.itemsWithoutBaseline.length} ايتم بلا ستوك افتتاحي`);
     if (u?.healed?.length) notes.push(`صُححت منطقة ${u.healed.length} مذخر`);
+    // ميركاتو (طلبيات): طلبيات مُحتسبة سابقاً أو لم يكتمل تجهيزها — لا تُعامَل كخطأ.
+    const m = res?.mercato as { skippedAlready?: number; skippedNotReady?: number } | undefined;
+    if (m?.skippedAlready) notes.push(`${m.skippedAlready} طلبية مُحتسبة سابقاً`);
+    if (m?.skippedNotReady) notes.push(`${m.skippedNotReady} طلبية لم يكتمل تجهيزها بعد`);
     flash(`${label}: ${fmtNum(res?.rowCount ?? 0)} سطر${notes.length ? ' — للمراجعة: ' + notes.join('، ') : ''}`);
     await reloadAll();
   };

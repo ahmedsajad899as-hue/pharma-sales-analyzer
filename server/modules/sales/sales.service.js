@@ -967,6 +967,14 @@ export function mercatoColumnMap(headers) {
   set('unitPrice',  pick(h => ['السعر', 'سعر'].includes(_mNorm(h))));
   set('totalValue', pick(h => _mHas(h, 'مجموع')));
   set('date',       pick(h => _mHas(h, 'بتاريخ') || ['التاريخ', 'تاريخ'].includes(_mNorm(h))));
+  // الحقول التالية لا تُقرأ في مسار المبيعات العادي (لا حقل يطلبها) — أُضيفت
+  // خصيصاً لرصيد المذاخر (stock-ledger.service.js) الذي يحتاج حالة الطلبية/المادة
+  // لتقرير هل الصف مبيع فعلي يُخصم من الستوك، ورقم الطلبية لمنع تكرار احتسابها
+  // عند إعادة رفع نفس الملف. لا تأثير على هذا المسار.
+  set('orderNumber', pick(h => _mHas(h, 'رقم', 'طلبيه', 'مذخر'))); // نفس معيار hasOrderNum في detectMercatoFormat
+  set('orderStatus', pick(h => _mHas(h, 'حاله', 'طلبيه') && !_mHas(h, 'ماده'))); // «حالة طلبية المذخر» — تُستبعد «حالة المادة بطلبية المذخر»
+  set('itemStatus',  pick(h => _mHas(h, 'حاله', 'ماده'))); // «حالة المادة بطلبية المذخر»
+  set('bonusQty',    pick(h => _mHas(h, 'كميه') && _mHas(h, 'بونص'))); // «كمية البونص»
   return map;
 }
 

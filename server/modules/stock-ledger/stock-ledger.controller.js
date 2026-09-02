@@ -171,11 +171,11 @@ export async function extractMovements(req, res) {
         colMap,
       });
     }
-    const { pending } = await classifyMovementRows({ rows, userId: req.user.id });
+    const { pending, mercato } = await classifyMovementRows({ rows, userId: req.user.id });
     // rawRow غير مُستعمل في أي شاشة — يُسقَط من صفوف الذهاب والإياب بين الاستخراج
     // والحفظ لتخفيف حِمل الشبكة (قد تبلغ الملفات آلاف الأسطر).
     const lean = rows.map(({ rawRow, ...r }) => r);
-    res.json({ success: true, data: { rows: lean, colMap, skipped, pending, kind, fileName: originalName } });
+    res.json({ success: true, data: { rows: lean, colMap, skipped, pending, mercato, kind, fileName: originalName } });
   } catch (err) { fail(res, err, 400); }
 }
 

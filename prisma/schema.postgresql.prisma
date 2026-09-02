@@ -108,6 +108,7 @@ model User {
   stockBatches    StockMovementBatch[]
   warehouseNameLinks    WarehouseNameLink[]
   stockCompanyNameLinks StockCompanyNameLink[]
+  stockOrderLines       StockOrderLine[]
 
   // الحساب (Account Builder) — synced across devices
   accountBuilderAccounts AccountBuilderAccount[]
@@ -2141,6 +2142,7 @@ model StockMovement {
 
   batch     StockMovementBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   warehouse StockWarehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  orderLines StockOrderLine[]
 
   @@index([userId])
   @@index([batchId])
@@ -2193,4 +2195,28 @@ model StockCompanyNameLink {
   @@unique([userId, fromKey])
   @@index([companyId])
   @@map("stock_company_name_links")
+}
+
+// سطر طلبية من ملف ميركاتو (حالات الطلبيات) اعتُبر مبيعاً واحتُسب فعلياً —
+// وجود الصف = احتُسب نهائياً (لا حقل "لم يُحتسب بعد": سطر لم يُحتسب ببساطة لا
+// يملك صفاً، ويُعاد تقييمه من حالته الحالية في كل رفعة لاحقة). onDelete:Cascade
+// على movement يعني: حذف الدفعة (فحركاتها) يحذف هذا السطر تلقائياً، فيصير
+// بالإمكان احتساب نفس الطلبية من جديد عند إعادة الرفع — بلا أي كود إضافي.
+model StockOrderLine {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  orderNumber  String
+  pharmacyKey  String // normalizeItemKey(pharmacyName) — يمتص فوارق التنسيق الطفيفة
+  pharmacyName String // للعرض فقط
+  itemKey      String // normalizeItemKey(اسم المادة الخام من الملف)
+  qty          Float
+  movementId   Int
+  countedAt    DateTime @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movement StockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orderNumber, pharmacyKey, itemKey])
+  @@index([movementId])
+  @@map("stock_order_lines")
 }
