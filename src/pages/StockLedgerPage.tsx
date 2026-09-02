@@ -770,19 +770,17 @@ function BatchesTab(p: {
         {p.canBaseline && (
           <div className="sl-toolbar-row">
             <div className="sl-field sl-field--grow">
-              <label className="sl-label">استيراد الافتتاحي من ملف Stock موجود</label>
               <div className="sl-inline sl-inline--nowrap">
-                <div className="sl-date-group">
-                  <span className="sl-date-caption">تاريخ السريان</span>
-                  <input className="form-input sl-input sl-date-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
-                </div>
+                <input className="form-input sl-input sl-date-input" type="date" value={date} onChange={e => setDate(e.target.value)} title="تاريخ السريان" />
                 <select className="form-input sl-input sl-select-grow" value={stockFileId}
-                  onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}>
+                  onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}
+                  title="استيراد الافتتاحي من ملف Stock موجود">
                   <option value="">اختر ملف…</option>
                   {p.stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
                 <button className="btn btn--primary btn--sm" disabled={!stockFileId || p.busy === 'baseline'}
-                  onClick={() => stockFileId && p.onBaselineFromStock(stockFileId, date)}>
+                  onClick={() => stockFileId && p.onBaselineFromStock(stockFileId, date)}
+                  title="استيراد الافتتاحي من ملف Stock موجود">
                   <Icon name={p.busy === 'baseline' ? 'refresh' : 'import'} size={13} className={p.busy === 'baseline' ? 'sl-spin' : undefined} /> استيراد
                 </button>
               </div>
@@ -793,8 +791,7 @@ function BatchesTab(p: {
         {!p.canBaseline && (
           <div className="sl-toolbar-row">
             <div className="sl-field sl-field--sm">
-              <label className="sl-label">تاريخ السريان</label>
-              <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+              <input className="form-input sl-input" type="date" value={date} onChange={e => setDate(e.target.value)} title="تاريخ السريان" />
             </div>
           </div>
         )}
@@ -805,7 +802,6 @@ function BatchesTab(p: {
         <div className="sl-toolbar-row">
           {(p.canBaseline || p.canUpload) && (
             <div className="sl-field">
-              <span className="sl-label">أو ارفع ملف حركة</span>
               <div className="sl-action-group">
                 {p.canBaseline && (
                   <button className="sl-action sl-action--blue" disabled={uploading} onClick={() => pick(baseRef)}
@@ -835,11 +831,6 @@ function BatchesTab(p: {
               <Icon name="edit" size={13} /> إدخال يدوي
             </button>
           )}
-        </div>
-
-        <div className="sl-hint sl-hint--block sl-hint--tight">
-          أعمدة ملف الحركات: <b>المذخر</b> · المنطقة · الشركة · <b>الايتم</b> · <b>الكمية</b> · التاريخ (الغامق إلزامي).
-          ستوك افتتاحي جديد يصفّر أزواج (مذخر+ايتم) الواردة فيه ويهمل حركاتها الأقدم من تاريخ السريان.
         </div>
       </div>
 

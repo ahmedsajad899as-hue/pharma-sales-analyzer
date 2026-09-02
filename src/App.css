@@ -3442,8 +3442,6 @@ select.comm-input { cursor: pointer; }
 .sl-input { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
 .sl-inline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sl-inline--nowrap { flex-wrap: nowrap; }
-.sl-date-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.sl-date-caption { font-size: 11.5px; color: var(--c-text-secondary); white-space: nowrap; }
 .sl-date-input { width: 150px; flex-shrink: 0; }
 .sl-select-grow { flex: 1; min-width: 140px; }
 .sl-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-inline-start: auto; }
@@ -3452,7 +3450,6 @@ select.comm-input { cursor: pointer; }
 
 .sl-hint { font-size: 11.5px; color: var(--c-text-secondary); }
 .sl-hint--block { margin: -4px 2px 12px; line-height: 1.7; }
-.sl-hint--tight { margin: 2px 2px 0; }
 
 /* ── شريط أدوات تبويب «الدفعات»: صفوف مفصولة بخط رفيع بدل حشر كل الأزرار
    بصف واحد — كل صف مخصّص لنوع إجراء واحد فقط لسهولة القراءة. ── */
@@ -3567,5 +3564,5 @@ select.comm-input { cursor: pointer; }
   .sl-toolbar-row { gap: 12px; }
   .sl-manual-btn { margin-inline-start: 0; width: 100%; justify-content: center; }
   .sl-inline--nowrap { flex-wrap: wrap; }
-  .sl-date-group, .sl-date-input, .sl-select-grow { width: 100%; }
+  .sl-date-input, .sl-select-grow { width: 100%; }
 }
