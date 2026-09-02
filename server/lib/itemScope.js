@@ -11,7 +11,7 @@
 
 import prisma from './prisma.js';
 import { normalizeItemKey } from './itemResolver.js';
-import { ensureLinkedRepId } from './areaScope.js';
+import { ensureLinkedRepId, REP_ROLES } from './areaScope.js';
 
 /**
  * معرّفات الايتمات التي يُسمح للمستخدم برؤيتها في المبيعات/الإرجاع.
@@ -85,7 +85,7 @@ export async function buildItemScopeFilter(userId) {
  * @param {number} userId
  */
 export async function syncUserItemDerivedLinks(userId) {
-  const repId = await ensureLinkedRepId(userId);
+  const repId = await ensureLinkedRepId(userId, { onlyRoles: REP_ROLES });
   if (!repId) return { synced: false };
 
   const itemIds = (await prisma.userItemAssignment.findMany({

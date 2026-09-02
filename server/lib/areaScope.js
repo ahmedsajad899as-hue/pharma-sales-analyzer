@@ -106,26 +106,34 @@ export async function hasAnyAreaScope(userId) {
   return ids.length > 0;
 }
 
+// الأدوار التي تُمثَّل كمندوب في صفحة «المناديب العلميين» — نفس مجموعة
+// scientific-reps.service.js#list. غيرها (مدير شركة/مكتب...) لا يُنشأ له سجل.
+export const REP_ROLES = new Set(['scientific_rep', 'team_leader', 'commercial_rep']);
+
 /**
  * يضمن وجود ScientificRepresentative مرتبط بهذا المستخدم، وينشئه عند الحاجة —
  * بدل الاكتفاء بإرجاع null والانتظار حتى يفتح مديرٌ صفحة «المناديب العلميين»
  * (حيث كان الإنشاء الكسول الوحيد سابقاً). بدون هذا، مستخدم جديد يُستورد من
  * إكسل ويُعيَّن له مناطق فوراً كان يبقى بلا linkedRepId، فتتجاهل
- * syncUserAreaDerivedLinks المزامنة بصمت (ScientificRepArea/Commercial تبقى
- * فارغة) حتى يفتح أحد صفحته لاحقاً — وهو بالضبط ما كان يظهر للمدير كمندوب
- * «بلا تحديد مناطق/ايتمات» رغم تحديدها وقت الاستيراد.
+ * syncUserAreaDerivedLinks المزامنة بصمت (ScientificRepArea تبقى فارغة) حتى
+ * يفتح أحد صفحته لاحقاً — وهو بالضبط ما كان يظهر للمدير كمندوب «بلا تحديد
+ * مناطق/ايتمات» رغم تحديدها وقت الاستيراد.
  *
  * @param {number} userId
+ * @param {{ onlyRoles?: Set<string>|null }} opts onlyRoles: لا يُنشئ سجلاً
+ *        جديداً إلا لهذه الأدوار (سجل قائم يُعاد دائماً مهما كان الدور).
  * @returns {Promise<number|null>} معرّف المندوب المرتبط، أو null إن لم يوجد المستخدم
  */
-export async function ensureLinkedRepId(userId) {
+export async function ensureLinkedRepId(userId, opts = {}) {
   if (!userId) return null;
+  const { onlyRoles = null } = opts;
   const userRow = await prisma.user.findUnique({
     where:  { id: userId },
-    select: { linkedRepId: true, displayName: true, username: true, phone: true },
+    select: { linkedRepId: true, displayName: true, username: true, phone: true, role: true },
   });
   if (!userRow) return null;
   if (userRow.linkedRepId) return userRow.linkedRepId;
+  if (onlyRoles && !onlyRoles.has(userRow.role)) return null;
 
   let rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
   if (!rep) {
@@ -139,21 +147,30 @@ export async function ensureLinkedRepId(userId) {
 }
 
 /**
- * إعادة بناء الروابط المشتقة من مناطق المستخدم: ScientificRepArea و
- * ScientificRepCommercial.
+ * إعادة بناء ScientificRepArea من مناطق المستخدم (لقطة snapshot لا تُحسب وقت
+ * الاستعلام، بعكس resolveEffectiveAreaIds). مُشغّلاتها:
+ *   1. setUserAreas               — حفظ المناطق
+ *   2. حفظ تعيين المحافظات/الأقسام — لأن مناطقها تدخل النطاق
+ *   3. رفع ملف يُنشئ مناطق جديدة داخل محافظة معيَّنة لمستخدمين
+ *   4. إنشاء/استيراد مستخدم جديد  — عبر ensureLinkedRepId أعلاه
  *
- * لماذا موجودة هنا: هذه لقطات (snapshots) لا تُحسب وقت الاستعلام، بعكس
- * resolveEffectiveAreaIds. كانت مدفونة داخل setUserAreas فلا تُحدَّث إلا عند
- * حفظ المناطق يدوياً. بعد إدخال المحافظات صار لها ثلاثة مُشغّلات:
- *   1. setUserAreas               — حفظ المناطق (كما كان)
- *   2. حفظ تعيين المحافظات        — لأن مناطق المحافظة تدخل النطاق
- *   3. بعد رفع ملف ينشئ مناطق جديدة داخل محافظة معيَّنة لمستخدمين
+ * لا تلمس ScientificRepCommercial إطلاقاً: كانت تُعيد اشتقاق المناديب
+ * التجاريين من تطابق اسم المنطقة مع MedicalRepresentative.areas، وهذا مصدر
+ * خاطئ لثلاثة أسباب — (أ) يربط أي تجاري «معيَّن» على المنطقة حتى لو لا مبيعة
+ * له في الملف المفعَّل، فتنتفخ القائمة بعشرات الأسماء؛ (ب) يتجاهل
+ * ScientificRepCommercialExclusion فيُعيد تجارياً حذفه المدير يدوياً؛
+ * (ج) يمسح (deleteMany) ما اشتقّه المصدر الصحيح فيدهسه عند أي حفظ مناطق.
+ * المصدر الصحيح الوحيد هو بيانات الملف المفعَّل:
+ * syncCommercialsByActiveFiles (يُستدعى من App.tsx عند تغيّر الملفات المفعّلة)
+ * و syncCommercialsForNewSales (بعد إضافة مبيعات لملف نشط).
  *
  * @param {number} userId
  * @param {number[]|null} areaIdsOverride مناطق محسوبة مسبقاً (يتجنّب استعلاماً)
  */
 export async function syncUserAreaDerivedLinks(userId, areaIdsOverride = null) {
-  const repId = await ensureLinkedRepId(userId);
+  // القصر على أدوار المناديب: حفظ مناطق مديرِ شركة يجب ألّا يُنشئ له سجل
+  // ScientificRepresentative — وجود linkedRepId يُغيّر مسارات استعلام الأطباء.
+  const repId = await ensureLinkedRepId(userId, { onlyRoles: REP_ROLES });
   if (!repId) return { synced: false };
 
   // مناطق النطاق الفعلي — بلا مناطق المندوب نفسه، وإلا صارت الدالة تُغذّي نفسها
@@ -161,7 +178,6 @@ export async function syncUserAreaDerivedLinks(userId, areaIdsOverride = null) {
   const areaIds = areaIdsOverride
     ?? await resolveEffectiveAreaIds(userId, { includeRepAreas: false });
 
-  // 1. مزامنة ScientificRepArea
   await prisma.$transaction([
     prisma.scientificRepArea.deleteMany({ where: { scientificRepId: repId } }),
     ...(areaIds.length ? [prisma.scientificRepArea.createMany({
@@ -170,57 +186,7 @@ export async function syncUserAreaDerivedLinks(userId, areaIdsOverride = null) {
     })] : []),
   ]);
 
-  if (areaIds.length === 0) {
-    await prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } });
-    return { synced: true, areaCount: 0, commercialCount: 0 };
-  }
-
-  // 2. إسناد المناديب التجاريين تلقائياً حسب تطابق اسم المنطقة
-  const { normalizeAreaName } = await import('./itemResolver.js');
-
-  const assignedAreas = await prisma.area.findMany({
-    where:  { id: { in: areaIds } },
-    select: { id: true, name: true },
-  });
-  const assignedNormSet = new Set(assignedAreas.map(a => normalizeAreaName(a.name)));
-
-  // كل صفوف Area التي تمثّل نفس المكان — تطابق تام بعد التطبيع فقط. المطابقة
-  // بالتضمين (includes) كانت فضفاضة: «الحسين» يطابق «الحسينيه»، و«اور»/«مغرب»
-  // يطابقان مناطق كثيرة، فتُسحب مناديب من أماكن لا يغطيها المندوب.
-  const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-  const matchingAreaIds = allAreas
-    .filter(a => assignedNormSet.has(normalizeAreaName(a.name)))
-    .map(a => a.id);
-
-  const commercialReps = await prisma.medicalRepresentative.findMany({
-    where:   { areas: { some: { areaId: { in: matchingAreaIds } } } },
-    select:  { id: true, name: true },
-    orderBy: { id: 'asc' },
-  });
-
-  // نفس الشخص قد يوجد كصفوف متعددة من ملفات مختلفة — أبقِ الأول لكل اسم مطبَّع.
-  // ملاحظة: تطبيع أسماء الأشخاص لا يحذف «ال» التعريف ولا بادئات «حي/محلة» —
-  // بعكس normalizeAreaName المخصّص للمناطق. «علي الحسن» ليس «علي حسن».
-  const normPersonName = s => String(s || '').trim()
-    .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-    .replace(/[ً-ٟ]/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
-  const seenNames = new Set();
-  const uniqueReps = commercialReps.filter(r => {
-    const n = normPersonName(r.name);
-    if (seenNames.has(n)) return false;
-    seenNames.add(n);
-    return true;
-  });
-
-  await prisma.$transaction([
-    prisma.scientificRepCommercial.deleteMany({ where: { scientificRepId: repId } }),
-    ...(uniqueReps.length ? [prisma.scientificRepCommercial.createMany({
-      data: uniqueReps.map(r => ({ scientificRepId: repId, commercialRepId: r.id })),
-      skipDuplicates: true,
-    })] : []),
-  ]);
-
-  return { synced: true, areaCount: areaIds.length, commercialCount: uniqueReps.length };
+  return { synced: true, areaCount: areaIds.length };
 }
 
 /**
