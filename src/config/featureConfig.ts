@@ -137,6 +137,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'rep_files',        label: 'رفع وعرض الملفات',          icon: '📤', desc: 'رفع ملفات Excel وعرض نتائج التحليل', onlyRoles: REP_ROLES },
     { key: 'currency_convert', label: 'تحويل العملة في التحليل',    icon: '💱', desc: 'تحويل أسعار الملفات من الدينار إلى الدولار عند التحليل — يُضبط لكل ملف على حدة', onlyRoles: REP_ROLES },
     { key: 'targets_tab',      label: 'التارگت الشهري',             icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
+    { key: 'manual_sales_entry', label: 'إضافة مبيعات يدوياً',      icon: '🧾', desc: 'إضافة مبيعات فواتير المذاخر غير الموجودة في الملفات، من صورة الفاتورة أو يدوياً', onlyRoles: REP_ROLES },
   ],
   'reports': [
     { key: 'export_report', label: 'تصدير التقارير', icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير' },

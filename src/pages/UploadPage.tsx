@@ -796,6 +796,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       </div>
 
       {/* ── Add manual / invoice-image sales ─────────────────── */}
+      {hasFeature('manual_sales_entry') && (
       <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--c-purple-bg)', borderColor: 'var(--c-purple-border)' }}>
         <div style={{ fontSize: 12.5, color: '#6b21a8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="file" size={18} />
@@ -806,6 +807,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           <Icon name="add" size={15} /> إضافة مبيعات
         </button>
       </div>
+      )}
 
       {manualMsg && (
         <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
@@ -813,7 +815,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         </div>
       )}
 
-      {showManualModal && (
+      {hasFeature('manual_sales_entry') && showManualModal && (
         <ManualSalesModal
           token={token ?? ''}
           files={files.map(f => ({ id: f.id, originalName: f.originalName, detectedCurrency: f.detectedCurrency, rowCount: f.rowCount, uploadedAt: f.uploadedAt }))}
