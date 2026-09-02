@@ -107,6 +107,38 @@ export async function hasAnyAreaScope(userId) {
 }
 
 /**
+ * يضمن وجود ScientificRepresentative مرتبط بهذا المستخدم، وينشئه عند الحاجة —
+ * بدل الاكتفاء بإرجاع null والانتظار حتى يفتح مديرٌ صفحة «المناديب العلميين»
+ * (حيث كان الإنشاء الكسول الوحيد سابقاً). بدون هذا، مستخدم جديد يُستورد من
+ * إكسل ويُعيَّن له مناطق فوراً كان يبقى بلا linkedRepId، فتتجاهل
+ * syncUserAreaDerivedLinks المزامنة بصمت (ScientificRepArea/Commercial تبقى
+ * فارغة) حتى يفتح أحد صفحته لاحقاً — وهو بالضبط ما كان يظهر للمدير كمندوب
+ * «بلا تحديد مناطق/ايتمات» رغم تحديدها وقت الاستيراد.
+ *
+ * @param {number} userId
+ * @returns {Promise<number|null>} معرّف المندوب المرتبط، أو null إن لم يوجد المستخدم
+ */
+export async function ensureLinkedRepId(userId) {
+  if (!userId) return null;
+  const userRow = await prisma.user.findUnique({
+    where:  { id: userId },
+    select: { linkedRepId: true, displayName: true, username: true, phone: true },
+  });
+  if (!userRow) return null;
+  if (userRow.linkedRepId) return userRow.linkedRepId;
+
+  let rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
+  if (!rep) {
+    rep = await prisma.scientificRepresentative.create({
+      data: { name: userRow.displayName || userRow.username, phone: userRow.phone || null, userId },
+      select: { id: true },
+    });
+  }
+  await prisma.user.update({ where: { id: userId }, data: { linkedRepId: rep.id } });
+  return rep.id;
+}
+
+/**
  * إعادة بناء الروابط المشتقة من مناطق المستخدم: ScientificRepArea و
  * ScientificRepCommercial.
  *
@@ -121,12 +153,8 @@ export async function hasAnyAreaScope(userId) {
  * @param {number[]|null} areaIdsOverride مناطق محسوبة مسبقاً (يتجنّب استعلاماً)
  */
 export async function syncUserAreaDerivedLinks(userId, areaIdsOverride = null) {
-  const userRow = await prisma.user.findUnique({
-    where:  { id: userId },
-    select: { linkedRepId: true },
-  });
-  if (!userRow?.linkedRepId) return { synced: false };
-  const repId = userRow.linkedRepId;
+  const repId = await ensureLinkedRepId(userId);
+  if (!repId) return { synced: false };
 
   // مناطق النطاق الفعلي — بلا مناطق المندوب نفسه، وإلا صارت الدالة تُغذّي نفسها
   // (ScientificRepArea مصدر ونتيجة في آنٍ واحد) فلا تُحذف منطقة أُزيلت أبداً.

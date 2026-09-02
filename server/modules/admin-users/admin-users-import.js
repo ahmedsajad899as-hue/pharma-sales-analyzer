@@ -25,6 +25,7 @@ import fs from 'fs';
 import prisma from '../../lib/prisma.js';
 import { normalizeArabic, normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
+import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { buildDefaultPermissions } from './admin-users.controller.js';
 
 // نفس قيم/تسميات ROLES في src/pages/super-admin/UsersPage.tsx — يقبل العمود
@@ -284,6 +285,8 @@ export async function commitUsersImport(req, res) {
           data: itemIds.map(itemId => ({ userId: user.id, itemId })),
           skipDuplicates: true,
         });
+        try { await syncUserItemDerivedLinks(user.id); }
+        catch (e) { console.warn('[commitUsersImport] ScientificRepItem sync failed (non-fatal):', e.message); }
       }
       if (Array.isArray(provinceIds) && provinceIds.length) {
         await prisma.userProvinceAssignment.createMany({

@@ -2,7 +2,7 @@ import * as repo from './scientific-reps.repository.js';
 import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope, normalizeArabic } from '../sales/sales.repository.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
-import { areaIdsOfProvinces } from '../../lib/areaScope.js';
+import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -88,22 +88,7 @@ export async function list(filters, user = null, options = {}) {
 
     // For each user, ensure they have a linked ScientificRepresentative record
     const repsWithIds = await Promise.all(repUsers.map(async u => {
-      let repId = u.linkedRepId;
-      if (!repId) {
-        // Find-or-create: avoid duplicate ScientificRepresentative for same userId
-        let rep = await prisma.scientificRepresentative.findFirst({ where: { userId: u.id } });
-        if (!rep) {
-          rep = await prisma.scientificRepresentative.create({
-            data: {
-              name: u.displayName || u.username,
-              phone: u.phone || null,
-              userId: u.id,
-            },
-          });
-        }
-        await prisma.user.update({ where: { id: u.id }, data: { linkedRepId: rep.id } });
-        repId = rep.id;
-      }
+      const repId = u.linkedRepId || await ensureLinkedRepId(u.id);
       // Load areas, items, companies, and commercial reps from the ScientificRepresentative's
       // OWN assignment tables — fully independent from the User's SA-managed assignments.
       const sciRepData = await prisma.scientificRepresentative.findUnique({
@@ -178,23 +163,7 @@ export async function remove(id) {
 // very first login, before any manager has opened that page, would otherwise
 // see empty targets/areas/items because no linked record exists yet.
 export async function resolveMyRepId(userId) {
-  if (!userId) return null;
-  const userRow = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { linkedRepId: true, displayName: true, username: true, phone: true },
-  });
-  if (!userRow) return null;
-  if (userRow.linkedRepId) return userRow.linkedRepId;
-
-  let rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-  if (!rep) {
-    rep = await prisma.scientificRepresentative.create({
-      data: { name: userRow.displayName || userRow.username, phone: userRow.phone || null, userId },
-      select: { id: true },
-    });
-  }
-  await prisma.user.update({ where: { id: userId }, data: { linkedRepId: rep.id } });
-  return rep.id;
+  return ensureLinkedRepId(userId);
 }
 
 // Returns areas for the currently logged-in scientific rep (by userId)

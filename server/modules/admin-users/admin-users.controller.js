@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
+import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -454,6 +455,12 @@ export async function setUserItems(req, res) {
         skipDuplicates: true,
       })] : []),
     ]);
+
+    try {
+      await syncUserItemDerivedLinks(userId);
+    } catch (e) {
+      console.warn('[setUserItems] ScientificRepItem sync failed (non-fatal):', e.message);
+    }
 
     const saved = await prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } });
     res.json({ success: true, data: saved.map(a => a.itemId), dropped });

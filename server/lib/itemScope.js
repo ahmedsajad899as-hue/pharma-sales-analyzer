@@ -11,6 +11,7 @@
 
 import prisma from './prisma.js';
 import { normalizeItemKey } from './itemResolver.js';
+import { ensureLinkedRepId } from './areaScope.js';
 
 /**
  * معرّفات الايتمات التي يُسمح للمستخدم برؤيتها في المبيعات/الإرجاع.
@@ -71,6 +72,37 @@ export async function buildItemScopeFilter(userId) {
  * @param {number|null} userId
  * @returns {Promise<{id:number,name:string}[]|null>} null = بلا تقييد
  */
+/**
+ * يُرآة UserItemAssignment داخل ScientificRepItem الخاص بالمندوب المرتبط —
+ * نفس فكرة syncUserAreaDerivedLinks (areaScope.js) لكن للايتمات. صفحة
+ * «المناديب العلميين» (ScientificRepsPage) تعرض ايتمات المندوب من
+ * ScientificRepItem وحده — لا من UserItemAssignment — فبقي التعيين وقت
+ * الإنشاء (استيراد إكسل أو setUserItems) بلا أثر على تلك الشاشة حتى يفتحها
+ * أحد ويضبط الايتمات يدوياً من جديد. الفلترة الفعلية للمبيعات/التقارير
+ * (resolveEffectiveItemIds أعلاه) تقرأ UserItemAssignment مباشرة فتبقى صحيحة
+ * دوماً — هذه الدالة تُصلح فقط ما تعرضه الشاشة.
+ *
+ * @param {number} userId
+ */
+export async function syncUserItemDerivedLinks(userId) {
+  const repId = await ensureLinkedRepId(userId);
+  if (!repId) return { synced: false };
+
+  const itemIds = (await prisma.userItemAssignment.findMany({
+    where: { userId }, select: { itemId: true },
+  })).map(r => r.itemId);
+
+  await prisma.$transaction([
+    prisma.scientificRepItem.deleteMany({ where: { scientificRepId: repId } }),
+    ...(itemIds.length ? [prisma.scientificRepItem.createMany({
+      data: itemIds.map(itemId => ({ scientificRepId: repId, itemId })),
+      skipDuplicates: true,
+    })] : []),
+  ]);
+
+  return { synced: true, itemCount: itemIds.length };
+}
+
 export async function getAssignedItemsCatalog(userId) {
   if (!userId) return null;
   const assigned = await prisma.userItemAssignment.findMany({
