@@ -17,16 +17,38 @@ const normalizeAr = (s: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-/** Keep first occurrence of each area by normalized name */
-const deduplicateAreas = (areas: NamedItem[]): NamedItem[] => {
-  const seen = new Set<string>();
-  return areas.filter(a => {
-    const key = normalizeAr(a.name);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+/**
+ * مفتاح المكان: نفس منطق normalizeAreaName في الخادم
+ * (server/lib/itemResolver.js) — يُسقط بادئات «حي/محله/قضاء/ناحيه» فوق
+ * تطبيع normalizeAr، فيصير «حي الجامعه» و«جامعه» مكاناً واحداً.
+ */
+const normalizeAreaAr = (s: string): string =>
+  normalizeAr(s).replace(/^(حي |محله |قضاء |ناحيه )/, '');
+
+/**
+ * يطوي صفوف المناطق التي تمثّل نفس المكان إلى عنصر واحد — للعرض فقط.
+ *
+ * لماذا: جدول Area يحمل صفاً منفصلاً لكل حساب (`@@unique([name, userId])`)،
+ * والاستيراد يعيّن عمداً كل الصفوف المطابقة للاسم حتى لا تضيع مبيعة مرتبطة
+ * بأي نسخة — فمنطقة واحدة كانت تظهر حتى ٥ مرات في الشاشة. كل المعرّفات تبقى
+ * محفوظة في `ids` ليعمل الحذف على المجموعة كاملة، والحفظ يرسل selAreas كما هي.
+ */
+const collapseAreas = (areas: NamedItem[]): Array<NamedItem & { ids: number[] }> => {
+  const byKey = new Map<string, NamedItem & { ids: number[] }>();
+  for (const a of areas) {
+    const key = normalizeAreaAr(a.name);
+    const hit = byKey.get(key);
+    if (!hit) { byKey.set(key, { ...a, ids: [a.id] }); continue; }
+    hit.ids.push(a.id);
+    // نُبقي الاسم الأوصف: «حي الجامعه» أوضح من «جامعه»
+    if (a.name.length > hit.name.length) hit.name = a.name;
+  }
+  return [...byKey.values()];
 };
+
+/** Keep one entry per place by normalized name */
+const deduplicateAreas = (areas: NamedItem[]): NamedItem[] =>
+  collapseAreas(areas).map(({ ids, ...a }) => a);
 
 interface NamedItem  { id: number; name: string; }
 interface Company    { id: number; name: string; items: NamedItem[]; }
@@ -829,17 +851,19 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                       </div>
                     </td>
                     <td>
+                      {/* المناطق مطوية على المكان: نسخ «حي X»/«X» عبر الحسابات شريحة واحدة */}
+                      {(() => { const repAreas = collapseAreas(rep.areas); return (
                       <div className="tag-list" style={{ position: 'relative' }}>
-                        {rep.areas.length === 0
+                        {repAreas.length === 0
                           ? <span className="tag tag--blue">{t.sciReps.allAreas}</span>
-                          : rep.areas.slice(0, 4).map(a => <span key={a.id} className="tag tag--gray">{a.name}</span>)
+                          : repAreas.slice(0, 4).map(a => <span key={a.id} className="tag tag--gray">{a.name}</span>)
                         }
-                        {rep.areas.length > 4 && (
+                        {repAreas.length > 4 && (
                           <span
                             className="tag tag--gray"
                             onClick={e => { e.stopPropagation(); setAreasPopup(areasPopup === rep.id ? null : rep.id); }}
                             style={{ cursor: 'pointer', userSelect: 'none', background: '#e0e7ff', color: '#3730a3', border: '1px solid #a5b4fc', fontWeight: 700 }}>
-                            +{rep.areas.length - 4}
+                            +{repAreas.length - 4}
                           </span>
                         )}
                         {areasPopup === rep.id && (
@@ -851,10 +875,10 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                             direction: 'rtl',
                           }}>
                             <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: '#3730a3', display: 'flex', alignItems: 'center', gap: 5 }}>
-                              📍 كل المناطق ({rep.areas.length})
+                              📍 كل المناطق ({repAreas.length})
                             </p>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                              {rep.areas.map(a => (
+                              {repAreas.map(a => (
                                 <span key={a.id} style={{
                                   background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe',
                                   borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600,
@@ -866,6 +890,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                           </div>
                         )}
                       </div>
+                      ); })()}
                     </td>
                     <td>
                       <div className="tag-list" style={{ position: 'relative' }}>
@@ -968,13 +993,15 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
 
                 <div className="rep-mobile-card-row">
                   <span className="rep-mobile-card-label">{t.sciReps.labelAreas}</span>
+                  {(() => { const repAreas = collapseAreas(rep.areas); return (
                   <div className="tag-list" style={{ flex: 1 }}>
-                    {rep.areas.length === 0
+                    {repAreas.length === 0
                       ? <span className="tag tag--blue" style={{ fontSize: 11 }}>{t.sciReps.allAreas}</span>
-                      : rep.areas.slice(0, 4).map(a => <span key={a.id} className="tag tag--gray" style={{ fontSize: 11 }}>{a.name}</span>)
+                      : repAreas.slice(0, 4).map(a => <span key={a.id} className="tag tag--gray" style={{ fontSize: 11 }}>{a.name}</span>)
                     }
-                    {rep.areas.length > 4 && <span className="tag tag--gray" style={{ fontSize: 11 }}>+{rep.areas.length - 4}</span>}
+                    {repAreas.length > 4 && <span className="tag tag--gray" style={{ fontSize: 11 }}>+{repAreas.length - 4}</span>}
                   </div>
+                  ); })()}
                 </div>
 
                 <div className="rep-mobile-card-row">
@@ -1544,7 +1571,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                       <span style={{ fontWeight: 700, fontSize: '13px', color: '#475569' }}>{t.sciReps.selectedAreas}</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ background: '#0ea5e9', color: '#fff', borderRadius: '999px', padding: '2px 10px', fontSize: '12px', fontWeight: 700 }}>
-                          {selAreas.length || t.sciReps.allLabel}
+                          {collapseAreas(selAreas).length || t.sciReps.allLabel}
                         </span>
                         {selAreas.length > 0 && (
                           <button onClick={() => setSelAreas([])}
@@ -1563,7 +1590,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     ) : (
                       <div style={{ flex: 1, overflowY: 'auto' }}>
                         {Object.entries(
-                          selAreas.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar')).reduce<Record<string, NamedItem[]>>((acc, area) => {
+                          // مطوية: «حي الجامعه» و«جامعه» و«حي جامعه» شريحة واحدة
+                          collapseAreas(selAreas).sort((a, b) => a.name.localeCompare(b.name, 'ar')).reduce<Record<string, Array<NamedItem & { ids: number[] }>>>((acc, area) => {
                             const key = area.name.charAt(0).toUpperCase();
                             if (!acc[key]) acc[key] = [];
                             acc[key].push(area);
@@ -1578,7 +1606,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                               {group.map(a => (
                                 <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '6px', padding: '3px 8px', fontSize: '12px', fontWeight: 500 }}>
                                   {a.name}
-                                  <button onClick={() => setSelAreas(prev => prev.filter(x => x.id !== a.id))}
+                                  {/* الحذف يزيل كل نسخ المكان لا الصف الواحد المعروض */}
+                                  <button onClick={() => setSelAreas(prev => prev.filter(x => !a.ids.includes(x.id)))}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0c4a6e', padding: 0, lineHeight: 1, fontSize: '11px', fontWeight: 700 }}>✕</button>
                                 </span>
                               ))}
