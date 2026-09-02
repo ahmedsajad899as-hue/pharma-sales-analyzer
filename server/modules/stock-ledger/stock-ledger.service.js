@@ -22,6 +22,7 @@ import {
 import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { flattenStockMatrix } from '../../lib/stockMatrix.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
+import { getAllCompanies } from '../sales/sales.repository.js';
 import * as repo from './stock-ledger.repository.js';
 
 // COLUMN_ALIASES.customer يضع «صيدلية/زبون» قبل «مذخر»، وresolveColumns يأخذ أول
@@ -95,8 +96,22 @@ export function parseMovementFile(buffer, defaultDate) {
 //  2. مطابقة المذاخر
 // ═══════════════════════════════════════════════════════════════
 
-const whKey = (s) => normalizeArabic(String(s ?? '')).toLowerCase();
+// بادئات كلمة «مذخر» العامة الشائعة في عمود اسم المذخر نفسه (لا في ترويسة
+// العمود — تلك WAREHOUSE_ALIASES أعلاه). بدونها "مذخر اوزون" لا يُطابق "اوزون"
+// إطلاقاً رغم أنهما نفس المذخر بالضبط — لا في المطابقة التامة ولا الضبابية
+// (كلمة كاملة إضافية تُنقص نسبة تداخل الكلمات دون العتبة). على غرار
+// DOCTOR_PREFIX_RE في doctor-visits-import.js.
+const WAREHOUSE_PREFIX_RE = /^(مذخر|مخزن|مستودع|مجهز)\s+/;
+export function cleanWarehouseName(name) {
+  let s = normalizeArabic(String(name ?? ''));
+  for (let i = 0; i < 2 && WAREHOUSE_PREFIX_RE.test(s); i++) s = s.replace(WAREHOUSE_PREFIX_RE, '').trim();
+  return s;
+}
+const whKey = (s) => cleanWarehouseName(s).toLowerCase();
 const regKey = (s) => normalizeAreaName(String(s ?? '')) || '';
+/** مفتاح تصنيف/حفظ موحّد لاسم مذخر — نفس القيمة تُستعمل في WarehouseNameLink.fromKey.
+ *  مُصدَّر أيضاً لسكربت scripts/stock-ledger-name-cleanup.mjs. */
+export const warehouseLinkKey = (name, region) => whKey(name) + '|' + regKey(region);
 
 /**
  * منطقة «فاسدة»: بقايا خلل تحليل قديم انجمدت في StockWarehouse.region ولا تُصحَّح
@@ -113,26 +128,126 @@ function looksLikeBadRegion(region) {
   return false;
 }
 
+const WAREHOUSE_ASK_FLOOR = 0.5; // أدنى نقاط تشابه يُعتَد بها كمرشّح يُعرض للمستخدم
+
+/**
+ * مرشّحو مذخر مرتّبون لاسم معطى ضمن مجموعة مذاخر — يُستعمل في المعاينة
+ * (classifyWarehouseRows) وفي المُحلِّل الفعلي أثناء الاستيعاب معاً، فلا تختلف
+ * قراءة الالتباس بين الحالتين.
+ */
+function scoreWarehouseCandidates(name, pool) {
+  return pool
+    .map(w => ({ id: w.id, name: w.name, region: w.region, score: similarity(whKey(name), whKey(w.name)) }))
+    .filter(w => w.score >= WAREHOUSE_ASK_FLOOR || areSimilar(name, w.name))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+/**
+ * تصنيف مذخر واحد (اسم+منطقة) مقابل مذاخر المستخدم + روابط محفوظة — قراءة
+ * فقط، لا تُنشئ ولا تحفظ شيئاً. الترتيب: رابط محفوظ ← تطابق تام (منطقة+اسم) ←
+ * اسم تام ووحيد بغضّ النظر عن المنطقة (تفاوت نص المنطقة وحده لا يُنشئ تكراراً)
+ * ← تشابه داخل نفس المنطقة، وإن لم يُثمر يُعاد البحث عبر كل المناطق (نص
+ * المنطقة نفسه قد يختلف كتابةً بين ملف الستوك وملف الحركات) ← جديد.
+ *
+ * @returns {{status:'linked'|'exact'|'high'|'ask'|'new', key:string, warehouseId?:number|null, candidates?:Array}}
+ */
+function matchWarehouse(name, region, { linkByKey, existing }) {
+  const nk = whKey(name);
+  const key = warehouseLinkKey(name, region);
+  if (!nk) return { status: 'new', key };
+
+  const link = linkByKey.get(key);
+  if (link) return { status: 'linked', key, warehouseId: link.warehouseId ?? null };
+
+  const rk = regKey(region);
+  const exact = existing.find(w => whKey(w.name) === nk && regKey(w.region) === rk);
+  if (exact) return { status: 'exact', key, warehouseId: exact.id };
+
+  const sameName = existing.filter(w => whKey(w.name) === nk);
+  if (sameName.length === 1) return { status: 'exact', key, warehouseId: sameName[0].id };
+
+  const sameRegionPool = rk ? existing.filter(w => regKey(w.region) === rk) : existing;
+  let cands = scoreWarehouseCandidates(name, sameRegionPool);
+  if (cands.length === 0 && rk) cands = scoreWarehouseCandidates(name, existing);
+  if (cands.length === 1) return { status: 'high', key, warehouseId: cands[0].id, candidates: cands };
+  if (cands.length === 0) return { status: 'new', key };
+  return { status: 'ask', key, candidates: cands };
+}
+
+/**
+ * أسماء المذاخر التي تحتاج تأكيد المستخدم (حالة 'ask' فقط) لملف مُحلَّل بعد —
+ * معاينة قبل الحفظ، لا تُنشئ ولا تلمس قاعدة البيانات.
+ */
+export async function classifyWarehouseRows(rows, userId) {
+  const rowsWithName = (rows || []).filter(r => String(r?.warehouse ?? '').trim());
+  if (!rowsWithName.length) return { pending: [] };
+
+  const [links, existing] = await Promise.all([
+    prisma.warehouseNameLink.findMany({ where: { userId }, select: { fromKey: true, warehouseId: true } }),
+    repo.getWarehouses(userId),
+  ]);
+  const linkByKey = new Map(links.map(l => [l.fromKey, l]));
+
+  const groups = new Map();
+  for (const r of rowsWithName) {
+    const key = warehouseLinkKey(r.warehouse, r.region);
+    if (!groups.has(key)) groups.set(key, { key, raw: r.warehouse, region: r.region || null });
+  }
+
+  const pending = [];
+  for (const g of groups.values()) {
+    const m = matchWarehouse(g.raw, g.region, { linkByKey, existing });
+    if (m.status === 'ask') {
+      pending.push({
+        key: g.key, raw: g.raw, region: g.region,
+        suggestions: m.candidates.map(c => ({ id: c.id, name: c.name, region: c.region, score: Math.round(c.score * 100) / 100 })),
+      });
+    }
+  }
+  return { pending: pending.sort((a, b) => a.raw.localeCompare(b.raw, 'ar')) };
+}
+
+/**
+ * يحفظ قرارات المستخدم في مطابقة أسماء المذاخر — نفس فلسفة saveDoctorNameLinks.
+ * warehouseId=null يعني «تأكَّد المستخدم أنه مذخر مختلف فعلاً» فيُحفظ أيضاً كي
+ * لا يتكرّر السؤال، وسيُنشأ مذخر جديد دائماً لهذا الاسم+المنطقة لاحقاً.
+ */
+export async function saveWarehouseNameLinks(userId, links) {
+  let saved = 0;
+  for (const l of (Array.isArray(links) ? links : [])) {
+    const fromName = String(l?.fromName ?? '').trim();
+    if (!fromName || !whKey(fromName)) continue;
+    const fromKey = warehouseLinkKey(fromName, l?.region);
+    const warehouseId = Number.isInteger(l?.warehouseId) ? l.warehouseId : null;
+    await prisma.warehouseNameLink.upsert({
+      where: { userId_fromKey: { userId, fromKey } },
+      update: { fromName, region: l?.region || null, warehouseId },
+      create: { userId, fromKey, fromName, region: l?.region || null, warehouseId, confidence: 'confirmed' },
+    }).catch(() => {}); // تذكّر القرار رفاهية — لا يُفشل الاستيعاب
+    saved++;
+  }
+  return { saved };
+}
+
 /**
  * قاموس مذاخر قابل للتوسع أثناء الاستيراد.
- * المطابقة: (المنطقة + الاسم) تام ← الاسم تام ووحيد بغضّ النظر عن المنطقة
- * ← تشابه داخل نفس المنطقة ← إنشاء جديد.
- * الصفوف غير المطابقة لا تُسقط أبداً: يُنشأ لها مذخر وتُبلَّغ للمراجعة.
+ * المطابقة (matchWarehouse): رابط محفوظ ← تطابق تام ← اسم تام ووحيد بغضّ النظر
+ * عن المنطقة ← تشابه (داخل نفس المنطقة ثم عبر كل المناطق) ← إنشاء جديد.
+ * الصفوف غير المطابقة لا تُسقط أبداً: يُنشأ لها مذخر وتُبلَّغ للمراجعة — هذا
+ * هو مسار الأمان حين يُستدعى ingestRows مباشرة بلا مرور بنافذة التأكيد
+ * (classifyWarehouseRows + saveWarehouseNameLinks) أولاً؛ أي رابط يُحفظ هناك
+ * يُحمَّل هنا تلقائياً (linkByKey) في الاستيعاب التالي فلا يتكرّر السؤال.
  */
-function makeWarehouseResolver(existing, userId) {
-  const byKey = new Map();     // `${regionKey}||${nameKey}` ← warehouse
-  const byRegion = new Map();  // regionKey ← warehouse[]
+function makeWarehouseResolver(existing, userId, links = []) {
+  const linkByKey = new Map((links || []).map(l => [l.fromKey, l]));
+  const idIndex = new Map(existing.map(w => [w.id, w]));
+  const pool = [...existing]; // يكبر مع كل مذخر جديد يُنشأ ضمن نفس الاستيعاب
+  const cache = new Map(); // warehouseLinkKey ← نتيجة (مرة واحدة لكل اسم+منطقة، لا لكل صف)
   const toCreate = [];
   const toHeal = new Map();    // warehouseId ← warehouse (منطقته صُحّحت، تحتاج تحديث بقاعدة البيانات)
   const fuzzyLinked = [];
   const created = [];
-
-  const index = (w) => {
-    byKey.set(w.regionKey + '||' + w.nameKey, w);
-    if (!byRegion.has(w.regionKey)) byRegion.set(w.regionKey, []);
-    byRegion.get(w.regionKey).push(w);
-  };
-  for (const w of existing) index(w);
 
   /**
    * تصحيح ذاتي: مذخر موجود منطقته فاسدة (مجمّدة من استيراد قديم معطوب)، وهذا الصف
@@ -150,49 +265,38 @@ function makeWarehouseResolver(existing, userId) {
 
   function resolve(name, region) {
     const nk = whKey(name);
-    const rk = regKey(region);
     if (!nk) return null;
+    const key = warehouseLinkKey(name, region);
+    if (cache.has(key)) return cache.get(key);
 
-    const exact = byKey.get(rk + '||' + nk);
-    if (exact) return exact;
+    const m = matchWarehouse(name, region, { linkByKey, existing: pool });
 
-    // نص «المنطقة» غير موحّد بين المصادر: الستوك الافتتاحي يأخذه حرفياً من عنوان
-    // عمود ملف Stock (قد يكون "ستوك العمارة 15-5")، بينما ملف الحركات أو الإدخال
-    // اليدوي غالباً يكتب نصاً أبسط ("العمارة") أو يتركه فارغاً. طالما اسم المذخر
-    // نفسه مطابق تماماً ووحيد في كل حسابات المستخدم، هذا التفاوت في نص المنطقة
-    // وحده لا يجب أن يُنشئ مذخراً مكرراً بلا ستوك افتتاحي. عند وجود أكثر من مذخر
-    // بهذا الاسم في مناطق مختلفة (لبس حقيقي) يستمر للمطابقة بالتشابه ثم الإنشاء.
-    const sameName = [...byKey.values()].filter(w => w.nameKey === nk);
-    if (sameName.length === 1) {
-      maybeHeal(sameName[0], region);
-      return sameName[0];
-    }
-
-    // تشابه داخل نفس المنطقة — يُقبل فقط عند وجود مرشّح واحد
-    const pool = rk ? (byRegion.get(rk) ?? []) : [...byKey.values()];
-    const cands = pool.filter(w => areSimilar(name, w.name));
-    if (cands.length === 1) {
-      fuzzyLinked.push({
-        raw: region ? name + ' (' + region + ')' : name,
-        matchedTo: cands[0].name + ' — ' + cands[0].region,
-      });
-      maybeHeal(cands[0], region);
-      return cands[0];
+    if (m.status !== 'ask' && m.status !== 'new' && m.warehouseId) {
+      const w = idIndex.get(m.warehouseId);
+      if (w) {
+        if (m.status === 'high') {
+          fuzzyLinked.push({
+            raw: region ? name + ' (' + region + ')' : name,
+            matchedTo: w.name + ' — ' + w.region,
+          });
+        }
+        maybeHeal(w, region);
+        cache.set(key, w);
+        return w;
+      }
+      // status='linked' لكن warehouseId=null («تأكَّد أنه مختلف») → يسقط لإنشاء جديد أدناه
     }
 
     // مذخر جديد — يُنشأ ويُبلَّغ عنه للمراجعة مع أقرب الأسماء
-    const suggestions = pool
-      .map(w => ({ name: w.name, region: w.region, score: similarity(name, w.name) }))
-      .filter(s => s.score > 0.5)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
     const pending = {
       id: null, userId, name: String(name).trim(), nameKey: nk,
-      region: String(region ?? '').trim() || 'غير محدد', regionKey: rk,
+      region: String(region ?? '').trim() || 'غير محدد', regionKey: regKey(region),
     };
-    index(pending);
+    pool.push(pending);
     toCreate.push(pending);
+    const suggestions = (m.candidates ?? []).slice(0, 3).map(c => ({ name: c.name, region: c.region, score: c.score }));
     created.push({ name: pending.name, region: pending.region, suggestions });
+    cache.set(key, pending);
     return pending;
   }
 
@@ -222,6 +326,121 @@ function makeWarehouseResolver(existing, userId) {
 //  3. الاستيعاب (ingestion) — مسار موحّد لكل المصادر
 // ═══════════════════════════════════════════════════════════════
 
+/** سياق مطابقة الايتمات لمستخدم — كتالوج الشركة/الشركات + aliases (ItemMergeRule)،
+ *  محمَّل مرة واحدة ومُعاد استعماله لكل صفوف الملف. مشترك بين ingestRows وclassifyItemNames. */
+async function loadItemCtx(userId) {
+  try {
+    const assigns = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    return await loadResolutionContext({ scientificCompanyIds: assigns.map(a => a.companyId), userId });
+  } catch { return { catalog: [], catalogById: new Map(), aliasMap: new Map() }; } // الكتالوج اختياري
+}
+
+/**
+ * أسماء الايتمات التي تحتاج تأكيد المستخدم (ثقة medium — مرشّحون متعددون
+ * ملتبسون) لملف مُحلَّل بعد. alias/exact/high تُطبَّق دائماً بصمت (لا تُعرض)،
+ * وnone تُترك كايتم مؤقّت بصمت كما كانت (يدخل طابور مراجعة السوبر أدمن).
+ */
+export async function classifyItemNames(rows, userId, ctx = null) {
+  const names = [...new Set((rows || []).map(r => String(r?.itemName ?? '').trim()).filter(Boolean))];
+  if (!names.length) return { pending: [] };
+  const itemCtx = ctx || await loadItemCtx(userId);
+  if (!itemCtx.catalog.length) return { pending: [] }; // بلا كتالوج لا مطابقة ملتبسة أصلاً
+
+  const pending = [];
+  for (const raw of names) {
+    const r = await resolveItemName(raw, itemCtx);
+    if (r.confidence === 'medium') {
+      pending.push({ key: normalizeItemKey(raw), raw, suggestions: r.suggestions.slice(0, 5) });
+    }
+  }
+  return { pending: pending.sort((a, b) => a.raw.localeCompare(b.raw, 'ar')) };
+}
+
+/**
+ * يحفظ قرارات المستخدم في مطابقة أسماء الايتمات — نفس آلية rememberItems في
+ * insertManualSales (sales.service.js): قاعدة ItemMergeRule بنطاق الشركة
+ * العلمية للايتم الهدف. لا تدعم «مؤكَّد أنه مختلف» (بعكس المذاخر/الشركات) —
+ * قيد موجود مسبقاً في محرّك الايتمات المشترك بكل صفحات التطبيق، لا نضيفه هنا.
+ */
+export async function saveItemLinks(userId, links) {
+  let saved = 0;
+  for (const l of (Array.isArray(links) ? links : [])) {
+    const toItemId = Number(l?.toItemId);
+    const fromKey = normalizeItemKey(l?.fromName ?? '');
+    if (!fromKey || !Number.isFinite(toItemId)) continue;
+    const target = await prisma.item.findUnique({ where: { id: toItemId }, select: { id: true, name: true, scientificCompanyId: true } });
+    if (!target?.scientificCompanyId) continue; // بلا شركة علمية لا نطاق للقاعدة
+    if (normalizeItemKey(target.name) === fromKey) continue; // الاسمان متطابقان أصلاً
+    await prisma.itemMergeRule.upsert({
+      where: { scientificCompanyId_fromKey: { scientificCompanyId: target.scientificCompanyId, fromKey } },
+      update: { fromName: String(l.fromName), toName: target.name, toItemId: target.id },
+      create: { scientificCompanyId: target.scientificCompanyId, fromKey, fromName: String(l.fromName), toName: target.name, toItemId: target.id, userId },
+    }).catch(() => {});
+    saved++;
+  }
+  return { saved };
+}
+
+/** أسماء الشركات (Company — كتالوج المستخدم البسيط) التي تحتاج تأكيد المستخدم. */
+export async function classifyCompanyNames(rows, userId) {
+  const names = [...new Set((rows || []).map(r => r.companyName).filter(Boolean))];
+  if (!names.length) return { pending: [] };
+  const [links, companies] = await Promise.all([
+    prisma.stockCompanyNameLink.findMany({ where: { userId }, select: { fromKey: true } }),
+    getAllCompanies(userId),
+  ]);
+  const linkKeys = new Set(links.map(l => l.fromKey));
+
+  const pending = [];
+  for (const raw of names) {
+    const key = normalizeItemKey(raw);
+    if (linkKeys.has(key)) continue; // رابط محفوظ → بلا سؤال
+    if (companies.some(c => normalizeItemKey(c.name) === key)) continue; // تطابق تام
+    const cands = companies
+      .filter(c => areSimilar(raw, c.name))
+      .map(c => ({ id: c.id, name: c.name, score: similarity(key, normalizeItemKey(c.name)) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    if (cands.length) pending.push({ key, raw, suggestions: cands });
+  }
+  return { pending: pending.sort((a, b) => a.raw.localeCompare(b.raw, 'ar')) };
+}
+
+/**
+ * يحفظ قرارات المستخدم في مطابقة أسماء الشركات — نفس فلسفة saveWarehouseNameLinks.
+ * companyId=null يعني «تأكَّد أنها شركة مختلفة فعلاً» فيُحفظ أيضاً كي لا يتكرّر السؤال.
+ */
+export async function saveStockCompanyNameLinks(userId, links) {
+  let saved = 0;
+  for (const l of (Array.isArray(links) ? links : [])) {
+    const fromName = String(l?.fromName ?? '').trim();
+    const fromKey = normalizeItemKey(fromName);
+    if (!fromKey) continue;
+    const companyId = Number.isInteger(l?.companyId) ? l.companyId : null;
+    await prisma.stockCompanyNameLink.upsert({
+      where: { userId_fromKey: { userId, fromKey } },
+      update: { fromName, companyId },
+      create: { userId, fromKey, fromName, companyId },
+    }).catch(() => {});
+    saved++;
+  }
+  return { saved };
+}
+
+/**
+ * يصنّف صفوف ملف مُحلَّل عبر المحاور الثلاثة معاً (مذاخر/ايتمات/شركات) — معاينة
+ * قبل الحفظ لواجهة الرفع على مرحلتين (استخراج ← تأكيد المشكوك فيه ← حفظ).
+ */
+export async function classifyMovementRows({ rows, userId }) {
+  const itemCtx = await loadItemCtx(userId);
+  const [warehouses, items, companies] = await Promise.all([
+    classifyWarehouseRows(rows, userId),
+    classifyItemNames(rows, userId, itemCtx),
+    classifyCompanyNames(rows, userId),
+  ]);
+  return { pending: { warehouses: warehouses.pending, items: items.pending, companies: companies.pending } };
+}
+
 /**
  * @param {object}   p
  * @param {number}   p.userId
@@ -236,41 +455,72 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
   if (!direction) throw new Error('نوع الدفعة غير صالح');
   if (!rows.length) throw new Error('لا توجد صفوف صالحة في الملف');
 
-  const existing = await repo.getWarehouses(userId);
-  const wh = makeWarehouseResolver(existing, userId);
+  // المذاخر: تُحمَّل مذاخر المستخدم + روابط أسمائه المحفوظة (WarehouseNameLink) —
+  // أي قرار حفظه المستخدم عبر نافذة التأكيد (قُبيل هذا النداء مباشرة في نفس
+  // الطلب، أو في استيراد سابق) يُطبَّق هنا بصمت.
+  const [existing, warehouseLinks] = await Promise.all([
+    repo.getWarehouses(userId),
+    prisma.warehouseNameLink.findMany({ where: { userId }, select: { fromKey: true, warehouseId: true } }),
+  ]);
+  const wh = makeWarehouseResolver(existing, userId, warehouseLinks);
 
   // ربط الايتمات بكتالوج الشركة — نفس محرّك ملفات المبيعات، فتلتقي أسماء الستوك
-  // وأسماء المبيعات على نفس Item.id. وitemKey يبقى مفتاح المطابقة الفعلي حتى لو
-  // لم يوجد الايتم في الكتالوج.
-  let ctx = { catalog: [], catalogById: new Map(), aliasMap: new Map() };
-  try {
-    const assigns = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
-    ctx = await loadResolutionContext({ scientificCompanyIds: assigns.map(a => a.companyId), userId });
-  } catch { /* الكتالوج اختياري */ }
+  // وأسماء المبيعات على نفس Item.id.
+  const ctx = await loadItemCtx(userId);
 
-  const itemIdCache = new Map();
+  // الشركة: نص حر بلا FK — لكن تُحوَّل إلى الاسم القانوني لشركة Company المستخدم
+  // متى وُجد رابط محفوظ أو تطابق تام، فلا يُخزَّن نفس المُصنِّع بتهجئتين مختلفتين.
+  let companyCtx = { linkByKey: new Map(), companies: [] };
+  try {
+    const [companyLinks, companies] = await Promise.all([
+      prisma.stockCompanyNameLink.findMany({ where: { userId }, select: { fromKey: true, companyId: true } }),
+      getAllCompanies(userId),
+    ]);
+    companyCtx = { linkByKey: new Map(companyLinks.map(l => [l.fromKey, l.companyId])), companies };
+  } catch { /* اختياري — لا يمنع الاستيراد */ }
+  function resolveCompanyLabel(raw) {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) return null;
+    const key = normalizeItemKey(trimmed);
+    if (companyCtx.linkByKey.has(key)) {
+      const id = companyCtx.linkByKey.get(key);
+      const c = id ? companyCtx.companies.find(x => x.id === id) : null;
+      return c ? c.name : trimmed; // id=null («مؤكَّد مختلفة») → يبقى كما ورد
+    }
+    const exact = companyCtx.companies.find(c => normalizeItemKey(c.name) === key);
+    return exact ? exact.name : trimmed; // لا قرار ولا تطابق تام → كما ورد (لا تخمين هنا)
+  }
+
+  const itemLinkCache = new Map();
   async function linkItem(itemName) {
     const key = normalizeItemKey(itemName);
-    if (itemIdCache.has(key)) return itemIdCache.get(key);
-    let itemId = null;
+    if (itemLinkCache.has(key)) return itemLinkCache.get(key);
+    let linked = { itemId: null, canonicalName: null };
     try {
       const r = await resolveItemName(itemName, ctx);
-      if (r?.canonicalItem && ['alias', 'exact', 'high'].includes(r.confidence)) itemId = r.canonicalItem.id;
+      if (r?.canonicalItem && ['alias', 'exact', 'high'].includes(r.confidence)) {
+        linked = { itemId: r.canonicalItem.id, canonicalName: r.canonicalItem.name };
+      }
     } catch { /* لا يمنع الاستيراد */ }
-    itemIdCache.set(key, itemId);
-    return itemId;
+    itemLinkCache.set(key, linked);
+    return linked;
   }
 
   const prepared = [];
   for (const r of rows) {
     const w = wh.resolve(r.warehouse, r.region);
     if (!w) continue;
+    const linked = await linkItem(r.itemName);
+    // ايتم مُطابَق (alias/exact/high) ⟵ itemKey/itemName من اسمه القانوني لا من
+    // النص الخام المرفوع، وإلا فتهجئتان مختلفتان لنفس الايتم المُطابَق بنجاح لن
+    // تندمجا في نفس صف الرصيد رغم نجاح الربط (كانت هذه الفجوة الفعلية للخلل).
+    const canonicalName = linked.canonicalName ?? String(r.itemName).trim();
     prepared.push({
       w,
-      itemKey: normalizeItemKey(r.itemName),
-      itemName: String(r.itemName).trim(),
-      companyName: r.companyName ?? null,
-      itemId: await linkItem(r.itemName),
+      itemKey: normalizeItemKey(canonicalName),
+      itemName: canonicalName,
+      companyName: resolveCompanyLabel(r.companyName),
+      itemId: linked.itemId,
       qty: r.qty,
       movementDate: r.movementDate ?? movementDate,
       rawRow: r.rawRow ? JSON.stringify(r.rawRow) : null,
@@ -312,12 +562,24 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
   };
 }
 
-/** استيراد الستوك الافتتاحي من ملف Stock موجود (SalesDataFile) */
-export async function ingestBaselineFromStockFile({ userId, salesDataFileId, movementDate }) {
+/** يقرأ صفوف ملف Stock (بلا حفظ) — أساس classify/ingest للستوك الافتتاحي من ملف موجود. */
+async function readStockFileRows(userId, salesDataFileId) {
   const file = await prisma.salesDataFile.findFirst({ where: { id: salesDataFileId, userId } });
   if (!file) throw new Error('الملف غير موجود');
   const rows = flattenStockMatrix(file);
   if (!rows.length) throw new Error('لم يُعثر على كميات في هذا الملف');
+  return { file, rows };
+}
+
+/** معاينة تطابق الستوك الافتتاحي من ملف Stock موجود — قبل الحفظ، بلا لمس قاعدة البيانات. */
+export async function classifyBaselineFromStockFile({ userId, salesDataFileId }) {
+  const { rows } = await readStockFileRows(userId, salesDataFileId);
+  return classifyMovementRows({ rows, userId });
+}
+
+/** استيراد الستوك الافتتاحي من ملف Stock موجود (SalesDataFile) */
+export async function ingestBaselineFromStockFile({ userId, salesDataFileId, movementDate }) {
+  const { file, rows } = await readStockFileRows(userId, salesDataFileId);
   return ingestRows({
     userId, kind: 'baseline',
     name: 'ستوك افتتاحي: ' + file.name,

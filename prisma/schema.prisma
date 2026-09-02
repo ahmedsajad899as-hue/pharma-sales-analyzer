@@ -51,6 +51,8 @@ model User {
   salesDataFiles         SalesDataFile[]
   stockWarehouses        StockWarehouse[]
   stockBatches           StockMovementBatch[]
+  warehouseNameLinks     WarehouseNameLink[]
+  stockCompanyNameLinks  StockCompanyNameLink[]
   accountBuilderAccounts AccountBuilderAccount[]
   sales                  Sale[]
   doctors                Doctor[]
@@ -197,6 +199,7 @@ model Company {
 
   items          Item[]
   scientificReps ScientificRepCompany[]
+  stockNameLinks StockCompanyNameLink[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -2058,10 +2061,34 @@ model StockWarehouse {
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   balances  StockBalance[]
   movements StockMovement[]
+  nameLinks WarehouseNameLink[]
 
   @@unique([userId, regionKey, nameKey])
   @@index([userId])
   @@map("stock_warehouses")
+}
+
+// روابط أسماء مذاخر محفوظة لكل مستخدم — نفس فكرة DoctorNameLink لكن للمذاخر.
+// عند رفع ملف مبيع/تعزيز باسم مذخر مختلف الكتابة عن اسمه في الستوك (مثل "مذخر
+// اوزون" مقابل "اوزون")، ويكون التطابق التلقائي ملتبساً، يُسأل المستخدم مرة
+// واحدة ويُحفظ اختياره هنا — warehouseId = null يعني «تأكَّد أنه مذخر مختلف
+// فعلاً»، فلا يتكرّر السؤال ويُنشأ مذخر جديد دائماً لهذا الاسم لاحقاً.
+model WarehouseNameLink {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  fromKey     String // اسم مُنظَّف (cleanWarehouseName) + '|' + منطقة مطبَّعة
+  fromName    String
+  region      String?
+  warehouseId Int?
+  confidence  String   @default("confirmed")
+  createdAt   DateTime @default(now())
+
+  warehouse StockWarehouse? @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromKey])
+  @@index([warehouseId])
+  @@map("warehouse_name_links")
 }
 
 // دفعة رفع واحدة (ستوك افتتاحي / تعزيز / مبيع) — حذفها يعيد حساب الأرصدة
@@ -2130,4 +2157,25 @@ model StockBalance {
   @@index([userId])
   @@index([userId, remaining])
   @@map("stock_balances")
+}
+
+// روابط أسماء شركات محفوظة لكل مستخدم داخل رصيد المذاخر — تستهدف نموذج Company
+// الحالي (نفس كتالوج المستخدم البسيط، لا الكتالوج العلمي المشترك). عند رفع
+// ملف باسم شركة مختلف الكتابة عن شركة موجودة أصلاً، ويكون التطابق ملتبساً،
+// يُسأل المستخدم مرة واحدة ويُحفظ اختياره هنا — companyId = null يعني «تأكَّد
+// أنها شركة مختلفة فعلاً»، فلا يتكرّر السؤال.
+model StockCompanyNameLink {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  fromKey   String
+  fromName  String
+  companyId Int?
+  createdAt DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromKey])
+  @@index([companyId])
+  @@map("stock_company_name_links")
 }

@@ -17,6 +17,8 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { Icon } from '../config/icons';
 import type { IconName } from '../config/icons';
+import StockMovementImportModal, { isPendingEmpty } from '../components/StockMovementImportModal';
+import type { PendingMatches, StockNameChoices } from '../components/StockMovementImportModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -61,6 +63,12 @@ interface Batch {
   unmatched: Unmatched | null;
 }
 interface StockFile { id: number; name: string; uploadedAt: string }
+/** مراجعة معلَّقة بانتظار تأكيد المستخدم لأسماء مشكوك فيها — مصدرها إما ملف
+ *  مرفوع (صفوفه تعود من extract ويجب إعادة إرسالها عند الحفظ) أو ملف Stock
+ *  محفوظ سلفاً على الخادم (يُعاد قراءته عند الحفظ فلا حاجة لصفوفه هنا). */
+type PendingReview =
+  | { source: 'file'; kind: 'baseline' | 'in' | 'out'; movementDate: string; fileName: string; rows: unknown[]; pending: PendingMatches; label: string }
+  | { source: 'stock-file'; salesDataFileId: number; movementDate: string; pending: PendingMatches; label: string };
 interface Movement {
   id: number; qty: number; direction: 'baseline' | 'in' | 'out'; movementDate: string;
   itemName: string; batch: { id: number; name: string; kind: string };
@@ -101,6 +109,7 @@ export default function StockLedgerPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
+  const [review, setReview] = useState<PendingReview | null>(null);
 
   // عتبات التنبيه — محفوظة لكل مستخدم على حدة (نفس نمط رادار النقص في صفحة Stock)
   const [pct, setPct] = useState(20);
@@ -226,6 +235,9 @@ export default function StockLedgerPage() {
     finally { setBusy(null); }
   };
 
+  // رفع ملف (حركة أو ستوك افتتاحي) على مرحلتين: استخراج+تصنيف أولاً (بلا حفظ)،
+  // فإن وُجدت أسماء مشكوك فيها تُفتح نافذة التأكيد، وإلا يُحفظ مباشرة — تماماً
+  // كنظام تأكيد الأسماء في «تحليل الزيارات».
   const postFile = async (file: File, kind: 'baseline' | 'in' | 'out', date: string, label: string) => {
     setBusy('upload'); setErr('');
     try {
@@ -233,14 +245,81 @@ export default function StockLedgerPage() {
       fd.append('file', file);
       fd.append('kind', kind);
       fd.append('movementDate', date);
-      const r = await fetch(`${API}/api/stock-ledger/movements/upload`, {
+      const r = await fetch(`${API}/api/stock-ledger/movements/extract`, {
         method: 'POST', headers: authHeaders(), body: fd,
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'فشل رفع الملف');
+      const { rows, pending, fileName } = j.data;
+      if (isPendingEmpty(pending)) {
+        await commitFileRows(kind, date, rows, fileName, label, emptyChoices());
+      } else {
+        setReview({ source: 'file', kind, movementDate: date, fileName, rows, pending, label });
+        setBusy(null);
+      }
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  };
+
+  const emptyChoices = (): StockNameChoices => ({ warehouseChoices: [], itemChoices: [], companyChoices: [] });
+
+  const commitFileRows = async (
+    kind: 'baseline' | 'in' | 'out', date: string, rows: unknown[], fileName: string, label: string, choices: StockNameChoices,
+  ) => {
+    setBusy('upload'); setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-ledger/movements/commit`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, movementDate: date, rows, fileName, ...choices }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الحفظ');
       await afterWrite(label, j.data);
+      setReview(null);
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(null); }
+  };
+
+  const extractBaselineFromStock = async (fileId: number, date: string) => {
+    setBusy('baseline'); setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-ledger/baseline/from-stock-file/extract`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salesDataFileId: fileId }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشلت معاينة الملف');
+      const { pending } = j.data;
+      if (isPendingEmpty(pending)) {
+        await commitBaselineFromStock(fileId, date, emptyChoices());
+      } else {
+        setReview({ source: 'stock-file', salesDataFileId: fileId, movementDate: date, pending, label: 'استُورد الستوك الافتتاحي' });
+        setBusy(null);
+      }
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  };
+
+  const commitBaselineFromStock = async (fileId: number, date: string, choices: StockNameChoices) => {
+    setBusy('baseline'); setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-ledger/baseline/from-stock-file`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salesDataFileId: fileId, movementDate: date, ...choices }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الاستيراد');
+      await afterWrite('استُورد الستوك الافتتاحي', j.data);
+      setReview(null);
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(null); }
+  };
+
+  const confirmReview = (choices: StockNameChoices) => {
+    if (!review) return;
+    if (review.source === 'file') commitFileRows(review.kind, review.movementDate, review.rows, review.fileName, review.label, choices);
+    else commitBaselineFromStock(review.salesDataFileId, review.movementDate, choices);
   };
 
   const deleteBatch = async (b: Batch) => {
@@ -318,8 +397,7 @@ export default function StockLedgerPage() {
       {!loading && tab === 'batches' && (
         <BatchesTab
           batches={batches} stockFiles={stockFiles} busy={busy}
-          onBaselineFromStock={(fileId, date) =>
-            post('/api/stock-ledger/baseline/from-stock-file', { salesDataFileId: fileId, movementDate: date }, 'استُورد الستوك الافتتاحي', 'baseline')}
+          onBaselineFromStock={extractBaselineFromStock}
           onUpload={postFile}
           onManual={(kind, date, rows) =>
             post('/api/stock-ledger/movements/manual', { kind, movementDate: date, rows }, 'أُضيفت الحركة', 'manual')}
@@ -328,6 +406,15 @@ export default function StockLedgerPage() {
           canUpload={hasFeature('stock_ledger_movement_upload')}
           canManual={hasFeature('stock_ledger_manual')}
           canDelete={hasFeature('stock_ledger_delete')}
+        />
+      )}
+
+      {review && (
+        <StockMovementImportModal
+          pending={review.pending}
+          busy={busy === 'upload' || busy === 'baseline'}
+          onCancel={() => setReview(null)}
+          onConfirm={confirmReview}
         />
       )}
     </div>

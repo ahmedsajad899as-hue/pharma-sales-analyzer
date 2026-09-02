@@ -5,6 +5,8 @@
 import {
   parseMovementFile, ingestRows, ingestBaselineFromStockFile,
   buildAlerts, removeBatch, recomputeBalances,
+  classifyMovementRows, classifyBaselineFromStockFile,
+  saveWarehouseNameLinks, saveItemLinks, saveStockCompanyNameLinks,
 } from './stock-ledger.service.js';
 import {
   getWarehouses, getBatches, getBalances, getPairHistory, prisma,
@@ -116,12 +118,31 @@ export async function listStockFiles(req, res) {
   } catch (err) { fail(res, err); }
 }
 
+/** معاينة تطابق الستوك الافتتاحي من ملف Stock موجود — قبل الحفظ */
+export async function extractBaselineFromStockFile(req, res) {
+  try {
+    const salesDataFileId = parseInt(req.body?.salesDataFileId, 10);
+    if (!Number.isInteger(salesDataFileId)) {
+      return res.status(400).json({ success: false, error: 'اختر ملف ستوك' });
+    }
+    const result = await classifyBaselineFromStockFile({ userId: req.user.id, salesDataFileId });
+    res.json({ success: true, data: result });
+  } catch (err) { fail(res, err, 400); }
+}
+
+const saveNameChoices = (userId, body) => Promise.all([
+  saveWarehouseNameLinks(userId, body?.warehouseChoices),
+  saveItemLinks(userId, body?.itemChoices),
+  saveStockCompanyNameLinks(userId, body?.companyChoices),
+]);
+
 export async function baselineFromStockFile(req, res) {
   try {
     const salesDataFileId = parseInt(req.body?.salesDataFileId, 10);
     if (!Number.isInteger(salesDataFileId)) {
       return res.status(400).json({ success: false, error: 'اختر ملف ستوك' });
     }
+    await saveNameChoices(req.user.id, req.body);
     const result = await ingestBaselineFromStockFile({
       userId: req.user.id,
       salesDataFileId,
@@ -132,6 +153,59 @@ export async function baselineFromStockFile(req, res) {
 }
 
 // ─── رفع ملفات الحركات (وكذلك ستوك افتتاحي بصيغة طولية) ────────
+/** معاينة تطابق ملف حركة/ستوك افتتاحي مرفوع — قبل الحفظ، لا يُنشئ أي شيء */
+export async function extractMovements(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'لم يتم رفع ملف' });
+    const kind = String(req.body?.kind || 'out');
+    if (!['baseline', 'in', 'out'].includes(kind)) {
+      return res.status(400).json({ success: false, error: 'نوع الدفعة غير صالح' });
+    }
+    const movementDate = toDate(req.body?.movementDate);
+    const originalName = utf8Name(req.file);
+    const { rows, colMap, skipped } = parseMovementFile(req.file.buffer, movementDate);
+    if (!rows.length) {
+      return res.status(422).json({
+        success: false,
+        error: 'لا توجد صفوف صالحة — تأكد من وجود أعمدة المذخر والايتم والكمية',
+        colMap,
+      });
+    }
+    const { pending } = await classifyMovementRows({ rows, userId: req.user.id });
+    // rawRow غير مُستعمل في أي شاشة — يُسقَط من صفوف الذهاب والإياب بين الاستخراج
+    // والحفظ لتخفيف حِمل الشبكة (قد تبلغ الملفات آلاف الأسطر).
+    const lean = rows.map(({ rawRow, ...r }) => r);
+    res.json({ success: true, data: { rows: lean, colMap, skipped, pending, kind, fileName: originalName } });
+  } catch (err) { fail(res, err, 400); }
+}
+
+/** حفظ ملف حركة/ستوك افتتاحي بعد تأكيد المستخدم للأسماء المشكوك فيها (أو مباشرة إن لم توجد) */
+export async function commitMovements(req, res) {
+  try {
+    const kind = String(req.body?.kind || 'out');
+    if (!['baseline', 'in', 'out'].includes(kind)) {
+      return res.status(400).json({ success: false, error: 'نوع الدفعة غير صالح' });
+    }
+    const rows = (Array.isArray(req.body?.rows) ? req.body.rows : [])
+      .map(r => ({ ...r, movementDate: r?.movementDate ? toDate(r.movementDate) : undefined }));
+    if (!rows.length) return res.status(400).json({ success: false, error: 'لا توجد صفوف' });
+
+    await saveNameChoices(req.user.id, req.body);
+
+    const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
+    const fileName = String(req.body?.fileName || '').trim();
+    const result = await ingestRows({
+      userId: req.user.id,
+      kind,
+      name: label + (fileName ? ': ' + fileName : ''),
+      movementDate: toDate(req.body?.movementDate),
+      rows,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) { fail(res, err, 400); }
+}
+
+// ─── رفع مباشر (بلا معاينة) — يبقى للتوافق مع أي مسار برمجي آخر ────
 export async function uploadMovements(req, res) {
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'لم يتم رفع ملف' });
