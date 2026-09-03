@@ -723,20 +723,6 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
                       <span style={{ fontWeight: 800, fontSize: 15, color: '#1e293b' }}>{r.name}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: cm.color, background: cm.bg, padding: '2px 10px', borderRadius: 20 }}>{cm.label}</span>
-                      {r.companyName && (() => {
-                        // companyName مُجمَّع من كل الشركات التي يرتبط بها مستخدم هذا
-                        // الايتم المؤقت (وليس بالضرورة شركات يخصّها الايتم فعلاً) —
-                        // نعرض الشركة التي ستُطبَّق عليها عملية الربط فقط، والباقي بتلميح
-                        const names = r.companyName.split(' / ');
-                        return (
-                          <span
-                            style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed' }}
-                            title={names.length > 1 ? `المستخدم مرتبط أيضاً بـ: ${names.slice(1).join('، ')}` : undefined}
-                          >
-                            🏢 {names[0]}{names.length > 1 ? ` +${names.length - 1}` : ''}
-                          </span>
-                        );
-                      })()}
                       {r.salesCount > 0 && <span style={{ fontSize: 11, color: '#64748b' }}>📊 {r.salesCount} مبيعة</span>}
                       {r.userName && <span style={{ fontSize: 11, color: '#94a3b8' }}>👤 {r.userName}</span>}
                     </div>
