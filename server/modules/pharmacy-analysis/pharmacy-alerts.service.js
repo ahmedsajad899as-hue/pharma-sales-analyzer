@@ -51,7 +51,7 @@ export async function computePharmacyAlerts(userId, opts = {}) {
   const itemScope = await buildItemScopeFilter(userId);
 
   const sales = await prisma.sale.findMany({
-    where: { ...(userId ? { userId } : {}), ...buildFileFilter(fileIds), ...itemScope },
+    where: { isHidden: false, ...(userId ? { userId } : {}), ...buildFileFilter(fileIds), ...itemScope },
     select: {
       quantity: true, totalValue: true, saleDate: true,
       item:     { select: { name: true } },

@@ -230,7 +230,7 @@ export async function getMySharedItems(userId) {
   const [sharedRows, catalogItems] = await Promise.all([
     // (1) ايتمات ملفات المبيعات المشتركة معه
     fileIds.length ? prisma.sale.findMany({
-      where: { uploadedFileId: { in: fileIds } },
+      where: { uploadedFileId: { in: fileIds }, isHidden: false },
       select: { item: { select: REP_ITEM_SELECT } },
       distinct: ['itemId'],
     }) : [],
@@ -317,7 +317,7 @@ export async function syncCommercialsByActiveFiles(fileIds) {
 
   // distinct (areaId, representativeId) appearing in the active files (sales + returns)
   const pairs = await prisma.sale.findMany({
-    where: { uploadedFileId: { in: derivableFileIds } }, // Sale.areaId is required → no null filter
+    where: { uploadedFileId: { in: derivableFileIds }, isHidden: false }, // Sale.areaId is required → no null filter
     select: { areaId: true, representativeId: true },
     distinct: ['areaId', 'representativeId'],
   });
@@ -794,7 +794,7 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
 
   // أسماء المندوبين الفعلية داخل تلك الملفات
   const rows = await prisma.sale.findMany({
-    where:    { uploadedFileId: { in: mercatoIds } },
+    where:    { uploadedFileId: { in: mercatoIds }, isHidden: false },
     select:   { representative: { select: { name: true } } },
     distinct: ['representativeId'],
   });
@@ -908,7 +908,7 @@ async function resolveSciRepSales(id, query = {}, select) {
       : { uploadedFileId: { in: fileIds } };
     // Only keep rep IDs that actually appear in the active files
     const repsInFiles = await prisma.sale.findMany({
-      where: { representativeId: { in: nameMatchCandidates }, ...fileFilter0 },
+      where: { representativeId: { in: nameMatchCandidates }, isHidden: false, ...fileFilter0 },
       select: { representativeId: true },
       distinct: ['representativeId'],
     });
@@ -1139,6 +1139,7 @@ async function resolveSciRepSales(id, query = {}, select) {
     if (sharedFileIds.length > 0) {
       const sharedSales = await prisma.sale.findMany({
         where: {
+          isHidden: false,
           ...(sharedFileIds.length === 1 ? { uploadedFileId: sharedFileIds[0] } : { uploadedFileId: { in: sharedFileIds } }),
           ...dateFilter,
           ...(recordType ? { recordType } : {}),
@@ -1153,6 +1154,7 @@ async function resolveSciRepSales(id, query = {}, select) {
     if (nonSharedFileIds.length > 0) {
       const nonSharedSales = await prisma.sale.findMany({
         where: {
+          isHidden: false,
           ...(nonSharedFileIds.length === 1 ? { uploadedFileId: nonSharedFileIds[0] } : { uploadedFileId: { in: nonSharedFileIds } }),
           ...dateFilter,
           ...(recordType ? { recordType } : {}),

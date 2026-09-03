@@ -39,6 +39,15 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
   const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
   const [search, setSearch]     = useState('');
 
+  // فلترة الأعمدة (مثل AutoFilter بالإكسل) — القيم المستبعدة محفوظة على
+  // السيرفر (FileColumnFilter) وتُخفي صفوفها من كل التحليل والتقارير عبر
+  // Sale.isHidden، لا من هذا المحرّر فقط.
+  const [columnFilters, setColumnFilters] = useState<Map<string, Set<string>>>(new Map());
+  const [filterMenuCol, setFilterMenuCol] = useState<string | null>(null);
+  const [filterDraft, setFilterDraft]     = useState<Set<string>>(new Set()); // القيم المضمَّنة (غير المستبعدة) أثناء التحرير
+  const [filterSearch, setFilterSearch]   = useState('');
+  const [filterSaving, setFilterSaving]   = useState(false);
+
   // تغييرات معلّقة
   const [pending, setPending]       = useState<Map<string, Edit>>(new Map());
   const [deletedIds, setDeletedIds] = useState<Set<number>>(new Set());
@@ -64,6 +73,11 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
         setColumns(j.data.columns || []);
         setEdited(!!j.data.edited);
         setSnapshotAt(j.data.snapshotAt ?? null);
+        const cf = new Map<string, Set<string>>();
+        for (const f of j.data.columnFilters || []) {
+          if (Array.isArray(f.excludedValues) && f.excludedValues.length) cf.set(f.columnKey, new Set(f.excludedValues));
+        }
+        setColumnFilters(cf);
       })
       .catch(e => setErr(e instanceof Error ? e.message : 'خطأ'))
       .finally(() => setLoading(false));
@@ -153,7 +167,15 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
   /** نفس المنطق لصف جديد لم يُحفظ بعد. */
   const newRowSigned = (nr: any, field: string) => signedOf(nr[field], nr.recordType, field);
 
-  const filtered = useMemo(() => {
+  /** هل يُخفي أي فلتر عمود فعّال هذا الصف؟ */
+  const hiddenByColumnFilter = (row: Row) => {
+    for (const [col, excluded] of columnFilters) {
+      if (excluded.has(dispVal(row, col))) return true;
+    }
+    return false;
+  };
+
+  const beforeColumnFilter = useMemo(() => {
     const q = search.trim().toLowerCase();
     const live = rows.filter(r => !deletedIds.has(r.id));
     if (!q) return live;
@@ -161,7 +183,16 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
       [r.repName, r.areaName, r.itemName, r.customerName, String(r.quantity), String(r.totalValue), r.saleDate]
         .some(v => String(v ?? '').toLowerCase().includes(q)),
     );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, deletedIds, search]);
+
+  const filtered = useMemo(() => {
+    if (columnFilters.size === 0) return beforeColumnFilter;
+    return beforeColumnFilter.filter(r => !hiddenByColumnFilter(r));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [beforeColumnFilter, columnFilters, pending]);
+
+  const hiddenByFilterCount = beforeColumnFilter.length - filtered.length;
 
   const sortedRows = useMemo(() => {
     if (!sortCol) return filtered; // بلا فرز = ترتيب الملف كما رُفع
@@ -321,6 +352,65 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     setSaving(false);
   };
 
+  /** القيم المميّزة لعمود مع عدد صفوفها — لقائمة الفلتر (كل صفوف الملف بصرف النظر عن البحث). */
+  const distinctValuesFor = (col: string): { value: string; count: number }[] => {
+    const live = rows.filter(r => !deletedIds.has(r.id));
+    const counts = new Map<string, number>();
+    for (const row of live) {
+      const v = dispVal(row, col);
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => a.value.localeCompare(b.value, 'ar'));
+  };
+
+  const openFilterMenu = (col: string) => {
+    const excluded = columnFilters.get(col) ?? new Set<string>();
+    const included = new Set(distinctValuesFor(col).map(d => d.value).filter(v => !excluded.has(v)));
+    setFilterDraft(included);
+    setFilterSearch('');
+    setFilterMenuCol(col);
+  };
+
+  /** يحفظ الفلتر على السيرفر — يُعيد حساب Sale.isHidden فوراً فينعكس على كل تحليل وتقرير. */
+  const applyColumnFilter = async (col: string, included: Set<string>) => {
+    const all = distinctValuesFor(col).map(d => d.value);
+    const excludedValues = all.filter(v => !included.has(v));
+    setFilterSaving(true);
+    try {
+      const r = await fetch(`${API}/api/files/${fileId}/column-filters/${encodeURIComponent(col)}`, {
+        method: 'PUT', headers: H(), body: JSON.stringify({ excludedValues }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || 'فشل حفظ الفلتر');
+      setColumnFilters(prev => {
+        const next = new Map(prev);
+        if (excludedValues.length) next.set(col, new Set(excludedValues));
+        else next.delete(col);
+        return next;
+      });
+      setFilterMenuCol(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'فشل حفظ الفلتر');
+    }
+    setFilterSaving(false);
+  };
+
+  const clearAllFilters = async () => {
+    if (!confirm('إلغاء كل فلاتر الأعمدة على هذا الملف؟ ستعود كل الصفوف للظهور في التحليل والتقارير.')) return;
+    setFilterSaving(true);
+    try {
+      const r = await fetch(`${API}/api/files/${fileId}/column-filters`, { method: 'DELETE', headers: H() });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || 'فشل إلغاء الفلاتر');
+      setColumnFilters(new Map());
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'فشل إلغاء الفلاتر');
+    }
+    setFilterSaving(false);
+  };
+
   const addRow = () => {
     const blank: any = {
       _tmp: `new-${Date.now()}-${newRows.length}`,
@@ -355,7 +445,7 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 4000,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12,
     }}>
-      <div onClick={e => e.stopPropagation()} style={{
+      <div onClick={e => { e.stopPropagation(); if (filterMenuCol) setFilterMenuCol(null); }} style={{
         background: '#fff', borderRadius: 14, width: 'min(1400px, 98vw)', height: '92vh',
         display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden',
         boxShadow: '0 24px 60px rgba(0,0,0,0.3)',
@@ -365,6 +455,16 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
           <span style={{ fontSize: 11, color: '#64748b' }}>
             {filtered.length} صف{deletedIds.size > 0 ? ` · ${deletedIds.size} محذوف` : ''}{newRows.length > 0 ? ` · ${newRows.length} جديد` : ''}
           </span>
+          {columnFilters.size > 0 && (
+            <span title="الصفوف المخفية بالفلتر مستبعدة من كل التحليل والتقارير أيضاً، لا من هذا العرض فقط"
+              style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 20, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              🔽 {hiddenByFilterCount} صف مخفي بالفلتر ({columnFilters.size} عمود مفلتَر)
+              <button onClick={clearAllFilters} disabled={filterSaving}
+                style={{ border: 'none', background: 'none', color: '#7c3aed', cursor: 'pointer', fontWeight: 800, padding: 0, textDecoration: 'underline' }}>
+                مسح الكل
+              </button>
+            </span>
+          )}
           {edited && (
             <span title={snapshotAt ? `نسخة أصلية محفوظة بتاريخ ${new Date(snapshotAt).toLocaleString('ar-IQ')}` : ''}
               style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 20, padding: '2px 8px' }}>
@@ -414,8 +514,8 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                   <th style={{ ...TH, width: 34 }} />
                   <th style={{ ...TH, width: 46 }}>#</th>
                   {visibleCols.map(c => (
-                    <th key={c.key} style={TH}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <th key={c.key} style={{ ...TH, position: 'sticky' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, position: 'relative' }}>
                         <button
                           onClick={() => setSortCol(prev => (prev === c.key ? null : c.key))}
                           title={sortCol === c.key ? 'إلغاء الترتيب — رجوع لترتيب الملف' : 'ترتيب حسب هذا العمود'}
@@ -423,12 +523,64 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                         >
                           {c.label}{sortCol === c.key ? ' ▲' : ''}
                         </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); filterMenuCol === c.key ? setFilterMenuCol(null) : openFilterMenu(c.key); }}
+                          title="فلترة قيم هذا العمود — يستثني القيم غير المحدَّدة من كل التحليل والتقارير"
+                          style={{
+                            border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, padding: 0,
+                            color: columnFilters.has(c.key) ? '#7c3aed' : '#94a3b8',
+                          }}
+                        >🔽</button>
                         {c.kind === 'extra' && (
                           <button
                             onClick={() => { if (confirm('حذف عمود «' + c.label + '» من كل صفوف الملف؟')) setDeletedCols(p => new Set(p).add(c.key)); }}
                             title="حذف هذا العمود من كل الصفوف"
                             style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 11, padding: 0 }}
                           >✕</button>
+                        )}
+                        {filterMenuCol === c.key && (
+                          <div onClick={e => e.stopPropagation()} style={{
+                            position: 'absolute', top: '100%', insetInlineStart: 0, marginTop: 6, zIndex: 10,
+                            background: '#fff', border: '1px solid #cbd5e1', borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+                            width: 220, maxHeight: 320, display: 'flex', flexDirection: 'column', fontWeight: 400, textAlign: 'right',
+                          }}>
+                            <div style={{ padding: 8, borderBottom: '1px solid #eef2f7' }}>
+                              <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="🔍 بحث بالقيمة..."
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, direction: 'rtl', boxSizing: 'border-box' }} />
+                              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                                <button onClick={() => setFilterDraft(new Set(distinctValuesFor(c.key).map(d => d.value)))}
+                                  style={{ border: 'none', background: 'none', color: '#4f46e5', cursor: 'pointer', fontSize: 10, fontWeight: 700, padding: 0 }}>تحديد الكل</button>
+                                <button onClick={() => setFilterDraft(new Set())}
+                                  style={{ border: 'none', background: 'none', color: '#64748b', cursor: 'pointer', fontSize: 10, fontWeight: 700, padding: 0 }}>إلغاء التحديد</button>
+                              </div>
+                            </div>
+                            <div style={{ overflowY: 'auto', padding: 6, flex: 1 }}>
+                              {distinctValuesFor(c.key)
+                                .filter(d => !filterSearch.trim() || d.value.toLowerCase().includes(filterSearch.trim().toLowerCase()))
+                                .map(d => (
+                                  <label key={d.value || '∅'} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', fontSize: 11, fontWeight: 400, cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={filterDraft.has(d.value)}
+                                      onChange={e => setFilterDraft(prev => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add(d.value); else next.delete(d.value);
+                                        return next;
+                                      })} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{d.value || '(فارغة)'}</span>
+                                    <span style={{ color: '#94a3b8' }}>{d.count}</span>
+                                  </label>
+                                ))}
+                            </div>
+                            <div style={{ padding: 8, borderTop: '1px solid #eef2f7', display: 'flex', gap: 6 }}>
+                              <button onClick={() => applyColumnFilter(c.key, filterDraft)} disabled={filterSaving}
+                                style={{ flex: 1, padding: '5px 8px', borderRadius: 6, border: 'none', background: '#4f46e5', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                                {filterSaving ? '⏳' : 'تطبيق'}
+                              </button>
+                              <button onClick={() => setFilterMenuCol(null)}
+                                style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                                إلغاء
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </span>
                     </th>

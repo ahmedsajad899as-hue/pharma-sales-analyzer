@@ -158,10 +158,10 @@ router.get('/overall', async (req, res) => {
 
     // Quick count without any date filter — to see if records exist at all
     const rawCount = await prisma.sale.count({
-      where: { ...fileFilter, ...(recordType ? { recordType } : {}) },
+      where: { isHidden: false, ...fileFilter, ...(recordType ? { recordType } : {}) },
     });
     const ownedCount = await prisma.sale.count({
-      where: { ...fileFilter, ...userOwnershipFilter, ...(recordType ? { recordType } : {}) },
+      where: { isHidden: false, ...fileFilter, ...userOwnershipFilter, ...(recordType ? { recordType } : {}) },
     });
     console.log('[overall] rawCount (no userId filter):', rawCount, '| ownedCount (with userId filter):', ownedCount);
 
@@ -192,7 +192,7 @@ router.get('/overall', async (req, res) => {
         // Keep this file's rows dated before its own upload moment. If it has NONE
         // (all rows date-defaulted), keep ALL its rows rather than dropping the file.
         const realCount = await prisma.sale.count({
-          where: { uploadedFileId: f.id, ...(recordType ? { recordType } : {}), saleDate: { lt: up } },
+          where: { uploadedFileId: f.id, isHidden: false, ...(recordType ? { recordType } : {}), saleDate: { lt: up } },
         });
         orConds.push(realCount > 0 ? { uploadedFileId: f.id, saleDate: { lt: up } } : { uploadedFileId: f.id });
       }
@@ -200,6 +200,7 @@ router.get('/overall', async (req, res) => {
     }
 
     const where = {
+      isHidden: false,
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,

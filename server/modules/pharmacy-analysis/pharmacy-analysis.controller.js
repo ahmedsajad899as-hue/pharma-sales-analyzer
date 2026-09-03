@@ -41,7 +41,7 @@ export async function listPharmacies(req, res, next) {
     const search  = req.query.search ? norm(req.query.search) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         id: true,
         quantity: true,
@@ -164,7 +164,7 @@ export async function pharmacyDetail(req, res, next) {
     const itemFilter  = req.query.item ? norm(req.query.item) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
         customer:     { select: { id: true, name: true } },
@@ -248,7 +248,7 @@ export async function listItems(req, res, next) {
     const search  = req.query.search ? norm(req.query.search) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         quantity: true, totalValue: true, saleDate: true,
         item:         { select: { id: true, name: true } },
@@ -318,7 +318,7 @@ export async function itemDetail(req, res, next) {
     const itemScope  = await buildItemScopeFilter(userId);
 
     const sales = await prisma.sale.findMany({
-      where: { ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
         item:           { select: { id: true, name: true } },

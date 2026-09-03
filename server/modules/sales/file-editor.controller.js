@@ -42,10 +42,28 @@ async function resolveRep(name, userId) {
 }
 
 /**
+ * في ملف ميركاتو «اسم المذخر» عمود حقيقي منفصل (المذخر المجهِّز، لا الزبون —
+ * راجع mercatoColumnMap في sales.service.js) بينما COLUMN_ALIASES.customer
+ * يحوي أسماء «مذخر/مخزن/مستودع» لأن هذه الترويسة تعني الزبون فعلاً في ملفات
+ * أخرى. بلا هذا الاستثناء كان محرّر الملف يبتلع عمود «اسم المذخر» الخام تحت
+ * حقل customerName (فتُستبدَل قيمته الحقيقية بصيدلية الصف بدل مذخره الفعلي،
+ * وعند الحفظ يُكتب تعديل الصيدلية فوق عمود المذخر الخام) — لملفات ميركاتو
+ * نستبعد هذه الأسماء من مطابقة customerName فيبقى العمود مستقلاً (extra).
+ */
+const _MERCATO_WAREHOUSE_TERMS = new Set([
+  'مذخر', 'المذخر', 'اسم المذخر', 'مخزن', 'المخزن', 'اسم المخزن',
+  'مستودع', 'المستودع', 'اسم المستودع', 'warehouse', 'store', 'depot',
+]);
+function customerAliasesFor(isMercato) {
+  if (!isMercato) return COLUMN_ALIASES.customer;
+  return COLUMN_ALIASES.customer.filter(a => !_MERCATO_WAREHOUSE_TERMS.has(a));
+}
+
+/**
  * يربط كل حقل أساسي بمفتاح rawData المقابل في هذا الملف تحديداً.
  * الترويسات تختلف بين الملفات، فنبحث عن أول مفتاح موجود فعلاً يطابق alias.
  */
-function buildRawKeyMap(sampleRaw) {
+function buildRawKeyMap(sampleRaw, isMercato = false) {
   const keys = Object.keys(sampleRaw || {});
   const lower = keys.map(k => String(k).toLowerCase().trim());
   const pick = (aliases) => {
@@ -59,7 +77,7 @@ function buildRawKeyMap(sampleRaw) {
     repName:      pick(COLUMN_ALIASES.repName),
     areaName:     pick(COLUMN_ALIASES.area),
     itemName:     pick(COLUMN_ALIASES.item),
-    customerName: pick(COLUMN_ALIASES.customer),
+    customerName: pick(customerAliasesFor(isMercato)),
     quantity:     pick(COLUMN_ALIASES.quantity),
     totalValue:   pick(COLUMN_ALIASES.totalValue),
     saleDate:     pick(COLUMN_ALIASES.date),
@@ -76,7 +94,7 @@ function buildRawKeyMap(sampleRaw) {
  * الحفظ (saveFileRows) يبقى على buildRawKeyMap القديمة عمداً حتى لا تتغيّر
  * آلية كتابة تعديلات الحقول الأساسية على rawData.
  */
-function buildRawKeyMapMulti(allKeys) {
+function buildRawKeyMapMulti(allKeys, isMercato = false) {
   const byLower = new Map();
   for (const k of allKeys) {
     const norm = String(k).toLowerCase().trim();
@@ -95,7 +113,7 @@ function buildRawKeyMapMulti(allKeys) {
     repName:      pickAll(COLUMN_ALIASES.repName),
     areaName:     pickAll(COLUMN_ALIASES.area),
     itemName:     pickAll(COLUMN_ALIASES.item),
-    customerName: pickAll(COLUMN_ALIASES.customer),
+    customerName: pickAll(customerAliasesFor(isMercato)),
     quantity:     pickAll(COLUMN_ALIASES.quantity),
     totalValue:   pickAll(COLUMN_ALIASES.totalValue),
     saleDate:     pickAll(COLUMN_ALIASES.date),
@@ -165,7 +183,7 @@ const ITEM_CODE_KEY_RE = /^رقم\s*الماد[ةه]$/;
 /** يتحقق أن المستخدم يملك الملف (التعديل مسموح للمالك فقط). */
 async function assertOwner(fileId, userId) {
   const file = await prisma.uploadedFile.findUnique({
-    where: { id: fileId }, select: { id: true, userId: true, originalName: true },
+    where: { id: fileId }, select: { id: true, userId: true, originalName: true, sourceSystem: true },
   });
   if (!file) return { error: 'الملف غير موجود', status: 404 };
   if (userId && file.userId && file.userId !== userId) {
@@ -195,16 +213,12 @@ async function ensureSnapshot(fileId) {
   return { created: true, rowCount: rows.length };
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// GET /api/files/:id/rows — كل صفوف الملف للتعديل
-// ════════════════════════════════════════════════════════════════════════════
-export async function getFileRows(req, res) {
-  try {
-    const fileId = parseInt(req.params.id);
-    if (!Number.isInteger(fileId)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    const guard = await assertOwner(fileId, req.user?.id ?? null);
-    if (guard.error) return res.status(guard.status).json({ error: guard.error });
-
+/**
+ * يبني أعمدة وصفوف شبكة تعديل الملف — مستخرجة من getFileRows لتُستعمل أيضاً
+ * في إعادة حساب Sale.isHidden عند تغيير فلتر عمود (recomputeHiddenForFile)،
+ * فتبقى «القيمة المعروضة لكل خلية» مصدراً واحداً بدل تكرار المنطق مرتين.
+ */
+async function buildFileGrid(fileId, isMercato) {
     const sales = await prisma.sale.findMany({
       where: { uploadedFileId: fileId },
       select: {
@@ -230,7 +244,7 @@ export async function getFileRows(req, res) {
       return { s, raw, isManual };
     });
     // كل التهجئات الممكنة لكل حقل أساسي عبر كل صفوف الملف (لا عيّنة صف واحد)
-    const keyMapMulti = buildRawKeyMapMulti(orderedKeys);
+    const keyMapMulti = buildRawKeyMapMulti(orderedKeys, isMercato);
     const HIDDEN_KEYS = new Set(['_sheetName', '_addedInEditor']);
     // مفتاح rawData ← الحقل الأساسي الذي يمثّله
     const rawToCore = new Map();
@@ -308,9 +322,80 @@ export async function getFileRows(req, res) {
       };
     });
 
-    const snapshot = await prisma.fileEditSnapshot.findUnique({
-      where: { fileId }, select: { createdAt: true, rowCount: true },
-    });
+    return { columns: orderedColumns, extraDefs, rows };
+}
+
+/**
+ * القيمة المعروضة لخلية — تطابق دالة dispVal في FileRowsEditor.tsx (الإرجاع
+ * سالب) حتى تتّسق قيم الفلتر المحفوظة من الواجهة مع ما يُحتسب هنا وقت تحديد
+ * أي صف يجب إخفاؤه.
+ */
+const SIGNED_FIELDS = new Set(['quantity', 'totalValue']);
+const isReturnType = rt => String(rt ?? '').trim().toLowerCase() === 'return';
+function fmtValServer(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return '';
+  const n = typeof v === 'number' ? v : Number(String(v).trim().replace(/,/g, ''));
+  if (!Number.isFinite(n)) return String(v);
+  return String(Number(n.toFixed(2)));
+}
+function cellDisplayValue(row, field) {
+  const raw = CORE_FIELDS.has(field) ? row[field] : (row.extra?.[field] ?? '');
+  if (SIGNED_FIELDS.has(field) && isReturnType(row.recordType)) {
+    if (raw === null || raw === undefined || String(raw).trim() === '') return '';
+    const n = Number(String(raw).trim().replace(/,/g, ''));
+    return Number.isFinite(n) ? fmtValServer(-Math.abs(n)) : fmtValServer(raw);
+  }
+  return fmtValServer(raw);
+}
+
+/**
+ * يعيد حساب Sale.isHidden لكل صفوف الملف بناءً على تقاطع (AND) كل فلاتر
+ * الأعمدة الفعّالة عليه — صف يُخفى لو طابقت قيمته المعروضة في أي عمود
+ * مفلتَر إحدى القيم المستبعدة لذلك العمود. تُستدعى بعد أي إضافة/تعديل/حذف
+ * لفلتر عمود واحد، فتعيد بناء الحالة كاملة من نقطة الصفر بدل تعديل تراكمي.
+ */
+async function recomputeHiddenForFile(fileId, isMercato) {
+  const filters = await prisma.fileColumnFilter.findMany({ where: { fileId } });
+  const active = filters
+    .map(f => { try { return { columnKey: f.columnKey, excluded: new Set(JSON.parse(f.excludedValues || '[]')) }; } catch { return null; } })
+    .filter(f => f && f.excluded.size > 0);
+
+  if (active.length === 0) {
+    await prisma.sale.updateMany({ where: { uploadedFileId: fileId, isHidden: true }, data: { isHidden: false } });
+    return { hiddenCount: 0 };
+  }
+
+  const { rows } = await buildFileGrid(fileId, isMercato);
+  const hideIds = [];
+  const showIds = [];
+  for (const row of rows) {
+    const hidden = active.some(f => f.excluded.has(cellDisplayValue(row, f.columnKey)));
+    (hidden ? hideIds : showIds).push(row.id);
+  }
+  await prisma.$transaction([
+    prisma.sale.updateMany({ where: { id: { in: hideIds.length ? hideIds : [-1] } }, data: { isHidden: true } }),
+    prisma.sale.updateMany({ where: { id: { in: showIds.length ? showIds : [-1] } }, data: { isHidden: false } }),
+  ]);
+  return { hiddenCount: hideIds.length };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET /api/files/:id/rows — كل صفوف الملف للتعديل
+// ════════════════════════════════════════════════════════════════════════════
+export async function getFileRows(req, res) {
+  try {
+    const fileId = parseInt(req.params.id);
+    if (!Number.isInteger(fileId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const guard = await assertOwner(fileId, req.user?.id ?? null);
+    if (guard.error) return res.status(guard.status).json({ error: guard.error });
+
+    const isMercato = guard.file.sourceSystem === 'mercato';
+    const { columns: orderedColumns, extraDefs, rows } = await buildFileGrid(fileId, isMercato);
+
+    const [snapshot, columnFilters] = await Promise.all([
+      prisma.fileEditSnapshot.findUnique({ where: { fileId }, select: { createdAt: true, rowCount: true } }),
+      prisma.fileColumnFilter.findMany({ where: { fileId }, select: { columnKey: true, excludedValues: true } }),
+    ]);
 
     res.json({
       success: true,
@@ -324,10 +409,88 @@ export async function getFileRows(req, res) {
         edited: !!snapshot,
         snapshotAt: snapshot?.createdAt ?? null,
         originalRowCount: snapshot?.rowCount ?? rows.length,
+        columnFilters: columnFilters.map(f => {
+          let excludedValues = [];
+          try { excludedValues = JSON.parse(f.excludedValues || '[]'); } catch { /* تجاهل */ }
+          return { columnKey: f.columnKey, excludedValues };
+        }),
       },
     });
   } catch (err) {
     console.error('[file-editor/getFileRows]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET /api/files/:id/column-filters — الفلاتر المحفوظة لهذا الملف
+// PUT /api/files/:id/column-filters/:columnKey — تحديد/مسح قيم مستبعدة لعمود
+// DELETE /api/files/:id/column-filters — مسح كل فلاتر الملف
+// ════════════════════════════════════════════════════════════════════════════
+export async function getColumnFilters(req, res) {
+  try {
+    const fileId = parseInt(req.params.id);
+    if (!Number.isInteger(fileId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const guard = await assertOwner(fileId, req.user?.id ?? null);
+    if (guard.error) return res.status(guard.status).json({ error: guard.error });
+
+    const filters = await prisma.fileColumnFilter.findMany({ where: { fileId }, select: { columnKey: true, excludedValues: true } });
+    res.json({
+      success: true,
+      data: filters.map(f => {
+        let excludedValues = [];
+        try { excludedValues = JSON.parse(f.excludedValues || '[]'); } catch { /* تجاهل */ }
+        return { columnKey: f.columnKey, excludedValues };
+      }),
+    });
+  } catch (err) {
+    console.error('[file-editor/getColumnFilters]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+export async function setColumnFilter(req, res) {
+  try {
+    const fileId = parseInt(req.params.id);
+    const columnKey = String(req.params.columnKey ?? '');
+    if (!Number.isInteger(fileId) || !columnKey) return res.status(400).json({ error: 'معطيات غير صالحة' });
+    const guard = await assertOwner(fileId, req.user?.id ?? null);
+    if (guard.error) return res.status(guard.status).json({ error: guard.error });
+
+    const excludedValues = Array.isArray(req.body?.excludedValues)
+      ? [...new Set(req.body.excludedValues.map(v => String(v ?? '')))]
+      : [];
+
+    if (excludedValues.length === 0) {
+      await prisma.fileColumnFilter.deleteMany({ where: { fileId, columnKey } });
+    } else {
+      await prisma.fileColumnFilter.upsert({
+        where:  { fileId_columnKey: { fileId, columnKey } },
+        create: { fileId, columnKey, excludedValues: JSON.stringify(excludedValues) },
+        update: { excludedValues: JSON.stringify(excludedValues) },
+      });
+    }
+
+    const { hiddenCount } = await recomputeHiddenForFile(fileId, guard.file.sourceSystem === 'mercato');
+    res.json({ success: true, hiddenCount });
+  } catch (err) {
+    console.error('[file-editor/setColumnFilter]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+export async function clearColumnFilters(req, res) {
+  try {
+    const fileId = parseInt(req.params.id);
+    if (!Number.isInteger(fileId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const guard = await assertOwner(fileId, req.user?.id ?? null);
+    if (guard.error) return res.status(guard.status).json({ error: guard.error });
+
+    await prisma.fileColumnFilter.deleteMany({ where: { fileId } });
+    await prisma.sale.updateMany({ where: { uploadedFileId: fileId, isHidden: true }, data: { isHidden: false } });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[file-editor/clearColumnFilters]', err);
     res.status(500).json({ error: err.message });
   }
 }
@@ -362,7 +525,7 @@ export async function saveFileRows(req, res) {
     });
     let sampleRaw = {};
     try { if (sample?.rawData) sampleRaw = JSON.parse(sample.rawData); } catch { /* تجاهل */ }
-    const keyMap = buildRawKeyMap(sampleRaw);
+    const keyMap = buildRawKeyMap(sampleRaw, guard.file.sourceSystem === 'mercato');
 
     // ── 1) تعديل الخلايا ────────────────────────────────────────────────────
     const byRow = new Map();
@@ -533,6 +696,12 @@ export async function saveFileRows(req, res) {
     const total = await prisma.sale.count({ where: { uploadedFileId: fileId } });
     await prisma.uploadedFile.update({ where: { id: fileId }, data: { rowCount: total } });
 
+    // صفوف مُعدَّلة/محذوفة/مضافة قد تُغيّر القيم التي تحكم فلاتر الأعمدة الحالية
+    // (لو وُجدت) — نعيد الحساب فوراً كي لا يبقى صف يُفترض إخفاؤه ظاهراً في
+    // التقارير حتى المرة القادمة التي يُعدَّل فيها الفلتر نفسه.
+    const hasFilters = await prisma.fileColumnFilter.count({ where: { fileId } });
+    if (hasFilters) await recomputeHiddenForFile(fileId, guard.file.sourceSystem === 'mercato');
+
     res.json({ success: true, summary, snapshotCreated: snap.created, rowCount: total });
   } catch (err) {
     console.error('[file-editor/saveFileRows]', err);
@@ -579,6 +748,10 @@ export async function restoreFileRows(req, res) {
       }
       await tx.uploadedFile.update({ where: { id: fileId }, data: { rowCount: rows.length } });
       await tx.fileEditSnapshot.delete({ where: { fileId } });
+      // صفوف Sale أُعيد إنشاؤها بمعرّفات جديدة — فلاتر الأعمدة السابقة (لو
+      // وُجدت) تبقى صالحة القيم لكنها بلا معنى بدون إعادة حساب isHidden، وهذا
+      // استرجاع كامل أصلاً فالأصوب مسحها لا إعادة حسابها.
+      await tx.fileColumnFilter.deleteMany({ where: { fileId } });
     }, { timeout: 120000 });
 
     res.json({ success: true, restored: rows.length });

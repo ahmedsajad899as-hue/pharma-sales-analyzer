@@ -430,6 +430,7 @@ export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}
   // Build WHERE clause
   const where = {
     representativeId: repId,
+    isHidden: false,
     ...dateFilter,
     ...(areaIds ? { areaId: { in: areaIds } } : {}),
     ...(itemIds ? { itemId: { in: itemIds } } : {}),
@@ -543,6 +544,7 @@ export async function getSalesForScientificRep(commRepIds, areaIds, itemIds, dat
 
   const dateFilter = buildDateFilter(dateRange);
   const where = {
+    isHidden: false,
     ...(hasCommReps ? { representativeId: { in: commRepIds } } : {}),
     ...dateFilter,
     ...(hasAreas ? { areaId: { in: areaIds } } : {}),
@@ -591,6 +593,7 @@ export async function getReturnsForSciRepScope(areaIds, itemIds, dateRange = {},
   const dateFilter = buildDateFilter(dateRange);
   const where = {
     recordType: 'return',
+    isHidden: false,
     ...dateFilter,
     // Always restrict to assigned commercial reps when they are specified.
     // This prevents returns from unassigned reps that share the same area from leaking in.

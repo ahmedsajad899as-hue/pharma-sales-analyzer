@@ -109,7 +109,7 @@ export async function listItems(req, res, next) {
     // مقيّدة أيضاً بايتمات المستخدم المعيّنة (فارغة = الكل)
     const itemScope = await buildItemScopeFilter(userId);
     const sales = await prisma.sale.findMany({
-      where: { userId, ...buildFileFilter(fileIds), ...itemScope },
+      where: { userId, isHidden: false, ...buildFileFilter(fileIds), ...itemScope },
       select: { itemId: true },
       distinct: ['itemId'],
     });
@@ -152,7 +152,7 @@ export async function listReps(req, res, next) {
     // ── 3. Sales value/qty per area (for rep-specific sales estimate) ─────
     const salesByAreaRaw = await prisma.sale.groupBy({
       by: ['areaId'],
-      where: { userId, itemId, ...buildFileFilter(fileIds), recordType: 'sale' },
+      where: { userId, itemId, isHidden: false, ...buildFileFilter(fileIds), recordType: 'sale' },
       _sum: { totalValue: true, quantity: true },
     });
     const salesValueByArea = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.totalValue || 0]));
@@ -313,7 +313,7 @@ export async function getItemAnalytics(req, res, next) {
     const allowedItemIds = await resolveEffectiveItemIds(userId);
     if (allowedItemIds && !allowedItemIds.includes(itemId))
       return res.status(403).json({ error: 'هذا الإيتم خارج الايتمات المعيَّنة لحسابك' });
-    const salesWhere = { userId, itemId, ...buildFileFilter(fileIds) };
+    const salesWhere = { userId, itemId, isHidden: false, ...buildFileFilter(fileIds) };
     if (sciRep) {
       // Scientific rep: filter sales by their assigned areas
       if (sciRep.areaIds.length > 0) {
@@ -486,6 +486,7 @@ export async function getItemAnalytics(req, res, next) {
         by: ['itemId'],
         where: {
           userId,
+          isHidden: false,
           item: { companyId: item.companyId },
           recordType: 'sale',
           ...buildFileFilter(fileIds),

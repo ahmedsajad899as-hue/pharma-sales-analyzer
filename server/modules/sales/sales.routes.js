@@ -6,7 +6,10 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { uploadSales, extractInvoice, addManualSales, checkNames } from './sales.controller.js';
-import { getFileRows, saveFileRows, restoreFileRows } from './file-editor.controller.js';
+import {
+  getFileRows, saveFileRows, restoreFileRows,
+  getColumnFilters, setColumnFilter, clearColumnFilters,
+} from './file-editor.controller.js';
 
 const router = Router();
 
@@ -79,5 +82,13 @@ router.post('/sales/check-names', checkNames);
 router.get('/files/:id/rows',     getFileRows);
 router.put('/files/:id/rows',     saveFileRows);
 router.post('/files/:id/restore', restoreFileRows);
+
+/**
+ * فلترة أعمدة الملف (مثل AutoFilter بالإكسل) — القيم المستبعدة تُخفي صفوفها
+ * من كل التحليل والتقارير عبر Sale.isHidden، لا من هذا المحرّر فقط.
+ */
+router.get('/files/:id/column-filters',              getColumnFilters);
+router.put('/files/:id/column-filters/:columnKey',   setColumnFilter);
+router.delete('/files/:id/column-filters',            clearColumnFilters);
 
 export default router;

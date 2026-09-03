@@ -325,6 +325,10 @@ model Sale {
   createdAt        DateTime @default(now())
   rawData          String? // JSON-encoded original Excel row
   recordType       String   @default("sale") // "sale" | "return"
+  // فلترة الأعمدة داخل «تعديل الملف» (مثل AutoFilter بالإكسل): يُحسب من
+  // FileColumnFilter عند أي تغيير في الفلتر، ثم يُستثنى من كل استعلامات
+  // Sale — راجع FileColumnFilter أدناه لتفاصيل الحساب.
+  isHidden         Boolean  @default(false)
 
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
@@ -344,6 +348,7 @@ model Sale {
   @@index([createdAt])
   @@index([saleDate])
   @@index([userId])
+  @@index([isHidden])
   @@map("sales")
 }
 
@@ -378,11 +383,31 @@ model UploadedFile {
 
   sales Sale[]
 
-  editSnapshot FileEditSnapshot?
+  editSnapshot   FileEditSnapshot?
+  columnFilters  FileColumnFilter[]
 
   @@index([userId])
   @@index([sharedWithRepId])
   @@map("uploaded_files")
+}
+
+// ─── فلاتر أعمدة الملف (مثل AutoFilter بالإكسل) ───────────────
+// عند تحديد قيم مستبعدة لعمود ما داخل «تعديل الملف»، تُحفظ هنا، ثم يُعاد
+// حساب Sale.isHidden لكل صفوف الملف بناءً على تقاطع (AND) كل الفلاتر
+// الفعّالة عليه — صف يُخفى لو طابقت قيمته المعروضة في أي عمود فلترته
+// قائمة القيم المستبعدة لذلك العمود.
+model FileColumnFilter {
+  id             Int      @id @default(autoincrement())
+  fileId         Int
+  columnKey      String // مفتاح العمود كما في شبكة تعديل الملف (حقل أساسي أو مفتاح rawData)
+  excludedValues String // JSON array من نصوص القيم المستبعدة
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  file UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, columnKey])
+  @@map("file_column_filters")
 }
 
 // ─── Scientific Representative (مندوب علمي) ──────────────────

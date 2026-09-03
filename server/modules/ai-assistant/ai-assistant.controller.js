@@ -1008,7 +1008,7 @@ async function executeRepSalesQuery(spec, userId, repAnalysisContext) {
   const fileIds = Array.isArray(repAnalysisContext?.activeFileIds) ? repAnalysisContext.activeFileIds : [];
 
   // Build where clause for Sale
-  const where = {};
+  const where = { isHidden: false };
   if (userId) where.userId = userId;
   if (fileIds.length === 1) where.uploadedFileId = fileIds[0];
   else if (fileIds.length > 1) where.uploadedFileId = { in: fileIds };
@@ -2121,7 +2121,7 @@ async function executePharmNetQuery(spec, userId) {
 
   const fileIds = fileList.map(f => f.id);
 
-  const where = { userId, uploadedFileId: { in: fileIds } };
+  const where = { userId, isHidden: false, uploadedFileId: { in: fileIds } };
 
   if (filters.pharmacyName) {
     const pharmsAll = await prisma.customer.findMany({ where: { userId }, select: { id: true, name: true } });

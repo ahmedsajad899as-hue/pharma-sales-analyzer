@@ -1131,6 +1131,7 @@ app.get('/api/export/raw-sales', async (req, res) => {
 
     const where = {
       representativeId: { in: repIds },
+      isHidden: false,
       ...(userId ? { userId } : {}),
       ...fileIdsFilter,
       ...(startDate || endDate ? {
@@ -1239,7 +1240,7 @@ app.get('/api/items', async (req, res) => {
       ]);
       const sharedFileIds = [...new Set([...byRep.map(f => f.id), ...byUser.map(s => s.fileId)])];
       const sharedRows = sharedFileIds.length ? await prisma.sale.findMany({
-        where: { uploadedFileId: { in: sharedFileIds } },
+        where: { uploadedFileId: { in: sharedFileIds }, isHidden: false },
         select: { item: { select: itemSelect } },
         distinct: ['itemId'],
       }) : [];
@@ -1345,7 +1346,7 @@ app.get('/api/items-by-files', requireAuth, async (req, res) => {
     const fileIds = String(req.query.fileIds || '').split(',').map(Number).filter(n => n > 0);
     if (fileIds.length === 0) return res.json({ success: true, data: [] });
     const rows = await prisma.sale.findMany({
-      where: { uploadedFileId: { in: fileIds } },
+      where: { uploadedFileId: { in: fileIds }, isHidden: false },
       select: { item: { select: { id: true, name: true } } },
       distinct: ['itemId'],
     });
@@ -1807,7 +1808,7 @@ app.get('/api/files/:id/areas', requireAuth, async (req, res) => {
     });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
     const areas = await prisma.sale.findMany({
-      where:  { uploadedFileId: fileId, areaId: { not: null } },
+      where:  { uploadedFileId: fileId, areaId: { not: null }, isHidden: false },
       select: { area: { select: { id: true, name: true } } },
       distinct: ['areaId'],
       orderBy: { area: { name: 'asc' } },
@@ -1913,7 +1914,7 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
 
     const sales = areaIds.length > 0
       ? await prisma.sale.findMany({
-          where: { uploadedFileId: fileId, areaId: { in: areaIds } },
+          where: { uploadedFileId: fileId, areaId: { in: areaIds }, isHidden: false },
           select: {
             representative: { select: { name: true } },
             area:           { select: { name: true } },
@@ -2533,7 +2534,7 @@ app.post('/api/files/:id/sync-assignments', async (req, res) => {
 
     // Fetch all distinct (repId, areaId, itemId) combos from this file's sales
     const sales = await prisma.sale.findMany({
-      where: { uploadedFileId: fileId },
+      where: { uploadedFileId: fileId, isHidden: false },
       select: { representativeId: true, areaId: true, itemId: true },
     });
 
@@ -2780,6 +2781,7 @@ app.get('/api/files/:id/export-rep-sales', requireAuth, async (req, res) => {
     const sales = await prisma.sale.findMany({
       where: {
         uploadedFileId: fileId,
+        isHidden: false,
         OR: orClauses,
       },
       select: {
@@ -3060,8 +3062,8 @@ app.get('/api/dashboard/stats', async (req, res) => {
       prisma.scientificRepresentative.count({ where: { isActive: true, ...userFilter } }),
       prisma.uploadedFile.count({ where: userFilter }),
       prisma.area.count({ where: userFilter }),
-      prisma.sale.count({ where: { ...userFilter, recordType: 'sale' } }),
-      prisma.sale.count({ where: { ...userFilter, recordType: 'return' } }),
+      prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'sale' } }),
+      prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'return' } }),
     ]);
     res.json({ success: true, data: { sciRepsCount, filesCount, areasCount, totalSales, totalReturns } });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3079,7 +3081,7 @@ app.get('/api/dashboard/active-stats', async (req, res) => {
       return res.json({ success: true, data: { totalSalesValue: 0, totalReturnsValue: 0, files: [] } });
     }
 
-    const fileFilter = { uploadedFileId: { in: fileIds }, ...userFilter };
+    const fileFilter = { uploadedFileId: { in: fileIds }, isHidden: false, ...userFilter };
 
     const [salesAgg, returnsAgg, fileList] = await Promise.all([
       prisma.sale.aggregate({ where: { ...fileFilter, recordType: 'sale'   }, _sum: { totalValue: true } }),
@@ -3088,7 +3090,7 @@ app.get('/api/dashboard/active-stats', async (req, res) => {
     ]);
 
     const files = await Promise.all(fileList.map(async f => {
-      const fw = { uploadedFileId: f.id, ...(userId ? { userId } : {}) };
+      const fw = { uploadedFileId: f.id, isHidden: false, ...(userId ? { userId } : {}) };
       const [sa, ra] = await Promise.all([
         prisma.sale.aggregate({ where: { ...fw, recordType: 'sale'   }, _sum: { totalValue: true } }),
         prisma.sale.aggregate({ where: { ...fw, recordType: 'return' }, _sum: { totalValue: true } }),
@@ -3297,6 +3299,7 @@ app.post('/api/analyze', async (req, res) => {
     if (!data || data.length === 0) {
       const dbSales = await prisma.sale.findMany({
         where: {
+          isHidden: false,
           ...(fileId ? { uploadedFileId: Number(fileId) } : {}),
           ...(req.user?.id ? { userId: req.user.id } : {}),
         },
