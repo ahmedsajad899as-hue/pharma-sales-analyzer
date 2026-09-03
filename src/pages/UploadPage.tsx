@@ -24,7 +24,7 @@ interface UploadedFile {
   sharedWithRep?: { id: number; name: string } | null;
   // Multi-user sharing via junction table
   fileShares?: Array<{ userId: number; user: { id: number; displayName?: string; username: string } }>;
-  _count?: { sales: number };
+  _count?: { sales: number; columnFilters?: number };
 }
 
 interface Props {
@@ -1161,6 +1161,15 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   {/* ── Row 2: meta (no row count) ── */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={12} /> {fmtDate(f.uploadedAt)}</span>
+                    {!!f._count?.columnFilters && (
+                      <button
+                        onClick={() => { setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }}
+                        title="بعض الأعمدة مفلترة في هذا الملف — القيم المستبعدة مخفية من كل التحليل والتقارير. اضغط لمراجعة الفلتر"
+                        style={{ ...BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)'), cursor: 'pointer' }}
+                      >
+                        🔽 مفلتر ({f._count.columnFilters})
+                      </button>
+                    )}
                     {hasFeature('currency_convert') ? (
                       <button
                         onClick={() => toggleCurrency(f)}

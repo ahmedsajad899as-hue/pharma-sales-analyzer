@@ -1718,7 +1718,7 @@ app.get('/api/files', async (req, res) => {
         sharedWithRepId: true,
         sharedWithRep: { select: { id: true, name: true } },
         fileShares: { select: { userId: true, user: { select: { id: true, displayName: true, username: true } } } },
-        _count: { select: { sales: true } },
+        _count: { select: { sales: true, columnFilters: true } },
       },
     });
     res.json({ success: true, data: files });
