@@ -6,7 +6,7 @@
 
 import { Router } from 'express';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
-import { COLUMN_ALIASES } from '../sales/sales.service.js';
+import { COLUMN_ALIASES, detectMercatoFormat } from '../sales/sales.service.js';
 import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
@@ -226,14 +226,31 @@ router.get('/overall', async (req, res) => {
       'code', 'كود', 'رقم',
     ];
 
+    // في ملف ميركاتو «اسم الشركة» هو الصيدلية المشترية لا الشركة المصنّعة (راجع
+    // mercatoColumnMap في sales.service.js) — بينما COLUMN_ALIASES.company يتضمّنها
+    // لأنها تعني الشركة فعلاً في ملفات أخرى. بلا هذا الاستثناء كانت أسماء الصيدليات
+    // تظهر ضمن تبويب «الشركة» بالتحليل الشامل لكل ايتم لم يُربَط بعد بشركة حقيقية
+    // (Item.companyId فارغ) فيسقط extractCompanyFromRaw للأولوية 1 على هذا العمود.
+    const MERCATO_PHARMACY_ALIASES = new Set(['اسم الشركة', 'اسم الشركه']);
+    const companyAliasesFor = (isMercato) =>
+      isMercato ? COLUMN_ALIASES.company.filter(a => !MERCATO_PHARMACY_ALIASES.has(a)) : COLUMN_ALIASES.company;
+
     const extractCompanyFromRaw = (rawData) => {
       if (!rawData) return null;
       try {
         const raw = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+        const isMercato = detectMercatoFormat(Object.keys(raw));
+        // ميركاتو: «الصنف» هو الشركة المصنّعة الفعلية (Deva/HUMANIS...) — أولوية قصوى
+        // قبل أي محاولة عامة، فلا تصل القراءة إلى عمود الصيدلية أصلاً.
+        if (isMercato) {
+          for (const key of ['الصنف', 'صنف']) {
+            if (raw[key] && String(raw[key]).trim() && !isPlaceholderCompanyValue(raw[key])) return String(raw[key]).trim();
+          }
+        }
         // Priority 1: an actual "company name" column (الشركة/company/المورد/...) —
         // this is the real source of truth when present, even if its value is a
         // messy concatenation like "HUMANISTurkeyN/A".
-        for (const key of COLUMN_ALIASES.company) {
+        for (const key of companyAliasesFor(isMercato)) {
           if (raw[key] && String(raw[key]).trim() && !isPlaceholderCompanyValue(raw[key])) return String(raw[key]).trim();
         }
         // Priority 2: known "item/material code" columns, which on some files

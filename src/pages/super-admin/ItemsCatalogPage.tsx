@@ -5,14 +5,14 @@ import * as XLSX from 'xlsx';
 
 // ─── أنواع ──────────────────────────────────────────────────────────────────
 interface Company { id: number; name: string; officeId?: number; office?: { name: string }; _count?: { items: number } }
-interface Item    { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; warehousePrice?: number | null }
+interface Item    { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; warehousePrice?: number | null; companyId?: number; companyName?: string }
 interface Alias   { id: number; fromName: string; toName: string; toItemId: number | null; toItem?: { id: number; name: string } | null; updatedAt: string }
 interface DupPair {
   identical: boolean; samePrice: boolean; sim: number;
   a: { id: number; name: string; price: number | null; sales: number };
   b: { id: number; name: string; price: number | null; sales: number };
 }
-interface ReviewItem { id: number; name: string; userName: string | null; salesCount: number; confidence: string; suggestions: { id: number; name: string; sim: number }[] }
+interface ReviewItem { id: number; name: string; userName: string | null; salesCount: number; confidence: string; suggestions: { id: number; name: string; sim: number }[]; companyId?: number; companyName?: string }
 
 type Tab = 'catalog' | 'aliases' | 'review' | 'import';
 
@@ -54,12 +54,12 @@ const CONF_META: Record<string, { label: string; color: string; bg: string }> = 
   none:   { label: 'جديد',         color: '#64748b', bg: '#f1f5f9' },
 };
 
-export default function ItemsCatalogPage() {
+export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: boolean }) {
   const { token } = useSuperAdmin();
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [companyId, setCompanyId] = useState<number | null>(null);
+  const [companyId, setCompanyId] = useState<number | 'all' | null>(null);
   const [tab, setTab] = useState<Tab>('catalog');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,30 +77,56 @@ export default function ItemsCatalogPage() {
       .then(d => {
         const list: Company[] = Array.isArray(d.data) ? d.data : [];
         setCompanies(list);
-        setCompanyId(prev => prev ?? (list[0]?.id ?? null));
+        setCompanyId(prev => prev ?? (defaultAll ? 'all' : (list[0]?.id ?? null)));
       })
       .catch(() => setErr('تعذّر تحميل الشركات'));
-  }, [H]);
+  }, [H, defaultAll]);
 
-  // ── تحميل بيانات التبويب للشركة المختارة ──
+  // في وضع «كل الشركات» تبويبا قواعد التوحيد والاستيراد الشامل غير متاحين
+  // (الأول يحتاج شركة محددة، والثاني أصلاً لا يتبع الشركة المختارة)
+  useEffect(() => {
+    if (companyId === 'all' && (tab === 'aliases' || tab === 'import')) setTab('catalog');
+  }, [companyId, tab]);
+
+  // ── تحميل بيانات التبويب للشركة المختارة (أو تجميعها من كل الشركات) ──
   const reload = useCallback(async () => {
     if (!companyId) return;
     setLoading(true); setErr('');
     try {
-      // الكتالوج مطلوب في كل التبويبات (للاختيار/العرض)
-      const detail = await fetch(`/api/sa/companies/${companyId}`, { headers: H() }).then(r => r.json());
-      setItems(detail.data?.items || []);
-      if (tab === 'aliases') {
-        const d = await fetch(`/api/sa/companies/${companyId}/aliases`, { headers: H() }).then(r => r.json());
-        setAliases(Array.isArray(d.data) ? d.data : []);
-      } else if (tab === 'review') {
-        const d = await fetch(`/api/sa/companies/${companyId}/review-queue`, { headers: H() }).then(r => r.json());
-        setReview(Array.isArray(d.data) ? d.data : []);
+      if (companyId === 'all') {
+        const itemResults = await Promise.all(companies.map(c =>
+          fetch(`/api/sa/companies/${c.id}`, { headers: H() }).then(r => r.json())
+            .then(d => ({ c, items: (d.data?.items || []) as Item[] }))
+            .catch(() => ({ c, items: [] as Item[] }))
+        ));
+        setItems(itemResults.flatMap(({ c, items }) => items.map(i => ({ ...i, companyId: c.id, companyName: c.name }))));
+        if (tab === 'review') {
+          const revResults = await Promise.all(companies.map(c =>
+            fetch(`/api/sa/companies/${c.id}/review-queue`, { headers: H() }).then(r => r.json())
+              .then(d => ({ c, review: (Array.isArray(d.data) ? d.data : []) as ReviewItem[] }))
+              .catch(() => ({ c, review: [] as ReviewItem[] }))
+          ));
+          setReview(revResults.flatMap(({ c, review }) => review.map(r => ({ ...r, companyId: c.id, companyName: c.name }))));
+        } else {
+          setReview([]);
+        }
+        setAliases([]);
+      } else {
+        // الكتالوج مطلوب في كل التبويبات (للاختيار/العرض)
+        const detail = await fetch(`/api/sa/companies/${companyId}`, { headers: H() }).then(r => r.json());
+        setItems(detail.data?.items || []);
+        if (tab === 'aliases') {
+          const d = await fetch(`/api/sa/companies/${companyId}/aliases`, { headers: H() }).then(r => r.json());
+          setAliases(Array.isArray(d.data) ? d.data : []);
+        } else if (tab === 'review') {
+          const d = await fetch(`/api/sa/companies/${companyId}/review-queue`, { headers: H() }).then(r => r.json());
+          setReview(Array.isArray(d.data) ? d.data : []);
+        }
+        // تبويب 'import' لا يجلب شيئاً — الملف يشمل عدة شركات ولا يتبع المختارة
       }
-      // تبويب 'import' لا يجلب شيئاً — الملف يشمل عدة شركات ولا يتبع المختارة
     } catch { setErr('تعذّر تحميل البيانات'); }
     setLoading(false);
-  }, [companyId, tab, H]);
+  }, [companyId, tab, H, companies]);
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { setSelectMode(false); setSelectedIds([]); }, [companyId, tab]);
@@ -266,7 +292,7 @@ export default function ItemsCatalogPage() {
   const [itemModal, setItemModal] = useState(false);
   const [newItem, setNewItem] = useState({ name: '', scientificName: '', dosage: '', form: '', price: '', warehousePrice: '' });
   const addItem = async () => {
-    if (!newItem.name.trim() || !companyId) return;
+    if (!newItem.name.trim() || !companyId || companyId === 'all') return;
     setBusy(true); setErr('');
     try {
       const r = await fetch(`/api/sa/companies/${companyId}/items`, { method: 'POST', headers: H(), body: JSON.stringify(newItem) });
@@ -277,10 +303,11 @@ export default function ItemsCatalogPage() {
     } catch (e) { setErr(e instanceof Error ? e.message : 'فشل إضافة الايتم'); }
     setBusy(false);
   };
-  const delItem = async (id: number) => {
-    if (!companyId || !confirm('إزالة هذا الايتم من كتالوج الشركة؟')) return;
+  const delItem = async (it: Item) => {
+    const cid = it.companyId ?? companyId;
+    if (!cid || cid === 'all' || !confirm('إزالة هذا الايتم من كتالوج الشركة؟')) return;
     setBusy(true);
-    await fetch(`/api/sa/companies/${companyId}/items/${id}`, { method: 'DELETE', headers: H() });
+    await fetch(`/api/sa/companies/${cid}/items/${it.id}`, { method: 'DELETE', headers: H() });
     setBusy(false); await reload();
   };
 
@@ -292,10 +319,11 @@ export default function ItemsCatalogPage() {
     setPriceForm({ price: i.price != null ? String(i.price) : '', warehousePrice: i.warehousePrice != null ? String(i.warehousePrice) : '' });
   };
   const savePrice = async () => {
-    if (!companyId || !priceFor) return;
+    const cid = priceFor?.companyId ?? companyId;
+    if (!cid || cid === 'all' || !priceFor) return;
     setBusy(true); setErr('');
     try {
-      const r = await fetch(`/api/sa/companies/${companyId}/items/${priceFor.id}`, {
+      const r = await fetch(`/api/sa/companies/${cid}/items/${priceFor.id}`, {
         method: 'PATCH', headers: H(), body: JSON.stringify(priceForm),
       });
       const d = await r.json();
@@ -310,10 +338,11 @@ export default function ItemsCatalogPage() {
   const [transferFor, setTransferFor] = useState<Item | null>(null);
   const [transferTarget, setTransferTarget] = useState<string>('');
   const doTransfer = async () => {
-    if (!companyId || !transferFor || !transferTarget) return;
+    const cid = transferFor?.companyId ?? companyId;
+    if (!cid || cid === 'all' || !transferFor || !transferTarget) return;
     setBusy(true); setErr('');
     try {
-      const r = await fetch(`/api/sa/companies/${companyId}/items/${transferFor.id}/transfer`, {
+      const r = await fetch(`/api/sa/companies/${cid}/items/${transferFor.id}/transfer`, {
         method: 'POST', headers: H(), body: JSON.stringify({ targetCompanyId: parseInt(transferTarget) }),
       });
       const d = await r.json();
@@ -331,7 +360,7 @@ export default function ItemsCatalogPage() {
   const [dupBusy, setDupBusy]   = useState(false);
 
   const loadDupSuggestions = async () => {
-    if (!companyId) return;
+    if (!companyId || companyId === 'all') return;
     setDupBusy(true); setErr('');
     try {
       const r = await fetch(`/api/sa/companies/${companyId}/item-merge-suggestions`, { headers: H() });
@@ -344,7 +373,7 @@ export default function ItemsCatalogPage() {
 
   // fromId يُمتص في toId — كل مبيعاته وزياراته وتارگته تنتقل للهدف ثم يُحذف
   const mergeTwoItems = async (fromId: number, toId: number, fromName: string, toName: string) => {
-    if (!companyId) return;
+    if (!companyId || companyId === 'all') return;
     if (!confirm(`دمج «${fromName}» داخل «${toName}»؟\n\nتنتقل كل مبيعات وزيارات «${fromName}» إلى «${toName}» ثم يُحذف، ويُحفظ اسمه كقاعدة توحيد.\n\nلا يمكن التراجع.`)) return;
     setDupBusy(true); setErr('');
     try {
@@ -370,7 +399,7 @@ export default function ItemsCatalogPage() {
   };
   const exitSelectMode = () => { setSelectMode(false); setSelectedIds([]); };
   const doBulkTransfer = async () => {
-    if (!companyId || !bulkTarget || selectedIds.length === 0) return;
+    if (!companyId || companyId === 'all' || !bulkTarget || selectedIds.length === 0) return;
     setBusy(true); setErr('');
     let transferred = 0, merged = 0, failed = 0;
     for (const id of selectedIds) {
@@ -399,7 +428,7 @@ export default function ItemsCatalogPage() {
   const [aliasModal, setAliasModal] = useState(false);
   const [newAlias, setNewAlias] = useState({ fromName: '', toItemId: '' });
   const addAlias = async () => {
-    if (!newAlias.fromName.trim() || !newAlias.toItemId || !companyId) return;
+    if (!newAlias.fromName.trim() || !newAlias.toItemId || !companyId || companyId === 'all') return;
     setBusy(true); setErr('');
     try {
       const r = await fetch(`/api/sa/companies/${companyId}/aliases`, { method: 'POST', headers: H(), body: JSON.stringify(newAlias) });
@@ -411,25 +440,27 @@ export default function ItemsCatalogPage() {
     setBusy(false);
   };
   const delAlias = async (id: number) => {
-    if (!companyId || !confirm('حذف قاعدة التوحيد هذه؟')) return;
+    if (!companyId || companyId === 'all' || !confirm('حذف قاعدة التوحيد هذه؟')) return;
     setBusy(true);
     await fetch(`/api/sa/companies/${companyId}/aliases/${id}`, { method: 'DELETE', headers: H() });
     setBusy(false); await reload();
   };
 
   // ── أفعال طابور المراجعة ──
+  // reviewCompanyId: شركة الايتم المؤقت نفسه (وليس بالضرورة الشركة المختارة أعلاه —
+  // في وضع «كل الشركات» كل صف بطابور المراجعة قد يخص شركة مختلفة).
   // targetCompanyId اختياري: يسمح بإضافة ايتم من الطابور لكتالوج شركة أخرى
-  // مباشرةً بدل تبديل الشركة المعروضة أولاً. غيابه = الشركة المعروضة.
+  // مباشرةً بدل تبديل الشركة المعروضة أولاً. غيابه = شركة الايتم نفسها.
   const resolveReview = async (
+    reviewCompanyId: number,
     tempItemId: number,
     action: 'link' | 'add' | 'delete',
     targetItemId?: number,
     targetCompanyId?: number,
   ) => {
-    if (!companyId) return;
     setBusy(true); setErr('');
     try {
-      const r = await fetch(`/api/sa/companies/${companyId}/review-queue/resolve`, {
+      const r = await fetch(`/api/sa/companies/${reviewCompanyId}/review-queue/resolve`, {
         method: 'POST', headers: H(), body: JSON.stringify({ tempItemId, action, targetItemId, targetCompanyId }),
       });
       const d = await r.json();
@@ -445,9 +476,9 @@ export default function ItemsCatalogPage() {
 
   const tabs: { id: Tab; label: string; count: number; icon: string }[] = [
     { id: 'catalog', label: 'الكتالوج',       count: items.length,   icon: '💊' },
-    { id: 'aliases', label: 'قواعد التوحيد',  count: aliases.length, icon: '🔗' },
+    ...(companyId !== 'all' ? [{ id: 'aliases' as Tab, label: 'قواعد التوحيد',  count: aliases.length, icon: '🔗' }] : []),
     { id: 'review',  label: 'طابور المراجعة', count: review.length,  icon: '🆕' },
-    { id: 'import',  label: 'استيراد شامل',   count: impPlan ? impPlan.length : 0, icon: '📥' },
+    ...(companyId !== 'all' ? [{ id: 'import' as Tab, label: 'استيراد شامل',   count: impPlan ? impPlan.length : 0, icon: '📥' }] : []),
   ];
 
   return (
@@ -457,14 +488,19 @@ export default function ItemsCatalogPage() {
         <span style={{ fontWeight: 800, fontSize: 18, color: '#1e1b4b' }}>💊 إدارة الايتمات</span>
         <select
           value={companyId ?? ''}
-          onChange={e => setCompanyId(e.target.value ? parseInt(e.target.value) : null)}
+          onChange={e => setCompanyId(e.target.value === 'all' ? 'all' : (e.target.value ? parseInt(e.target.value) : null))}
           style={{ padding: '9px 14px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 14, fontWeight: 600, minWidth: 220, background: '#fff', cursor: 'pointer' }}
         >
+          <option value="all">🏢 كل الشركات (نظرة عامة)</option>
           {companies.map(c => (
             <option key={c.id} value={c.id}>{c.name}{c.office?.name ? ` — ${c.office.name}` : ''}</option>
           ))}
         </select>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>الكتالوج والقواعد مشتركة بين كل مستخدمي الشركة</span>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+          {companyId === 'all'
+            ? 'عرض مجمّع لايتمات كل الشركات — كل إجراء يُطبَّق تلقائياً على شركة الايتم نفسه'
+            : 'الكتالوج والقواعد مشتركة بين كل مستخدمي الشركة'}
+        </span>
       </div>
 
       {err && <ErrBox msg={err} />}
@@ -488,17 +524,17 @@ export default function ItemsCatalogPage() {
         <div style={{ marginRight: 'auto', display: 'flex', gap: 8 }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 بحث..."
             style={{ padding: '8px 14px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, minWidth: 200 }} />
-          {tab === 'catalog' && (
+          {tab === 'catalog' && companyId !== 'all' && (
             <button onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)} style={btnStyle(selectMode ? '#64748b' : '#0891b2')}>
               {selectMode ? '✕ إلغاء التحديد' : '☑ تحديد متعدد'}
             </button>
           )}
-          {tab === 'catalog' && (
+          {tab === 'catalog' && companyId !== 'all' && (
             <button onClick={loadDupSuggestions} disabled={dupBusy} style={btnStyle('#d97706')}>
               {dupBusy ? '...' : '🔍 اقتراحات الدمج'}
             </button>
           )}
-          {tab === 'catalog' && <button onClick={() => setItemModal(true)} style={btnStyle('#6366f1')}>+ إضافة ايتم</button>}
+          {tab === 'catalog' && companyId !== 'all' && <button onClick={() => setItemModal(true)} style={btnStyle('#6366f1')}>+ إضافة ايتم</button>}
           {tab === 'aliases' && <button onClick={() => setAliasModal(true)} style={btnStyle('#0891b2')} disabled={items.length === 0}>+ قاعدة توحيد</button>}
         </div>
       </div>
@@ -610,6 +646,9 @@ export default function ItemsCatalogPage() {
                       )}
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{i.name}</div>
+                        {i.companyName && (
+                          <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 2, fontWeight: 700 }}>🏢 {i.companyName}</div>
+                        )}
                         {(i.scientificName || i.dosage || i.form) && (
                           <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>
                             {[i.scientificName, i.dosage, i.form].filter(Boolean).join(' · ')}
@@ -627,7 +666,7 @@ export default function ItemsCatalogPage() {
                       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                         <button onClick={() => openPriceEdit(i)} title="تعديل السعر" style={btnStyle('#059669', true)}>💲</button>
                         <button onClick={() => { setTransferFor(i); setTransferTarget(''); }} title="نقل لشركة أخرى" style={btnStyle('#0891b2', true)}>↔</button>
-                        <button onClick={() => delItem(i.id)} title="إزالة" style={btnStyle('#ef4444', true)}>🗑</button>
+                        <button onClick={() => delItem(i)} title="إزالة" style={btnStyle('#ef4444', true)}>🗑</button>
                       </div>
                     )}
                   </div>
@@ -935,7 +974,7 @@ export default function ItemsCatalogPage() {
             <select value={transferTarget} onChange={e => setTransferTarget(e.target.value)}
               style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14 }}>
               <option value="">— اختر الشركة الهدف —</option>
-              {companies.filter(c => c.id !== companyId).map(c => (
+              {companies.filter(c => c.id !== (transferFor?.companyId ?? companyId)).map(c => (
                 <option key={c.id} value={c.id}>{c.name}{c.office?.name ? ` — ${c.office.name}` : ''}</option>
               ))}
             </select>
