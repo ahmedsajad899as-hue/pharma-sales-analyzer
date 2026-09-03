@@ -298,6 +298,23 @@ export async function resolveReviewItem(req, res) {
     });
   };
 
+  // ايتمات مؤقتة أخرى (لمستخدمين آخرين) بنفس الاسم تماماً — تتكوّن لأن الايتم
+  // المؤقت يُنشأ بمفتاح (الاسم + userId)، فكل مندوب رفع نفس الاسم غير المعروف
+  // يحصل على صفّه الخاص بطابور المراجعة. بدون هذا التنظيف، حلّ نسخة مندوب واحد
+  // لا يمسح نسخ البقية، فيبدو الايتم وكأنه "يتكرر" رغم أنه دُمج فعلاً.
+  const mergeSiblingTemps = async (fromKey, toItem) => {
+    const userRows = await prisma.userCompanyAssignment.findMany({ where: { companyId: destCompanyId }, select: { userId: true } });
+    const userIds = userRows.map(r => r.userId);
+    if (userIds.length === 0) return;
+    const siblings = await prisma.item.findMany({
+      where: { userId: { in: userIds }, isTemp: true, id: { not: temp.id } },
+      select: { id: true, name: true },
+    });
+    for (const s of siblings) {
+      if (normalizeItemKey(s.name) === fromKey) await mergeItems(s.id, toItem.id);
+    }
+  };
+
   if (action === 'link') {
     if (!targetItemId) return res.status(400).json({ error: 'targetItemId مطلوب للربط' });
     const target = await prisma.item.findFirst({
@@ -307,6 +324,7 @@ export async function resolveReviewItem(req, res) {
     if (!target || target.id === temp.id) return res.status(400).json({ error: 'الهدف غير صالح' });
     await mergeItems(temp.id, target.id);   // نُبقي الكتالوج
     await rememberAlias(target);
+    await mergeSiblingTemps(normalizeItemKey(temp.name), target);
     return res.json({ success: true, action: 'link' });
   }
 
@@ -318,10 +336,12 @@ export async function resolveReviewItem(req, res) {
     if (dup) {
       await mergeItems(temp.id, dup.id);
       await rememberAlias(dup);
+      await mergeSiblingTemps(key, dup);
       return res.json({ success: true, action: 'merged-duplicate' });
     }
     // ترقية نفس السجل → يحافظ على المبيعات المرتبطة، ويصبح ايتماً قانونياً
     await prisma.item.update({ where: { id: temp.id }, data: { scientificCompanyId: destCompanyId, isTemp: false } });
+    await mergeSiblingTemps(key, { id: temp.id, name: temp.name });
     return res.json({ success: true, action: 'add', companyId: destCompanyId });
   }
 

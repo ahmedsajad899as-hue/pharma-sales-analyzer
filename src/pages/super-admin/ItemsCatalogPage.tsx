@@ -106,7 +106,21 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
               .then(d => ({ c, review: (Array.isArray(d.data) ? d.data : []) as ReviewItem[] }))
               .catch(() => ({ c, review: [] as ReviewItem[] }))
           ));
-          setReview(revResults.flatMap(({ c, review }) => review.map(r => ({ ...r, companyId: c.id, companyName: c.name }))));
+          // نفس الايتم المؤقت (نفس id) يظهر تحت كل شركة يرتبط مستخدمه بها — نفس
+          // المستخدم قد يكون مربوطاً بعدة شركات. نجمّعه بصف واحد ونذكر كل الشركات
+          // بدل تكراره حرفياً بالقائمة المجمّعة.
+          const byId = new Map<number, ReviewItem>();
+          const namesById = new Map<number, Set<string>>();
+          for (const { c, review } of revResults) {
+            for (const r of review) {
+              if (!byId.has(r.id)) byId.set(r.id, { ...r, companyId: c.id });
+              if (!namesById.has(r.id)) namesById.set(r.id, new Set());
+              namesById.get(r.id)!.add(c.name);
+            }
+          }
+          setReview(Array.from(byId.values()).map(r => ({
+            ...r, companyName: Array.from(namesById.get(r.id) || []).join(' / '),
+          })));
         } else {
           setReview([]);
         }
