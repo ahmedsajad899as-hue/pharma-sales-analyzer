@@ -702,29 +702,32 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filteredReview.map(r => {
                 const cm = CONF_META[r.confidence] || CONF_META.none;
+                const rCompanyId = r.companyId ?? (companyId as number);
+                const companyItems = r.companyId ? items.filter(i => i.companyId === r.companyId) : items;
                 return (
                   <div key={r.id} style={{ border: '1px solid #e8edf5', borderRadius: 12, padding: 14, background: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
                       <span style={{ fontWeight: 800, fontSize: 15, color: '#1e293b' }}>{r.name}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: cm.color, background: cm.bg, padding: '2px 10px', borderRadius: 20 }}>{cm.label}</span>
+                      {r.companyName && <span style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed' }}>🏢 {r.companyName}</span>}
                       {r.salesCount > 0 && <span style={{ fontSize: 11, color: '#64748b' }}>📊 {r.salesCount} مبيعة</span>}
                       {r.userName && <span style={{ fontSize: 11, color: '#94a3b8' }}>👤 {r.userName}</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       {/* اقتراحات الربط */}
                       {r.suggestions.map(s => (
-                        <button key={s.id} onClick={() => resolveReview(r.id, 'link', s.id)} disabled={busy}
+                        <button key={s.id} onClick={() => resolveReview(rCompanyId, r.id, 'link', s.id)} disabled={busy}
                           style={{ ...btnStyle('#2563eb', true), background: '#eff6ff', color: '#1d4ed8', border: '1.5px solid #bfdbfe' }}>
                           🔗 ربط بـ {s.name}
                         </button>
                       ))}
-                      {/* ربط يدوي بأي ايتم من الكتالوج */}
-                      <select defaultValue="" onChange={e => { if (e.target.value) resolveReview(r.id, 'link', parseInt(e.target.value)); }}
-                        style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 12 }} disabled={busy || items.length === 0}>
+                      {/* ربط يدوي بأي ايتم من كتالوج نفس الشركة */}
+                      <select defaultValue="" onChange={e => { if (e.target.value) resolveReview(rCompanyId, r.id, 'link', parseInt(e.target.value)); }}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 12 }} disabled={busy || companyItems.length === 0}>
                         <option value="">🔗 ربط بايتم آخر…</option>
-                        {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                        {companyItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                       </select>
-                      <button onClick={() => resolveReview(r.id, 'add')} disabled={busy} style={btnStyle('#059669', true)}>➕ إضافة للكتالوج</button>
+                      <button onClick={() => resolveReview(rCompanyId, r.id, 'add')} disabled={busy} style={btnStyle('#059669', true)}>➕ إضافة للكتالوج</button>
                       {/* نقل مباشر لكتالوج شركة أخرى — يوفّر تبديل الشركة المعروضة ثم البحث عن الايتم */}
                       <select
                         value=""
@@ -735,7 +738,7 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
                           if (confirm(`نقل «${r.name}» إلى كتالوج شركة «${cname}»؟
 
 تنتقل مبيعاته معه، وإن وُجد ايتم مطابق هناك فسيُدمج فيه.`)) {
-                            resolveReview(r.id, 'add', undefined, cid);
+                            resolveReview(rCompanyId, r.id, 'add', undefined, cid);
                           }
                         }}
                         disabled={busy || companies.length <= 1}
@@ -743,11 +746,11 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1.5px solid #a7f3d0', background: '#ecfdf5', color: '#047857', fontSize: 12, fontWeight: 700 }}
                       >
                         <option value="">🏢 إضافة لشركة أخرى…</option>
-                        {companies.filter(c => c.id !== companyId).map(c => (
+                        {companies.filter(c => c.id !== rCompanyId).map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
-                      <button onClick={() => resolveReview(r.id, 'delete')} disabled={busy} style={btnStyle('#ef4444', true)}>🗑 حذف</button>
+                      <button onClick={() => resolveReview(rCompanyId, r.id, 'delete')} disabled={busy} style={btnStyle('#ef4444', true)}>🗑 حذف</button>
                     </div>
                   </div>
                 );

@@ -107,7 +107,7 @@ function NotificationBell({ token, refreshKey, onOpen }: { token: string; refres
 
 interface SAStats { offices: number; companies: number; users: number; items: number; }
 
-function StatsBar({ token }: { token: string }) {
+function StatsBar({ token, onOpenItems }: { token: string; onOpenItems: () => void }) {
   const [stats, setStats] = useState<SAStats>({ offices: 0, companies: 0, users: 0, items: 0 });
   const H = { Authorization: `Bearer ${token}` };
 
@@ -133,18 +133,18 @@ function StatsBar({ token }: { token: string }) {
     { label: 'مكتب',      value: stats.offices,   icon: '🏢', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)',   border: 'rgba(6,182,212,0.25)'   },
     { label: 'شركة',      value: stats.companies, icon: '🏭', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)',  border: 'rgba(139,92,246,0.25)'  },
     { label: 'مستخدم',   value: stats.users,     icon: '👥', color: '#10b981', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.25)'  },
-    { label: 'ايتم',      value: stats.items,     icon: '💊', color: '#ec4899', bg: 'rgba(236,72,153,0.1)',  border: 'rgba(236,72,153,0.25)'  },
+    { label: 'ايتم',      value: stats.items,     icon: '💊', color: '#ec4899', bg: 'rgba(236,72,153,0.1)',  border: 'rgba(236,72,153,0.25)', onClick: onOpenItems, title: 'عرض كل الايتمات وطابور المراجعة عبر كل الشركات' },
   ];
 
   return (
     <div style={{ display: 'flex', gap: 10, padding: '12px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
       {cards.map(s => (
-        <div key={s.label} style={{
+        <div key={s.label} onClick={s.onClick} title={s.title} style={{
           display: 'flex', alignItems: 'center', gap: 10,
           background: s.bg, border: `1.5px solid ${s.border}`,
           borderRadius: 14, padding: '8px 18px', flexShrink: 0,
           boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-          cursor: 'default',
+          cursor: s.onClick ? 'pointer' : 'default',
         }}>
           <div style={{ width: 38, height: 38, borderRadius: 11, background: `${s.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{s.icon}</div>
           <div>
@@ -168,6 +168,9 @@ function SuperAdminShell() {
   const [page,          setPage]          = useState<Page>(() => (localStorage.getItem('sa_last_page') as Page) || 'offices');
   const [collapsed,      setCollapsed]      = useState(false);
   const [jumpUserId,     setJumpUserId]     = useState<number | null>(null);
+  // يُفتَح فقط عبر بطاقة «ايتم» بشريط الإحصائيات — نظرة عامة على كل الشركات دفعة واحدة
+  const [itemsDefaultAll, setItemsDefaultAll] = useState(false);
+  useEffect(() => { if (page !== 'items') setItemsDefaultAll(false); }, [page]);
 
   useEffect(() => { localStorage.setItem('sa_last_page', page); }, [page]);
 
@@ -336,7 +339,7 @@ function SuperAdminShell() {
         </header>
 
         {/* Stats bar */}
-        <StatsBar token={token} />
+        <StatsBar token={token} onOpenItems={() => { setItemsDefaultAll(true); setPage('items'); }} />
 
         {/* Page content */}
         <main style={{
@@ -351,7 +354,7 @@ function SuperAdminShell() {
           }}>
             {page === 'offices'      && <OfficesPage />}
             {page === 'companies'    && <CompaniesPage onOpenUser={id => { setJumpUserId(id); setPage('users'); }} />}
-            {page === 'items'        && <ItemsCatalogPage />}
+            {page === 'items'        && <ItemsCatalogPage defaultAll={itemsDefaultAll} />}
             {page === 'users'        && <UsersPage jumpUserId={jumpUserId} onJumpClear={() => setJumpUserId(null)} />}
             {page === 'super-admins' && <SuperAdminsPage />}
             {page === 'visits'       && <VisitsPage />}
